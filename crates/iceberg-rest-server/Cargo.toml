@@ -1,0 +1,52 @@
+[package]
+name = "iceberg-rest-server"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+rust-version = { workspace = true }
+repository = { workspace = true }
+license-file = { workspace = true }
+
+description = "Implementation of an Apache Iceberg REST catalog in native Rust"
+keywords = ["iceberg", "rest", "catalog"]
+
+[lib]
+
+[[bin]]
+name = "iceberg_rest_server"
+path = "src/bin/server/main.rs"
+
+
+[dependencies]
+iceberg = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+typed-builder = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+
+iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
+
+async-trait = "0.1"
+tokio = { version = "1", default-features = false, features = [
+    "signal",
+    "rt-multi-thread",
+] }
+tracing = { version = "^0.1", features = ["attributes"] }
+axum = { workspace = true }
+http = "1"
+lazy_static = "1"
+config = "^0.14"
+env_logger = "^0.11"
+derive_more = "^0.99"
+tower-http = { version = "^0.5", features = [
+    "catch-panic",
+    "compression-full",
+    "sensitive-headers",
+    "timeout",
+    "trace",
+] }
+anyhow = "1.0.82"

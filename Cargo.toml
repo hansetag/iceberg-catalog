@@ -1,12 +1,41 @@
 [workspace]
-members = ["iceberg-rest"]
+members = ["crates/iceberg-rest-server", "crates/iceberg-ext"]
 resolver = "2"
 
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+homepage = "https://github.com/hansetag/iceberg-rest-rs.git"
+repository = "https://github.com/hansetag/iceberg-rest-rs.git"
+rust-version = "1.75.0"
+license-file = "LICENSE"
+
+
 [workspace.dependencies]
-serde = "^1.0"
+serde = { version = "^1.0", features = ["rc"] }
 serde_derive = "^1.0"
-serde_with = "^2.0"
+serde_with = "^3.4"
 serde_json = "^1.0"
-url = "^2.2"
-uuid = { version = "^1.0", features = ["serde", "v4"] }
-reqwest = { version = "^0.11", features = ["json", "multipart"] }
+url = "2"
+uuid = { version = "^1.6", features = ["serde", "v4", "v7"] }
+reqwest = { version = "^0.12", features = ["json"] }
+iceberg = { git = "https://github.com/apache/iceberg-rust.git", tag = "0.2.0" }
+typed-builder = "0.18.1"
+strum_macros = "^0.26"
+axum = { version = "^0.7" }
+
+# serde = { worspace = true }
+# serde_derive = { worspace = true }
+# serde_with = { worspace = true }
+# serde_json = { worspace = true }
+# url = { worspace = true }
+# uuid = { worspace = true, features = ["serde"] }
+# reqwest = { worspace = true }
+# validator = { version = "0.18.0", features = ["derive"] }
+# itertools = { version = "0.12.0" }
+# iceberg = { git = "https://github.com/apache/iceberg-rust.git", tag = "0.2.0" }
+# # iceberg-catalog-rest = { git = "https://github.com/apache/iceberg-rust.git", tag = "0.2.0" }
+# strum = { version = "0.26" }
+# strum_macros = { version = "0.26" }
+# typed-builder = "0.18.1"
