@@ -20,7 +20,9 @@ pub struct ApiContext<S: State> {
 pub type Result<T, E = IcebergErrorResponse> = std::result::Result<T, E>;
 
 fn api_router<I: v1::V1RestServer<S>, S: State>(api_context: ApiContext<S>) -> axum::Router {
-    let v1_routes = Router::new().merge(v1::config_router::<I, S>());
+    let v1_routes = Router::new()
+        .merge(v1::config_router::<I, S>())
+        .merge(v1::oauth_router::<I, S>());
     // .merge(users::router())
     // .merge(profiles::router())
     // .merge(articles::router())

@@ -1,9 +1,6 @@
+// If required, replace structs with own implementations here.
+
 pub use iceberg::spec::{
     NullOrder, Schema, Snapshot, SortDirection, SortField, SortOrder, TableMetadata,
-    UnboundPartitionField, UnboundPartitionSpec,
-};
-mod view;
-pub use view::{
-    SqlViewRepresentation, ViewHistoryEntry, ViewMetadata, ViewMetadataBuilder, ViewRepresentation,
-    ViewVersion, ViewVersionBuilder,
+    UnboundPartitionField, UnboundPartitionSpec, ViewMetadata, ViewVersion,
 };

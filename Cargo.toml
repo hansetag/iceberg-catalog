@@ -20,8 +20,8 @@ serde_json = "^1.0"
 url = "2"
 uuid = { version = "^1.6", features = ["serde", "v4", "v7"] }
 reqwest = { version = "^0.12", features = ["json"] }
-iceberg = { git = "https://github.com/apache/iceberg-rust.git", tag = "0.2.0" }
-typed-builder = "0.18.1"
+iceberg = { git = "https://github.com/c-thiel/iceberg-rust.git", branch = "ht" }
+typed-builder = "^0.18"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }
 

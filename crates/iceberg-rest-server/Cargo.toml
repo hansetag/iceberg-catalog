@@ -18,7 +18,6 @@ path = "src/bin/server/main.rs"
 
 
 [dependencies]
-iceberg = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }

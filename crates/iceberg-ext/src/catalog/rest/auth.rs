@@ -1,3 +1,5 @@
+use super::impl_into_response;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "grant_type")]
 pub enum OAuthTokenRequest {
@@ -102,10 +104,10 @@ pub struct OAuthTokenResponse {
     pub expires_in: Option<u64>,
     pub issued_token_type: Option<OAuthTokenType>,
     /// Refresh token for client credentials or token exchange
-    #[serde(rename = "refresh_token", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
     /// Authorization scope for client credentials or token exchange
-    #[serde(rename = "scope", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
 }
 
@@ -120,6 +122,10 @@ pub enum OAuthAccessTokenType {
     NA,
 }
 
+#[cfg(feature = "axum")]
+impl_into_response! {OAuthTokenResponse}
+
+#[cfg(feature = "axum")]
 #[cfg(test)]
 mod tests {
     use super::*;

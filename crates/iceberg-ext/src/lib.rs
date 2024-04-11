@@ -10,5 +10,7 @@ pub mod catalog;
 pub mod spec;
 pub mod validation;
 
+pub use iceberg::{NamespaceIdent, TableIdent};
+
 #[macro_use]
 extern crate serde_derive;
