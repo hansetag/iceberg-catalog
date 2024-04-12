@@ -1,6 +1,8 @@
 use crate::catalog::*;
 use crate::spec::*;
 
+use super::impl_into_response;
+
 /// LoadTableResult : Result used when a table is successfully loaded.   The table metadata JSON is returned in the `metadata` field. The corresponding file location of table metadata should be returned in the `metadata-location` field, unless the metadata is not yet committed. For example, a create transaction may return metadata that is staged but not committed. Clients can check whether metadata has changed by comparing metadata locations after the table has been created.   The `config` map returns table-specific configuration for the table's resources, including its HTTP client and FileIO. For example, config may contain a specific FileIO implementation class for the table depending on its underlying storage.   The following configurations should be respected by clients:  ## General Configurations  - `token`: Authorization bearer token to use for table requests if OAuth2 security is enabled   ## AWS Configurations  The following configurations should be respected when working with tables stored in AWS S3  - `client.region`: region to configure client for making requests to AWS  - `s3.access-key-id`: id for for credentials that provide access to the data in S3  - `s3.secret-access-key`: secret for credentials that provide access to data in S3   - `s3.session-token`: if present, this value should be used for as the session token   - `s3.remote-signing-enabled`: if `true` remote signing should be performed as described in the `s3-signer-open-api.yaml` specification
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -68,6 +70,10 @@ pub struct CommitTableResponse {
 pub struct CommitTransactionRequest {
     pub table_changes: Vec<CommitTableRequest>,
 }
+
+impl_into_response!(LoadTableResult);
+impl_into_response!(ListTablesResponse);
+impl_into_response!(CommitTableResponse);
 
 #[cfg(test)]
 mod tests {

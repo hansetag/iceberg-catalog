@@ -49,3 +49,9 @@ tower-http = { version = "^0.5", features = [
     "trace",
 ] }
 anyhow = "1.0.82"
+
+
+[dev-dependencies]
+tower = "0.4.13"
+http-body-util = "0.1.1"
+mockall = "0.12.1"

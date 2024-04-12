@@ -10,3 +10,4 @@
 // extern crate serde_derive;
 
 pub mod service;
+pub mod types;

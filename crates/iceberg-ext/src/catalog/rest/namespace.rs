@@ -1,3 +1,5 @@
+use super::impl_into_response;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CreateNamespaceRequest {
     /// Reference to one or more levels of a namespace
@@ -53,6 +55,8 @@ impl CreateNamespaceResponse {
     }
 }
 
+impl_into_response!(CreateNamespaceResponse);
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct UpdateNamespacePropertiesRequest {
@@ -89,6 +93,10 @@ pub struct ListNamespacesResponse {
     pub next_page_token: Option<String>,
     pub namespaces: Vec<Vec<String>>,
 }
+
+impl_into_response!(UpdateNamespacePropertiesResponse);
+impl_into_response!(ListNamespacesResponse);
+impl_into_response!(GetNamespaceResponse);
 
 #[cfg(test)]
 mod test {

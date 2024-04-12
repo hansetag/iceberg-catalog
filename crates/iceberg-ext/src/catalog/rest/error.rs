@@ -1,5 +1,7 @@
 // macro to implement IntoResponse
 
+pub use iceberg::Error;
+
 #[cfg(feature = "axum")]
 macro_rules! impl_into_response {
     ($type:ty) => {
@@ -14,6 +16,7 @@ macro_rules! impl_into_response {
 
 #[cfg(feature = "axum")]
 pub(crate) use impl_into_response;
+use typed_builder::TypedBuilder;
 
 /// IcebergErrorResponse : JSON wrapper for all error responses (non-2xx)
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
@@ -41,8 +44,14 @@ impl From<ErrorModel> for iceberg::Error {
     }
 }
 
+impl From<ErrorModel> for IcebergErrorResponse {
+    fn from(value: ErrorModel) -> Self {
+        IcebergErrorResponse { error: value }
+    }
+}
+
 /// ErrorModel : JSON error payload returned in a response with further details on the error
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TypedBuilder)]
 pub struct ErrorModel {
     /// Human-readable error message
     pub message: String,
@@ -51,6 +60,7 @@ pub struct ErrorModel {
     /// HTTP response code
     pub code: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(default)]
     pub stack: Option<Vec<String>>,
 }
 

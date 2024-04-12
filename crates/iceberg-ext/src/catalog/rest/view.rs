@@ -36,3 +36,5 @@ pub struct CommitViewRequest {
     pub requirements: Option<Vec<ViewRequirement>>,
     pub updates: Vec<ViewUpdate>,
 }
+
+impl_into_response!(LoadViewResult);
