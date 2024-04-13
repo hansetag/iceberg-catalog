@@ -17,14 +17,14 @@ all = ['axum']
 axum = ['dep:axum']
 
 [dependencies]
+axum = { workspace = true, optional = true }
+iceberg = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
-serde_with = { workspace = true }
 serde_json = { workspace = true }
+serde_with = { workspace = true }
+strum_macros = { workspace = true }
+typed-builder = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
-reqwest = { workspace = true }
-iceberg = { workspace = true }
-typed-builder = { workspace = true }
-strum_macros = { workspace = true }
-axum = { workspace = true, optional = true }

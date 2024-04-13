@@ -212,7 +212,7 @@ mod tests {
 
         assert_eq!(
             send_request_get_body("").await,
-            r#"Params { page_token: NotSpecified, parent: None }"#
+            r"Params { page_token: NotSpecified, parent: None }"
         );
 
         assert_eq!(
@@ -227,12 +227,12 @@ mod tests {
 
         assert_eq!(
             send_request_get_body("pageToken&foo").await,
-            r#"Params { page_token: Empty, parent: None }"#
+            r"Params { page_token: Empty, parent: None }"
         );
 
         assert_eq!(
             send_request_get_body("pageToken=&foo").await,
-            r#"Params { page_token: Empty, parent: None }"#
+            r"Params { page_token: Empty, parent: None }"
         );
     }
 }

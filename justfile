@@ -1,4 +1,28 @@
 set shell := ["bash", "-c"]
+set export
+
+RUST_LOG := "debug"
+
+check-format:
+	cargo fmt --all -- --check
+
+check-clippy:
+	cargo clippy --all-targets --all-features --workspace -- -D warnings
+
+cargo-sort:
+	cargo install cargo-sort
+	cargo sort -c -w
+
+check: check-format check-clippy cargo-sort
+
+doc-test:
+	cargo test --no-fail-fast --doc --all-features --workspace
+
+unit-test: doc-test
+	cargo test --no-fail-fast --lib --all-features --workspace
+
+test: doc-test
+	cargo test --no-fail-fast --all-targets --all-features --workspace
 
 update-openapi:
     # Download from https://raw.githubusercontent.com/apache/iceberg/main/open-api/rest-catalog-open-api.yaml and put into openapi folder

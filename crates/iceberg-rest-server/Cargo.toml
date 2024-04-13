@@ -16,42 +16,40 @@ keywords = ["iceberg", "rest", "catalog"]
 name = "iceberg_rest_server"
 path = "src/bin/server/main.rs"
 
-
 [dependencies]
+anyhow = "1.0.82"
+
+async-trait = "0.1"
+axum = { workspace = true }
+config = "^0.14"
+derive_more = "^0.99"
+env_logger = "^0.11"
+http = "1"
+
+iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
+lazy_static = "1"
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
+tokio = { version = "1", default-features = false, features = [
+  "signal",
+  "rt-multi-thread",
+] }
+tower-http = { version = "^0.5", features = [
+  "catch-panic",
+  "compression-full",
+  "sensitive-headers",
+  "timeout",
+  "trace",
+] }
+tracing = { version = "^0.1", features = ["attributes"] }
 typed-builder = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
 
-iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
-
-async-trait = "0.1"
-tokio = { version = "1", default-features = false, features = [
-    "signal",
-    "rt-multi-thread",
-] }
-tracing = { version = "^0.1", features = ["attributes"] }
-axum = { workspace = true }
-http = "1"
-lazy_static = "1"
-config = "^0.14"
-env_logger = "^0.11"
-derive_more = "^0.99"
-tower-http = { version = "^0.5", features = [
-    "catch-panic",
-    "compression-full",
-    "sensitive-headers",
-    "timeout",
-    "trace",
-] }
-anyhow = "1.0.82"
-
-
 [dev-dependencies]
-tower = "0.4.13"
 http-body-util = "0.1.1"
 mockall = "0.12.1"
+tower = "0.4.13"

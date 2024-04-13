@@ -90,6 +90,6 @@ mod tests {
         });
 
         let resp: IcebergErrorResponse = serde_json::from_value(json.clone()).unwrap();
-        assert_eq!(serde_json::to_value(&resp).unwrap(), json);
+        assert_eq!(serde_json::to_value(resp).unwrap(), json);
     }
 }

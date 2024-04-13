@@ -1,7 +1,6 @@
 [workspace]
-members = ["crates/iceberg-rest-server", "crates/iceberg-ext"]
+members = ["crates/iceberg-ext", "crates/iceberg-rest-server"]
 resolver = "2"
-
 
 [workspace.package]
 version = "0.0.1"
@@ -10,7 +9,6 @@ homepage = "https://github.com/hansetag/iceberg-rest-rs.git"
 repository = "https://github.com/hansetag/iceberg-rest-rs.git"
 rust-version = "1.75.0"
 license-file = "LICENSE"
-
 
 [workspace.dependencies]
 serde = { version = "^1.0", features = ["rc"] }

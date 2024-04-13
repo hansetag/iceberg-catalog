@@ -50,7 +50,7 @@ mod tests {
         let j = serde_json::json!(["a!", "b~", "c "]);
 
         let r: NamespaceIdent = serde_json::from_value(j.clone()).unwrap();
-        assert_eq!(serde_json::to_value(&r).unwrap(), j);
+        assert_eq!(serde_json::to_value(r).unwrap(), j);
     }
 
     #[test]
@@ -61,7 +61,7 @@ mod tests {
         });
 
         let r: TableIdent = serde_json::from_value(j.clone()).unwrap();
-        assert_eq!(serde_json::to_value(&r).unwrap(), j);
+        assert_eq!(serde_json::to_value(r).unwrap(), j);
     }
 
     #[test]
@@ -80,6 +80,6 @@ mod tests {
             }
             _ => panic!("Expected TableRequirement::RefSnapshotIdMatch"),
         }
-        assert_eq!(serde_json::to_value(&r).unwrap(), j);
+        assert_eq!(serde_json::to_value(r).unwrap(), j);
     }
 }
