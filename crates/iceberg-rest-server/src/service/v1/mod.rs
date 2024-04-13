@@ -70,6 +70,43 @@ where
         state: ApiContext<S>,
         headers: HeaderMap,
     ) -> Result<LoadViewResult>;
+
+    /// Load a view from the catalog
+    async fn load_view(
+        parameters: ViewParameters,
+        state: ApiContext<S>,
+        headers: HeaderMap,
+    ) -> Result<LoadViewResult>;
+
+    /// Commit updates to a view.
+    async fn commit_view(
+        parameters: ViewParameters,
+        request: CommitViewRequest,
+        state: ApiContext<S>,
+        headers: HeaderMap,
+    ) -> Result<LoadViewResult>;
+
+    /// Remove a view from the catalog
+    async fn drop_view(
+        parameters: ViewParameters,
+        state: ApiContext<S>,
+        headers: HeaderMap,
+    ) -> Result<()>;
+
+    /// Check if a view exists
+    async fn view_exists(
+        parameters: ViewParameters,
+        state: ApiContext<S>,
+        headers: HeaderMap,
+    ) -> Result<()>;
+
+    /// Rename a view from its current name to a new name
+    async fn rename_view(
+        prefix: Option<Prefix>,
+        request: RenameTableRequest,
+        state: ApiContext<S>,
+        headers: HeaderMap,
+    ) -> Result<()>;
 }
 
 #[async_trait]

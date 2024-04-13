@@ -85,8 +85,191 @@ pub(crate) fn view_router<I: V1ViewsService<S>, S: crate::service::State>() -> R
                 },
             ),
         )
-    // /{prefix}/namespaces/{namespace}/views/{view}
-    // ToDo: Continue
+        // /{prefix}/namespaces/{namespace}/views/{view}
+        .route(
+            "/:prefix/namespaces/:namespace/views/:view",
+            get(
+                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
+                 State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap| {
+                    {
+                        I::load_view(
+                            ViewParameters {
+                                prefix: Some(prefix),
+                                namespace: namespace.into(),
+                                view,
+                            },
+                            api_context,
+                            headers,
+                        )
+                    }
+                },
+            )
+            .post(
+                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
+                 State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap,
+                 Json(request): Json<CommitViewRequest>| {
+                    {
+                        I::commit_view(
+                            ViewParameters {
+                                prefix: Some(prefix),
+                                namespace: namespace.into(),
+                                view,
+                            },
+                            request,
+                            api_context,
+                            headers,
+                        )
+                    }
+                },
+            )
+            .delete(
+                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
+                 State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap| async {
+                    {
+                        I::drop_view(
+                            ViewParameters {
+                                prefix: Some(prefix),
+                                namespace: namespace.into(),
+                                view,
+                            },
+                            api_context,
+                            headers,
+                        )
+                        .await
+                        .map(|_| StatusCode::NO_CONTENT.into_response())
+                    }
+                },
+            )
+            .head(
+                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
+                 State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap| async {
+                    {
+                        I::view_exists(
+                            ViewParameters {
+                                prefix: Some(prefix),
+                                namespace: namespace.into(),
+                                view,
+                            },
+                            api_context,
+                            headers,
+                        )
+                        .await
+                        .map(|_| StatusCode::NO_CONTENT.into_response())
+                    }
+                },
+            ),
+        )
+        .route(
+            "/namespaces/:namespace/views/:view",
+            get(
+                |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
+                 State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap| {
+                    {
+                        I::load_view(
+                            ViewParameters {
+                                prefix: None,
+                                namespace: namespace.into(),
+                                view,
+                            },
+                            api_context,
+                            headers,
+                        )
+                    }
+                },
+            )
+            .post(
+                |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
+                 State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap,
+                 Json(request): Json<CommitViewRequest>| {
+                    {
+                        I::commit_view(
+                            ViewParameters {
+                                prefix: None,
+                                namespace: namespace.into(),
+                                view,
+                            },
+                            request,
+                            api_context,
+                            headers,
+                        )
+                    }
+                },
+            )
+            .delete(
+                |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
+                 State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap| async {
+                    {
+                        I::drop_view(
+                            ViewParameters {
+                                prefix: None,
+                                namespace: namespace.into(),
+                                view,
+                            },
+                            api_context,
+                            headers,
+                        )
+                        .await
+                        .map(|_| StatusCode::NO_CONTENT.into_response())
+                    }
+                },
+            )
+            .head(
+                |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
+                 State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap| async {
+                    {
+                        I::view_exists(
+                            ViewParameters {
+                                prefix: None,
+                                namespace: namespace.into(),
+                                view,
+                            },
+                            api_context,
+                            headers,
+                        )
+                        .await
+                        .map(|_| StatusCode::NO_CONTENT.into_response())
+                    }
+                },
+            ),
+        )
+        // /{prefix}/views/rename
+        .route(
+            "/:prefix/views/rename",
+            post(
+                |Path(prefix): Path<Prefix>,
+                 State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap,
+                 Json(request): Json<RenameTableRequest>| async {
+                    {
+                        I::rename_view(Some(prefix), request, api_context, headers)
+                            .await
+                            .map(|_| StatusCode::NO_CONTENT.into_response())
+                    }
+                },
+            ),
+        )
+        .route(
+            "/views/rename",
+            post(
+                |State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap,
+                 Json(request): Json<RenameTableRequest>| async {
+                    {
+                        I::rename_view(None, request, api_context, headers)
+                            .await
+                            .map(|_| StatusCode::NO_CONTENT.into_response())
+                    }
+                },
+            ),
+        )
 }
 
 // Deliberately not ser / de so that it can't be used in the router directly
