@@ -31,7 +31,7 @@ pub struct SetLocationUpdate {
     pub location: String,
 }
 
-/// AssignUuidUpdate : Assigning a UUID to a table/view should only be done when creating the table/view. It is not safe to re-assign the UUID if a table/view already has a UUID assigned
+/// Assigning a UUID to a table/view should only be done when creating the table/view. It is not safe to re-assign the UUID if a table/view already has a UUID assigned
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AssignUuidUpdate {
     #[serde(rename = "uuid")]

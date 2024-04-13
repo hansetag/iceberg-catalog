@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    get, post, ApiContext, CreateNamespaceRequest, HeaderMap, Json, NamespaceIdent,
+    NamespaceService, PageToken, Path, Prefix, Query, Result, Router, State,
+    UpdateNamespacePropertiesRequest,
+};
 use axum::response::IntoResponse;
 use http::StatusCode;
 use serde::{Deserialize, Deserializer};
@@ -18,15 +22,17 @@ impl<'de> Deserialize<'de> for NamespaceIdentUrl {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        println!("Deserialized namespace: {}", s);
         // Split on multipart \u001f
         Ok(NamespaceIdentUrl(
-            s.split('\u{1f}').map(|s| s.to_string()).collect(),
+            s.split('\u{1f}')
+                .map(std::string::ToString::to_string)
+                .collect(),
         ))
     }
 }
 
-pub(crate) fn namespace_router<I: V1NamespaceService<S>, S: crate::service::State>(
+#[allow(clippy::too_many_lines)]
+pub(crate) fn namespace_router<I: NamespaceService<S>, S: crate::service::State>(
 ) -> Router<ApiContext<S>> {
     Router::new()
         // List Namespaces
@@ -100,7 +106,7 @@ pub(crate) fn namespace_router<I: V1NamespaceService<S>, S: crate::service::Stat
                         headers,
                     )
                     .await
-                    .map(|_| StatusCode::NO_CONTENT.into_response())
+                    .map(|()| StatusCode::NO_CONTENT.into_response())
                 },
             )
             // Drop a namespace from the catalog. Namespace must be empty.
@@ -117,7 +123,7 @@ pub(crate) fn namespace_router<I: V1NamespaceService<S>, S: crate::service::Stat
                         headers,
                     )
                     .await
-                    .map(|_| StatusCode::NO_CONTENT.into_response())
+                    .map(|()| StatusCode::NO_CONTENT.into_response())
                 },
             ),
         )
@@ -152,7 +158,7 @@ pub(crate) fn namespace_router<I: V1NamespaceService<S>, S: crate::service::Stat
                         headers,
                     )
                     .await
-                    .map(|_| StatusCode::NO_CONTENT.into_response())
+                    .map(|()| StatusCode::NO_CONTENT.into_response())
                 },
             )
             // Drop a namespace from the catalog. Namespace must be empty.
@@ -169,7 +175,7 @@ pub(crate) fn namespace_router<I: V1NamespaceService<S>, S: crate::service::Stat
                         headers,
                     )
                     .await
-                    .map(|_| StatusCode::NO_CONTENT.into_response())
+                    .map(|()| StatusCode::NO_CONTENT.into_response())
                 },
             ),
         )
@@ -252,6 +258,7 @@ impl From<ListNamespacesQuery> for PaginationQuery {
 }
 
 // Deliberately not ser / de so that it can't be used in the router directly
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct NamespaceParameters {
     /// The prefix of the namespace
@@ -262,15 +269,16 @@ pub struct NamespaceParameters {
 
 #[cfg(test)]
 mod tests {
+    use super::super::*;
+    use axum::async_trait;
     use http_body_util::BodyExt;
 
     #[tokio::test]
     async fn test_namespace_params() {
-        use super::*;
         use tower::ServiceExt;
 
         #[derive(Debug, Clone)]
-        struct V1TestService;
+        struct TestService;
 
         #[derive(Debug, Clone)]
         struct ThisState;
@@ -279,7 +287,7 @@ mod tests {
 
         // ToDo: Use Mock instead for impl. I couldn't get mockall to work though.
         #[async_trait]
-        impl V1NamespaceService<ThisState> for V1TestService {
+        impl NamespaceService<ThisState> for TestService {
             async fn list_namespaces(
                 prefix: Option<Prefix>,
                 query: ListNamespacesQuery,
@@ -351,7 +359,7 @@ mod tests {
             v1_state: ThisState,
         };
 
-        let app = namespace_router::<V1TestService, ThisState>();
+        let app = namespace_router::<TestService, ThisState>();
         let router = axum::Router::new().merge(app).with_state(api_context);
 
         let req = http::Request::builder()
@@ -369,7 +377,7 @@ mod tests {
         use tower::ServiceExt;
 
         #[derive(Debug, Clone)]
-        struct V1TestService;
+        struct TestService;
 
         #[derive(Debug, Clone)]
         struct ThisState;
@@ -377,7 +385,7 @@ mod tests {
         impl crate::service::State for ThisState {}
 
         #[async_trait]
-        impl V1NamespaceService<ThisState> for V1TestService {
+        impl NamespaceService<ThisState> for TestService {
             async fn list_namespaces(
                 prefix: Option<Prefix>,
                 query: ListNamespacesQuery,
@@ -447,7 +455,7 @@ mod tests {
             v1_state: ThisState,
         };
 
-        let app = namespace_router::<V1TestService, ThisState>();
+        let app = namespace_router::<TestService, ThisState>();
         let router = axum::Router::new().merge(app).with_state(api_context);
 
         let req = http::Request::builder()
@@ -465,7 +473,7 @@ mod tests {
         use tower::ServiceExt;
 
         #[derive(Debug, Clone)]
-        struct V1TestService;
+        struct TestService;
 
         #[derive(Debug, Clone)]
         struct ThisState;
@@ -473,7 +481,7 @@ mod tests {
         impl crate::service::State for ThisState {}
 
         #[async_trait]
-        impl V1NamespaceService<ThisState> for V1TestService {
+        impl NamespaceService<ThisState> for TestService {
             async fn list_namespaces(
                 _prefix: Option<Prefix>,
                 _query: ListNamespacesQuery,
@@ -543,7 +551,7 @@ mod tests {
             v1_state: ThisState,
         };
 
-        let app = namespace_router::<V1TestService, ThisState>();
+        let app = namespace_router::<TestService, ThisState>();
         let router = axum::Router::new().merge(app).with_state(api_context);
 
         // Test 1: Single identifier

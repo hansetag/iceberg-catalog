@@ -1,7 +1,10 @@
-use super::*;
+use super::{
+    async_trait, post, ApiContext, Form, HeaderMap, OAuthTokenRequest, OAuthTokenResponse, Result,
+    Router, State,
+};
 
 #[async_trait]
-pub trait V1OAuthService<S: crate::service::State>
+pub trait OAuthService<S: crate::service::State>
 where
     Self: Send + Sync + Clone + 'static,
 {
@@ -13,7 +16,7 @@ where
     ) -> Result<OAuthTokenResponse>;
 }
 
-pub(crate) fn oauth_router<I: V1OAuthService<S>, S: crate::service::State>() -> Router<ApiContext<S>>
+pub(crate) fn oauth_router<I: OAuthService<S>, S: crate::service::State>() -> Router<ApiContext<S>>
 {
     Router::new().route(
         "/oauth/tokens",

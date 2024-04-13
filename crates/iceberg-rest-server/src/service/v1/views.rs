@@ -1,8 +1,13 @@
-use super::*;
+use super::{
+    get, post, ApiContext, CommitViewRequest, CreateViewRequest, HeaderMap, Json, NamespaceIdent,
+    NamespaceIdentUrl, NamespaceParameters, PaginationQuery, Path, Prefix, Query,
+    RenameTableRequest, Router, State, TableIdent, ViewsService,
+};
 use axum::response::IntoResponse;
 use http::StatusCode;
 
-pub(crate) fn view_router<I: V1ViewsService<S>, S: crate::service::State>() -> Router<ApiContext<S>>
+#[allow(clippy::too_many_lines)]
+pub(crate) fn views_router<I: ViewsService<S>, S: crate::service::State>() -> Router<ApiContext<S>>
 {
     Router::new()
         // /{prefix}/namespaces/{namespace}/views
@@ -139,7 +144,7 @@ pub(crate) fn view_router<I: V1ViewsService<S>, S: crate::service::State>() -> R
                             headers,
                         )
                         .await
-                        .map(|_| StatusCode::NO_CONTENT.into_response())
+                        .map(|()| StatusCode::NO_CONTENT.into_response())
                     }
                 },
             )
@@ -158,7 +163,7 @@ pub(crate) fn view_router<I: V1ViewsService<S>, S: crate::service::State>() -> R
                             headers,
                         )
                         .await
-                        .map(|_| StatusCode::NO_CONTENT.into_response())
+                        .map(|()| StatusCode::NO_CONTENT.into_response())
                     }
                 },
             ),
@@ -216,7 +221,7 @@ pub(crate) fn view_router<I: V1ViewsService<S>, S: crate::service::State>() -> R
                             headers,
                         )
                         .await
-                        .map(|_| StatusCode::NO_CONTENT.into_response())
+                        .map(|()| StatusCode::NO_CONTENT.into_response())
                     }
                 },
             )
@@ -235,7 +240,7 @@ pub(crate) fn view_router<I: V1ViewsService<S>, S: crate::service::State>() -> R
                             headers,
                         )
                         .await
-                        .map(|_| StatusCode::NO_CONTENT.into_response())
+                        .map(|()| StatusCode::NO_CONTENT.into_response())
                     }
                 },
             ),
@@ -251,7 +256,7 @@ pub(crate) fn view_router<I: V1ViewsService<S>, S: crate::service::State>() -> R
                     {
                         I::rename_view(Some(prefix), request, api_context, headers)
                             .await
-                            .map(|_| StatusCode::NO_CONTENT.into_response())
+                            .map(|()| StatusCode::NO_CONTENT.into_response())
                     }
                 },
             ),
@@ -265,7 +270,7 @@ pub(crate) fn view_router<I: V1ViewsService<S>, S: crate::service::State>() -> R
                     {
                         I::rename_view(None, request, api_context, headers)
                             .await
-                            .map(|_| StatusCode::NO_CONTENT.into_response())
+                            .map(|()| StatusCode::NO_CONTENT.into_response())
                     }
                 },
             ),

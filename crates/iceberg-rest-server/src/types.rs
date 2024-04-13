@@ -7,11 +7,13 @@ pub struct Prefix(String);
 
 impl Prefix {
     #[inline]
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
     #[inline]
+    #[must_use]
     pub fn into_string(self) -> String {
         self.0
     }
@@ -30,6 +32,7 @@ pub enum PageToken {
 
 impl PageToken {
     #[inline]
+    #[must_use]
     pub fn new_present(s: String) -> Self {
         if s.is_empty() {
             PageToken::Empty
@@ -39,16 +42,19 @@ impl PageToken {
     }
 
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         matches!(self, PageToken::Empty)
     }
 
     #[inline]
+    #[must_use]
     pub fn is_unspecified(&self) -> bool {
         matches!(self, PageToken::NotSpecified)
     }
 
     #[inline]
+    #[must_use]
     pub fn skip_serialize(&self) -> bool {
         matches!(self, PageToken::NotSpecified)
     }
@@ -95,16 +101,19 @@ pub enum NextPageToken {
 
 impl NextPageToken {
     #[inline]
+    #[must_use]
     pub fn new_finished() -> Self {
         NextPageToken::Finished
     }
 
     #[inline]
+    #[must_use]
     pub fn new_not_supported() -> Self {
         NextPageToken::NotSupported
     }
 
     #[inline]
+    #[must_use]
     pub fn new_next_token(s: String) -> Self {
         if s.is_empty() {
             NextPageToken::Finished
@@ -116,16 +125,19 @@ impl NextPageToken {
     }
 
     #[inline]
+    #[must_use]
     pub fn is_unsupported(&self) -> bool {
         matches!(self, NextPageToken::NotSupported)
     }
 
     #[inline]
+    #[must_use]
     pub fn is_finished(&self) -> bool {
         matches!(self, NextPageToken::Finished)
     }
 
     #[inline]
+    #[must_use]
     pub fn skip_serialize(&self) -> bool {
         matches!(self, NextPageToken::NotSupported)
     }

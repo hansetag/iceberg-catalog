@@ -28,6 +28,7 @@ impl From<&iceberg::Namespace> for CreateNamespaceRequest {
 }
 
 impl CreateNamespaceRequest {
+    #[must_use]
     pub fn new(namespace: Vec<String>) -> CreateNamespaceRequest {
         CreateNamespaceRequest {
             namespace,
@@ -47,6 +48,7 @@ pub struct CreateNamespaceResponse {
 }
 
 impl CreateNamespaceResponse {
+    #[must_use]
     pub fn new(namespace: Vec<String>) -> CreateNamespaceResponse {
         CreateNamespaceResponse {
             namespace,

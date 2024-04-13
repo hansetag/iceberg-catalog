@@ -2,7 +2,11 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-pub fn validate_unique_vec<T>(items: &Vec<T>) -> Result<(), iceberg::Error>
+/// Validate that a vector of items is unique.
+///
+/// # Errors
+/// Returns iceberg with `DataInvalid` error if the items are not unique.
+pub fn validate_unique_vec<T>(items: &[T]) -> Result<(), iceberg::Error>
 where
     T: Eq + Hash + Debug,
 {

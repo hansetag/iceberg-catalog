@@ -1,7 +1,8 @@
-use super::*;
+use super::{async_trait, get, ApiContext, CatalogConfig, HeaderMap, Query, Result, Router, State};
 
+#[allow(clippy::module_name_repetitions)]
 #[async_trait]
-pub trait V1ConfigService<S: crate::service::State>
+pub trait ConfigService<S: crate::service::State>
 where
     Self: Send + Sync + Clone + 'static,
 {
@@ -20,8 +21,8 @@ pub struct GetConfigQueryParams {
     pub warehouse: Option<String>,
 }
 
-pub(crate) fn config_router<I: V1ConfigService<S>, S: crate::service::State>(
-) -> Router<ApiContext<S>> {
+pub(crate) fn config_router<I: ConfigService<S>, S: crate::service::State>() -> Router<ApiContext<S>>
+{
     Router::new().route(
         "/config",
         get(

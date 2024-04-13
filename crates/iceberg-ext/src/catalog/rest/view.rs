@@ -1,6 +1,6 @@
-use crate::catalog::rest::*;
-use crate::catalog::*;
-use crate::spec::*;
+use crate::catalog::rest::{impl_into_response, ViewUpdate};
+use crate::catalog::{TableIdent, ViewRequirement};
+use crate::spec::{Schema, ViewMetadata, ViewVersion};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CreateViewRequest {
@@ -16,7 +16,11 @@ pub struct CreateViewRequest {
     pub properties: std::collections::HashMap<String, String>,
 }
 
-/// LoadViewResult : Result used when a view is successfully loaded.   The view metadata JSON is returned in the `metadata` field. The corresponding file location of view metadata is returned in the `metadata-location` field. Clients can check whether metadata has changed by comparing metadata locations after the view has been created.  The `config` map returns view-specific configuration for the view's resources.  The following configurations should be respected by clients:  ## General Configurations  - `token`: Authorization bearer token to use for view requests if OAuth2 security is enabled
+/// Result used when a view is successfully loaded.
+/// The view metadata JSON is returned in the `metadata` field.
+/// The corresponding file location of view metadata is returned in the `metadata-location` field.
+/// Clients can check whether metadata has changed by comparing metadata locations after the view
+/// has been created.  The `config` map returns view-specific configuration for the view's resources.  
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoadViewResult {
     #[serde(rename = "metadata-location")]

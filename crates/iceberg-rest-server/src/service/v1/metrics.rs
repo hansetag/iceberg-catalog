@@ -1,36 +1,33 @@
-use super::*;
+use super::{post, ApiContext, HeaderMap, Json, MetricsService, Path, Prefix, Router, State};
 use axum::response::IntoResponse;
 use http::StatusCode;
 
-pub(crate) fn metrics_router<I: V1MetricsService<S>, S: crate::service::State>(
+pub(crate) fn metrics_router<I: MetricsService<S>, S: crate::service::State>(
 ) -> Router<ApiContext<S>> {
     Router::new()
         // /{prefix}/namespaces/{namespace}/tables/{table}/metrics
         .route(
-            "/metrics",
+            "/:prefix/metrics",
             post(
-                |Path((prefix, namespace, table)): Path<(
-                    Prefix,
-                    NamespaceIdentUrl,
-                    TableIdent,
-                )>,
+                |Path(prefix): Path<Prefix>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap,
                  Json(request): Json<serde_json::Value>| async {
-                    {
-                        I::report_metrics(
-                            TableParameters {
-                                prefix: Some(prefix),
-                                namespace: namespace.into(),
-                                table: table.into(),
-                            },
-                            request,
-                            api_context,
-                            headers,
-                        )
-                    }
-                    .await
-                    .map(|_| StatusCode::NO_CONTENT.into_response())
+                    { I::report_metrics(Some(prefix), request, api_context, headers) }
+                        .await
+                        .map(|()| StatusCode::NO_CONTENT.into_response())
+                },
+            ),
+        )
+        .route(
+            "/metrics",
+            post(
+                |State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap,
+                 Json(request): Json<serde_json::Value>| async {
+                    { I::report_metrics(None, request, api_context, headers) }
+                        .await
+                        .map(|()| StatusCode::NO_CONTENT.into_response())
                 },
             ),
         )

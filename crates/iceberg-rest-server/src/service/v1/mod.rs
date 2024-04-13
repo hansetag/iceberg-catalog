@@ -14,21 +14,32 @@ pub use views::*;
 
 pub use iceberg_ext::catalog::{NamespaceIdent, TableIdent};
 
-use crate::service::*;
+pub use crate::service::{
+    ApiContext, CatalogConfig, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
+    CommitViewRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
+    CreateViewRequest, ErrorModel, GetNamespaceResponse, IcebergErrorResponse,
+    ListNamespacesResponse, ListTablesResponse, LoadTableResult, LoadViewResult, OAuthTokenRequest,
+    OAuthTokenResponse, RegisterTableRequest, RenameTableRequest, Result,
+    UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
+};
+
 pub use crate::types::*;
 use axum::async_trait;
 use axum::extract::{Form, Json, Path, Query, State};
-pub use axum::routing::{get, post, put};
+pub(crate) use axum::{
+    routing::{get, post},
+    Router,
+};
 use http::HeaderMap;
 
-pub trait V1Service<S: crate::service::State>
+pub trait Service<S: crate::service::State>
 where
-    Self: V1ConfigService<S>
-        + V1NamespaceService<S>
-        + V1OAuthService<S>
-        + V1TablesService<S>
-        + V1MetricsService<S>
-        + V1ViewsService<S>
+    Self: ConfigService<S>
+        + NamespaceService<S>
+        + OAuthService<S>
+        + TablesService<S>
+        + MetricsService<S>
+        + ViewsService<S>
         + Send
         + Sync
         + Clone
@@ -37,21 +48,21 @@ where
 }
 
 #[async_trait]
-pub trait V1MetricsService<S: crate::service::State>
+pub trait MetricsService<S: crate::service::State>
 where
     Self: Send + Sync + Clone + 'static,
 {
-    /// List all table identifiers underneath a given namespace
+    /// Send a metrics report to this endpoint to be processed by the backend
     async fn report_metrics(
-        parameters: TableParameters,
+        prefix: Option<Prefix>,
         request: serde_json::Value,
         state: ApiContext<S>,
         headers: HeaderMap,
-    ) -> Result<ListTablesResponse>;
+    ) -> Result<()>;
 }
 
 #[async_trait]
-pub trait V1ViewsService<S: crate::service::State>
+pub trait ViewsService<S: crate::service::State>
 where
     Self: Send + Sync + Clone + 'static,
 {
@@ -110,7 +121,7 @@ where
 }
 
 #[async_trait]
-pub trait V1TablesService<S: crate::service::State>
+pub trait TablesService<S: crate::service::State>
 where
     Self: Send + Sync + Clone + 'static,
 {
@@ -185,7 +196,7 @@ where
 }
 
 #[async_trait]
-pub trait V1NamespaceService<S: crate::service::State>
+pub trait NamespaceService<S: crate::service::State>
 where
     Self: Send + Sync + Clone + 'static,
 {

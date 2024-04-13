@@ -1,9 +1,15 @@
-use super::*;
+use super::{
+    get, post, ApiContext, CommitTableRequest, CommitTransactionRequest, CreateTableRequest,
+    HeaderMap, Json, NamespaceIdent, NamespaceIdentUrl, NamespaceParameters, PaginationQuery, Path,
+    Prefix, Query, RegisterTableRequest, RenameTableRequest, Router, State, TableIdent,
+    TablesService,
+};
 use axum::response::IntoResponse;
 use http::StatusCode;
 
-pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
-) -> Router<ApiContext<S>> {
+#[allow(clippy::too_many_lines)]
+pub(crate) fn table_router<I: TablesService<S>, S: crate::service::State>() -> Router<ApiContext<S>>
+{
     Router::new()
         // /{prefix}/namespaces/{namespace}/tables
         .route(
@@ -137,7 +143,7 @@ pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
                         TableParameters {
                             prefix: Some(prefix),
                             namespace: namespace.into(),
-                            table: table.into(),
+                            table,
                         },
                         api_context,
                         headers,
@@ -158,7 +164,7 @@ pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
                         TableParameters {
                             prefix: Some(prefix),
                             namespace: namespace.into(),
-                            table: table.into(),
+                            table,
                         },
                         request,
                         api_context,
@@ -179,13 +185,13 @@ pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
                         TableParameters {
                             prefix: Some(prefix),
                             namespace: namespace.into(),
-                            table: table.into(),
+                            table,
                         },
                         api_context,
                         headers,
                     )
                     .await
-                    .map(|_| StatusCode::NO_CONTENT.into_response())
+                    .map(|()| StatusCode::NO_CONTENT.into_response())
                 },
             )
             // Check if a table exists
@@ -201,13 +207,13 @@ pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
                         TableParameters {
                             prefix: Some(prefix),
                             namespace: namespace.into(),
-                            table: table.into(),
+                            table,
                         },
                         api_context,
                         headers,
                     )
                     .await
-                    .map(|_| StatusCode::NO_CONTENT.into_response())
+                    .map(|()| StatusCode::NO_CONTENT.into_response())
                 },
             ),
         )
@@ -222,7 +228,7 @@ pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
                         TableParameters {
                             prefix: None,
                             namespace: namespace.into(),
-                            table: table.into(),
+                            table,
                         },
                         api_context,
                         headers,
@@ -239,7 +245,7 @@ pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
                         TableParameters {
                             prefix: None,
                             namespace: namespace.into(),
-                            table: table.into(),
+                            table,
                         },
                         request,
                         api_context,
@@ -256,13 +262,13 @@ pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
                         TableParameters {
                             prefix: None,
                             namespace: namespace.into(),
-                            table: table.into(),
+                            table,
                         },
                         api_context,
                         headers,
                     )
                     .await
-                    .map(|_| StatusCode::NO_CONTENT.into_response())
+                    .map(|()| StatusCode::NO_CONTENT.into_response())
                 },
             )
             // Check if a table exists
@@ -274,13 +280,13 @@ pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
                         TableParameters {
                             prefix: None,
                             namespace: namespace.into(),
-                            table: table.into(),
+                            table,
                         },
                         api_context,
                         headers,
                     )
                     .await
-                    .map(|_| StatusCode::NO_CONTENT.into_response())
+                    .map(|()| StatusCode::NO_CONTENT.into_response())
                 },
             ),
         )
@@ -296,7 +302,7 @@ pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
                     async {
                         I::rename_table(Some(prefix), request, api_context, headers)
                             .await
-                            .map(|_| StatusCode::NO_CONTENT)
+                            .map(|()| StatusCode::NO_CONTENT)
                     }
                 },
             ),
@@ -311,7 +317,7 @@ pub(crate) fn table_router<I: V1TablesService<S>, S: crate::service::State>(
                     async {
                         I::rename_table(None, request, api_context, headers)
                             .await
-                            .map(|_| StatusCode::NO_CONTENT)
+                            .map(|()| StatusCode::NO_CONTENT)
                     }
                 },
             ),

@@ -1,6 +1,6 @@
-use super::*;
+use super::impl_into_response;
 
-/// CatalogConfig : Server-provided configuration for the catalog.
+/// Server-provided configuration for the catalog.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct CatalogConfig {

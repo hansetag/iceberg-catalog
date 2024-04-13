@@ -26,8 +26,7 @@ pub struct OAuthClientCredentialsRequest {
     pub client_secret: String,
 }
 
-/// TokenType : Token type identifier, from RFC 8693 Section 3  See https://datatracker.ietf.org/doc/html/rfc8693#section-3
-/// Token type identifier, from RFC 8693 Section 3  See https://datatracker.ietf.org/doc/html/rfc8693#section-3
+/// Token type identifier, from [RFC 8693 Section 3](https://datatracker.ietf.org/doc/html/rfc8693#section-3).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub enum OAuthTokenType {
     #[serde(rename = "urn:ietf:params:oauth:token-type:access_token")]
@@ -98,7 +97,8 @@ pub enum OAuthErrorType {
 pub struct OAuthTokenResponse {
     /// The access token, for client credentials or token exchange
     pub access_token: String,
-    /// Access token type for client credentials or token exchange  See https://datatracker.ietf.org/doc/html/rfc6749#section-7.1
+    /// Access token type for client credentials or token exchange.
+    /// See [rfc6749](https://datatracker.ietf.org/doc/html/rfc6749#section-7.1)
     pub token_type: OAuthAccessTokenType,
     /// Lifetime of the access token in seconds for client credentials or token exchange
     pub expires_in: Option<u64>,
@@ -111,7 +111,8 @@ pub struct OAuthTokenResponse {
     pub scope: Option<String>,
 }
 
-/// Access token type for client credentials or token exchange  See https://datatracker.ietf.org/doc/html/rfc6749#section-7.1
+/// Access token type for client credentials or token exchange.
+/// See [rfc6749](https://datatracker.ietf.org/doc/html/rfc6749#section-7.1)
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub enum OAuthAccessTokenType {
     #[serde(rename = "bearer")]

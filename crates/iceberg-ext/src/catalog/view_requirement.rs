@@ -4,7 +4,7 @@ pub enum ViewRequirement {
     AssertViewUuid(AssertViewUuid),
 }
 
-/// AssertViewUuid : The view UUID must match the requirement's `uuid`
+/// The view UUID must match the requirement's `uuid`
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct AssertViewUuid {

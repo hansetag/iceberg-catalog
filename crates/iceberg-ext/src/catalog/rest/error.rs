@@ -18,7 +18,7 @@ macro_rules! impl_into_response {
 pub(crate) use impl_into_response;
 use typed_builder::TypedBuilder;
 
-/// IcebergErrorResponse : JSON wrapper for all error responses (non-2xx)
+/// JSON wrapper for all error responses (non-2xx)
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IcebergErrorResponse {
     pub error: ErrorModel,
@@ -50,7 +50,8 @@ impl From<ErrorModel> for IcebergErrorResponse {
     }
 }
 
-/// ErrorModel : JSON error payload returned in a response with further details on the error
+/// JSON error payload returned in a response with further details on the error
+#[allow(clippy::module_name_repetitions)]
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TypedBuilder)]
 pub struct ErrorModel {
     /// Human-readable error message
@@ -67,7 +68,7 @@ pub struct ErrorModel {
 #[cfg(feature = "axum")]
 impl axum::response::IntoResponse for IcebergErrorResponse {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
-        let code = self.error.code.clone();
+        let code = self.error.code;
         let mut response = axum::Json(self).into_response();
         *response.status_mut() = axum::http::StatusCode::from_u16(code)
             .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
