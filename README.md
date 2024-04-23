@@ -1,13 +1,11 @@
 # Current State
-We are pre-alpha. As of now, this crate provides server stubs for the implementation of an Iceberg Rest Catalog.
+WIP!
 
-This repo will become available under an open-source license. We are currently in the process of deciding which one. Stay tuned!
+We are very much still in development. As of now, this crate provides server stubs for the implementation of an Iceberg Rest Catalog.
+We are working towards more elements required for an implementation.
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Build Status][actions-badge]][actions-url]
 
-# Why we don't use `rust-server` generation
-Currently there are multiple issues with Server generation that would require a lot of manual correction. Among others:
-* No support for OneOf & AllOf (https://github.com/OpenAPITools/openapi-generator/issues/17210)
-* No support for inline Enums (https://github.com/OpenAPITools/openapi-generator/blob/650e119f2201914234ea1575f9db00769adaa99c/modules/openapi-generator/src/main/resources/rust-server/models.mustache#L255)
-* "5XX" codes in OpenAPI are generated in server stubs but are nonexistant
-* The `iceberg` rust crate provides better structs with correct serializations that provide a number of convenient methods and builders.
-
+[actions-badge]: https://github.com/hansetag/iceberg-rest-server/workflows/CI/badge.svg
+[actions-url]: https://github.com/hansetag/iceberg-rest-server/actions?query=workflow%3ACI+branch%3Amain
