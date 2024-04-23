@@ -1,0 +1,30 @@
+[package]
+name = "iceberg-ext"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+rust-version = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+
+description = "Extensions for Apache Iceberg Rust"
+keywords = ["iceberg", "rest", "extension"]
+
+[lib]
+
+[features]
+all = ['axum']
+axum = ['dep:axum']
+
+[dependencies]
+axum = { workspace = true, optional = true }
+iceberg = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+strum_macros = { workspace = true }
+typed-builder = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }

@@ -1,0 +1,40 @@
+[package]
+name = "iceberg-rest-service"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+rust-version = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+
+description = "Iceberg REST service definitions and routers."
+keywords = ["iceberg", "rest", "catalog"]
+
+[lib]
+
+[features]
+all = ["tokio"]
+tokio = ["dep:tokio"]
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+config = { workspace = true }
+http = { workspace = true }
+iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
+lazy_static = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true }
+typed-builder = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+http-body-util = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
