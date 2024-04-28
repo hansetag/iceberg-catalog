@@ -7,17 +7,19 @@ use iceberg_rest_service::v1::{
 use std::marker::PhantomData;
 use std::str::FromStr;
 
-use crate::{
-    auth::{AuthConfigHandler, AuthState, UserWarehouse},
-    state::{DBState, State},
-    ProjectIdent, WarehouseIdent,
+use crate::service::{
+    auth::{AuthConfigHandler, UserWarehouse},
+    config::ConfigProvider,
+    AuthState, CatalogState, ProjectIdent, SecretsState, State,
 };
+use crate::CONFIG;
 
-#[derive(Clone, Debug, Default)]
-pub struct Server<D: ConfigDB, A: AuthState, T: AuthConfigHandler<A>> {
+#[derive(Clone, Debug)]
+pub struct Server<C: ConfigProvider<D>, D: CatalogState, T: AuthConfigHandler<A>, A: AuthState> {
     auth_handler: PhantomData<T>,
     auth_state: PhantomData<A>,
-    db: PhantomData<D>,
+    config_server: PhantomData<C>,
+    catalog_state: PhantomData<D>,
 }
 
 fn parse_warehouse_arg(arg: &str) -> (Option<ProjectIdent>, Option<String>) {
@@ -54,37 +56,21 @@ fn parse_warehouse_arg(arg: &str) -> (Option<ProjectIdent>, Option<String>) {
     }
 }
 
-// This logic is abstracted in order to re-use the ConfigServer
-// in a pure Config Gateway that can delegate clients to different
-// rest Servers. This gateway could offer a global domain and
-// federate requests to regional deployments by overriding `uri`.
 #[async_trait::async_trait]
-#[allow(clippy::module_name_repetitions)]
-pub trait ConfigDB
-where
-    Self: Clone + Send + Sync + 'static,
-{
-    async fn get_warehouse_by_name(
-        warehouse_name: &str,
-        project_id: &ProjectIdent,
-        db_state: &DBState,
-    ) -> Result<WarehouseIdent>;
-
-    async fn get_config_for_warehouse(
-        warehouse_id: &WarehouseIdent,
-        db_state: &DBState,
-    ) -> Result<CatalogConfig>;
-}
-
-#[async_trait::async_trait]
-impl<D: ConfigDB, A: AuthState, T: AuthConfigHandler<A>>
-    iceberg_rest_service::v1::config::Service<State<A>> for Server<D, A, T>
+impl<
+        C: ConfigProvider<D>,
+        A: AuthState,
+        D: CatalogState,
+        S: SecretsState,
+        T: AuthConfigHandler<A>,
+    > iceberg_rest_service::v1::config::Service<State<A, D, S>> for Server<C, D, T, A>
 {
     async fn get_config(
         query: GetConfigQueryParams,
-        api_context: ApiContext<State<A>>,
+        api_context: ApiContext<State<A, D, S>>,
         headers: HeaderMap,
     ) -> Result<CatalogConfig> {
+        println!("query: {:?}", query);
         let auth_info =
             T::get_and_validate_user_warehouse(api_context.v1_state.auth_state.clone(), &headers)
                 .await?;
@@ -94,6 +80,16 @@ impl<D: ConfigDB, A: AuthState, T: AuthConfigHandler<A>>
             project_id: project_from_auth,
             warehouse_id: warehouse_from_auth,
         } = auth_info;
+
+        if query.warehouse.is_none() && warehouse_from_auth.is_none() {
+            let e: IcebergErrorResponse = ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message("No warehouse specified. Please specify the 'warehouse' parameter in the GET /config request.".to_string())
+                .r#type("GetConfigNoWarehouseProvided".to_string())
+                .build()
+                .into();
+            return Err(e);
+        }
 
         let (project_from_arg, warehouse_from_arg) = query
             .warehouse
@@ -120,10 +116,10 @@ impl<D: ConfigDB, A: AuthState, T: AuthConfigHandler<A>>
         })?;
 
         let warehouse_id = if let Some(warehouse_from_arg) = warehouse_from_arg {
-            D::get_warehouse_by_name(
+            C::get_warehouse_by_name(
                 &warehouse_from_arg,
                 &project_id,
-                &api_context.v1_state.db_state,
+                api_context.v1_state.catalog_state.clone(),
             )
             .await?
         } else {
@@ -146,7 +142,7 @@ impl<D: ConfigDB, A: AuthState, T: AuthConfigHandler<A>>
         .await?;
 
         // Get config from DB and new token from AuthHandler simultaneously
-        let config = D::get_config_for_warehouse(&warehouse_id, &api_context.v1_state.db_state);
+        let config = C::get_config_for_warehouse(&warehouse_id, api_context.v1_state.catalog_state);
 
         // Give the auth-handler a chance to exchange / enrich the token
         let new_token = T::exchange_token_for_warehouse(
@@ -163,6 +159,14 @@ impl<D: ConfigDB, A: AuthState, T: AuthConfigHandler<A>>
         if let Some(new_token) = new_token {
             config.overrides.insert("token".to_string(), new_token);
         }
+
+        config
+            .overrides
+            .insert("prefix".to_string(), CONFIG.warehouse_prefix(&warehouse_id));
+
+        config
+            .overrides
+            .insert("uri".to_string(), CONFIG.base_uri.to_string());
 
         Ok(config)
     }

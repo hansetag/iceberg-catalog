@@ -6,9 +6,12 @@
 )]
 #![forbid(unsafe_code)]
 
-pub mod auth;
+pub mod api;
 pub mod catalog;
-mod models;
-pub mod state;
+mod config;
+pub mod service;
+pub use service::{ProjectIdent, SecretIdent, WarehouseIdent};
 
-pub use models::*;
+pub use config::CONFIG;
+
+pub mod implementations;

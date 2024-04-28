@@ -1,10 +1,9 @@
-use crate::models::{ProjectIdent, WarehouseIdent};
+use super::{ProjectIdent, WarehouseIdent};
 use http::HeaderMap;
-use iceberg_rest_service::v1::Result;
+use iceberg_rest_service::v1::{NamespaceIdent, Result};
 
-// Should be very cheap to clone
 #[allow(clippy::module_name_repetitions)]
-pub trait AuthState: Clone + Send + Sync + 'static {}
+pub use super::AuthState;
 
 #[derive(Clone, Debug)]
 pub struct UserID(String);
@@ -28,7 +27,67 @@ pub struct UserWarehouse {
     pub warehouse_id: Option<WarehouseIdent>,
 }
 
+#[derive(Debug, Clone)]
+pub enum NamespacePermission {
+    Read,
+    Write,
+}
+
+#[async_trait::async_trait]
+#[allow(clippy::module_name_repetitions)]
+pub trait AuthHandler<T: AuthState>
+where
+    Self: Sized + Send + Sync + Clone + 'static,
+{
+    async fn check_list_namespace(
+        headers: &HeaderMap,
+        warehouse_id: &WarehouseIdent,
+        parent: &Option<NamespaceIdent>,
+        state: T,
+    ) -> Result<()>;
+
+    async fn check_create_namespace(
+        headers: &HeaderMap,
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        state: T,
+    ) -> Result<()>;
+
+    async fn check_load_namespace_metadata(
+        headers: &HeaderMap,
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        state: T,
+    ) -> Result<()>;
+
+    // Should check if the user is allowed to check if a namespace exists,
+    // not check if the namespace exists.
+    async fn check_namespace_exists(
+        headers: &HeaderMap,
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        state: T,
+    ) -> Result<()>;
+
+    async fn check_drop_namespace(
+        headers: &HeaderMap,
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        state: T,
+    ) -> Result<()>;
+
+    async fn check_update_namespace_properties(
+        headers: &HeaderMap,
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        state: T,
+    ) -> Result<()>;
+}
+
 /// Interface to provide Auth-related functions to the config gateway.
+/// This is separated from the AuthHandler as different functions
+/// are required while fetching the config. The config server might be
+/// external to the rest of the catalog.
 #[async_trait::async_trait]
 #[allow(clippy::module_name_repetitions)]
 pub trait AuthConfigHandler<T: AuthState>

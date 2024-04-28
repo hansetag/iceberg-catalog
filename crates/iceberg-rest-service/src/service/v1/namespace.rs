@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use super::{
     get, post, ApiContext, CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse,
     HeaderMap, Json, ListNamespacesResponse, NamespaceIdent, PageToken, Path, Prefix, Query,
@@ -6,7 +8,7 @@ use super::{
 use axum::async_trait;
 use axum::response::IntoResponse;
 use http::StatusCode;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[async_trait]
 pub trait Service<S: crate::service::State>
@@ -63,12 +65,18 @@ where
     ) -> Result<UpdateNamespacePropertiesResponse>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct NamespaceIdentUrl(Vec<String>);
 
 impl From<NamespaceIdentUrl> for NamespaceIdent {
     fn from(param: NamespaceIdentUrl) -> Self {
         NamespaceIdent::from_vec(param.0).unwrap()
+    }
+}
+
+impl From<NamespaceIdent> for NamespaceIdentUrl {
+    fn from(param: NamespaceIdent) -> Self {
+        NamespaceIdentUrl(param.deref().to_owned())
     }
 }
 
@@ -85,6 +93,40 @@ impl<'de> Deserialize<'de> for NamespaceIdentUrl {
                 .collect(),
         ))
     }
+}
+
+impl Serialize for NamespaceIdentUrl {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        // Join on multipart \u001f
+        serializer.serialize_str(&self.0.join("\u{1f}"))
+    }
+}
+
+fn serialize_namespace_ident_as_url<S>(
+    value: &Option<NamespaceIdent>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::ser::Serializer,
+{
+    match value {
+        Some(ident) => NamespaceIdentUrl::from(ident.clone()).serialize(serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_namespace_ident_from_url<'de, D>(
+    deserializer: D,
+) -> Result<Option<NamespaceIdent>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // Deserialize option first
+    let url = Option::<NamespaceIdentUrl>::deserialize(deserializer)?;
+    Ok(url.map(NamespaceIdent::from))
 }
 
 #[allow(clippy::too_many_lines)]
@@ -288,8 +330,13 @@ pub struct ListNamespacesQuery {
     pub page_size: Option<i32>,
     /// An optional namespace, underneath which to list namespaces. If not provided or empty, all top-level namespaces should be listed. If parent is a multipart namespace, the parts must be separated by the unit separator (`0x1F`) byte.
     #[serde(rename = "parent")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        serialize_with = "serialize_namespace_ident_as_url",
+        deserialize_with = "deserialize_namespace_ident_from_url"
+    )]
+    pub parent: Option<NamespaceIdent>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -424,6 +471,11 @@ mod tests {
             .unwrap();
 
         let r = router.oneshot(req).await.unwrap();
+
+        // // parse json body
+        // let bytes = r.collect().await.unwrap().to_bytes();
+        // let r = String::from_utf8(bytes.to_vec()).unwrap();
+
         assert_eq!(r.status().as_u16(), 406);
     }
 
@@ -617,6 +669,7 @@ mod tests {
             .unwrap();
 
         let r = router.clone().oneshot(req).await.unwrap();
+
         assert_eq!(r.status().as_u16(), 406);
         let bytes = r.collect().await.unwrap().to_bytes();
         let r = String::from_utf8(bytes.to_vec()).unwrap();

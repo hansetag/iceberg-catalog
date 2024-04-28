@@ -1,0 +1,35 @@
+[package]
+name = "iceberg-rest-demo"
+resolver = "2"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+description = """
+Demo on how to use the iceberg-rest-server crate
+"""
+
+[features]
+
+[dependencies]
+iceberg-rest-service = { path = "../iceberg-rest-service", features = [
+    "tokio",
+] }
+iceberg-rest-server = { path = "../iceberg-rest-server", features = [
+    "sqlx-postgres",
+] }
+tokio = { workspace = true }
+env_logger = { workspace = true }
+clap = { version = "^4.5", features = ["derive"] }
+log = { workspace = true }
+anyhow = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+async-trait = { workspace = true }
+http = { workspace = true }
+headers = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }

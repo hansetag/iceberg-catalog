@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+env:
+  CARGO_TERM_COLOR: always
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
@@ -15,6 +18,20 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     steps:
       - run: sudo snap install --edge --classic just
       - uses: actions/checkout@v4
@@ -25,12 +42,41 @@ jobs:
       - name: Check diff
         run: git diff --exit-code
 
+
+  clippy:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - run: sudo snap install --edge --classic just
+      - uses: actions/checkout@v4
+
+      - name: Migrate database
+        run: |
+          sudo apt-get install libpq-dev -y
+          cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+          cd crates/iceberg-rest-server
+          sqlx database create
+          sqlx migrate run
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
       - name: Cargo clippy
         run: just check-clippy
-
-      - name: Cargo sort
-        run: just cargo-sort
-
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
   build:
     runs-on: ${{ matrix.os }}
@@ -47,11 +93,39 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     steps:
       - uses: actions/checkout@v4
 
+      - name: Migrate database
+        run: |
+          sudo apt-get install libpq-dev -y
+          cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+          cd crates/iceberg-rest-server
+          sqlx database create
+          sqlx migrate run
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
       - name: Test
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       
       - name: Doc Test
         run: cargo test --no-fail-fast --doc --all-features --workspace
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres

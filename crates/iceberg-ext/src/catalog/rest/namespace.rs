@@ -1,9 +1,11 @@
+use iceberg::NamespaceIdent;
+
 use super::impl_into_response;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CreateNamespaceRequest {
     /// Reference to one or more levels of a namespace
-    pub namespace: Vec<String>,
+    pub namespace: NamespaceIdent,
     /// Configured string to string map of properties for the namespace
     pub properties: Option<std::collections::HashMap<String, String>>,
 }
@@ -12,7 +14,7 @@ impl TryFrom<CreateNamespaceRequest> for iceberg::Namespace {
     type Error = iceberg::Error;
     fn try_from(value: CreateNamespaceRequest) -> std::result::Result<Self, Self::Error> {
         Ok(iceberg::Namespace::with_properties(
-            iceberg::NamespaceIdent::from_vec(value.namespace)?,
+            value.namespace,
             value.properties.unwrap_or_default(),
         ))
     }
@@ -21,7 +23,7 @@ impl TryFrom<CreateNamespaceRequest> for iceberg::Namespace {
 impl From<&iceberg::Namespace> for CreateNamespaceRequest {
     fn from(value: &iceberg::Namespace) -> Self {
         Self {
-            namespace: value.name().as_ref().clone(),
+            namespace: value.name().clone(),
             properties: Some(value.properties().clone()),
         }
     }
@@ -29,7 +31,7 @@ impl From<&iceberg::Namespace> for CreateNamespaceRequest {
 
 impl CreateNamespaceRequest {
     #[must_use]
-    pub fn new(namespace: Vec<String>) -> CreateNamespaceRequest {
+    pub fn new(namespace: NamespaceIdent) -> CreateNamespaceRequest {
         CreateNamespaceRequest {
             namespace,
             properties: None,
@@ -41,7 +43,7 @@ impl CreateNamespaceRequest {
 pub struct CreateNamespaceResponse {
     /// Reference to one or more levels of a namespace
     #[serde(rename = "namespace")]
-    pub namespace: Vec<String>,
+    pub namespace: NamespaceIdent,
     /// Properties stored on the namespace, if supported by the server.
     #[serde(rename = "properties", skip_serializing_if = "Option::is_none")]
     pub properties: Option<std::collections::HashMap<String, String>>,
@@ -49,7 +51,7 @@ pub struct CreateNamespaceResponse {
 
 impl CreateNamespaceResponse {
     #[must_use]
-    pub fn new(namespace: Vec<String>) -> CreateNamespaceResponse {
+    pub fn new(namespace: NamespaceIdent) -> CreateNamespaceResponse {
         CreateNamespaceResponse {
             namespace,
             properties: None,
@@ -82,7 +84,7 @@ pub struct UpdateNamespacePropertiesResponse {
 #[serde(rename_all = "kebab-case")]
 pub struct GetNamespaceResponse {
     /// Reference to one or more levels of a namespace
-    pub namespace: Vec<String>,
+    pub namespace: NamespaceIdent,
     /// Properties stored on the namespace, if supported by the server. If the server does not support namespace properties, it should return null for this field. If namespace properties are supported, but none are set, it should return an empty object.
     pub properties: Option<std::collections::HashMap<String, String>>,
 }
@@ -93,7 +95,7 @@ pub struct ListNamespacesResponse {
     /// An opaque token that allows clients to make use of pagination for list APIs (e.g. ListTables). Clients may initiate the first paginated request by sending an empty query parameter `pageToken` to the server. Servers that support pagination should identify the `pageToken` parameter and return a `next-page-token` in the response if there are more results available.  After the initial request, the value of `next-page-token` from each response must be used as the `pageToken` parameter value for the next request. The server must return `null` value for the `next-page-token` in the last response. Servers that support pagination must return all results in a single response with the value of `next-page-token` set to `null` if the query parameter `pageToken` is not set in the request. Servers that do not support pagination should ignore the `pageToken` parameter and return all results in a single response. The `next-page-token` must be omitted from the response. Clients must interpret either `null` or missing response value of `next-page-token` as the end of the listing results.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_page_token: Option<String>,
-    pub namespaces: Vec<Vec<String>>,
+    pub namespaces: Vec<NamespaceIdent>,
 }
 
 impl_into_response!(UpdateNamespacePropertiesResponse);

@@ -1,0 +1,1 @@
+Initial setup gets numbers in their migration file names, everything else the default unix timestamps of `sqlx`.

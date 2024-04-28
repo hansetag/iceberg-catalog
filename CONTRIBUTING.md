@@ -7,3 +7,16 @@ Code of Conduct can be reported by contacting the project team at
 
 [coc]: https://github.com/rust-lang/rust/blob/master/CODE_OF_CONDUCT.md
 
+## Working with SQLx
+To work with SQLx, launch a postgres DB, for example with Docker:
+```sh
+docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=pg-admin postgres:15
+```
+Each crate in the `crates` folder that uses SQLx contains a `.env.sample` File.
+Copy this file to `.env` and add your database credentials.
+
+Run:
+```sh
+sqlx database create
+sqlx migrate run
+```
