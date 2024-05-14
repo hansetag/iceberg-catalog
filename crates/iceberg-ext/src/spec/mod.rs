@@ -2,6 +2,9 @@
 
 #[allow(clippy::module_name_repetitions)]
 pub use iceberg::spec::{
-    NullOrder, Schema, Snapshot, SortDirection, SortField, SortOrder, TableMetadata,
+    NullOrder, PartitionSpec, Schema, Snapshot, SortDirection, SortField, SortOrder, TableMetadata,
     UnboundPartitionField, UnboundPartitionSpec, ViewMetadata, ViewVersion,
 };
+
+mod table_metadata;
+pub use table_metadata::TableMetadataBuilder;

@@ -13,6 +13,11 @@ pub struct ApiContext<S: State> {
 pub type Result<T, E = IcebergErrorResponse> = std::result::Result<T, E>;
 
 #[cfg(feature = "tokio")]
+/// This function will wait for a signal to shutdown the service.
+/// It will wait for either a Ctrl+C signal or a SIGTERM signal.
+///
+/// # Panics
+/// If the function fails to install the signal handler, it will panic.
 pub async fn shutdown_signal() {
     use tokio::signal;
 

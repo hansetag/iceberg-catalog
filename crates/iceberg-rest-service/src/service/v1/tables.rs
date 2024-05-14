@@ -1,7 +1,7 @@
 use super::{
     get, namespace::NamespaceIdentUrl, post, ApiContext, CommitTableRequest, CommitTableResponse,
     CommitTransactionRequest, CreateTableRequest, HeaderMap, Json, ListTablesResponse,
-    LoadTableResult, NamespaceIdent, NamespaceParameters, PaginationQuery, Path, Prefix, Query,
+    LoadTableResult, NamespaceParameters, PaginationQuery, Path, Prefix, Query,
     RegisterTableRequest, RenameTableRequest, Result, Router, State, TableIdent,
 };
 use axum::async_trait;
@@ -25,6 +25,7 @@ where
     async fn create_table(
         parameters: NamespaceParameters,
         request: CreateTableRequest,
+        data_access: DataAccess,
         state: ApiContext<S>,
         headers: HeaderMap,
     ) -> Result<LoadTableResult>;
@@ -40,6 +41,7 @@ where
     /// Load a table from the catalog
     async fn load_table(
         parameters: TableParameters,
+        data_access: DataAccess,
         state: ApiContext<S>,
         headers: HeaderMap,
     ) -> Result<LoadTableResult>;
@@ -84,7 +86,7 @@ where
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>> {
+pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>> {
     Router::new()
         // /{prefix}/namespaces/{namespace}/tables
         .route(
@@ -118,6 +120,7 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
                             namespace: namespace.into(),
                         },
                         request,
+                        parse_data_access(&headers),
                         api_context,
                         headers,
                     )
@@ -155,6 +158,7 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
                             namespace: namespace.into(),
                         },
                         request,
+                        parse_data_access(&headers),
                         api_context,
                         headers,
                     )
@@ -207,19 +211,18 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
             "/:prefix/namespaces/:namespace/tables/:table",
             // Load a table from the catalog
             get(
-                |Path((prefix, namespace, table)): Path<(
-                    Prefix,
-                    NamespaceIdentUrl,
-                    TableIdent,
-                )>,
+                |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap| {
                     I::load_table(
                         TableParameters {
                             prefix: Some(prefix),
-                            namespace: namespace.into(),
-                            table,
+                            table: TableIdent {
+                                namespace: namespace.into(),
+                                name: table,
+                            },
                         },
+                        parse_data_access(&headers),
                         api_context,
                         headers,
                     )
@@ -227,19 +230,17 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
             )
             // Commit updates to a table
             .post(
-                |Path((prefix, namespace, table)): Path<(
-                    Prefix,
-                    NamespaceIdentUrl,
-                    TableIdent,
-                )>,
+                |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap,
                  Json(request): Json<CommitTableRequest>| {
                     I::commit_table(
                         TableParameters {
                             prefix: Some(prefix),
-                            namespace: namespace.into(),
-                            table,
+                            table: TableIdent {
+                                namespace: namespace.into(),
+                                name: table,
+                            },
                         },
                         request,
                         api_context,
@@ -249,18 +250,16 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
             )
             // Drop a table from the catalog
             .delete(
-                |Path((prefix, namespace, table)): Path<(
-                    Prefix,
-                    NamespaceIdentUrl,
-                    TableIdent,
-                )>,
+                |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap| async {
                     I::drop_table(
                         TableParameters {
                             prefix: Some(prefix),
-                            namespace: namespace.into(),
-                            table,
+                            table: TableIdent {
+                                namespace: namespace.into(),
+                                name: table,
+                            },
                         },
                         api_context,
                         headers,
@@ -271,18 +270,16 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
             )
             // Check if a table exists
             .head(
-                |Path((prefix, namespace, table)): Path<(
-                    Prefix,
-                    NamespaceIdentUrl,
-                    TableIdent,
-                )>,
+                |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap| async {
                     I::table_exists(
                         TableParameters {
                             prefix: Some(prefix),
-                            namespace: namespace.into(),
-                            table,
+                            table: TableIdent {
+                                namespace: namespace.into(),
+                                name: table,
+                            },
                         },
                         api_context,
                         headers,
@@ -296,15 +293,18 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
             "/namespaces/:namespace/tables/:table",
             // Load a table from the catalog
             get(
-                |Path((namespace, table)): Path<(NamespaceIdentUrl, TableIdent)>,
+                |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap| {
                     I::load_table(
                         TableParameters {
                             prefix: None,
-                            namespace: namespace.into(),
-                            table,
+                            table: TableIdent {
+                                namespace: namespace.into(),
+                                name: table,
+                            },
                         },
+                        parse_data_access(&headers),
                         api_context,
                         headers,
                     )
@@ -312,15 +312,17 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
             )
             // Commit updates to a table
             .post(
-                |Path((namespace, table)): Path<(NamespaceIdentUrl, TableIdent)>,
+                |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap,
                  Json(request): Json<CommitTableRequest>| {
                     I::commit_table(
                         TableParameters {
                             prefix: None,
-                            namespace: namespace.into(),
-                            table,
+                            table: TableIdent {
+                                namespace: namespace.into(),
+                                name: table,
+                            },
                         },
                         request,
                         api_context,
@@ -330,14 +332,16 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
             )
             // Drop a table from the catalog
             .delete(
-                |Path((namespace, table)): Path<(NamespaceIdentUrl, TableIdent)>,
+                |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap| async {
                     I::drop_table(
                         TableParameters {
                             prefix: None,
-                            namespace: namespace.into(),
-                            table,
+                            table: TableIdent {
+                                namespace: namespace.into(),
+                                name: table,
+                            },
                         },
                         api_context,
                         headers,
@@ -348,14 +352,16 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
             )
             // Check if a table exists
             .head(
-                |Path((namespace, table)): Path<(NamespaceIdentUrl, TableIdent)>,
+                |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap| async {
                     I::table_exists(
                         TableParameters {
                             prefix: None,
-                            namespace: namespace.into(),
-                            table,
+                            table: TableIdent {
+                                namespace: namespace.into(),
+                                name: table,
+                            },
                         },
                         api_context,
                         headers,
@@ -428,8 +434,63 @@ pub fn table_router<I: Service<S>, S: crate::service::State>() -> Router<ApiCont
 pub struct TableParameters {
     /// The prefix of the namespace
     pub prefix: Option<Prefix>,
-    /// The namespace to load metadata for
-    pub namespace: NamespaceIdent,
     /// The table to load metadata for
     pub table: TableIdent,
+}
+
+pub const DATA_ACCESS_HEADER: &str = "X-Iceberg-Access-Delegation";
+
+#[derive(Debug, Clone)]
+// Modeled as a string to enable multiple values to be specified.
+pub struct DataAccess {
+    pub vended_credentials: bool,
+    pub remote_signing: bool,
+}
+
+fn parse_data_access(headers: &HeaderMap) -> DataAccess {
+    let header = headers
+        .get_all(DATA_ACCESS_HEADER)
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect::<Vec<_>>();
+    let vended_credentials = header.contains(&"vended-credentials");
+    let remote_signing = header.contains(&"remote-signing");
+    DataAccess {
+        vended_credentials,
+        remote_signing,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::str::FromStr;
+
+    #[test]
+    fn test_parse_data_access() {
+        let headers = http::header::HeaderMap::new();
+        let data_access = super::parse_data_access(&headers);
+        assert!(!data_access.vended_credentials);
+        assert!(!data_access.remote_signing);
+    }
+
+    #[test]
+    fn test_parse_data_access_capitalization() {
+        let mut headers = http::header::HeaderMap::new();
+        headers.insert(
+            http::header::HeaderName::from_str(super::DATA_ACCESS_HEADER).unwrap(),
+            http::header::HeaderValue::from_static("vended-credentials"),
+        );
+        let data_access = super::parse_data_access(&headers);
+        assert!(data_access.vended_credentials);
+        assert!(!data_access.remote_signing);
+
+        let mut headers = http::header::HeaderMap::new();
+        headers.insert(
+            "x-iceberg-access-delegation",
+            http::header::HeaderValue::from_static("vended-credentials"),
+        );
+        let data_access = super::parse_data_access(&headers);
+        assert!(data_access.vended_credentials);
+        assert!(!data_access.remote_signing);
+    }
 }

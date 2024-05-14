@@ -13,14 +13,38 @@ Does not contain types that are part of the iceberg-rest specification.
 """
 
 [features]
-all = ["sqlx-postgres"]
+all = ["sqlx-postgres", "api", "s3-signer"]
 sqlx-postgres = ["sqlx"]
+sqlx-postgres-secrets = ["sqlx"]
 sqlx = ["dep:sqlx"]
+api = ["dep:axum"]
+s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]
 
 [dependencies]
-iceberg-rest-service = { path = "../iceberg-rest-service" }
-uuid = { workspace = true }
-http = { workspace = true }
-sqlx = { workspace = true, optional = true }
+anyhow = { workspace = true }
 async-trait = { workspace = true }
+# aws-sdk-s3 = "^1.25"
+# aws-config = { version = "^1.3", features = ["behavior-version-latest"] }
+aws-credential-types = { version = "^1.2", optional = true }
+aws-sigv4 = { version = "^1.2", optional = true }
+axum = { workspace = true, optional = true }
+chrono = { workspace = true }
+config = { workspace = true }
+derive_more = { workspace = true }
+flate2 = { workspace = true }
 futures = { workspace = true }
+http = { workspace = true }
+iceberg = { workspace = true }
+iceberg-ext = { path = "../iceberg-ext" }
+iceberg-rest-service = { path = "../iceberg-rest-service" }
+lazy_static = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true, optional = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+url = { workspace = true }
+utoipa = { workspace = true, features = ["uuid"] }
+uuid = { workspace = true }
+veil = { workspace = true }
+

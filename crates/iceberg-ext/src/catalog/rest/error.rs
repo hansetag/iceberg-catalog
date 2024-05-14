@@ -65,11 +65,43 @@ pub struct ErrorModel {
     pub stack: Option<Vec<String>>,
 }
 
+impl ErrorModel {
+    pub fn push_to_stack(&mut self, message: String) -> &mut Self {
+        if let Some(stack) = &mut self.stack {
+            stack.push(message);
+        } else {
+            self.stack = Some(vec![message]);
+        }
+
+        self
+    }
+}
+
 #[cfg(feature = "axum")]
 impl axum::response::IntoResponse for IcebergErrorResponse {
-    fn into_response(self) -> axum::http::Response<axum::body::Body> {
+    fn into_response(mut self) -> axum::http::Response<axum::body::Body> {
+        // ToDo: Better Log handling. kv-log-macro?
+        let error_id = uuid::Uuid::now_v7();
+
+        let console_log = serde_json::json!(
+            {
+                "error_id": error_id.to_string(),
+                "message": self.error.message,
+                "type": self.error.r#type,
+                "code": self.error.code,
+                "stack": self.error.stack
+            }
+        );
         let code = self.error.code;
+
+        // Exchange stack for error_id. We don't want the stack
+        // to be exposed to the client
+        self.error.stack = Some(vec![format!("Error ID: {}", error_id)]);
+
         let mut response = axum::Json(self).into_response();
+
+        log::info!("{}", console_log.to_string());
+
         *response.status_mut() = axum::http::StatusCode::from_u16(code)
             .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
         response

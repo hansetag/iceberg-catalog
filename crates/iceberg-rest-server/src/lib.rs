@@ -6,9 +6,14 @@
 )]
 #![forbid(unsafe_code)]
 
-pub mod auth;
-pub mod catalog;
-mod models;
-pub mod state;
+#[cfg(feature = "api")]
+pub mod api;
 
-pub use models::*;
+pub mod catalog;
+mod config;
+pub mod service;
+pub use service::{ProjectIdent, SecretIdent, WarehouseIdent};
+
+pub use config::CONFIG;
+
+pub mod implementations;

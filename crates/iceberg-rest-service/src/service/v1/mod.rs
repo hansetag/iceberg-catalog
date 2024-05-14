@@ -2,10 +2,15 @@ pub mod config;
 pub mod metrics;
 pub mod namespace;
 pub mod oauth;
+pub mod s3_signer;
 pub mod tables;
 pub mod views;
 
 pub use iceberg_ext::catalog::{NamespaceIdent, TableIdent};
+
+pub mod spec {
+    pub use iceberg_ext::spec::TableMetadata;
+}
 
 pub use crate::service::{
     ApiContext, CatalogConfig, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
@@ -26,5 +31,5 @@ pub(crate) use axum::{
 use http::HeaderMap;
 
 pub use self::namespace::{ListNamespacesQuery, NamespaceParameters, PaginationQuery};
-pub use self::tables::TableParameters;
+pub use self::tables::{DataAccess, TableParameters};
 pub use self::views::ViewParameters;

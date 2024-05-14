@@ -7,6 +7,9 @@ pub mod rest {
     mod catalog_config;
     pub use catalog_config::CatalogConfig;
 
+    mod s3_signer;
+    pub use s3_signer::{S3SignRequest, S3SignResponse};
+
     mod view_update;
     pub use view_update::{
         AddSchemaUpdate, AddViewVersionUpdate, AssignUuidUpdate, RemovePropertiesUpdate,
@@ -28,6 +31,7 @@ pub mod rest {
     pub use table::{
         CommitTableRequest, CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
         ListTablesResponse, LoadTableResult, RegisterTableRequest, RenameTableRequest,
+        TableRequirementExt, TableUpdateExt,
     };
 
     mod view;

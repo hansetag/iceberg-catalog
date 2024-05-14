@@ -1,8 +1,9 @@
 [workspace]
 members = [
     "crates/iceberg-ext",
-    "crates/iceberg-rest-service",
+    "crates/iceberg-rest-bin",
     "crates/iceberg-rest-server",
+    "crates/iceberg-rest-service",
 ]
 resolver = "2"
 
@@ -15,28 +16,41 @@ rust-version = "1.75.0"
 license = "Apache-2.0"
 
 [workspace.dependencies]
+async-compression = { version = "^0.4", features = ["tokio", "gzip"] }
 serde = { version = "^1.0", features = ["rc"] }
 serde_derive = "^1.0"
 serde_with = "^3.4"
 serde_json = { version = "^1.0", features = ["raw_value"] }
-url = "^2.5"
+url = { version = "^2.5", features = ["serde"] }
 uuid = { version = "^1.6", features = ["serde", "v4", "v7"] }
 reqwest = { version = "^0.12", features = ["json"] }
-iceberg = { git = "https://github.com/c-thiel/iceberg-rust.git", branch = "ht" }
+iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "release/iceberg-rest-server" }
 typed-builder = "^0.18"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }
 async-trait = "^0.1"
 env_logger = "^0.11"
+log = "^0.4"
 http = "^1.1"
 derive_more = "^0.99"
+flate2 = "^1.0"
 lazy_static = "^1.4"
 config = "^0.14"
 futures = "^0.3"
 anyhow = "^1.0"
 chrono = "^0.4"
 tower = "^0.4"
+headers = { version = "^0.4" }
+tower-http = { version = "^0.5", features = [
+    "catch-panic",
+    "compression-full",
+    "sensitive-headers",
+    "timeout",
+    "trace",
+] }
 http-body-util = "^0.1"
+strum = "^0.26"
+utoipa = "^4.2"
 tracing = { version = "^0.1", features = ["attributes"] }
 sqlx = { version = "^0.7", features = [
     "runtime-tokio",
@@ -52,3 +66,4 @@ tokio = { version = "1", default-features = false, features = [
     "signal",
     "rt-multi-thread",
 ] }
+veil = "0.1.7"
