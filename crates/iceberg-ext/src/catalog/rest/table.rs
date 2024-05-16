@@ -45,7 +45,8 @@ pub struct RenameTableRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ListTablesResponse {
-    /// An opaque token that allows clients to make use of pagination for list APIs (e.g. ListTables).
+    /// An opaque token that allows clients to make use of pagination for list
+    /// APIs (e.g. `ListTables`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_page_token: Option<String>,
     pub identifiers: Vec<TableIdent>,

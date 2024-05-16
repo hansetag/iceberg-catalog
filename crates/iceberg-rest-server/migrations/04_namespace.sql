@@ -2,7 +2,7 @@ create table "namespace" (
     -- Table name should be part of PK for easier joins.
     namespace_id uuid primary key default uuid_generate_v1mc(),
     warehouse_id uuid not null REFERENCES "warehouse"(warehouse_id),
-    "name" Text [] not null,
+    "name" Text [] collate "case_insensitive" not null,
     "properties" jsonb not null,
     created_at timestamptz not null default now(),
     updated_at timestamptz,

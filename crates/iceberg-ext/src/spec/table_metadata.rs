@@ -211,7 +211,7 @@ impl TableMetadataBuilder {
                                     .r#type("SetCurrentSchemaWithoutAddedSchema".to_string())
                                     .build())
                             }
-                            Some(max_added_schema_id) => {self.metadata.current_schema_id = max_added_schema_id.to_owned();}
+                            Some(max_added_schema_id) => max_added_schema_id.clone_into(&mut self.metadata.current_schema_id)
                         };
             } else {
                 if !self.metadata.schemas.contains_key(&current_schema_id) {
@@ -296,7 +296,7 @@ impl TableMetadataBuilder {
                                     .r#type("SetDefaultSpecWithoutAddedSpec".to_string())
                                     .build())
                             }
-                            Some(max_added_spec) => {self.metadata.default_spec_id = max_added_spec.to_owned();}
+                            Some(max_added_spec) => max_added_spec.clone_into(&mut self.metadata.default_spec_id)
                         };
             } else {
                 if !self.metadata.partition_specs.contains_key(&default_spec_id) {
@@ -384,7 +384,7 @@ impl TableMetadataBuilder {
                                     .r#type("SetDefaultSortOrderWithoutAddedSortOrder".to_string())
                                     .build())
                             }
-                            Some(max_added_sort_order) => {self.metadata.default_sort_order_id = max_added_sort_order.to_owned();}
+                            Some(max_added_sort_order) => max_added_sort_order.clone_into(&mut self.metadata.default_sort_order_id)
                         };
             } else {
                 if !self

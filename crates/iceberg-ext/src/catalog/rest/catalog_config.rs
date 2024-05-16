@@ -18,7 +18,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_catlog_serialization() {
+    fn test_catalog_serialization() {
         let j = serde_json::json!({
             "overrides": {"warehouse": "s3://bucket/warehouse/"},
             "defaults": {"clients": "4"}

@@ -2,7 +2,7 @@ create table "table" (
     -- Table name should be part of PK for easier joins.
     table_id uuid primary key default uuid_generate_v1mc(),
     namespace_id uuid not null REFERENCES "namespace"(namespace_id),
-    "name" Text not null,
+    "name" Text collate "case_insensitive" not null,
     "metadata" jsonb not null,
     -- May be null if table is staged as part of a transaction.
     "metadata_location" text,

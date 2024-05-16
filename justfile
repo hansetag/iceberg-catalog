@@ -18,7 +18,7 @@ check: check-format check-clippy check-cargo-sort
 fix:
     cargo clippy --all-targets --all-features --workspace --fix --allow-staged
     cargo fmt --all
-    cargo sort
+    cargo sort -w
 
 doc-test:
 	cargo test --no-fail-fast --doc --all-features --workspace
