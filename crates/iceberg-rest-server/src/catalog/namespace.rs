@@ -1,3 +1,4 @@
+use crate::CONFIG;
 use http::HeaderMap;
 use http::StatusCode;
 use iceberg::NamespaceIdent;
@@ -66,6 +67,18 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .as_ref()
             .map(|p| validate_namespace_properties(p.keys()))
             .transpose()?;
+
+        if CONFIG
+            .reserved_namespaces
+            .contains(&namespace.as_ref().join(""))
+        {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message("Namespace is reserved for internal use.".to_owned())
+                .r#type("ReservedNamespace".to_owned())
+                .build()
+                .into());
+        }
 
         // ------------------- AUTHZ -------------------
         A::check_create_namespace(
@@ -154,6 +167,18 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         //  ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(parameters.prefix)?;
         validate_namespace_ident(&parameters.namespace)?;
+
+        if CONFIG
+            .reserved_namespaces
+            .contains(&parameters.namespace.as_ref().join(""))
+        {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message("Cannot droop namespace which is reserved for internal use.".to_owned())
+                .r#type("ReservedNamespace".to_owned())
+                .build()
+                .into());
+        }
 
         //  ------------------- AUTHZ -------------------
         A::check_drop_namespace(
