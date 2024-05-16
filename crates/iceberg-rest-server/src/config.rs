@@ -15,12 +15,12 @@ pub struct DynAppConfig {
     /// while generating the Catalog Config
     pub base_uri: url::Url,
     /// Template to obtain the "prefix" for a warehouse,
-    /// may contain {warehouse_id} placeholder.
+    /// may contain `{warehouse_id}` placeholder.
     ///
     /// If this prefix contains more path segments than the
-    /// warehouse_id, make sure to strip them using a
+    /// `warehouse_id`, make sure to strip them using a
     /// reverse proxy before routing to the catalog service.
-    /// Example value: "{warehouse_id}"
+    /// Example value: `{warehouse_id}`
     prefix_template: String,
 
     // ------------- POSTGRES IMPLEMENTATION -------------
