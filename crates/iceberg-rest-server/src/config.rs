@@ -100,7 +100,7 @@ mod test {
 
     #[test]
     fn reserved_namespaces_should_contains_default_values() {
-        assert!(CONFIG.reserved_namespaces.contains(&"system".to_owned()));
-        assert!(CONFIG.reserved_namespaces.contains(&"examples".to_owned()));
+        assert!(CONFIG.reserved_namespaces.contains("system"));
+        assert!(CONFIG.reserved_namespaces.contains("examples"));
     }
 }
