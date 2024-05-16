@@ -536,4 +536,53 @@ pub(crate) mod tests {
 
         assert_eq!(result.error.code, StatusCode::CONFLICT);
     }
+
+    #[sqlx::test]
+    async fn test_case_insensitive_but_preserve_case(pool: sqlx::PgPool) {
+        let state = CatalogState {
+            read_pool: pool.clone(),
+            write_pool: pool.clone(),
+        };
+
+        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let namespace_1 = NamespaceIdent::from_vec(vec!["Test".to_string()]).unwrap();
+        let namespace_2 = NamespaceIdent::from_vec(vec!["test".to_string()]).unwrap();
+
+        let mut transaction = PostgresTransaction::begin_write(state.clone())
+            .await
+            .unwrap();
+
+        let response = Catalog::create_namespace(
+            &warehouse_id,
+            CreateNamespaceRequest {
+                namespace: namespace_1.clone(),
+                properties: None,
+            },
+            transaction.transaction(),
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+
+        // Check that the namespace is created with the correct case
+        assert_eq!(response.namespace, namespace_1);
+
+        let mut transaction = PostgresTransaction::begin_write(state.clone())
+            .await
+            .unwrap();
+
+        let response = Catalog::create_namespace(
+            &warehouse_id,
+            CreateNamespaceRequest {
+                namespace: namespace_2.clone(),
+                properties: None,
+            },
+            transaction.transaction(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(response.error.code, StatusCode::CONFLICT);
+        assert_eq!(response.error.r#type, "NamespaceAlreadyExists");
+    }
 }
