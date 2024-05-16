@@ -68,7 +68,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .map(|p| validate_namespace_properties(p.keys()))
             .transpose()?;
 
-        if CONFIG.reserved_namespaces.contains(&namespace.as_ref()[0]) {
+        if CONFIG
+            .reserved_namespaces
+            .contains(&namespace.as_ref()[0].to_lowercase())
+        {
             return Err(ErrorModel::builder()
                 .code(StatusCode::BAD_REQUEST.into())
                 .message("Namespace is reserved for internal use.".to_owned())
@@ -167,7 +170,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         if CONFIG
             .reserved_namespaces
-            .contains(&parameters.namespace.as_ref()[0])
+            .contains(&parameters.namespace.as_ref()[0].to_lowercase())
         {
             return Err(ErrorModel::builder()
                 .code(StatusCode::BAD_REQUEST.into())
