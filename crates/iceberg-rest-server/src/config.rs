@@ -79,8 +79,12 @@ lazy_static::lazy_static! {
             .try_deserialize()
             .expect("Cannot deserialize 'DynAppConfig'.");
 
-        config.reserved_namespaces.insert("system".to_owned());
-        config.reserved_namespaces.insert("examples".to_owned());
+        config.reserved_namespaces = config
+            .reserved_namespaces
+            .into_iter()
+            .map(|namespace| namespace.to_lowercase())
+            .chain(["system".to_owned(), "examples".to_owned()])
+            .collect::<HashSet<String>>();
 
         // Fail fast if s3_signer_uri_for_table fails
         // let _ = &CONFIG.s3_signer_uri_for_table(&WarehouseIdent::from(uuid::Uuid::nil()), &uuid::Uuid::nil());
