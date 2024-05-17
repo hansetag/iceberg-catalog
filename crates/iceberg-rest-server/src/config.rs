@@ -1,5 +1,6 @@
 //! Contains Configuration of the SAGA Module
 use config::Config;
+use std::collections::HashSet;
 
 use crate::{
     service::{NamespaceIdentUuid, TableIdentUuid},
@@ -23,6 +24,7 @@ pub struct DynAppConfig {
     /// Example value: `{warehouse_id}`
     prefix_template: String,
 
+    pub reserved_namespaces: HashSet<String>,
     // ------------- POSTGRES IMPLEMENTATION -------------
     pub(crate) pg_encryption_key: String,
     pub(crate) pg_database_url_read: String,
@@ -55,27 +57,38 @@ lazy_static::lazy_static! {
     #[derive(Debug)]
     /// Configurtion of the SAGA Module
     pub static ref CONFIG: DynAppConfig = {
-        let config: DynAppConfig = Config::builder()
-        // ToDo: base_uri requires trailing slash. Make it work without it.
-        .set_default("base_uri", "https://localhost:8080/catalog/").expect("Valid base_url")
-        .set_default("prefix_template", "{warehouse_id}").expect("Valid prefix_template")
-        .set_default("pg_encryption_key", "<This is unsafe, please set a proper key>").expect("Valid pg_encryption_key")
-        .set_default("pg_database_url_read", "postgres://postgres:password@localhost:5432/iceberg").expect("Valid pg_database_url")
-        .set_default("pg_database_url_write", "postgres://postgres:password@localhost:5432/iceberg").expect("Valid pg_database_url")
-        .set_default("pg_read_pool_connections", 10).expect("Valid pg_read_pool_connections")
-        .set_default("pg_write_pool_connections", 5).expect("Valid pg_write_pool_connections")
-        .add_source(
-            config::Environment::with_prefix("ICEBERG_REST")
-            .try_parsing(true)
-            .separator("__"))
-        .build()
-        .unwrap()
-        .try_deserialize()
-        .unwrap();
+        let mut config: DynAppConfig = Config::builder()
+            // ToDo: base_uri requires trailing slash. Make it work without it.
+            .set_default("base_uri", "https://localhost:8080/catalog/").expect("Valid base_url")
+            .set_default("prefix_template", "{warehouse_id}").expect("Valid prefix_template")
+            .set_default("reserved_namespaces", Vec::<String>::default()).expect("Valid reserved_namespaces")
+            .set_default("pg_encryption_key", "<This is unsafe, please set a proper key>").expect("Valid pg_encryption_key")
+            .set_default("pg_database_url_read", "postgres://postgres:password@localhost:5432/iceberg").expect("Valid pg_database_url")
+            .set_default("pg_database_url_write", "postgres://postgres:password@localhost:5432/iceberg").expect("Valid pg_database_url")
+            .set_default("pg_read_pool_connections", 10).expect("Valid pg_read_pool_connections")
+            .set_default("pg_write_pool_connections", 5).expect("Valid pg_write_pool_connections")
+            .add_source(
+                config::Environment::with_prefix("ICEBERG_REST")
+                    .try_parsing(true)
+                    .separator("__")
+                    .with_list_parse_key("RESERVED_NAMESPACES")
+                    .list_separator(",")
+            )
+            .build()
+            .expect("Cannot build 'DynAppConfig'.")
+            .try_deserialize()
+            .expect("Cannot deserialize 'DynAppConfig'.");
 
-    // Fail fast if s3_signer_uri_for_table fails
-    // let _ = &CONFIG.s3_signer_uri_for_table(&WarehouseIdent::from(uuid::Uuid::nil()), &uuid::Uuid::nil());
-    config
+        config.reserved_namespaces = config
+            .reserved_namespaces
+            .into_iter()
+            .map(|namespace| namespace.to_lowercase())
+            .chain(["system".to_owned(), "examples".to_owned()])
+            .collect::<HashSet<String>>();
+
+        // Fail fast if s3_signer_uri_for_table fails
+        // let _ = &CONFIG.s3_signer_uri_for_table(&WarehouseIdent::from(uuid::Uuid::nil()), &uuid::Uuid::nil());
+        config
     };
 }
 
@@ -87,5 +100,11 @@ mod test {
     #[test]
     fn test_default() {
         let _ = &CONFIG.base_uri;
+    }
+
+    #[test]
+    fn reserved_namespaces_should_contains_default_values() {
+        assert!(CONFIG.reserved_namespaces.contains("system"));
+        assert!(CONFIG.reserved_namespaces.contains("examples"));
     }
 }
