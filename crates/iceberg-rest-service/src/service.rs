@@ -1,3 +1,4 @@
+use axum::Router;
 pub use iceberg_ext::catalog::rest::*;
 
 pub mod v1;
@@ -11,6 +12,26 @@ pub struct ApiContext<S: State> {
 }
 
 pub type Result<T, E = IcebergErrorResponse> = std::result::Result<T, E>;
+
+pub fn new_v1_full_router<
+    C: v1::config::Service<S>,
+    T: v1::namespace::Service<S>
+        + v1::tables::Service<S>
+        + v1::metrics::Service<S>
+        + v1::s3_signer::Service<S>,
+    S: State,
+>() -> Router<ApiContext<S>> {
+    Router::new()
+        .merge(v1::config::router::<C, S>())
+        .merge(v1::namespace::router::<T, S>())
+        .merge(v1::tables::router::<T, S>())
+        .merge(v1::s3_signer::router::<T, S>())
+        .merge(v1::metrics::router::<T, S>())
+}
+
+pub fn new_v1_config_router<C: v1::config::Service<S>, S: State>() -> Router<ApiContext<S>> {
+    v1::config::router::<C, S>()
+}
 
 #[cfg(feature = "tokio")]
 /// This function will wait for a signal to shutdown the service.

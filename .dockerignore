@@ -1,0 +1,5 @@
+**/target
+target
+Dockerfile
+**/Dockerfile
+!target/release/iceberg-rest

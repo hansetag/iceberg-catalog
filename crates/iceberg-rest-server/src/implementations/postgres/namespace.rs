@@ -36,7 +36,7 @@ pub(crate) async fn get_namespace_metadata(
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
-            .message("Namespace not found".to_string())
+            .message(format!("Namespace not found: {:?}", namespace.as_ref()))
             .r#type("NamespaceNotFound".to_string())
             .build(),
         _ => e.into_error_model("Error fetching namespace".to_string()),
@@ -244,7 +244,7 @@ pub(crate) async fn drop_namespace(
     .map_err(|e| match &e {
         sqlx::Error::RowNotFound => ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
-            .message("Namespace not found".to_string())
+            .message(format!("Namespace not found: {:?}", namespace.as_ref()))
             .r#type("NamespaceNotFound".to_string())
             .build(),
         sqlx::Error::Database(db_error) => {
@@ -264,7 +264,7 @@ pub(crate) async fn drop_namespace(
     if row_count == Some(0) {
         return Err(ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
-            .message("Namespace not found".to_string())
+            .message(format!("Namespace not found: {:?}", namespace.as_ref()))
             .r#type("NamespaceNotFound".to_string())
             .build()
             .into());
@@ -367,7 +367,7 @@ pub(crate) async fn get_storage_config(
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
-            .message("Namespace not found".to_string())
+            .message(format!("Namespace not found: {:?}", namespace.as_ref()))
             .r#type("NamespaceNotFound".to_string())
             .build(),
         _ => e.into_error_model("Error fetching namespace".to_string()),

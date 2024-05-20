@@ -55,8 +55,10 @@ impl From<ErrorModel> for IcebergErrorResponse {
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TypedBuilder)]
 pub struct ErrorModel {
     /// Human-readable error message
+    #[builder(setter(into))]
     pub message: String,
     /// Internal type definition of the error
+    #[builder(setter(into))]
     pub r#type: String,
     /// HTTP response code
     pub code: u16,
@@ -66,11 +68,11 @@ pub struct ErrorModel {
 }
 
 impl ErrorModel {
-    pub fn push_to_stack(&mut self, message: String) -> &mut Self {
+    pub fn push_to_stack(&mut self, message: impl Into<String>) -> &mut Self {
         if let Some(stack) = &mut self.stack {
-            stack.push(message);
+            stack.push(message.into());
         } else {
-            self.stack = Some(vec![message]);
+            self.stack = Some(vec![message.into()]);
         }
 
         self

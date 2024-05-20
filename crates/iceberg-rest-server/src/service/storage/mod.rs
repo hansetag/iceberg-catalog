@@ -12,7 +12,7 @@ use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "kebab-case")]
 #[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 pub enum StorageProfile {
@@ -216,7 +216,7 @@ mod tests {
             StorageProfile::S3(S3Profile {
                 bucket: "my-bucket".to_string(),
                 endpoint: Some("http://localhost:9000".to_string()),
-                region: Some("us-east-1".to_string()),
+                region: "us-east-1".to_string(),
                 assume_role_arn: None,
                 path_style_access: None,
                 key_prefix: None,
@@ -229,8 +229,8 @@ mod tests {
         let value = serde_json::json!({
             "type": "s3",
             "credential-type": "access-key",
-            "aws_access_key_id": "AKIAIOSFODNN7EXAMPLE",
-            "aws_secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+            "aws-access-key-id": "AKIAIOSFODNN7EXAMPLE",
+            "aws-secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
         });
 
         let secret: StorageCredential = serde_json::from_value(value).unwrap();

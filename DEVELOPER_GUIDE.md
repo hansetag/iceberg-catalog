@@ -11,6 +11,10 @@ Run:
 sqlx database create
 sqlx migrate run
 ```
+
+## Running integration test
+Please check
+
 ## Running the binary
 
 ```sh
@@ -33,22 +37,22 @@ Now that the server is running, we need to create a new warehouse including its 
 Lets assume we have an AWS S3-bucket, create a file called `create-warehouse-request.json`:
 ```json
 {
-    "warehouse_name": "test",
-    "project_id": "00000000-0000-0000-0000-000000000000",
-    "storage_profile": {
+    "warehouse-name": "test",
+    "project-id": "00000000-0000-0000-0000-000000000000",
+    "storage-profile": {
         "type": "s3",
         "bucket": "demo-catalog-iceberg",
-        "key_prefix": "test_warehouse",
-        "assume_role_arn": null,
+        "key-prefix": "test_warehouse",
+        "assume-role-arn": null,
         "endpoint": null,
         "region": "eu-central-1",
-        "path_style_access": null
+        "path-style-access": null
     },
-    "storage_credential": {
+    "storage-credential": {
         "type": "s3",
         "credential-type": "access-key",
-        "aws_access_key_id": "<my-access-key>",
-        "aws_secret_access_key": "<my-secret-access-key>"
+        "aws-access-key-id": "<my-access-key>",
+        "aws-secret-access-key": "<my-secret-access-key>"
     }
 }
 ```
@@ -100,4 +104,3 @@ spark.sql(
 sdf.writeTo("demo.my_namespace.my_table").append()
 spark.table("demo.my_namespace.my_table").show()
 ```
-
