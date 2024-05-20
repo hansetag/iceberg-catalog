@@ -1,6 +1,8 @@
 pub mod auth;
 mod catalog;
 pub mod config;
+#[cfg(feature = "router")]
+pub mod router;
 pub mod secrets;
 pub mod storage;
 

@@ -6,6 +6,7 @@ use iceberg_rest_service::{ApiContext, Result};
 use utoipa::ToSchema;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
 pub struct CreateWarehouseRequest {
     /// Name of the warehouse to create. Must be unique
     /// within a project.
@@ -19,6 +20,7 @@ pub struct CreateWarehouseRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
 pub struct CreateWarehouseResponse {
     /// ID of the created warehouse.
     pub warehouse_id: uuid::Uuid,
@@ -72,5 +74,40 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore> {
         Ok(CreateWarehouseResponse {
             warehouse_id: warehouse_id.into_uuid(),
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_de_create_warehouse_request() {
+        let request = serde_json::json!({
+            "warehouse-name": "test_warehouse",
+            "project-id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+            "storage-profile": {
+                "type": "s3",
+                "bucket": "test",
+                "region": "dummy",
+                "path-style-access": true,
+                "endpoint": "http://localhost:9000",
+            },
+            "storage-credential": {
+                "type": "s3",
+                "credential-type": "access-key",
+                "aws-access-key-id": "test-access-key-id",
+                "aws-secret-access-key": "test-secret-access-key",
+            },
+        });
+
+        let request: super::CreateWarehouseRequest = serde_json::from_value(request).unwrap();
+        assert_eq!(request.warehouse_name, "test_warehouse");
+        assert_eq!(
+            request.project_id,
+            uuid::Uuid::parse_str("f47ac10b-58cc-4372-a567-0e02b2c3d479").unwrap()
+        );
+        let s3_profile = request.storage_profile.try_into_s3(409).unwrap();
+        assert_eq!(s3_profile.bucket, "test");
+        assert_eq!(s3_profile.region, "dummy");
+        assert_eq!(s3_profile.path_style_access, Some(true));
     }
 }

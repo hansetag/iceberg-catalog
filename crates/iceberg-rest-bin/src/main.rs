@@ -1,18 +1,11 @@
-use axum::{http::header::AUTHORIZATION, Router};
 use clap::{Parser, Subcommand};
 use iceberg_rest_server::{
     implementations::{
         postgres::{Catalog, CatalogState, SecretsState, SecretsStore},
         AllowAllAuthState, AllowAllAuthZHandler,
     },
-    service::State as GenericState,
+    service::router::{new_full_router, serve as service_serve},
 };
-use iceberg_rest_service::{shutdown_signal, v1};
-use tower_http::{
-    catch_panic::CatchPanicLayer, compression::CompressionLayer,
-    sensitive_headers::SetSensitiveHeadersLayer, timeout::TimeoutLayer, trace, trace::TraceLayer,
-};
-use tracing::Level;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -30,19 +23,6 @@ enum Commands {
 }
 
 async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
-    type ConfigServer = iceberg_rest_server::catalog::ConfigServer<
-        Catalog,
-        Catalog,
-        AllowAllAuthZHandler,
-        AllowAllAuthZHandler,
-    >;
-
-    type CatalogServer =
-        iceberg_rest_server::catalog::CatalogServer<Catalog, AllowAllAuthZHandler, SecretsStore>;
-    type ApiServer =
-        iceberg_rest_server::api::ApiServer<Catalog, AllowAllAuthZHandler, SecretsStore>;
-    type State = GenericState<AllowAllAuthZHandler, Catalog, SecretsStore>;
-
     let read_pool = iceberg_rest_server::implementations::postgres::get_reader_pool().await?;
     let write_pool = iceberg_rest_server::implementations::postgres::get_writer_pool().await?;
 
@@ -55,47 +35,17 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         write_pool,
     };
 
-    let v1_routes = Router::new()
-        .merge(v1::config::router::<ConfigServer, State>())
-        // .merge(v1::oauth_router::<I, S>())
-        .merge(v1::namespace::router::<CatalogServer, State>())
-        .merge(v1::tables::router::<CatalogServer, State>())
-        .merge(v1::s3_signer::router::<CatalogServer, State>())
-        .merge(v1::metrics::router::<CatalogServer, State>())
-        // .merge(v1::views_router::<I, S>())
-        ;
-
-    let management_routes = Router::new().merge(ApiServer::v1_router());
-
-    // This is the order that the modules were authored in.
-    let router = Router::new()
-        .nest("/catalog/v1", v1_routes)
-        .nest("/management/v1", management_routes)
-        // Enables logging. Use `RUST_LOG=tower_http=debug`
-        .layer((
-            SetSensitiveHeadersLayer::new([AUTHORIZATION]),
-            CompressionLayer::new(),
-            TraceLayer::new_for_http()
-                .on_failure(())
-                .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
-                .on_response(trace::DefaultOnResponse::new().level(Level::DEBUG)),
-            TimeoutLayer::new(std::time::Duration::from_secs(30)),
-            CatchPanicLayer::new(),
-        ))
-        .with_state(v1::ApiContext {
-            v1_state: State {
-                auth: AllowAllAuthState {},
-                catalog: catalog_state,
-                secrets: secrets_state,
-            },
-        });
+    let router = new_full_router::<
+        Catalog,
+        Catalog,
+        AllowAllAuthZHandler,
+        AllowAllAuthZHandler,
+        SecretsStore,
+    >(AllowAllAuthState, catalog_state, secrets_state);
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
 
-    axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .map_err(|e| anyhow::anyhow!(e).context("error running HTTP server"))?;
+    service_serve(listener, router).await?;
 
     Ok(())
 }
@@ -114,11 +64,11 @@ async fn main() -> anyhow::Result<()> {
 
             // This embeds database migrations in the application binary so we can ensure the database
             // is migrated correctly on startup
-            println!("Migrating database...");
             iceberg_rest_server::implementations::postgres::migrate(&write_pool).await?;
             println!("Database migration complete.");
         }
         Some(Commands::Serve {}) => {
+            println!("Starting server on 0.0.0.0:8080...");
             let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
             serve(bind_addr).await?;
         }

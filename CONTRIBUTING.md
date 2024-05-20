@@ -10,10 +10,10 @@ Code of Conduct can be reported by contacting the project team at
 ## Working with SQLx
 To work with SQLx, launch a postgres DB, for example with Docker:
 ```sh
-docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=pg-admin postgres:15
+docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:15
 ```
 Each crate in the `crates` folder that uses SQLx contains a `.env.sample` File.
-Copy this file to `.env` and add your database credentials.
+Copy this file to `.env` and modify your database credentials should they differ.
 
 Run:
 ```sh

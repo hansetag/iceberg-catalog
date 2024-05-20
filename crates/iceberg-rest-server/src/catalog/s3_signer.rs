@@ -214,15 +214,13 @@ fn require_table_id(table_id: Option<String>) -> Result<TableIdentUuid> {
 }
 
 fn validate_region(region: &str, storage_profile: &S3Profile) -> Result<()> {
-    if let Some(profile_region) = &storage_profile.region {
-        if region != profile_region {
-            return Err(ErrorModel::builder()
-                .code(http::StatusCode::BAD_REQUEST.into())
-                .message("Region does not match storage profile".to_string())
-                .r#type("RegionMismatch".to_string())
-                .build()
-                .into());
-        }
+    if region != storage_profile.region {
+        return Err(ErrorModel::builder()
+            .code(http::StatusCode::BAD_REQUEST.into())
+            .message("Region does not match storage profile".to_string())
+            .r#type("RegionMismatch".to_string())
+            .build()
+            .into());
     }
 
     Ok(())
@@ -327,16 +325,7 @@ fn validate_uri(
         )]
     } else {
         // If no endpoint is specified explicitly, we check against known AWS S3 access points.
-        let table_region = storage_profile.region.as_ref().ok_or_else(|| {
-            ErrorModel::builder()
-                .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message(
-                    "Storage profile does not have a region and no endpoint is specified"
-                        .to_string(),
-                )
-                .r#type("StorageProfileNoRegionNoEndpoint".to_string())
-                .build()
-        })?;
+        let table_region = &storage_profile.region;
 
         AWS_S3_ACCESS_POINTS
             .iter()
@@ -426,7 +415,7 @@ mod test {
         S3Profile {
             bucket: "should-not-be-used".to_string(),
             endpoint: test_case.endpoint.map(std::string::ToString::to_string),
-            region: Some(test_case.region.to_string()),
+            region: test_case.region.to_string(),
             assume_role_arn: None,
             path_style_access: None,
             key_prefix: None,
@@ -608,7 +597,7 @@ mod test {
         let storage_profile = S3Profile {
             bucket: "should-not-be-used".to_string(),
             endpoint: None,
-            region: Some("my-region".to_string()),
+            region: "my-region".to_string(),
             assume_role_arn: None,
             path_style_access: None,
             key_prefix: None,

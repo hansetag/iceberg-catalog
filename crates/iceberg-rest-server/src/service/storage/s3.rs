@@ -63,6 +63,7 @@ fn is_valid_bucket_name(bucket: &str) -> Result<()> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub struct S3Profile {
     /// Name of the S3 bucket
     pub bucket: String,
@@ -77,9 +78,8 @@ pub struct S3Profile {
     /// If both region and endpoint are provided, the endpoint will be used.
     #[serde(default)]
     pub endpoint: Option<String>,
-    /// Optional region to use for S3 requests.
-    #[serde(default)]
-    pub region: Option<String>,
+    /// Region to use for S3 requests.
+    pub region: String,
     /// Path style access for S3 requests.
     #[serde(default)]
     pub path_style_access: Option<bool>,
@@ -113,27 +113,13 @@ impl S3Profile {
 
         is_valid_bucket_name(bucket)?;
 
-        if let Some(region) = region {
-            if region.len() > 128 {
-                return Err(ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message(
-                        "Storage Profile `region` must be less than 128 characters.".to_string(),
-                    )
-                    .r#type("InvalidRegion".to_string())
-                    .build()
-                    .into());
-            }
-        } else {
-            // No region -> an endpoint must be provided.
-            if endpoint.is_none() {
-                return Err(ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message("Storage Profile must have either `region` or `endpoint`.".to_string())
-                    .r#type("MissingRegionOrEndpoint".to_string())
-                    .build()
-                    .into());
-            }
+        if region.len() > 128 {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message("Storage Profile `region` must be less than 128 characters.".to_string())
+                .r#type("InvalidRegion".to_string())
+                .build()
+                .into());
         }
 
         // Aws supports a max of 1024 chars and we need some buffer for tables.
@@ -178,7 +164,12 @@ impl S3Profile {
         let test_location =
             self.table_location(&uuid::Uuid::now_v7().into(), &uuid::Uuid::now_v7().into());
 
-        validate_file_io(&file_io, &test_location).await?;
+        validate_file_io(&file_io, &test_location)
+            .await
+            .map_err(|mut e| {
+                e.error.push_to_stack(format!("Profile: {self:?}"));
+                e
+            })?;
 
         Ok(())
     }
@@ -298,10 +289,13 @@ impl S3Profile {
                 config.insert("s3.path-style-access".to_string(), "true".to_string());
             }
         }
-        if let Some(region) = &self.region {
-            config.insert("s3.region".to_string(), region.to_string());
-            config.insert("region".to_string(), region.to_string());
-            config.insert("client.region".to_string(), region.to_string());
+
+        config.insert("s3.region".to_string(), self.region.to_string());
+        config.insert("region".to_string(), self.region.to_string());
+        config.insert("client.region".to_string(), self.region.to_string());
+
+        if let Some(endpoint) = &self.endpoint {
+            config.insert("s3.endpoint".to_string(), endpoint.to_string());
         }
 
         if *vended_credentials {
@@ -338,9 +332,9 @@ impl S3Profile {
     /// Fails if the `FileIO` instance cannot be created.
     pub fn file_io(&self, credential: Option<&S3Credential>) -> Result<iceberg::io::FileIO> {
         let mut builder = iceberg::io::FileIOBuilder::new("s3");
-        if let Some(region) = &self.region {
-            builder = builder.with_prop(iceberg::io::S3_REGION, region);
-        }
+
+        builder = builder.with_prop(iceberg::io::S3_REGION, self.region.clone());
+
         if let Some(endpoint) = &self.endpoint {
             builder = builder.with_prop(iceberg::io::S3_ENDPOINT, endpoint);
         }
@@ -377,10 +371,12 @@ impl S3Profile {
     }
 }
 
-#[derive(Redact, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "credential-type", rename_all = "kebab-case")]
 #[allow(clippy::module_name_repetitions)]
+#[schema(rename_all = "kebab-case")]
 pub enum S3Credential {
+    #[serde(rename_all = "kebab-case")]
     AccessKey {
         aws_access_key_id: String,
         #[redact(partial)]
@@ -483,8 +479,8 @@ mod test {
             key_prefix: Some("test_prefix".to_string()),
             assume_role_arn: None,
             endpoint: None,
-            region: None,
-            path_style_access: None,
+            region: "dummy".to_string(),
+            path_style_access: Some(true),
         };
 
         let namespace_id = NamespaceIdentUuid::from(uuid::Uuid::now_v7());

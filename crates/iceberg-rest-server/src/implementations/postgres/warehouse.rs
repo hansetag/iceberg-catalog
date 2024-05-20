@@ -159,7 +159,7 @@ pub(crate) mod test {
         let storage_profile = storage_profile.unwrap_or(StorageProfile::S3(S3Profile {
             bucket: "test_bucket".to_string(),
             endpoint: None,
-            region: None,
+            region: "us-east-1".to_string(),
             assume_role_arn: None,
             path_style_access: None,
             key_prefix: None,

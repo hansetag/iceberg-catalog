@@ -141,13 +141,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             config: Some(config),
         };
 
-        // Metadata file written, now we can commit the transaction
-        transaction.commit().await?;
-
         println!(
-            "Returning Load Table Result: {:?}",
+            "Load Table Result: {}",
             serde_json::to_string(&load_table_result).unwrap()
         );
+
+        // Metadata file written, now we can commit the transaction
+        transaction.commit().await?;
 
         Ok(load_table_result)
     }
@@ -160,6 +160,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         _headers: HeaderMap,
     ) -> Result<LoadTableResult> {
         // ToDo: Should we support this?
+        // May be problematic if we don't know the location
         Err(ErrorModel::builder()
             .code(StatusCode::NOT_IMPLEMENTED.into())
             .message("Registering tables is not supported".to_string())
