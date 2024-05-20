@@ -258,9 +258,8 @@ impl TableUpdateExt for TableUpdate {
             TableUpdate::AddSnapshot { snapshot } => {
                 builder.add_snapshot(snapshot)?;
             }
-            TableUpdate::RemoveSnapshots { snapshot_ids: _ } => {
-                // ToDo: Implement
-                unimplemented!("TableUpdate::RemoveSnapshots")
+            TableUpdate::RemoveSnapshots { snapshot_ids } => {
+                builder.remove_snapshots(&snapshot_ids)?;
             }
             TableUpdate::SetSnapshotRef {
                 ref_name,
@@ -268,9 +267,8 @@ impl TableUpdateExt for TableUpdate {
             } => {
                 builder.set_snapshot_ref(ref_name, reference)?;
             }
-            TableUpdate::RemoveSnapshotRef { ref_name: _ } => {
-                // ToDo: Implement
-                unimplemented!("TableUpdate::RemoveSnapshotRef")
+            TableUpdate::RemoveSnapshotRef { ref_name } => {
+                builder.remove_snapshot_by_ref(&ref_name)?;
             }
         }
         Ok(builder)

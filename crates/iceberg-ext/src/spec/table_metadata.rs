@@ -1,8 +1,7 @@
 use http::StatusCode;
-use iceberg::spec::{
-    FormatVersion, PartitionSpec, Schema, Snapshot, SnapshotLog, SnapshotReference, SortOrder,
-    TableMetadata, UnboundPartitionSpec,
-};
+use iceberg::spec::{FormatVersion, PartitionSpec, PartitionSpecBuilder, PartitionSpecRef, Schema, SchemaRef, Snapshot, SnapshotLog, SnapshotRef, SnapshotReference, SortOrder, TableMetadata, Transform, UnboundPartitionSpec};
+use std::any::Any;
+use std::ops::BitAnd;
 use std::{collections::HashMap, vec};
 use uuid::Uuid;
 
@@ -13,6 +12,71 @@ type Result<T> = std::result::Result<T, ErrorModel>;
 static MAIN_BRANCH: &str = "main";
 static DEFAULT_SPEC_ID: i32 = 0;
 static DEFAULT_SORT_ORDER_ID: i64 = 0;
+
+pub trait UnboundPartitionSpecExt {
+    fn check_compatibility(&self, schema: &SchemaRef) -> Result<()>;
+
+    fn has_sequential_ids(&self) -> bool;
+
+    fn bind(self, schema: &SchemaRef) -> PartitionSpec;
+}
+
+impl UnboundPartitionSpecExt for UnboundPartitionSpec {
+    fn check_compatibility(&self, schema: &SchemaRef) -> Result<()> {
+        for fields in self.fields {
+            let source_type = schema.as_struct()
+                .field_by_id(fields.source_id)
+                .ok_or(
+                    ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.into())
+                        .message(format!("Cannot find source column for partition field: '{}'.", fields.source_id))
+                        .r#type("FailedToBuildPartitionSpec")
+                        .build()
+                )?
+                .field_type
+                .clone();
+
+            if fields.transform.ne(&Transform::Void) {
+                source_type.is_primitive().then_some(
+                    ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.into())
+                        .message(format!("Invalid input type: '{input_type}' for transformation."))
+                        .r#type("FailedToBuildPartitionSpec")
+                        .build()
+                )?;
+
+                fields.transform.result_type(&*source_type).is_err().then_some(
+                    ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.into())
+                        .message(format!("Invalid input type: '{input_type}' for transformation."))
+                        .r#type("FailedToBuildPartitionSpec")
+                        .build()
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn has_sequential_ids(&self) -> bool {
+        for (index, field) in self.fields.iter().enumerate() {
+            if field.partition_id.unwrap().ne(&(1000 + index)) {
+                return false;
+            }
+        }
+        return true
+    }
+
+    fn bind(self, schema: &Schema) -> PartitionSpec {
+        let partition_spec_builder = PartitionSpec::builder();
+
+        for unbounded_fields in &self.fields {
+            // let field_type = schema.
+        }
+
+        todo!()
+    }
+}
 
 #[derive(Debug)]
 #[allow(clippy::module_name_repetitions)]
@@ -33,30 +97,28 @@ impl TableMetadataBuilder {
     /// Initialize new table metadata.
     #[must_use]
     pub fn new(location: String) -> Self {
-        let table_metadata = TableMetadata {
-            format_version: FormatVersion::V2,
-            table_uuid: Uuid::now_v7(),
-            location,
-            last_sequence_number: 0,
-            last_updated_ms: chrono::Utc::now().timestamp_millis(),
-            last_column_id: -1,
-            current_schema_id: -1,
-            schemas: HashMap::new(),
-            partition_specs: HashMap::new(),
-            default_spec_id: -1,
-            last_partition_id: 0,
-            properties: HashMap::new(),
-            current_snapshot_id: None,
-            snapshots: HashMap::new(),
-            snapshot_log: vec![],
-            sort_orders: HashMap::new(),
-            metadata_log: vec![],
-            default_sort_order_id: -1,
-            refs: HashMap::default(),
-        };
-
         Self {
-            metadata: table_metadata,
+            metadata: TableMetadata {
+                format_version: FormatVersion::V2,
+                table_uuid: Uuid::now_v7(),
+                location,
+                last_sequence_number: 0,
+                last_updated_ms: chrono::Utc::now().timestamp_millis(),
+                last_column_id: -1,
+                current_schema_id: -1,
+                schemas: HashMap::new(),
+                partition_specs: HashMap::new(),
+                default_spec_id: -1,
+                last_partition_id: 0,
+                properties: HashMap::new(),
+                current_snapshot_id: None,
+                snapshots: HashMap::new(),
+                snapshot_log: vec![],
+                sort_orders: HashMap::new(),
+                metadata_log: vec![],
+                default_sort_order_id: -1,
+                refs: HashMap::default(),
+            },
             added_schema_ids: vec![],
             current_schema_id: None,
             partition_specs: vec![],
@@ -122,7 +184,7 @@ impl TableMetadataBuilder {
     ///
     /// # Errors
     /// None yet.
-    pub fn remove_properties(&mut self, properties: &Vec<String>) -> Result<&mut Self> {
+    pub fn remove_properties(&mut self, properties: &[String]) -> Result<&mut Self> {
         for property in properties {
             self.metadata.properties.remove(property);
         }
@@ -137,6 +199,28 @@ impl TableMetadataBuilder {
         for (key, value) in properties {
             self.metadata.properties.insert(key, value);
         }
+        Ok(self)
+    }
+
+    //// Remove snapshots by its ids from the table metadata.
+    ///
+    /// # Errors
+    /// None yet.
+    pub fn remove_snapshots(&mut self, snapshot_ids: &[i64]) -> Result<&mut Self> {
+        for snapshot_id in snapshot_ids {
+            self.metadata.snapshots.remove(snapshot_id);
+        }
+
+        Ok(self)
+    }
+
+    //// Removes snapshot by its name from the table metadata.
+    ///
+    /// # Errors
+    /// None yet.
+    pub fn remove_snapshot_by_ref(&mut self, snapshot_ref: &str) -> Result<&mut Self> {
+        self.metadata.refs.remove(snapshot_ref);
+
         Ok(self)
     }
 
@@ -236,6 +320,7 @@ impl TableMetadataBuilder {
     /// None yet. Fails during build if `spec` cannot be bound.
     pub fn add_partition_spec(&mut self, spec: UnboundPartitionSpec) -> Result<&mut Self> {
         self.partition_specs.push(spec);
+        // self.metadata.last_partition_id = spec.spec_id;
 
         Ok(self)
     }
@@ -250,22 +335,87 @@ impl TableMetadataBuilder {
     }
 
     /// Returns added partition spec IDs
+    ///
+    /// To ask:
+    /// Why `UnboundPartitionSpec.spec_id` is option ?
+    /// What is `default_spec_id` ?
+    /// Is this `last_partition_id` is equal to `lastAddedSpecId` in Java version ?
+    /// Why we don't update last `last_partition_id` when calling `add_partition_spec` ?
+    /// Can I replace `highest_spec_id` with `self.last_partition_id` ?
+    /// Why this thing is still unimplemented ?
+    /// Maybe it make sense to initialize `added_partition_specs_ids` via `.with_capacity` function ?
+    /// How to bind schema to `partition_spec` ?
     fn finalize_partition_spec(&mut self) -> Result<Vec<i32>> {
-        let mut added_partition_specs = vec![];
-        for spec in &self.partition_specs {
+        let mut added_partition_specs_ids = Vec::with_capacity(self.partition_specs.len());
+        for unbounded_spec in &self.partition_specs {
+            let new_partition_spec_id = self.reuse_or_create_new_spec_id(unbounded_spec);
             // ToDo: Properly bind partitions & support partitions.
             // At this point the schema has already been finalized.
             // ToDo: Disallow partition spec overwrites?
-            if !spec.fields.is_empty() {
+            //
+            // if !unbounded_spec.fields.is_empty() {
+            //     return Err(ErrorModel::builder()
+            //         .message("Partitioned Tables not supported.".to_string())
+            //         .code(StatusCode::CONFLICT.into())
+            //         .r#type("PartitionedTablesUnsupported".to_string())
+            //         .build());
+            // }
+
+            if self
+                .metadata
+                .partition_specs
+                .contains_key(&new_partition_spec_id)
+            {
+                // update lastAddedSpecId if the spec was added in this set of changes (since it is now the
+                // last)
+                // boolean isNewSpec =
+                //     lastAddedSpecId != null
+                //         && changes(MetadataUpdate.AddPartitionSpec.class)
+                //         .anyMatch(added -> added.spec().specId() == lastAddedSpecId);
+                // this.lastAddedSpecId = isNewSpec ? newSpecId : null;
+                // return newSpecId;
+
+                self.metadata.last_partition_id = new_partition_spec_id;
+                added_partition_specs_ids.push(new_partition_spec_id);
+                continue;
+            }
+
+            let schema = self
+                .metadata
+                .schemas
+                .get(
+                    &self.current_schema_id.ok_or(
+                        ErrorModel::builder()
+                            .code(StatusCode::CONFLICT.into())
+                            .message("Failed to get 'current_schema_id'.")
+                            .r#type("FailedToBuildPartitionSpec")
+                            .build(),
+                    )?,
+                )
+                .ok_or(
+                    ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.into())
+                        .message("Failed to get 'schema' by ID.")
+                        .r#type("FailedToBuildPartitionSpec")
+                        .build(),
+                )?;
+
+            Self::check_compatibility(unbounded_spec, schema)?;
+            if self.metadata.format_version.le(&1) && !unbounded_spec.has_sequential_ids() {
                 return Err(ErrorModel::builder()
-                    .message("Partitioned Tables not supported.".to_string())
                     .code(StatusCode::CONFLICT.into())
-                    .r#type("PartitionedTablesUnsupported".to_string())
+                    .message("Spec does not use sequential IDs that are required in v1.")
+                    .r#type("FailedToBuildPartitionSpec")
                     .build());
             }
 
+            // ValidationException.check(
+            //           formatVersion > 1 || PartitionSpec.hasSequentialIds(spec),
+            //           "Spec does not use sequential IDs that are required in v1: %s",
+            //           spec);
+
             let partition_spec = PartitionSpec::builder()
-                .with_spec_id(spec.spec_id.unwrap_or(0))
+                .with_spec_id(new_partition_spec_id)
                 .with_fields(vec![])
                 .build()
                 .map_err(|e| {
@@ -276,13 +426,43 @@ impl TableMetadataBuilder {
                         .stack(Some(vec![e.to_string()]))
                         .build()
                 })?;
-            let partition_spec_id = partition_spec.spec_id;
+
             self.metadata
                 .partition_specs
                 .insert(partition_spec.spec_id, partition_spec.into());
-            added_partition_specs.push(partition_spec_id);
+
+            added_partition_specs_ids.push(new_partition_spec_id);
         }
-        Ok(added_partition_specs)
+
+        Ok(added_partition_specs_ids)
+    }
+
+    /// If the spec already exists, use the same ID. Otherwise, use 1 more than the highest ID.
+    fn reuse_or_create_new_spec_id(&self, unbound_spec: &UnboundPartitionSpec) -> i32 {
+        match unbound_spec.spec_id {
+            Some(id) => self
+                .metadata
+                .partition_specs
+                .get(&id)
+                .is_some_and(|bounded_spec| bounded_spec.fields.eq(&unbound_spec.fields))
+                .then_some(id)
+                .unwrap_or_else(|| self.highest_spec_id() + 1),
+            None => self.highest_spec_id() + 1,
+        }
+    }
+
+    fn highest_spec_id(&self) -> i32 {
+        *self
+            .metadata
+            .partition_specs
+            .keys()
+            .into_iter()
+            .max()
+            .unwrap_or(&0)
+    }
+
+    fn check_compatibility(unbound_partition_spec: &UnboundPartitionSpec, schema: &SchemaRef) -> Result<()> {
+        todo!()
     }
 
     fn finalize_default_partition_spec(&mut self, added_partition_specs: &[i32]) -> Result<()> {
