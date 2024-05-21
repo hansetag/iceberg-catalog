@@ -1,6 +1,6 @@
 import conftest
-import pytest
 import pandas as pd
+import pytest
 
 
 def test_create_namespace(spark, warehouse: conftest.Warehouse):
@@ -95,3 +95,13 @@ def test_write_read_table(spark, warehouse: conftest.Warehouse):
     assert pdf["my_ints"].tolist() == [1, 2]
     assert pdf["my_floats"].tolist() == [1.2, 2.2]
     assert pdf["strings"].tolist() == ["foo", "bar"]
+
+
+def test_list_tables(spark, warehouse: conftest.Warehouse):
+    spark.sql("CREATE NAMESPACE my_namespace")
+    spark.sql(
+        "CREATE TABLE my_namespace.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    pdf = spark.sql("SHOW TABLES IN my_namespace").toPandas()
+    assert len(pdf) == 1
+    assert pdf["tableName"].values[0] == "my_table"

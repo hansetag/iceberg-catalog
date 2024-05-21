@@ -128,6 +128,15 @@ impl AuthZHandler for AllowAllAuthZHandler {
         Ok(())
     }
 
+    async fn check_list_tables(
+        _: &HeaderMap,
+        _: &WarehouseIdent,
+        _: &NamespaceIdent,
+        _: AllowAllAuthState,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     async fn check_rename_table(
         _: &HeaderMap,
         _: &WarehouseIdent,

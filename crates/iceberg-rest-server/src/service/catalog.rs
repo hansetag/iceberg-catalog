@@ -145,6 +145,13 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateTableResult>;
 
+    async fn list_tables(
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        include_staged: bool,
+        catalog_state: Self::State,
+    ) -> Result<HashMap<TableIdentUuid, TableIdent>>;
+
     /// Return Err only on unexpected errors, not if the table does not exist.
     /// If include_staged is true, also return staged tables.
     /// If the table does not exist, return Ok(None).

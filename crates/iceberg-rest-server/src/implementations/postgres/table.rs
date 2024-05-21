@@ -300,6 +300,52 @@ pub(crate) async fn load_table(
     })
 }
 
+pub(crate) async fn list_tables(
+    warehouse_id: &WarehouseIdent,
+    namespace: &NamespaceIdent,
+    include_staged: bool,
+    catalog_state: CatalogState,
+) -> Result<HashMap<TableIdentUuid, TableIdent>> {
+    let tables = sqlx::query!(
+        r#"
+        SELECT
+            t."table_id",
+            t."name" as "table_name",
+            n."name" as "namespace"
+        FROM "table" t
+        INNER JOIN namespace n ON t.namespace_id = n.namespace_id
+        WHERE n.warehouse_id = $1 AND n."name" = $2
+        AND (t."metadata_location" IS NOT NULL OR $3)
+        "#,
+        warehouse_id.as_uuid(),
+        &**namespace,
+        include_staged
+    )
+    .fetch_all(&catalog_state.read_pool)
+    .await
+    .map_err(|e| e.into_error_model("Error fetching tables".to_string()))?;
+
+    let mut table_map = HashMap::new();
+    for table in tables {
+        table_map.insert(
+            table.table_id.into(),
+            TableIdent {
+                namespace: NamespaceIdent::from_vec(table.namespace).map_err(|e| {
+                    ErrorModel::builder()
+                        .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                        .message("Error parsing namespace".to_string())
+                        .r#type("NamespaceParseError".to_string())
+                        .stack(Some(vec![e.to_string()]))
+                        .build()
+                })?,
+                name: table.table_name,
+            },
+        );
+    }
+
+    Ok(table_map)
+}
+
 pub(crate) async fn get_table_metadata_by_id(
     warehouse_id: &WarehouseIdent,
     table: &TableIdentUuid,
@@ -1143,6 +1189,41 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(exists, Some(table.table_id));
+    }
+
+    #[sqlx::test]
+    async fn test_list_tables(pool: sqlx::PgPool) {
+        let state = CatalogState {
+            read_pool: pool.clone(),
+            write_pool: pool.clone(),
+        };
+
+        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
+        initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
+        let tables = list_tables(&warehouse_id, &namespace, false, state.clone())
+            .await
+            .unwrap();
+        assert_eq!(tables.len(), 0);
+
+        let table1 = initialize_table(&warehouse_id, state.clone(), false).await;
+
+        let tables = list_tables(&warehouse_id, &table1.namespace, false, state.clone())
+            .await
+            .unwrap();
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables.get(&table1.table_id), Some(&table1.table_ident));
+
+        let table2 = initialize_table(&warehouse_id, state.clone(), true).await;
+        let tables = list_tables(&warehouse_id, &table2.namespace, false, state.clone())
+            .await
+            .unwrap();
+        assert_eq!(tables.len(), 0);
+        let tables = list_tables(&warehouse_id, &table2.namespace, true, state.clone())
+            .await
+            .unwrap();
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables.get(&table2.table_id), Some(&table2.table_ident));
     }
 
     #[sqlx::test]

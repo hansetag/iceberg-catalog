@@ -281,6 +281,7 @@ pub(crate) fn validate_namespace_ident(namespace: &NamespaceIdent) -> Result<()>
                 "Namespace exceeds maximum depth of {MAX_NAMESPACE_DEPTH}",
             ))
             .r#type("NamespaceDepthExceeded".to_string())
+            .stack(Some(vec![format!("Namespace: {:?}", namespace)]))
             .build()
             .into());
     }
@@ -290,6 +291,7 @@ pub(crate) fn validate_namespace_ident(namespace: &NamespaceIdent) -> Result<()>
             .code(StatusCode::BAD_REQUEST.into())
             .message("Namespace parts cannot be empty".to_string())
             .r#type("EmptyNamespacePart".to_string())
+            .stack(Some(vec![format!("Namespace: {:?}", namespace)]))
             .build()
             .into());
     }
