@@ -10,7 +10,7 @@ use iceberg_ext::TableIdent;
 #[async_trait]
 pub trait Service<S: crate::service::State>
 where
-    Self: Send + Sync + Clone + 'static,
+    Self: Send + Sync + 'static,
 {
     /// Send a metrics report to this endpoint to be processed by the backend
     async fn report_metrics(

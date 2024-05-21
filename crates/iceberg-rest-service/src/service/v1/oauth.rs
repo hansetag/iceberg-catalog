@@ -6,7 +6,7 @@ use super::{
 #[async_trait]
 pub trait Service<S: crate::service::State>
 where
-    Self: Send + Sync + Clone + 'static,
+    Self: Send + Sync + 'static,
 {
     async fn get_token(
         state: ApiContext<S>,

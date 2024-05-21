@@ -13,7 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 #[async_trait]
 pub trait Service<S: crate::service::State>
 where
-    Self: Send + Sync + Clone + 'static,
+    Self: Send + Sync + 'static,
 {
     /// List all namespaces at a certain level, optionally starting from a given parent namespace.
     /// If table accounting.tax.paid.info exists, using 'SELECT NAMESPACE IN accounting'

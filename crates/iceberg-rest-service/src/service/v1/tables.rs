@@ -11,7 +11,7 @@ use http::StatusCode;
 #[async_trait]
 pub trait Service<S: crate::service::State>
 where
-    Self: Send + Sync + Clone + 'static,
+    Self: Send + Sync + 'static,
 {
     /// List all table identifiers underneath a given namespace
     async fn list_tables(

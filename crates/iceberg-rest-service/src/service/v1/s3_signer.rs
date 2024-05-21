@@ -5,7 +5,7 @@ use iceberg_ext::catalog::rest::{S3SignRequest, S3SignResponse};
 #[async_trait]
 pub trait Service<S: crate::service::State>
 where
-    Self: Send + Sync + Clone + 'static,
+    Self: Send + Sync + 'static,
 {
     /// Sign an S3 request.
     /// Requests should be send to `/:prefix/namespace/:namespace/table/:table/v1/aws/s3/sign`,
