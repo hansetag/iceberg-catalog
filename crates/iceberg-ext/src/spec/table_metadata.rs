@@ -1,7 +1,10 @@
 use http::StatusCode;
-use iceberg::spec::{FormatVersion, PartitionSpec, PartitionSpecBuilder, PartitionSpecRef, Schema, SchemaRef, Snapshot, SnapshotLog, SnapshotRef, SnapshotReference, SortOrder, TableMetadata, Transform, UnboundPartitionSpec};
-use std::any::Any;
-use std::ops::BitAnd;
+use iceberg::spec::{
+    FormatVersion, NestedFieldRef, PartitionField, PartitionSpec, PartitionSpecBuilder,
+    PartitionSpecRef, Schema, SchemaRef, Snapshot, SnapshotLog, SnapshotRef, SnapshotReference,
+    SortOrder, TableMetadata, Transform, UnboundPartitionField, UnboundPartitionSpec,
+};
+use std::collections::HashSet;
 use std::{collections::HashMap, vec};
 use uuid::Uuid;
 
@@ -18,20 +21,93 @@ pub trait UnboundPartitionSpecExt {
 
     fn has_sequential_ids(&self) -> bool;
 
-    fn bind(self, schema: &SchemaRef) -> PartitionSpec;
+    fn bind(self, schema: SchemaRef) -> Result<PartitionSpec>;
+}
+
+struct PartitionSpecBinder {
+    spec_id: i32,
+    schema: SchemaRef,
+    partition_names: HashSet<String>,
+}
+
+impl PartitionSpecBinder {
+    fn new(schema: SchemaRef, spec_id: i32) -> Self {
+        Self {
+            spec_id,
+            schema,
+            ..Default::default()
+        }
+    }
+
+    fn err<T: Into<String>>(message: T) -> ErrorModel {
+        ErrorModel {
+            message: message.into(),
+            r#type: "FailedToBuildPartitionSpec".to_owned(),
+            code: StatusCode::CONFLICT.into(),
+            stack: None,
+        }
+    }
+
+    pub fn add_unbound_field(mut self, spec: &UnboundPartitionSpec) -> Result<PartitionSpec> {
+        let mut bounded_fields = Vec::with_capacity(spec.fields.len());
+
+        for spec_fields in spec.fields {
+            if spec_fields.name.is_empty() {
+                return Err(Self::err(format!(
+                    "Cannot use empty or null partition name:'{name}'."
+                )));
+            }
+
+            if self.partition_names.contains(&spec_fields.name) {
+                return Err(Self::err(format!(
+                    "Cannot use partition name:'{name}' more than once."
+                )));
+            }
+
+            let schema_field = self.schema.as_struct().field_by_name(&spec_fields.name);
+
+            match schema_field {
+                Some(schema_field) if schema_field.id == spec_fields.source_id => Err(Self::err(
+                    "Cannot create identity partition sourced from different field in schema.",
+                )),
+                Some(_) => {
+                    self.partition_names.insert(spec_fields.name.clone());
+
+                    Ok(bounded_fields.push(
+                        PartitionField::builder()
+                            .source_id(spec_fields.source_id)
+                            .field_id(spec_fields.partition_id)
+                            .name(spec_fields.name)
+                            .transform(spec_fields.transform)
+                            .build(),
+                    ))
+                }
+                None => Err(Self::err("Field not found in schema.")),
+            }?;
+        }
+
+        Ok(PartitionSpec {
+            spec_id: self.spec_id,
+            fields: bounded_fields,
+        })
+    }
 }
 
 impl UnboundPartitionSpecExt for UnboundPartitionSpec {
     fn check_compatibility(&self, schema: &SchemaRef) -> Result<()> {
         for fields in self.fields {
-            let source_type = schema.as_struct()
+            let source_type = schema
+                .as_struct()
                 .field_by_id(fields.source_id)
                 .ok_or(
                     ErrorModel::builder()
                         .code(StatusCode::CONFLICT.into())
-                        .message(format!("Cannot find source column for partition field: '{}'.", fields.source_id))
+                        .message(format!(
+                            "Cannot find source column for partition field: '{}'.",
+                            fields.source_id
+                        ))
                         .r#type("FailedToBuildPartitionSpec")
-                        .build()
+                        .build(),
                 )?
                 .field_type
                 .clone();
@@ -40,18 +116,26 @@ impl UnboundPartitionSpecExt for UnboundPartitionSpec {
                 source_type.is_primitive().then_some(
                     ErrorModel::builder()
                         .code(StatusCode::CONFLICT.into())
-                        .message(format!("Invalid input type: '{input_type}' for transformation."))
+                        .message(format!(
+                            "Invalid input type: '{input_type}' for transformation."
+                        ))
                         .r#type("FailedToBuildPartitionSpec")
-                        .build()
+                        .build(),
                 )?;
 
-                fields.transform.result_type(&*source_type).is_err().then_some(
-                    ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.into())
-                        .message(format!("Invalid input type: '{input_type}' for transformation."))
-                        .r#type("FailedToBuildPartitionSpec")
-                        .build()
-                )?;
+                fields
+                    .transform
+                    .result_type(&*source_type)
+                    .is_err()
+                    .then_some(
+                        ErrorModel::builder()
+                            .code(StatusCode::CONFLICT.into())
+                            .message(format!(
+                                "Invalid input type: '{input_type}' for transformation."
+                            ))
+                            .r#type("FailedToBuildPartitionSpec")
+                            .build(),
+                    )?;
             }
         }
 
@@ -64,17 +148,41 @@ impl UnboundPartitionSpecExt for UnboundPartitionSpec {
                 return false;
             }
         }
-        return true
+        return true;
     }
 
-    fn bind(self, schema: &Schema) -> PartitionSpec {
-        let partition_spec_builder = PartitionSpec::builder();
+    fn bind(self, schema: SchemaRef) -> Result<PartitionSpec> {
+        let mut last_assigned_field_id = 999;
+        let mut partition_spec_builder =
+            PartitionSpec::builder().with_spec_id(self.spec_id.unwrap_or_default());
 
-        for unbounded_fields in &self.fields {
-            // let field_type = schema.
+        for unbounded_fields in self.fields {
+            let transform = unbounded_fields.transform;
+
+            let partition_field = match unbounded_fields.partition_id {
+                Some(id) => {
+                    last_assigned_field_id = id;
+                    PartitionField::builder()
+                        .field_id(id)
+                        .source_id(unbounded_fields.source_id)
+                        .name(unbounded_fields.name)
+                        .transform(transform)
+                }
+                None => {
+                    last_assigned_field_id += 1;
+                    PartitionField::builder()
+                        .field_id(last_assigned_field_id)
+                        .source_id(unbounded_fields.source_id)
+                        .name(unbounded_fields.name)
+                        .transform(transform)
+                }
+            }
+            .build();
+
+            partition_spec_builder.with_partition_field(partition_field);
         }
 
-        todo!()
+        Ok(partition_spec_builder.build()?)
     }
 }
 
@@ -400,7 +508,7 @@ impl TableMetadataBuilder {
                         .build(),
                 )?;
 
-            Self::check_compatibility(unbounded_spec, schema)?;
+            unbounded_spec.check_compatibility(schema)?;
             if self.metadata.format_version.le(&1) && !unbounded_spec.has_sequential_ids() {
                 return Err(ErrorModel::builder()
                     .code(StatusCode::CONFLICT.into())
@@ -459,10 +567,6 @@ impl TableMetadataBuilder {
             .into_iter()
             .max()
             .unwrap_or(&0)
-    }
-
-    fn check_compatibility(unbound_partition_spec: &UnboundPartitionSpec, schema: &SchemaRef) -> Result<()> {
-        todo!()
     }
 
     fn finalize_default_partition_spec(&mut self, added_partition_specs: &[i32]) -> Result<()> {
