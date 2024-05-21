@@ -30,14 +30,33 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 {
     /// List all table identifiers underneath a given namespace
     async fn list_tables(
-        _parameters: NamespaceParameters,
+        parameters: NamespaceParameters,
         _query: PaginationQuery,
-        _state: ApiContext<State<A, C, S>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<ListTablesResponse> {
-        println!("List Tables Headers: {:?}", headers);
-        // ToDo: Implement
-        unimplemented!()
+        // ------------------- VALIDATIONS -------------------
+        let NamespaceParameters { namespace, prefix } = parameters;
+        let warehouse_id = require_warehouse_id(prefix)?;
+        validate_namespace_ident(&namespace)?;
+
+        // ------------------- AUTHZ -------------------
+        A::check_list_tables(&headers, &warehouse_id, &namespace, state.v1_state.auth).await?;
+
+        // ------------------- BUSINESS LOGIC -------------------
+        let include_staged = false;
+        let tables = C::list_tables(
+            &warehouse_id,
+            &namespace,
+            include_staged,
+            state.v1_state.catalog,
+        )
+        .await?;
+
+        Ok(ListTablesResponse {
+            next_page_token: None,
+            identifiers: tables.into_iter().map(|t| t.1).collect(),
+        })
     }
 
     /// Create a table in the given namespace

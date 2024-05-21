@@ -104,6 +104,13 @@ where
         state: Self::State,
     ) -> Result<()>;
 
+    async fn check_list_tables(
+        headers: &HeaderMap,
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        state: Self::State,
+    ) -> Result<()>;
+
     /// Check if the user is allowed to load a table.
     ///
     /// `table` is an optional argument because we might not be able

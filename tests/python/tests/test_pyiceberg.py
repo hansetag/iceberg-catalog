@@ -95,3 +95,23 @@ def test_table_properties(namespace: conftest.Namespace):
     )
     table = catalog.load_table((*namespace.name, table_name))
     assert table.properties == properties
+
+
+def test_list_tables(namespace: conftest.Namespace):
+    catalog = namespace.pyiceberg_catalog
+    assert len(catalog.list_tables(namespace.name)) == 0
+    table_name_1 = "my_table_1"
+    table_name_2 = "my_table_2"
+    schema = pa.schema(
+        [
+            pa.field("my_ints", pa.int64()),
+            pa.field("my_floats", pa.float64()),
+            pa.field("strings", pa.string()),
+        ]
+    )
+    catalog.create_table((*namespace.name, table_name_1), schema=schema)
+    catalog.create_table((*namespace.name, table_name_2), schema=schema)
+    tables = catalog.list_tables(namespace.name)
+    assert len(tables) == 2
+    assert (*namespace.name, table_name_1) in tables
+    assert (*namespace.name, table_name_2) in tables

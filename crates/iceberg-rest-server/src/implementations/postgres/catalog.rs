@@ -6,8 +6,8 @@ use super::{
         list_namespaces, namespace_ident_to_id, update_namespace_properties,
     },
     table::{
-        commit_table_transaction, create_table, drop_table, get_table_metadata_by_id, load_table,
-        rename_table, table_ident_to_id, table_idents_to_ids,
+        commit_table_transaction, create_table, drop_table, get_table_metadata_by_id, list_tables,
+        load_table, rename_table, table_ident_to_id, table_idents_to_ids,
     },
     warehouse::create_warehouse_profile,
     CatalogState, PostgresTransaction,
@@ -126,6 +126,15 @@ impl Catalog for super::Catalog {
             transaction,
         )
         .await
+    }
+
+    async fn list_tables(
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        include_staged: bool,
+        catalog_state: CatalogState,
+    ) -> Result<HashMap<TableIdentUuid, TableIdent>> {
+        list_tables(warehouse_id, namespace, include_staged, catalog_state).await
     }
 
     async fn load_table(
