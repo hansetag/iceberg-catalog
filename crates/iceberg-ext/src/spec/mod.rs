@@ -6,5 +6,6 @@ pub use iceberg::spec::{
     UnboundPartitionField, UnboundPartitionSpec, ViewMetadata, ViewVersion,
 };
 
+mod spec_binder;
 mod table_metadata;
 pub use table_metadata::TableMetadataBuilder;
