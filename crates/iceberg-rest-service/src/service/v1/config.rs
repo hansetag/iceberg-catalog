@@ -3,7 +3,7 @@ use super::{async_trait, get, ApiContext, CatalogConfig, HeaderMap, Query, Resul
 #[async_trait]
 pub trait Service<S: crate::service::State>
 where
-    Self: Send + Sync + Clone + 'static,
+    Self: Send + Sync + 'static,
 {
     async fn get_config(
         query: GetConfigQueryParams,

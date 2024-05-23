@@ -10,7 +10,7 @@ use http::StatusCode;
 #[async_trait]
 pub trait Service<S: crate::service::State>
 where
-    Self: Send + Sync + Clone + 'static,
+    Self: Send + Sync + 'static,
 {
     /// List all views underneath a given namespace
     async fn list_views(
