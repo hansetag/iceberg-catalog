@@ -8,7 +8,7 @@ use iceberg::spec::{
 use uuid::Uuid;
 
 use crate::catalog::rest::ErrorModel;
-use crate::spec::spec_binder::PartitionSpecBinder;
+use crate::spec::partition_binder::PartitionSpecBinder;
 
 type Result<T> = std::result::Result<T, ErrorModel>;
 

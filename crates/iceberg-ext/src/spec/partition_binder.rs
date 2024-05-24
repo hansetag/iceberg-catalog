@@ -165,7 +165,7 @@ impl PartitionSpecBinder {
 /// Ensure that the field IDs in the `PartitionSpec` are sequential if required by the system version.
 #[cfg(test)]
 mod test {
-    use crate::spec::spec_binder::PartitionSpecBinder;
+    use crate::spec::partition_binder::PartitionSpecBinder;
     use iceberg::spec::Type::{Primitive, Struct};
     use iceberg::spec::{
         NestedField, NestedFieldRef, PrimitiveType, Schema, SchemaRef, StructType, Transform, Type,
