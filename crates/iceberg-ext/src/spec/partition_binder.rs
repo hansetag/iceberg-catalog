@@ -39,9 +39,7 @@ impl PartitionSpecBinder {
                 .fields
                 .into_iter()
                 .map(|unbound_field| self.bind_field(unbound_field))
-                .collect::<Result<Vec<PartitionField>>>()?, // .into_iter()
-                                                            // .map(|bound_field| self.check_for_redundant_partitions(bound_field))
-                                                            // .collect::<Result<Vec<PartitionField>>>()?,
+                .collect::<Result<Vec<PartitionField>>>()?,
         })
     }
 
@@ -117,9 +115,10 @@ impl PartitionSpecBinder {
             return Ok(());
         }
 
-        Err(Self::err(
-            "Cannot create identity partition sourced from different field in schema.",
-        ))
+        Err(Self::err(format!(
+            "Cannot create identity partition sourced from different field in schema: '{}'.",
+            schema_field.name
+        )))
     }
 
     fn update_names(&mut self, new_name: &str) {
@@ -156,7 +155,10 @@ impl PartitionSpecBinder {
             return Ok(());
         }
 
-        Err(Self::err("Cannot add redundant partition!"))
+        Err(Self::err(format!(
+            "Cannot add redundant partition for: '{}' with transform: '{}' !",
+            source_id, transform,
+        )))
     }
 }
 
