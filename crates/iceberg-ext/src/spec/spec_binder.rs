@@ -158,22 +158,6 @@ impl PartitionSpecBinder {
 
         Err(Self::err("Cannot add redundant partition!"))
     }
-
-    // fn check_for_redundant_partitions(
-    //     &mut self,
-    //     partition_field: PartitionField,
-    // ) -> Result<PartitionField> {
-    //     let key = (
-    //         partition_field.source_id,
-    //         partition_field.transform.dedup_name(),
-    //     );
-    //
-    //     self.dedup_fields
-    //         .insert(key, partition_field.clone())
-    //         .is_none()
-    //         .then_some(partition_field)
-    //         .ok_or_else(|| Self::err("Cannot add redundant partition!"))
-    // }
 }
 
 /// Not covered and should be tested as part of `MetaDataBuilder`:
