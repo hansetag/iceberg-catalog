@@ -257,7 +257,15 @@ impl TableMetadataBuilder {
     /// # Errors
     /// None yet. Fails during build if `spec` cannot be bound.
     pub fn add_partition_spec(&mut self, spec: UnboundPartitionSpec) -> Result<&mut Self> {
-        if self.metadata.format_version.le(&FormatVersion::V1) && !has_sequential_ids(&spec.fields)
+        let mut spec = PartitionSpecBinder::new(
+            self.get_current_schema()?.clone(),
+            spec.spec_id.unwrap_or_default(),
+        )
+        .bind(spec)?;
+        spec.spec_id = self.reuse_or_create_new_spec_id(&spec);
+
+        if self.metadata.format_version.le(&FormatVersion::V1)
+            && !Self::has_sequential_ids(&spec.fields)
         {
             return Err(ErrorModel::builder()
                 .code(StatusCode::CONFLICT.into())
@@ -265,13 +273,6 @@ impl TableMetadataBuilder {
                 .r#type("FailedToBuildPartitionSpec")
                 .build());
         }
-
-        let mut spec = PartitionSpecBinder::new(
-            self.get_current_schema()?.clone(),
-            spec.spec_id.unwrap_or_default(),
-        )
-        .bind(&spec)?;
-        spec.spec_id = self.reuse_or_create_new_spec_id(&spec);
 
         self.metadata.last_partition_id = spec.spec_id;
         self.metadata
@@ -302,13 +303,15 @@ impl TableMetadataBuilder {
             )
     }
 
+    #[allow(clippy::cast_sign_loss)]
     fn has_sequential_ids(fields: &[PartitionField]) -> bool {
         for (index, field) in fields.iter().enumerate() {
-            if field.field_id.ne(&(1000 + index)) {
+            if (field.field_id as usize).ne(&(1000 + index)) {
                 return false;
             }
         }
-        return true;
+
+        true
     }
 
     /// Set the default partition spec.
@@ -346,13 +349,7 @@ impl TableMetadataBuilder {
     }
 
     fn highest_spec_id(&self) -> i32 {
-        *self
-            .metadata
-            .partition_specs
-            .keys()
-            .into_iter()
-            .max()
-            .unwrap_or(&0)
+        *self.metadata.partition_specs.keys().max().unwrap_or(&0)
     }
 
     fn finalize_default_partition_spec(&mut self, added_partition_specs: &[i32]) -> Result<()> {
