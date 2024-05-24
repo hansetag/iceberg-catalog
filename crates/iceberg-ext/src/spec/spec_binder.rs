@@ -10,58 +10,64 @@ use std::collections::HashSet;
 type Result<T> = std::result::Result<T, ErrorModel>;
 
 #[derive(Debug)]
-pub struct PartitionSpecBinder {
+#[allow(clippy::module_name_repetitions)]
+pub(crate) struct PartitionSpecBinder {
     spec_id: i32,
     schema: SchemaRef,
     partition_names: HashSet<String>,
     last_assigned_field_id: i32,
+    dedup_fields: HashSet<(i32, String)>,
 }
 
 impl PartitionSpecBinder {
     const PARTITION_DATA_ID_START: i32 = 1000;
 
-    pub fn new(schema: SchemaRef, spec_id: i32) -> Self {
+    pub(crate) fn new(schema: SchemaRef, spec_id: i32) -> Self {
         Self {
             spec_id,
             schema,
             last_assigned_field_id: Self::PARTITION_DATA_ID_START - 1,
-            partition_names: HashSet::new(),
+            partition_names: HashSet::default(),
+            dedup_fields: HashSet::default(),
         }
     }
 
-    pub fn bind(mut self, spec: &UnboundPartitionSpec) -> Result<PartitionSpec> {
+    pub(crate) fn bind(mut self, spec: UnboundPartitionSpec) -> Result<PartitionSpec> {
         Ok(PartitionSpec {
             spec_id: self.spec_id,
             fields: spec
                 .fields
-                .iter()
-                .map(|unbounded_field| self.bind_field(unbounded_field))
-                .collect::<Result<Vec<PartitionField>>>()?,
+                .into_iter()
+                .map(|unbound_field| self.bind_field(unbound_field))
+                .collect::<Result<Vec<PartitionField>>>()?, // .into_iter()
+                                                            // .map(|bound_field| self.check_for_redundant_partitions(bound_field))
+                                                            // .collect::<Result<Vec<PartitionField>>>()?,
         })
     }
 
-    fn bind_field(&mut self, spec_field: &UnboundPartitionField) -> Result<PartitionField> {
+    fn bind_field(&mut self, spec_field: UnboundPartitionField) -> Result<PartitionField> {
         self.check_partition_names(&spec_field.name)?;
 
         let schema_field = self.get_schema_field_by_name(&spec_field.name)?;
 
-        self.check_transform_compatibility(&spec_field.transform, &schema_field.field_type)?;
+        Self::check_transform_compatibility(spec_field.transform, &schema_field.field_type)?;
         Self::check_schema_field_eq_source_id(schema_field, spec_field.source_id)?;
+        self.check_for_redundant_partitions(spec_field.source_id, spec_field.transform)?;
 
         self.update_names(&spec_field.name);
 
-        let partition_id = spec_field
+        let field_id = spec_field
             .partition_id
-            .unwrap_or_else(|| self.increment_and_get_next_partition_id());
+            .unwrap_or_else(|| self.increment_and_get_next_field_id());
 
         let res = PartitionField::builder()
             .source_id(spec_field.source_id)
-            .field_id(partition_id)
-            .name(spec_field.name.clone())
+            .field_id(field_id)
+            .name(spec_field.name)
             .transform(spec_field.transform)
             .build();
 
-        self.last_assigned_field_id = max(self.last_assigned_field_id, partition_id);
+        self.last_assigned_field_id = max(self.last_assigned_field_id, field_id);
 
         Ok(res)
     }
@@ -75,7 +81,7 @@ impl PartitionSpecBinder {
         }
     }
 
-    fn increment_and_get_next_partition_id(&mut self) -> i32 {
+    fn increment_and_get_next_field_id(&mut self) -> i32 {
         self.last_assigned_field_id += 1;
         self.last_assigned_field_id
     }
@@ -120,11 +126,7 @@ impl PartitionSpecBinder {
         self.partition_names.insert(new_name.to_owned());
     }
 
-    fn check_transform_compatibility(
-        &self,
-        transform: &Transform,
-        source_type: &Box<Type>,
-    ) -> Result<()> {
+    fn check_transform_compatibility(transform: Transform, source_type: &Type) -> Result<()> {
         if transform.ne(&Transform::Void) {
             if !source_type.is_primitive() {
                 return Err(Self::err(format!(
@@ -132,7 +134,7 @@ impl PartitionSpecBinder {
                 )));
             }
 
-            if transform.result_type(&*source_type).is_err() {
+            if transform.result_type(source_type).is_err() {
                 return Err(Self::err(format!(
                     "Invalid source type: '{source_type}' for transform: '{transform}'."
                 )));
@@ -141,17 +143,48 @@ impl PartitionSpecBinder {
 
         Ok(())
     }
+
+    fn check_for_redundant_partitions(
+        &mut self,
+        source_id: i32,
+        transform: Transform,
+    ) -> Result<()> {
+        if !self
+            .dedup_fields
+            .contains(&(source_id, transform.dedup_name()))
+        {
+            return Ok(());
+        }
+
+        Err(Self::err("Cannot add redundant partition!"))
+    }
+
+    // fn check_for_redundant_partitions(
+    //     &mut self,
+    //     partition_field: PartitionField,
+    // ) -> Result<PartitionField> {
+    //     let key = (
+    //         partition_field.source_id,
+    //         partition_field.transform.dedup_name(),
+    //     );
+    //
+    //     self.dedup_fields
+    //         .insert(key, partition_field.clone())
+    //         .is_none()
+    //         .then_some(partition_field)
+    //         .ok_or_else(|| Self::err("Cannot add redundant partition!"))
+    // }
 }
 
-/// Not covered and should be tested as part of 'MetaDataBuilder':
-/// Assign a unique spec ID to the new PartitionSpec.
-/// Ensure that the field IDs in the PartitionSpec are sequential if required by the system version.
+/// Not covered and should be tested as part of `MetaDataBuilder`:
+/// Assign a unique spec ID to the new `PartitionSpec`.
+/// Ensure that the field IDs in the `PartitionSpec` are sequential if required by the system version.
 #[cfg(test)]
 mod test {
     use crate::spec::spec_binder::PartitionSpecBinder;
     use iceberg::spec::Type::{Primitive, Struct};
     use iceberg::spec::{
-        NestedField, NestedFieldRef, PrimitiveType, Schema, SchemaRef, StructType, Transform,
+        NestedField, NestedFieldRef, PrimitiveType, Schema, SchemaRef, StructType, Transform, Type,
         UnboundPartitionField, UnboundPartitionSpec,
     };
     use std::collections::HashSet;
@@ -249,7 +282,7 @@ mod test {
         create_schema_and_spec(schema_fields, spec_fields)
     }
 
-    /// Ensure that the field names in the UnboundPartitionSpec are consistent with the names in the schema.
+    /// Ensure that the field names in the `UnboundPartitionSpec` are consistent with the names in the schema.
     #[test]
     fn names_consistent() {
         let (schema, spec) = mock_compatible_schema_and_spec();
@@ -262,7 +295,7 @@ mod test {
             .all(|field| field.is_ok()));
     }
 
-    /// Ensure that if field names in the UnboundPartitionSpec is inconsistent return an error.
+    /// Ensure that if field names in the `UnboundPartitionSpec` is inconsistent return an error.
     #[test]
     fn names_inconsistent() {
         let (schema, spec) = mock_incompatible_schema_and_spec();
@@ -275,7 +308,7 @@ mod test {
             .any(|field| field.is_err()));
     }
 
-    /// Ensure each field referenced in the UnboundPartitionSpec exists in the schema.
+    /// Ensure each field referenced in the `UnboundPartitionSpec` exists in the schema.
     #[test]
     fn names_exist() {
         let (schema, spec) = mock_compatible_schema_and_spec();
@@ -288,7 +321,7 @@ mod test {
             .all(|schema_field| schema_field.is_ok()));
     }
 
-    /// Ensure that if a field referenced in the UnboundPartitionSpec not exists an error is returned.
+    /// Ensure that if a field referenced in the `UnboundPartitionSpec` not exists an error is returned.
     #[test]
     fn names_not_exist() {
         let (schema, spec) = mock_incompatible_schema_and_spec();
@@ -301,7 +334,7 @@ mod test {
             .any(|schema_field| schema_field.is_err()));
     }
 
-    /// Ensure there are no duplicate fields in the PartitionSpec.
+    /// Ensure there are no duplicate fields in the `PartitionSpec`.
     #[test]
     fn no_duplicates() {
         let (schema, spec) = mock_compatible_schema_and_spec();
@@ -315,16 +348,16 @@ mod test {
 
         assert!(is_all_elements_uniq(
             binder
-                .bind(&spec)
+                .bind(spec)
                 .expect("Cannot bind spec!")
                 .fields
                 .into_iter()
                 .map(|field| field.name)
                 .collect::<Vec<String>>()
-        ))
+        ));
     }
 
-    /// Verify that the field IDs in the UnboundPartitionSpec match the field IDs in the schema.
+    /// Verify that the field IDs in the `UnboundPartitionSpec` match the field IDs in the schema.
     #[test]
     fn field_ids_match() {
         let (schema, spec) = mock_compatible_schema_and_spec();
@@ -344,7 +377,7 @@ mod test {
             .all(|res| res.is_ok()));
     }
 
-    /// Verify that if the field IDs in the UnboundPartitionSpec doesn't match the field IDs in the schema an error returns.
+    /// Verify that if the field IDs in the `UnboundPartitionSpec` doesn't match the field IDs in the schema an error returns.
     #[test]
     fn field_ids_not_match() {
         let (schema, spec) = {
@@ -394,10 +427,24 @@ mod test {
             .any(|res| res.is_err()));
     }
 
-    /// Ensure the transforms applied to the fields in the UnboundPartitionSpec are valid and supported.
-    /// Ensure the type of each field in the schema is compatible with the transform specified in the UnboundPartitionSpec.
+    /// Ensure the transforms applied to the fields in the `UnboundPartitionSpec` are valid and supported.
+    /// Ensure the type of each field in the schema is compatible with the transform specified in the `UnboundPartitionSpec`.
     #[test]
     fn ensure_transform_compatibility() {
+        fn get_transform_and_source<'a>(
+            index: usize,
+            spec: &UnboundPartitionSpec,
+            binder: &'a PartitionSpecBinder,
+        ) -> (Transform, &'a Type) {
+            (
+                spec.fields[index].transform,
+                &*binder
+                    .get_schema_field_by_name(&spec.fields[index].name)
+                    .expect("Cannot get name!")
+                    .field_type,
+            )
+        }
+
         let (schema, spec) = {
             let schema_fields = vec![
                 NestedField::required(1, "id", Primitive(PrimitiveType::Int)).into(),
@@ -431,46 +478,49 @@ mod test {
 
         let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
 
-        let (transform, source_type) = {
-            let index = 0;
-            (
-                &spec.fields[index].transform,
-                &binder
-                    .get_schema_field_by_name(&spec.fields[index].name)
-                    .expect("Cannot get name!")
-                    .field_type,
-            )
-        };
-        assert!(binder
-            .check_transform_compatibility(transform, source_type)
-            .is_ok());
+        let (transform, source_type) = get_transform_and_source(0, &spec, &binder);
+        assert!(PartitionSpecBinder::check_transform_compatibility(transform, source_type).is_ok());
 
-        let (transform, source_type) = {
-            let index = 1;
-            (
-                &spec.fields[index].transform,
-                &binder
-                    .get_schema_field_by_name(&spec.fields[index].name)
-                    .expect("Cannot get name!")
-                    .field_type,
-            )
-        };
-        assert!(binder
-            .check_transform_compatibility(transform, source_type)
-            .is_ok());
+        let (transform, source_type) = get_transform_and_source(1, &spec, &binder);
+        assert!(PartitionSpecBinder::check_transform_compatibility(transform, source_type).is_ok());
 
-        let (transform, source_type) = {
-            let index = 2;
-            (
-                &spec.fields[index].transform,
-                &binder
-                    .get_schema_field_by_name(&spec.fields[index].name)
-                    .expect("Cannot get name!")
-                    .field_type,
-            )
+        let (transform, source_type) = get_transform_and_source(2, &spec, &binder);
+        assert!(
+            PartitionSpecBinder::check_transform_compatibility(transform, source_type).is_err()
+        );
+    }
+
+    /// Verify that each `PartitionField` only occurs once in a `PartitionSpec`.
+    #[test]
+    fn partition_field_occurs_once() {
+        let (schema, spec) = {
+            let schema_fields = vec![
+                NestedField::required(1, "id", Primitive(PrimitiveType::Int)).into(),
+                NestedField::required(2, "data", Primitive(PrimitiveType::String)).into(),
+            ];
+
+            let spec_fields = vec![
+                UnboundPartitionField::builder()
+                    .name("id".to_owned())
+                    .transform(Transform::Identity)
+                    .partition_id(1)
+                    .source_id(1)
+                    .build(),
+                UnboundPartitionField::builder()
+                    .name("data".to_owned())
+                    .transform(Transform::Identity)
+                    .partition_id(2)
+                    .source_id(2)
+                    .build(),
+            ];
+
+            create_schema_and_spec(schema_fields, spec_fields)
         };
-        assert!(binder
-            .check_transform_compatibility(transform, source_type)
-            .is_err());
+
+        let mut binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        binder
+            .bind_field(spec.fields[0].clone())
+            .expect("Cannot bind field!");
+        assert!(binder.bind_field(spec.fields[1].clone()).is_ok());
     }
 }
