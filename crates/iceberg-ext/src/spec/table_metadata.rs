@@ -387,17 +387,33 @@ impl TableMetadataBuilder {
     /// # Errors
     /// - Sort Order ID to add already exists.
     pub fn add_sort_order(&mut self, sort_order: SortOrder) -> Result<&mut Self> {
-        if self.metadata.sort_orders.contains_key(&sort_order.order_id) {
-            return Err(ErrorModel::builder()
-                .message("Sort Order ID to add already exists.".to_string())
-                .code(StatusCode::CONFLICT.into())
-                .r#type("SortOrderIDAlreadyExists".to_string())
-                .build());
-        };
+        let schema = self.get_current_schema()?.clone().as_ref().clone();
+        let mut sort_order = SortOrder::builder()
+            .with_order_id(sort_order.order_id)
+            .with_fields(sort_order.fields)
+            .build(schema)?;
+        sort_order.order_id = self.reuse_or_create_new_sort_id(&sort_order);
 
-        self.sort_orders.push(sort_order);
+        self.metadata.sort_orders.insert(sort_order.order_id, sort_order.into());
 
         Ok(self)
+    }
+
+    fn reuse_or_create_new_sort_id(&self, other: &SortOrder) -> i64 {
+        if other.is_unsorted() {
+            return 0
+        }
+
+        self.metadata
+            .sort_orders
+            .get(&other.order_id)
+            .is_some_and(|founded_spec| founded_spec.fields.eq(&other.fields))
+            .then_some(other.order_id)
+            .unwrap_or_else(|| self.highest_sort_id() + 1)
+    }
+
+    fn highest_sort_id(&self) -> i64 {
+        *self.metadata.sort_orders.keys().max().unwrap_or(&0)
     }
 
     /// Set the default sort order.
