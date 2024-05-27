@@ -1,10 +1,10 @@
 ## Working with SQLx
-To work with SQLx, launch a postgres DB, for example with Docker:
+This crate uses sqlx. For development and compilation a Postgres Database is required. You can use Docker to launch one.:
 ```sh
-docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=pg-admin postgres:15
+docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:15
 ```
 Each crate in the `crates` folder that uses SQLx contains a `.env.sample` File.
-Copy this file to `.env` and add your database credentials.
+Copy this file to `.env` and add your database credentials if they differ.
 
 Run:
 ```sh
@@ -13,17 +13,17 @@ sqlx migrate run
 ```
 
 ## Running integration test
-Please check
+Please check the [Integration Test Docs](tests/README.md).
 
 ## Running the binary
 
 ```sh
-docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=pg-admin postgres:15
+docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:15
 
 export ICEBERG_REST__BASE_URI="http://localhost:8080/catalog/"
 export ICEBERG_REST__PG_ENCRYPTION_KEY="abc"
-export ICEBERG_REST__PG_DATABASE_URL_READ="postgresql://postgres:pg-admin@localhost/demo"
-export ICEBERG_REST__PG_DATABASE_URL_WRITE="postgresql://postgres:pg-admin@localhost/demo"
+export ICEBERG_REST__PG_DATABASE_URL_READ="postgresql://postgres:postgres@localhost/demo"
+export ICEBERG_REST__PG_DATABASE_URL_WRITE="postgresql://postgres:postgres@localhost/demo"
 
 cd src/crates/iceberg-rest-bin
 
