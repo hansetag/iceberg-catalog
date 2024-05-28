@@ -1,7 +1,7 @@
 use http::StatusCode;
 
 use crate::catalog::{TableIdent, TableRequirement, TableUpdate};
-use crate::spec::{Schema, SortOrder, TableMetadata, TableMetadataBuilder, UnboundPartitionSpec};
+use crate::spec::{Schema, SortOrder, TableMetadata, TableMetadataAggregate, UnboundPartitionSpec};
 
 use super::{impl_into_response, ErrorModel, IcebergErrorResponse};
 
@@ -207,15 +207,15 @@ pub trait TableUpdateExt {
     /// For more details, check the docs of the `TableMetadataBuilder`
     fn apply(
         self,
-        builder: &mut TableMetadataBuilder,
-    ) -> Result<&mut TableMetadataBuilder, ErrorModel>;
+        builder: &mut TableMetadataAggregate,
+    ) -> Result<&mut TableMetadataAggregate, ErrorModel>;
 }
 
 impl TableUpdateExt for TableUpdate {
     fn apply(
         self,
-        builder: &mut TableMetadataBuilder,
-    ) -> Result<&mut TableMetadataBuilder, ErrorModel> {
+        builder: &mut TableMetadataAggregate,
+    ) -> Result<&mut TableMetadataAggregate, ErrorModel> {
         match self {
             TableUpdate::AssignUuid { uuid } => {
                 builder.assign_uuid(uuid)?;

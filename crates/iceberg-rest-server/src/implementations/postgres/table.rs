@@ -9,7 +9,7 @@ use crate::{
 
 use http::StatusCode;
 use iceberg_ext::{
-    spec::{TableMetadata, TableMetadataBuilder},
+    spec::{TableMetadata, TableMetadataAggregate},
     NamespaceIdent, TableRequirement, TableUpdate,
 };
 
@@ -196,8 +196,8 @@ pub(crate) async fn create_table(
             .build()
     })?;
 
-    let mut builder = TableMetadataBuilder::new(location.clone());
-    builder.add_schema(schema, None)?;
+    let mut builder = TableMetadataAggregate::new(location.clone());
+    builder.add_schema(schema.into(), None)?;
     builder.set_current_schema(-1)?;
     if let Some(partition_spec) = partition_spec {
         builder.add_partition_spec(partition_spec)?;
@@ -611,7 +611,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
         let metadata_location = context
             .storage_profile
             .metadata_location(&previous_location, &metadata_id);
-        let mut builder = TableMetadataBuilder::new_from_metadata(context.metadata);
+        let mut builder = TableMetadataAggregate::new_from_metadata(context.metadata);
         for update in context.updates {
             match &update {
                 TableUpdate::AssignUuid { uuid } => {

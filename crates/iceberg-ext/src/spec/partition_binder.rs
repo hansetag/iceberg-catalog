@@ -1,11 +1,58 @@
 use crate::catalog::rest::ErrorModel;
+use crate::spec::partition_binder::bindable::Bindable;
 use http::StatusCode;
 use iceberg::spec::{
-    NestedFieldRef, PartitionField, PartitionSpec, SchemaRef, Transform, Type,
-    UnboundPartitionField, UnboundPartitionSpec,
+    NestedFieldRef, PartitionField, PartitionSpec, SchemaRef, Transform, Type, UnboundPartitionSpec,
 };
 use std::cmp::max;
 use std::collections::HashSet;
+
+mod bindable {
+    use iceberg::spec::{PartitionField, Transform, UnboundPartitionField};
+
+    pub(super) trait Bindable {
+        fn get_spec_id(&self) -> Option<i32>;
+        fn get_source_id(&self) -> i32;
+        fn get_name(&self) -> String;
+        fn get_transform(&self) -> Transform;
+    }
+
+    impl Bindable for PartitionField {
+        fn get_spec_id(&self) -> Option<i32> {
+            Some(self.field_id)
+        }
+
+        fn get_source_id(&self) -> i32 {
+            self.source_id
+        }
+
+        fn get_name(&self) -> String {
+            self.name.clone()
+        }
+
+        fn get_transform(&self) -> Transform {
+            self.transform
+        }
+    }
+
+    impl Bindable for UnboundPartitionField {
+        fn get_spec_id(&self) -> Option<i32> {
+            self.partition_id
+        }
+
+        fn get_source_id(&self) -> i32 {
+            self.source_id
+        }
+
+        fn get_name(&self) -> String {
+            self.name.clone()
+        }
+
+        fn get_transform(&self) -> Transform {
+            self.transform
+        }
+    }
+}
 
 type Result<T> = std::result::Result<T, ErrorModel>;
 
@@ -32,37 +79,52 @@ impl PartitionSpecBinder {
         }
     }
 
-    pub(crate) fn bind(mut self, spec: UnboundPartitionSpec) -> Result<PartitionSpec> {
+    pub(crate) fn bind_spec_schema(mut self, spec: UnboundPartitionSpec) -> Result<PartitionSpec> {
+        self.bind(self.spec_id, spec.fields)
+    }
+
+    pub(crate) fn update_spec_schema(mut self, other: &PartitionSpec) -> Result<PartitionSpec> {
+        self.bind(self.spec_id, other.fields.clone())
+    }
+
+    fn bind<T: Bindable>(
+        &mut self,
+        spec_id: i32,
+        fields: impl IntoIterator<Item = T>,
+    ) -> Result<PartitionSpec> {
         Ok(PartitionSpec {
-            spec_id: self.spec_id,
-            fields: spec
-                .fields
+            spec_id,
+            fields: fields
                 .into_iter()
-                .map(|unbound_field| self.bind_field(unbound_field))
+                .map(|bindable_field| self.bind_field(bindable_field))
                 .collect::<Result<Vec<PartitionField>>>()?,
         })
     }
 
-    fn bind_field(&mut self, spec_field: UnboundPartitionField) -> Result<PartitionField> {
-        self.check_partition_names(&spec_field.name)?;
+    fn bind_field<T: Bindable>(&mut self, spec_field: T) -> Result<PartitionField> {
+        let spec_field_name = spec_field.get_name();
+        self.check_partition_names(&spec_field_name)?;
 
-        let schema_field = self.get_schema_field_by_name(&spec_field.name)?;
+        let schema_field = self.get_schema_field_by_name(&spec_field_name)?;
 
-        Self::check_transform_compatibility(spec_field.transform, &schema_field.field_type)?;
-        Self::check_schema_field_eq_source_id(schema_field, spec_field.source_id)?;
-        self.check_for_redundant_partitions(spec_field.source_id, spec_field.transform)?;
+        Self::check_transform_compatibility(spec_field.get_transform(), &schema_field.field_type)?;
+        Self::check_schema_field_eq_source_id(schema_field, spec_field.get_source_id())?;
+        self.check_for_redundant_partitions(
+            spec_field.get_source_id(),
+            spec_field.get_transform(),
+        )?;
 
-        self.update_names(&spec_field.name);
+        self.update_names(&spec_field_name);
 
         let field_id = spec_field
-            .partition_id
+            .get_spec_id()
             .unwrap_or_else(|| self.increment_and_get_next_field_id());
 
         let res = PartitionField::builder()
-            .source_id(spec_field.source_id)
+            .source_id(spec_field.get_source_id())
             .field_id(field_id)
-            .name(spec_field.name)
-            .transform(spec_field.transform)
+            .name(spec_field_name)
+            .transform(spec_field.get_transform())
             .build();
 
         self.last_assigned_field_id = max(self.last_assigned_field_id, field_id);
@@ -102,16 +164,14 @@ impl PartitionSpecBinder {
         self.schema
             .as_struct()
             .field_by_name(field_name)
-            .ok_or(Self::err(format!(
-                "Field '{field_name}' not found in schema."
-            )))
+            .ok_or_else(|| Self::err(format!("Field '{field_name}' not found in schema.")))
     }
 
     fn check_schema_field_eq_source_id(
         schema_field: &NestedFieldRef,
         source_id: i32,
     ) -> Result<()> {
-        if schema_field.id.eq(&source_id) {
+        if schema_field.id == source_id {
             return Ok(());
         }
 
@@ -126,7 +186,7 @@ impl PartitionSpecBinder {
     }
 
     fn check_transform_compatibility(transform: Transform, source_type: &Type) -> Result<()> {
-        if transform.ne(&Transform::Void) {
+        if transform != Transform::Void {
             if !source_type.is_primitive() {
                 return Err(Self::err(format!(
                     "Cannot partition by non-primitive source field: '{source_type}'.",
@@ -334,7 +394,7 @@ mod test {
 
         assert!(is_all_elements_uniq(
             binder
-                .bind(spec)
+                .bind_spec_schema(spec)
                 .expect("Cannot bind spec!")
                 .fields
                 .into_iter()
