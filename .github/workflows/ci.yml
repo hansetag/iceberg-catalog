@@ -178,20 +178,6 @@ jobs:
         ports:
           - 5432:5432
     needs: build
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
     steps:
       - run: sudo snap install --edge --classic just
       - uses: actions/checkout@v4
