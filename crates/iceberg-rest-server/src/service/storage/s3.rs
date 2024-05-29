@@ -2,7 +2,6 @@ use crate::{
     service::{NamespaceIdentUuid, TableIdentUuid},
     WarehouseIdent, CONFIG,
 };
-use futures::AsyncWriteExt as _;
 use http::StatusCode;
 
 use iceberg_rest_service::{v1::DataAccess, CatalogConfig, ErrorModel, Result};
@@ -405,8 +404,8 @@ async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) ->
             .build()
     })?;
 
-    let buf = b"test";
-    writer.write(buf).await.map_err(|e| {
+    let buf: &[u8; 4] = b"test";
+    writer.write(buf.to_vec().into()).await.map_err(|e| {
         ErrorModel::builder()
             .code(StatusCode::BAD_REQUEST.into())
             .message(format!("Error validating S3 Storage Profile: {e}").to_string())
