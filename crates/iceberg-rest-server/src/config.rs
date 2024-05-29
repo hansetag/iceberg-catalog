@@ -7,6 +7,8 @@ use crate::{
     WarehouseIdent,
 };
 
+const DEFAULT_RESERVED_NAMESPACES: [&str; 2] = ["system", "examples"];
+
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
 /// Configuration of this Module
@@ -96,12 +98,12 @@ fn build_config() -> DynAppConfig {
         .try_deserialize()
         .expect("Cannot deserialize 'DynAppConfig'.");
 
-    config.reserved_namespaces = config
-        .reserved_namespaces
-        .into_iter()
-        .map(|namespace| namespace.to_lowercase())
-        .chain(["system".to_owned(), "examples".to_owned()])
-        .collect::<HashSet<String>>();
+        config.reserved_namespaces = config
+            .reserved_namespaces
+            .into_iter()
+            .map(|namespace| namespace.to_lowercase())
+            .chain(DEFAULT_RESERVED_NAMESPACES.into_iter().map(ToOwned::to_owned).collect::<Vec<String>>())
+            .collect::<HashSet<String>>();
 
     config
 }

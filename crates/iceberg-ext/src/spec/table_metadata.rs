@@ -14,7 +14,7 @@ use crate::catalog::rest::ErrorModel;
 use crate::spec::partition_binder::PartitionSpecBinder;
 
 macro_rules! extract {
-    ($field_to_extract:expr, $update_operation:expr, $from_update:expr) => {
+    ($field_to_extract:ident, $update_operation:path, $from_update:expr) => {
         match $from_update {
             $update_operation {
                 $field_to_extract, ..
@@ -126,7 +126,7 @@ impl TableMetadataAggregate {
     pub fn assign_uuid(&mut self, uuid: Uuid) -> Result<&mut Self> {
         if self.metadata.table_uuid != uuid {
             self.metadata.table_uuid = uuid;
-            self.changes.push(TableUpdate::AssignUuid { uuid })
+            self.changes.push(TableUpdate::AssignUuid { uuid });
         }
 
         Ok(self)
@@ -194,8 +194,10 @@ impl TableMetadataAggregate {
     /// None yet.
     pub fn set_location(&mut self, location: String) -> Result<&mut Self> {
         if self.metadata.location != location {
-            self.metadata.location = location.clone();
-            self.changes.push(TableUpdate::SetLocation { location })
+            self.changes.push(TableUpdate::SetLocation {
+                location: location.clone(),
+            });
+            self.metadata.location = location;
         }
 
         Ok(self)
@@ -245,7 +247,9 @@ impl TableMetadataAggregate {
 
         self.metadata.last_column_id = new_last_column_id;
 
-        let schema = if new_schema_id != schema.schema_id() {
+        let schema = if new_schema_id == schema.schema_id() {
+            schema
+        } else {
             Schema::into_builder(schema)
                 .with_schema_id(new_schema_id)
                 .build()
@@ -257,18 +261,16 @@ impl TableMetadataAggregate {
                         .stack(Some(vec![e.to_string()]))
                         .build()
                 })?
-        } else {
-            schema
         };
 
         if !schema_found {
             self.metadata
                 .schemas
-                .insert(schema.schema_id(), schema.into());
+                .insert(schema.schema_id(), schema.clone().into());
         }
 
         self.changes.push(TableUpdate::AddSchema {
-            schema: schema.clone(),
+            schema,
             last_column_id: Some(new_last_column_id),
         });
 
@@ -283,7 +285,7 @@ impl TableMetadataAggregate {
             .get(&other.schema_id())
             .is_some_and(|exising_schema| exising_schema.as_ref().eq(other))
             .then_some(other.schema_id())
-            .unwrap_or_else(|| self.highest_spec_id() + 1)
+            .unwrap_or_else(|| self.get_highest_schema_id() + 1)
     }
 
     fn get_highest_schema_id(&self) -> i32 {
@@ -334,7 +336,6 @@ impl TableMetadataAggregate {
             .partition_specs
             .values()
             .cloned()
-            .into_iter()
             .map(|spec| {
                 PartitionSpecBinder::new(schema.clone(), spec.spec_id).update_spec_schema(&spec)
             })
@@ -347,7 +348,6 @@ impl TableMetadataAggregate {
             .sort_orders
             .values()
             .cloned()
-            .into_iter()
             .map(|sort_order| {
                 SortOrder::builder()
                     .with_order_id(sort_order.order_id)
@@ -375,7 +375,7 @@ impl TableMetadataAggregate {
             });
         } else {
             self.changes
-                .push(TableUpdate::SetCurrentSchema { schema_id })
+                .push(TableUpdate::SetCurrentSchema { schema_id });
         }
 
         Ok(self)
@@ -426,11 +426,7 @@ impl TableMetadataAggregate {
 
         self.metadata.last_partition_id = max(
             self.metadata.last_partition_id,
-            spec.fields
-                .iter()
-                .last()
-                .map(|field| field.field_id)
-                .unwrap_or(0),
+            spec.fields.iter().last().map_or(0, |field| field.field_id),
         );
         self.metadata
             .partition_specs
@@ -484,9 +480,9 @@ impl TableMetadataAggregate {
         if self.last_added_spec_id == Some(spec_id) {
             self.changes.push(TableUpdate::SetDefaultSpec {
                 spec_id: Self::LAST_ADDED,
-            })
+            });
         } else {
-            self.changes.push(TableUpdate::SetDefaultSpec { spec_id })
+            self.changes.push(TableUpdate::SetDefaultSpec { spec_id });
         }
 
         Ok(self)
@@ -520,7 +516,7 @@ impl TableMetadataAggregate {
                 .filter_map(|update| extract!(sort_order, TableUpdate::AddSortOrder, update))
                 .any(|sort_order| sort_order.order_id.eq(&new_sort_order_id))
                 .bitand(self.last_added_order_id.is_some())
-                .then_some(new_sort_order_id)
+                .then_some(new_sort_order_id);
         }
 
         self.last_added_order_id = Some(new_sort_order_id);
@@ -583,12 +579,12 @@ impl TableMetadataAggregate {
         if self.last_added_order_id == Some(order_id) {
             self.changes.push(TableUpdate::SetDefaultSortOrder {
                 sort_order_id: Self::LAST_ADDED,
-            })
+            });
         } else {
             self.changes.push(TableUpdate::SetDefaultSortOrder {
                 sort_order_id: order_id as i32,
-            })
-        }
+            });
+        };
 
         Ok(self)
     }
@@ -724,12 +720,11 @@ impl TableMetadataAggregate {
 
         if ref_name == Self::MAIN_BRANCH {
             self.metadata.current_snapshot_id = Some(snapshot.snapshot_id());
-            self.metadata.last_updated_ms = self
-                .metadata
-                .last_updated_ms
-                .eq(&0)
-                .then_some(chrono::Utc::now().timestamp_millis())
-                .unwrap_or(self.metadata.last_updated_ms);
+            self.metadata.last_updated_ms = if self.metadata.last_updated_ms == 0 {
+                chrono::Utc::now().timestamp_millis()
+            } else {
+                self.metadata.last_updated_ms
+            };
 
             self.metadata.snapshot_log.push(SnapshotLog {
                 snapshot_id: snapshot.snapshot_id(),
@@ -752,8 +747,8 @@ impl TableMetadataAggregate {
     /// None yet.
     pub fn remove_snapshot_by_ref(&mut self, snapshot_ref: &str) -> Result<&mut Self> {
         if snapshot_ref == Self::MAIN_BRANCH {
-            self.metadata.current_snapshot_id = Some(Self::LAST_ADDED as i64);
-            self.metadata.snapshot_log.clear()
+            self.metadata.current_snapshot_id = Some(i64::from(Self::LAST_ADDED));
+            self.metadata.snapshot_log.clear();
         }
 
         if self.metadata.refs.remove(snapshot_ref).is_some() {

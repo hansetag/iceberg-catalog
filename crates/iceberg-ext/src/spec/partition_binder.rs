@@ -96,12 +96,12 @@ impl PartitionSpecBinder {
             spec_id,
             fields: fields
                 .into_iter()
-                .map(|bindable_field| self.bind_field(bindable_field))
+                .map(|bindable_field| self.bind_field(&bindable_field))
                 .collect::<Result<Vec<PartitionField>>>()?,
         })
     }
 
-    fn bind_field<T: Bindable>(&mut self, spec_field: T) -> Result<PartitionField> {
+    fn bind_field<T: Bindable>(&mut self, spec_field: &T) -> Result<PartitionField> {
         let spec_field_name = spec_field.get_name();
         self.check_partition_names(&spec_field_name)?;
 
@@ -216,8 +216,7 @@ impl PartitionSpecBinder {
         }
 
         Err(Self::err(format!(
-            "Cannot add redundant partition for: '{}' with transform: '{}' !",
-            source_id, transform,
+            "Cannot add redundant partition for: '{source_id}' with transform: '{transform}' !",
         )))
     }
 }
@@ -565,8 +564,8 @@ mod test {
 
         let mut binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
         binder
-            .bind_field(spec.fields[0].clone())
+            .bind_field(&spec.fields[0].clone())
             .expect("Cannot bind field!");
-        assert!(binder.bind_field(spec.fields[1].clone()).is_ok());
+        assert!(binder.bind_field(&spec.fields[1].clone()).is_ok());
     }
 }
