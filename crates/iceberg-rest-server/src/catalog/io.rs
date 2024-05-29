@@ -1,5 +1,4 @@
 use flate2::{write::GzEncoder, Compression};
-use futures::AsyncWriteExt;
 use http::StatusCode;
 use iceberg::{io::FileIO, spec::TableMetadata};
 use iceberg_rest_service::{ErrorModel, Result};
@@ -61,14 +60,17 @@ pub(crate) async fn write_metadata_file(
             .build()
     })?;
 
-    writer.write(&compressed_metadata).await.map_err(|e| {
-        ErrorModel::builder()
-            .code(StatusCode::FAILED_DEPENDENCY.into())
-            .message(format!("Failed to write metadata file: {e}"))
-            .r#type("MetadataFileWriteFailed".to_string())
-            .stack(Some(vec![e.to_string()]))
-            .build()
-    })?;
+    writer
+        .write(compressed_metadata.into())
+        .await
+        .map_err(|e| {
+            ErrorModel::builder()
+                .code(StatusCode::FAILED_DEPENDENCY.into())
+                .message(format!("Failed to write metadata file: {e}"))
+                .r#type("MetadataFileWriteFailed".to_string())
+                .stack(Some(vec![e.to_string()]))
+                .build()
+        })?;
 
     writer.close().await.map_err(|e| {
         ErrorModel::builder()
