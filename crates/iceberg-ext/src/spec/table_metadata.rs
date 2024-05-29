@@ -169,7 +169,7 @@ impl TableMetadataAggregate {
         }
 
         self.changes.push(TableUpdate::RemoveProperties {
-            removals: properties.into_vec(),
+            removals: properties.to_vec(),
         });
 
         Ok(self)
@@ -481,7 +481,7 @@ impl TableMetadataAggregate {
 
         self.metadata.default_spec_id = spec_id;
 
-        if self.last_added_spec_id = Some(spec_id) {
+        if self.last_added_spec_id == Some(spec_id) {
             self.changes.push(TableUpdate::SetDefaultSpec {
                 spec_id: Self::LAST_ADDED,
             })
@@ -580,7 +580,7 @@ impl TableMetadataAggregate {
 
         self.metadata.default_sort_order_id = order_id;
 
-        if self.last_added_order_id = Some(order_id) {
+        if self.last_added_order_id == Some(order_id) {
             self.changes.push(TableUpdate::SetDefaultSortOrder {
                 sort_order_id: Self::LAST_ADDED,
             })
@@ -676,18 +676,20 @@ impl TableMetadataAggregate {
         }
 
         self.changes.push(TableUpdate::RemoveSnapshots {
-            snapshot_ids: snapshot_ids.into_vec(),
+            snapshot_ids: snapshot_ids.to_vec(),
         });
 
-        self.metadata
-            .refs
-            .iter()
-            .filter(|(_, snapshot_ref)| {
-                self.metadata
-                    .snapshots
-                    .contains_key(&snapshot_ref.snapshot_id)
-            })
-            .try_for_each(|(snapshot_name, _)| self.remove_snapshot_by_ref(&snapshot_name))
+        for (snapshot_name, snapshot_ref) in self.metadata.refs.clone() {
+            if self
+                .metadata
+                .snapshots
+                .contains_key(&snapshot_ref.snapshot_id)
+            {
+                self.remove_snapshot_by_ref(&snapshot_name)?;
+            }
+        }
+
+        Ok(self)
     }
 
     /// Set a reference to a snapshot.
@@ -755,8 +757,9 @@ impl TableMetadataAggregate {
         }
 
         if self.metadata.refs.remove(snapshot_ref).is_some() {
-            self.changes
-                .push(TableUpdate::RemoveSnapshotRef { ref_name });
+            self.changes.push(TableUpdate::RemoveSnapshotRef {
+                ref_name: snapshot_ref.to_owned(),
+            });
         }
 
         Ok(self)
@@ -769,7 +772,7 @@ impl TableMetadataAggregate {
     /// - Default sort order is set to -1 but no sort order has been added.
     /// - Default partition spec is set to -1 but no partition spec has been added.
     /// - Ref is set to an unknown snapshot.
-    pub fn build(mut self) -> Result<TableMetadata> {
+    pub fn build(self) -> Result<TableMetadata> {
         if self.changes.is_empty() {
             return Ok(self.metadata);
         }
