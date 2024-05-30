@@ -197,7 +197,7 @@ pub(crate) async fn create_table(
     })?;
 
     let mut builder = TableMetadataAggregate::new(location.clone());
-    builder.add_schema(schema.into(), None)?;
+    builder.add_schema(schema, None)?;
     builder.set_current_schema(-1)?;
     if let Some(partition_spec) = partition_spec {
         builder.add_partition_spec(partition_spec)?;

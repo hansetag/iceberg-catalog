@@ -98,19 +98,24 @@ fn build_config() -> DynAppConfig {
         .try_deserialize()
         .expect("Cannot deserialize 'DynAppConfig'.");
 
-        config.reserved_namespaces = config
-            .reserved_namespaces
-            .into_iter()
-            .map(|namespace| namespace.to_lowercase())
-            .chain(DEFAULT_RESERVED_NAMESPACES.into_iter().map(ToOwned::to_owned).collect::<Vec<String>>())
-            .collect::<HashSet<String>>();
+    config.reserved_namespaces = config
+        .reserved_namespaces
+        .into_iter()
+        .map(|namespace| namespace.to_lowercase())
+        .chain(
+            DEFAULT_RESERVED_NAMESPACES
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect::<Vec<String>>(),
+        )
+        .collect::<HashSet<String>>();
 
     config
 }
 
 lazy_static::lazy_static! {
     #[derive(Debug)]
-    /// Configurtion of the SAGA Module
+    /// Configuration of the SAGA Module
     pub static ref CONFIG: DynAppConfig = {
         build_config()
     };

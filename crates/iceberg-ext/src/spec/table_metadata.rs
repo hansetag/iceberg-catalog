@@ -35,17 +35,6 @@ pub struct TableMetadataAggregate {
     last_added_schema_id: Option<i32>,
     last_added_spec_id: Option<i32>,
     last_added_order_id: Option<i64>,
-
-    // Potentially useless. Remove them later.
-    current_schema_id: i32,
-    added_schema_ids: Vec<i32>,
-    partition_specs: Vec<UnboundPartitionSpec>,
-    default_spec_id: Option<i32>,
-    sort_orders: Vec<SortOrder>,
-    default_sort_order_id: Option<i64>,
-    snapshot: Option<Snapshot>,
-    refs: HashMap<String, SnapshotReference>,
-    new: bool,
 }
 
 impl TableMetadataAggregate {
@@ -53,7 +42,9 @@ impl TableMetadataAggregate {
     const INITIAL_SPEC_ID: i32 = 0;
     const INITIAL_SORT_ORDER_ID: i64 = 0;
     const PARTITION_DATA_ID_START: usize = 1000;
-    const LAST_ADDED: i32 = -1;
+    const LAST_ADDED_I32: i32 = -1;
+    const LAST_ADDED_I64: i64 = -1;
+    const INITIAL_SCHEMA_ID: i32 = 0;
 
     /// Initialize new table metadata aggregate.
     #[must_use]
@@ -65,11 +56,11 @@ impl TableMetadataAggregate {
                 location,
                 last_sequence_number: 0,
                 last_updated_ms: chrono::Utc::now().timestamp_millis(),
-                last_column_id: -1,
-                current_schema_id: -1,
+                last_column_id: Self::LAST_ADDED_I32,
+                current_schema_id: Self::INITIAL_SCHEMA_ID,
                 schemas: HashMap::new(),
                 partition_specs: HashMap::new(),
-                default_spec_id: -1,
+                default_spec_id: Self::LAST_ADDED_I32,
                 last_partition_id: 0,
                 properties: HashMap::new(),
                 current_snapshot_id: None,
@@ -77,23 +68,13 @@ impl TableMetadataAggregate {
                 snapshot_log: vec![],
                 sort_orders: HashMap::new(),
                 metadata_log: vec![],
-                default_sort_order_id: -1,
+                default_sort_order_id: i64::from(Self::LAST_ADDED_I32),
                 refs: HashMap::default(),
             },
             changes: Vec::default(),
             last_added_schema_id: None,
             last_added_spec_id: None,
             last_added_order_id: None,
-
-            added_schema_ids: vec![],
-            current_schema_id: 0,
-            partition_specs: vec![],
-            default_spec_id: None,
-            sort_orders: vec![],
-            default_sort_order_id: None,
-            snapshot: None,
-            refs: HashMap::new(),
-            new: true,
         }
     }
 
@@ -106,16 +87,6 @@ impl TableMetadataAggregate {
             last_added_schema_id: None,
             last_added_spec_id: None,
             last_added_order_id: None,
-
-            added_schema_ids: vec![],
-            current_schema_id: 0,
-            partition_specs: vec![],
-            default_spec_id: None,
-            sort_orders: vec![],
-            default_sort_order_id: None,
-            snapshot: None,
-            refs: HashMap::new(),
-            new: false,
         }
     }
 
@@ -305,7 +276,7 @@ impl TableMetadataAggregate {
     /// # Errors
     /// - Current schema already set.
     pub fn set_current_schema(&mut self, schema_id: i32) -> Result<&mut Self> {
-        if schema_id == -1 {
+        if schema_id == Self::LAST_ADDED_I32 {
             return if let Some(id) = self.last_added_schema_id {
                 self.set_current_schema(id)
             } else {
@@ -371,7 +342,7 @@ impl TableMetadataAggregate {
 
         if self.last_added_schema_id == Some(schema_id) {
             self.changes.push(TableUpdate::SetCurrentSchema {
-                schema_id: Self::LAST_ADDED,
+                schema_id: Self::LAST_ADDED_I32,
             });
         } else {
             self.changes
@@ -419,7 +390,6 @@ impl TableMetadataAggregate {
         }
 
         self.last_added_spec_id = Some(spec.spec_id);
-        // TODO: There is a problem with 'spec: unbounded_spec'.
         self.changes.push(TableUpdate::AddSpec {
             spec: unbounded_spec,
         });
@@ -459,7 +429,7 @@ impl TableMetadataAggregate {
     /// # Errors
     /// None yet. Fails during build if the default spec does not exist.
     pub fn set_default_partition_spec(&mut self, spec_id: i32) -> Result<&mut Self> {
-        if spec_id == -1 {
+        if spec_id == Self::LAST_ADDED_I32 {
             return if let Some(id) = self.last_added_spec_id {
                 self.set_default_partition_spec(id)
             } else {
@@ -479,7 +449,7 @@ impl TableMetadataAggregate {
 
         if self.last_added_spec_id == Some(spec_id) {
             self.changes.push(TableUpdate::SetDefaultSpec {
-                spec_id: Self::LAST_ADDED,
+                spec_id: Self::LAST_ADDED_I32,
             });
         } else {
             self.changes.push(TableUpdate::SetDefaultSpec { spec_id });
@@ -558,7 +528,7 @@ impl TableMetadataAggregate {
     /// # Errors
     /// - Default Sort Order already set.
     pub fn set_default_sort_order(&mut self, order_id: i64) -> Result<&mut Self> {
-        if order_id == -1 {
+        if order_id == i64::from(Self::LAST_ADDED_I32) {
             return if let Some(id) = self.last_added_order_id {
                 self.set_default_sort_order(id)
             } else {
@@ -578,11 +548,11 @@ impl TableMetadataAggregate {
 
         if self.last_added_order_id == Some(order_id) {
             self.changes.push(TableUpdate::SetDefaultSortOrder {
-                sort_order_id: Self::LAST_ADDED,
+                sort_order_id: Self::LAST_ADDED_I64,
             });
         } else {
             self.changes.push(TableUpdate::SetDefaultSortOrder {
-                sort_order_id: order_id as i32,
+                sort_order_id: order_id,
             });
         };
 
@@ -747,7 +717,7 @@ impl TableMetadataAggregate {
     /// None yet.
     pub fn remove_snapshot_by_ref(&mut self, snapshot_ref: &str) -> Result<&mut Self> {
         if snapshot_ref == Self::MAIN_BRANCH {
-            self.metadata.current_snapshot_id = Some(i64::from(Self::LAST_ADDED));
+            self.metadata.current_snapshot_id = Some(i64::from(Self::LAST_ADDED_I32));
             self.metadata.snapshot_log.clear();
         }
 

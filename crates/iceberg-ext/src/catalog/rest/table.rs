@@ -244,7 +244,7 @@ impl TableUpdateExt for TableUpdate {
             TableUpdate::SetDefaultSortOrder { sort_order_id } => {
                 // ToDo: Check why TableUpdate uses i64 for sort_order_id
                 // and metadata i32
-                builder.set_default_sort_order(sort_order_id.into())?;
+                builder.set_default_sort_order(sort_order_id)?;
             }
             TableUpdate::AddSpec { spec } => {
                 builder.add_partition_spec(spec)?;
