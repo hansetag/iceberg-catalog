@@ -1,4 +1,5 @@
 use std::cmp::max;
+use std::collections::HashSet;
 use std::ops::BitAnd;
 use std::{collections::HashMap, vec};
 
@@ -45,6 +46,17 @@ impl TableMetadataAggregate {
     const LAST_ADDED_I32: i32 = -1;
     const LAST_ADDED_I64: i64 = -1;
     const INITIAL_SCHEMA_ID: i32 = 0;
+    const RESERVED_PROPERTIES: [&'static str; 9] = [
+        "format-version",
+        "uuid",
+        "snapshot-count",
+        "current-snapshot-summary",
+        "current-snapshot-id",
+        "current-snapshot-timestamp-ms",
+        "current-schema",
+        "default-partition-spec",
+        "default-sort-order",
+    ];
 
     /// Initialize new table metadata aggregate.
     #[must_use]
@@ -151,6 +163,21 @@ impl TableMetadataAggregate {
     /// # Errors
     /// None yet.
     pub fn set_properties(&mut self, properties: HashMap<String, String>) -> Result<&mut Self> {
+        let reserved_props = Self::RESERVED_PROPERTIES
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect::<HashSet<String>>();
+        if properties
+            .iter()
+            .any(|(prop_name, _)| reserved_props.contains(prop_name))
+        {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message("Table properties should not contain reserved properties!")
+                .r#type("FailedToSetProperties")
+                .build());
+        }
+
         self.metadata.properties.extend(properties.clone());
         self.changes.push(TableUpdate::SetProperties {
             updates: properties,
@@ -200,8 +227,8 @@ impl TableMetadataAggregate {
 
         let (new_schema_id, schema_found) = {
             let id = self.reuse_or_create_new_schema_id(&schema);
-            let is_reused = id == schema.schema_id();
-            (id, is_reused)
+            let schema_found = self.metadata.schemas.contains_key(&id);
+            (id, schema_found)
         };
 
         if schema_found && new_last_column_id == self.metadata.last_column_id {
