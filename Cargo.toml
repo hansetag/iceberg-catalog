@@ -40,7 +40,6 @@ futures = "^0.3"
 anyhow = "^1.0"
 chrono = "^0.4"
 tower = "^0.4"
-indexmap = "^2.2"
 headers = { version = "^0.4" }
 tower-http = { version = "^0.5", features = [
     "catch-panic",

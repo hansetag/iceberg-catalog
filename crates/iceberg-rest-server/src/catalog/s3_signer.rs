@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::SystemTime;
 use std::vec;
@@ -176,7 +177,7 @@ fn sign(
     request_region: &str,
     request_url: &url::Url,
     request_method: &http::Method,
-    request_headers: &indexmap::IndexMap<String, Vec<String>>,
+    request_headers: &HashMap<String, Vec<String>>,
 ) -> Result<S3SignResponse> {
     let body = request_body.map(std::string::String::into_bytes);
     let signable_body = if let Some(body) = &body {
@@ -209,7 +210,7 @@ fn sign(
         .iter()
         .filter(|(k, _)| HEADERS_TO_SIGN.contains(&k.to_lowercase().as_str()))
         .map(|(k, v)| (k.clone(), v.clone()))
-        .collect::<indexmap::IndexMap<_, _>>();
+        .collect::<HashMap<_, _>>();
     let mut headers_vec: Vec<(String, String)> = Vec::new();
 
     for (key, values) in signable_request_headers.clone() {

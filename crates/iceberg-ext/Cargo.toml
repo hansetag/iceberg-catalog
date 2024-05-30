@@ -21,7 +21,6 @@ axum = { workspace = true, optional = true }
 chrono = { workspace = true }
 http = { workspace = true }
 iceberg = { workspace = true }
-indexmap = { workspace = true }
 log = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
