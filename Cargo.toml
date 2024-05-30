@@ -40,6 +40,7 @@ futures = "^0.3"
 anyhow = "^1.0"
 chrono = "^0.4"
 tower = "^0.4"
+indexmap = "^2.2"
 headers = { version = "^0.4" }
 tower-http = { version = "^0.5", features = [
     "catch-panic",
@@ -50,6 +51,7 @@ tower-http = { version = "^0.5", features = [
 ] }
 http-body-util = "^0.1"
 strum = "^0.26"
+urlencoding = "^2.1"
 utoipa = "^4.2"
 tracing = { version = "^0.1", features = ["attributes"] }
 sqlx = { version = "^0.7", features = [

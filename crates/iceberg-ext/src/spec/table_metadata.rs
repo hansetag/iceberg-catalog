@@ -1,7 +1,9 @@
 use std::cmp::max;
 use std::collections::HashSet;
-use std::ops::BitAnd;
-use std::{collections::HashMap, vec};
+use std::{
+    collections::{hash_map::Entry as HashMapEntry, HashMap},
+    vec,
+};
 
 use http::StatusCode;
 use iceberg::spec::{
@@ -13,17 +15,6 @@ use uuid::Uuid;
 
 use crate::catalog::rest::ErrorModel;
 use crate::spec::partition_binder::PartitionSpecBinder;
-
-macro_rules! extract {
-    ($field_to_extract:ident, $update_operation:path, $from_update:expr) => {
-        match $from_update {
-            $update_operation {
-                $field_to_extract, ..
-            } => Some($field_to_extract),
-            _ => None,
-        }
-    };
-}
 
 type Result<T> = std::result::Result<T, ErrorModel>;
 
@@ -213,7 +204,7 @@ impl TableMetadataAggregate {
         schema: Schema,
         new_last_column_id: Option<i32>,
     ) -> Result<&mut Self> {
-        let new_last_column_id = new_last_column_id.unwrap_or_default();
+        let new_last_column_id = new_last_column_id.unwrap_or(schema.highest_field_id());
         if new_last_column_id < self.metadata.last_column_id {
             return Err(ErrorModel::builder()
                 .message(format!(
@@ -225,65 +216,61 @@ impl TableMetadataAggregate {
                 .build());
         }
 
-        let (new_schema_id, schema_found) = {
-            let id = self.reuse_or_create_new_schema_id(&schema);
-            let schema_found = self.metadata.schemas.contains_key(&id);
-            (id, schema_found)
-        };
-
-        if schema_found && new_last_column_id == self.metadata.last_column_id {
-            self.last_added_schema_id = self
-                .changes
-                .iter()
-                .filter_map(|update| extract!(schema, TableUpdate::AddSchema, update))
-                .any(|schema| schema.schema_id().eq(&new_schema_id))
-                .bitand(self.last_added_schema_id.is_some())
-                .then_some(new_schema_id);
-
-            return Ok(self);
-        }
-
-        self.metadata.last_column_id = new_last_column_id;
-
-        let schema = if new_schema_id == schema.schema_id() {
-            schema
-        } else {
-            Schema::into_builder(schema)
-                .with_schema_id(new_schema_id)
-                .build()
-                .map_err(|e| {
-                    ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.into())
-                        .message("Failed to build new schema!")
-                        .r#type("FailedToBuildNewSchema")
-                        .stack(Some(vec![e.to_string()]))
-                        .build()
-                })?
-        };
+        let new_schema_id = self.reuse_or_create_new_schema_id(&schema)?;
+        let schema_found = self.metadata.schemas.contains_key(&new_schema_id);
 
         if !schema_found {
             self.metadata
                 .schemas
                 .insert(schema.schema_id(), schema.clone().into());
+            self.changes.push(TableUpdate::AddSchema {
+                schema,
+                last_column_id: Some(new_last_column_id),
+            });
+            self.metadata.last_column_id = new_last_column_id;
         }
-
-        self.changes.push(TableUpdate::AddSchema {
-            schema,
-            last_column_id: Some(new_last_column_id),
-        });
 
         self.last_added_schema_id = Some(new_schema_id);
 
         Ok(self)
     }
 
-    fn reuse_or_create_new_schema_id(&self, other: &Schema) -> i32 {
-        self.metadata
-            .schemas
-            .get(&other.schema_id())
-            .is_some_and(|exising_schema| exising_schema.as_ref().eq(other))
-            .then_some(other.schema_id())
-            .unwrap_or_else(|| self.get_highest_schema_id() + 1)
+    fn reuse_or_create_new_schema_id(&self, other: &Schema) -> Result<i32> {
+        if other.schema_id() == Self::LAST_ADDED_I32 {
+            // Search for an identical schema and reuse the ID.
+            // If no identical schema is found, use the next available ID.
+            Ok(self
+                .metadata
+                .schemas
+                .iter()
+                .find_map(|(id, schema)| schema.as_ref().eq(other).then_some(*id))
+                .unwrap_or_else(|| self.get_highest_schema_id() + 1))
+        } else {
+            // If the schema_id() already exists, it must be the same schema.
+            let candidate = self
+                .metadata
+                .schemas
+                .get(&other.schema_id())
+                .map(|exising_schema| {
+                    exising_schema
+                        .as_ref()
+                        .eq(other)
+                        .then_some(other.schema_id())
+                        .ok_or(
+                            ErrorModel::builder()
+                                .message(format!(
+                                    "Schema with id '{}' already exists and is different!",
+                                    other.schema_id()
+                                ))
+                                .r#type("SchemaIdAlreadyExistsAndDifferent")
+                                .code(StatusCode::CONFLICT.into())
+                                .build(),
+                        )
+                })
+                .transpose()?;
+
+            Ok(candidate.unwrap_or_else(|| other.schema_id()))
+        }
     }
 
     fn get_highest_schema_id(&self) -> i32 {
@@ -392,19 +379,9 @@ impl TableMetadataAggregate {
             unbounded_spec.spec_id.unwrap_or_default(),
         )
         .bind_spec_schema(unbounded_spec.clone())?;
-        spec.spec_id = self.reuse_or_create_new_spec_id(&spec);
 
-        if self.metadata.partition_specs.contains_key(&spec.spec_id) {
-            self.last_added_spec_id = self
-                .changes
-                .iter()
-                .filter_map(|update| extract!(spec, TableUpdate::AddSpec, update))
-                .any(|unbounded_spec| unbounded_spec.spec_id.eq(&self.last_added_spec_id))
-                .bitand(self.last_added_spec_id.is_some())
-                .then_some(spec.spec_id);
-
-            return Ok(self);
-        }
+        // No spec_id specified, we need to reuse or create a new one.
+        spec.spec_id = self.reuse_or_create_new_spec_id(&spec)?;
 
         if self.metadata.format_version <= FormatVersion::V1
             && !Self::has_sequential_ids(&spec.fields)
@@ -417,29 +394,58 @@ impl TableMetadataAggregate {
         }
 
         self.last_added_spec_id = Some(spec.spec_id);
-        self.changes.push(TableUpdate::AddSpec {
-            spec: unbounded_spec,
-        });
 
-        self.metadata.last_partition_id = max(
-            self.metadata.last_partition_id,
-            spec.fields.iter().last().map_or(0, |field| field.field_id),
-        );
-        self.metadata
-            .partition_specs
-            .insert(spec.spec_id, spec.into());
+        if let HashMapEntry::Vacant(e) = self.metadata.partition_specs.entry(spec.spec_id) {
+            self.changes.push(TableUpdate::AddSpec {
+                spec: unbounded_spec,
+            });
+            self.metadata.last_partition_id = max(
+                self.metadata.last_partition_id,
+                spec.fields.iter().last().map_or(0, |field| field.field_id),
+            );
+            e.insert(spec.into());
+        }
 
         Ok(self)
     }
 
     /// If the spec already exists, use the same ID. Otherwise, use 1 more than the highest ID.
-    fn reuse_or_create_new_spec_id(&self, other: &PartitionSpec) -> i32 {
-        self.metadata
-            .partition_specs
-            .get(&other.spec_id)
-            .is_some_and(|founded_spec| founded_spec.fields.eq(&other.fields))
-            .then_some(other.spec_id)
-            .unwrap_or_else(|| self.highest_spec_id() + 1)
+    fn reuse_or_create_new_spec_id(&self, other: &PartitionSpec) -> Result<i32> {
+        if other.spec_id == Self::LAST_ADDED_I32 {
+            // Search for identical spec_id and reuse the ID if possible.
+            // Otherwise, use the next available ID.
+            Ok(self
+                .metadata
+                .partition_specs
+                .iter()
+                .find_map(|(id, partition_spec)| partition_spec.as_ref().eq(other).then_some(*id))
+                .unwrap_or_else(|| self.highest_spec_id() + 1))
+        } else {
+            // If the spec_id already exists, it must be the same spec.
+            let candidate = self
+                .metadata
+                .partition_specs
+                .get(&other.spec_id)
+                .map(|existing_spec| {
+                    existing_spec
+                        .as_ref()
+                        .eq(other)
+                        .then_some(other.spec_id)
+                        .ok_or(
+                            ErrorModel::builder()
+                                .message(format!(
+                                    "Partition Spec with id '{}' already exists and is different!",
+                                    other.spec_id
+                                ))
+                                .r#type("PartitionSpecIdAlreadyExistsAndDifferent")
+                                .code(StatusCode::CONFLICT.into())
+                                .build(),
+                        )
+                })
+                .transpose()?;
+
+            Ok(candidate.unwrap_or(other.spec_id))
+        }
     }
 
     fn highest_spec_id(&self) -> i32 {
@@ -499,46 +505,64 @@ impl TableMetadataAggregate {
                 ErrorModel::builder()
                     .message("Failed to bound 'SortOrder'!")
                     .code(StatusCode::CONFLICT.into())
-                    .r#type("FailedToBuildSortOrdering")
+                    .r#type("FailedToBuildSortOrder")
                     .stack(Some(vec![e.to_string()]))
                     .build()
             })?;
-        let new_sort_order_id = self.reuse_or_create_new_sort_id(&sort_order);
-        sort_order.order_id = new_sort_order_id;
 
-        if self.metadata.sort_orders.contains_key(&new_sort_order_id) {
-            self.last_added_order_id = self
-                .changes
-                .iter()
-                .filter_map(|update| extract!(sort_order, TableUpdate::AddSortOrder, update))
-                .any(|sort_order| sort_order.order_id.eq(&new_sort_order_id))
-                .bitand(self.last_added_order_id.is_some())
-                .then_some(new_sort_order_id);
+        sort_order.order_id = self.reuse_or_create_new_sort_id(&sort_order)?;
+        self.last_added_order_id = Some(sort_order.order_id);
+        if let HashMapEntry::Vacant(e) = self.metadata.sort_orders.entry(sort_order.order_id) {
+            self.changes.push(TableUpdate::AddSortOrder {
+                sort_order: sort_order.clone(),
+            });
+
+            e.insert(sort_order.into());
         }
-
-        self.last_added_order_id = Some(new_sort_order_id);
-        self.changes.push(TableUpdate::AddSortOrder {
-            sort_order: sort_order.clone(),
-        });
-
-        self.metadata
-            .sort_orders
-            .insert(sort_order.order_id, sort_order.into());
 
         Ok(self)
     }
 
-    fn reuse_or_create_new_sort_id(&self, other: &SortOrder) -> i64 {
+    fn reuse_or_create_new_sort_id(&self, other: &SortOrder) -> Result<i64> {
         if other.is_unsorted() {
-            return 0;
+            return Ok(0);
         }
 
-        self.metadata
-            .sort_orders
-            .get(&other.order_id)
-            .is_some_and(|founded_spec| founded_spec.fields.eq(&other.fields))
-            .then_some(other.order_id)
-            .unwrap_or_else(|| self.highest_sort_id() + 1)
+        if other.order_id == Self::LAST_ADDED_I64 {
+            // Search for identical order_id and reuse the ID if possible.
+            // Otherwise, use the next available ID.
+            Ok(self
+                .metadata
+                .sort_orders
+                .iter()
+                .find_map(|(id, sort_order)| sort_order.as_ref().eq(other).then_some(*id))
+                .unwrap_or_else(|| self.highest_sort_id() + 1))
+        } else {
+            // If the order_id already exists, it must be the same sort order.
+            let candidate = self
+                .metadata
+                .sort_orders
+                .get(&other.order_id)
+                .map(|existing_sort_order| {
+                    existing_sort_order
+                        .as_ref()
+                        .eq(other)
+                        .then_some(other.order_id)
+                        .ok_or(
+                            ErrorModel::builder()
+                                .message(format!(
+                                    "Sort Order with id '{}' already exists and is different!",
+                                    other.order_id
+                                ))
+                                .r#type("SortOrderIdAlreadyExistsAndDifferent")
+                                .code(StatusCode::CONFLICT.into())
+                                .build(),
+                        )
+                })
+                .transpose()?;
+
+            Ok(candidate.unwrap_or(other.order_id))
+        }
     }
 
     fn highest_sort_id(&self) -> i64 {

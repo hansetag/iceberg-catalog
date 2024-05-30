@@ -5,25 +5,23 @@ import pytest
 
 def test_create_namespace(warehouse: conftest.Warehouse):
     catalog = warehouse.pyiceberg_catalog
-    namespace = ("my_namespace",)
+    namespace = ("test_create_namespace",)
     catalog.create_namespace(namespace)
     assert namespace in catalog.list_namespaces()
 
 
 def test_list_namespaces(warehouse: conftest.Warehouse):
     catalog = warehouse.pyiceberg_catalog
-    assert len(catalog.list_namespaces()) == 0
-    catalog.create_namespace(("my_namespace_1",))
-    catalog.create_namespace(("my_namespace_2"))
+    catalog.create_namespace(("test_list_namespaces_1",))
+    catalog.create_namespace(("test_list_namespaces_2"))
     namespaces = catalog.list_namespaces()
-    assert len(namespaces) == 2
-    assert ("my_namespace_1",) in namespaces
-    assert ("my_namespace_2",) in namespaces
+    assert ("test_list_namespaces_1",) in namespaces
+    assert ("test_list_namespaces_2",) in namespaces
 
 
 def test_namespace_properties(warehouse: conftest.Warehouse):
     catalog = warehouse.pyiceberg_catalog
-    namespace = ("my_namespace",)
+    namespace = ("test_namespace_properties",)
     properties = {"key-1": "value-1", "key2": "value2"}
     catalog.create_namespace(namespace, properties=properties)
     loaded_properties = catalog.load_namespace_properties(namespace)
@@ -32,7 +30,7 @@ def test_namespace_properties(warehouse: conftest.Warehouse):
 
 def test_drop_namespace(warehouse: conftest.Warehouse):
     catalog = warehouse.pyiceberg_catalog
-    namespace = ("my_namespace",)
+    namespace = ("test_drop_namespace",)
     catalog.create_namespace(namespace)
     assert namespace in catalog.list_namespaces()
     catalog.drop_namespace(namespace)
@@ -41,7 +39,7 @@ def test_drop_namespace(warehouse: conftest.Warehouse):
 
 def test_create_table(warehouse: conftest.Warehouse):
     catalog = warehouse.pyiceberg_catalog
-    namespace = ("my_namespace",)
+    namespace = ("test_create_table",)
     table_name = "my_table"
     schema = pa.schema(
         [

@@ -414,6 +414,84 @@ pub(crate) async fn get_table_metadata_by_id(
             name: table.table_name,
         },
         table_id: table.table_id.into(),
+        warehouse_id: warehouse_id.clone(),
+        location: table.table_location,
+        metadata_location: table.metadata_location,
+        storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
+        storage_profile: table.storage_profile.deref().clone(),
+    })
+}
+
+pub(crate) async fn get_table_metadata_by_s3_location(
+    warehouse_id: &WarehouseIdent,
+    location: &str,
+    include_staged: bool,
+    catalog_state: CatalogState,
+) -> Result<GetTableMetadataResult> {
+    // Location might also be a subpath of the table location.
+    // We need to make sure that the location starts with the table location.
+    let table = sqlx::query!(
+        r#"
+        SELECT
+            t."table_id",
+            t."name" as "table_name",
+            t."table_location",
+            n."name" as "namespace",
+            t."metadata" as "metadata: Json<TableMetadata>",
+            t."metadata_location",
+            w.storage_profile as "storage_profile: Json<StorageProfile>",
+            w."storage_secret_id"
+        FROM "table" t
+        INNER JOIN namespace n ON t.namespace_id = n.namespace_id
+        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+        WHERE w.warehouse_id = $1
+        AND $2 like t."table_location" || '%'
+        AND LENGTH(t."table_location") <= $3
+        "#,
+        warehouse_id.as_uuid(),
+        location,
+        i32::try_from(location.len()).unwrap_or(i32::MAX)
+    )
+    .fetch_one(&catalog_state.read_pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => ErrorModel::builder()
+            .code(StatusCode::NOT_FOUND.into())
+            .message("Table not found".to_string())
+            .r#type("NoSuchTableError".to_string())
+            .stack(Some(vec![
+                location.to_string(),
+                format!("Warehouse: {}", warehouse_id),
+            ]))
+            .build(),
+        _ => e.into_error_model("Error fetching table".to_string()),
+    })?;
+
+    if !include_staged && table.metadata_location.is_none() {
+        return Err(ErrorModel::builder()
+            .code(StatusCode::NOT_FOUND.into())
+            .message("Table is staged and not yet created".to_string())
+            .r#type("TableStaged".to_string())
+            .build()
+            .into());
+    }
+
+    let namespace = NamespaceIdent::from_vec(table.namespace).map_err(|e| {
+        ErrorModel::builder()
+            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+            .message("Error parsing namespace".to_string())
+            .r#type("NamespaceParseError".to_string())
+            .stack(Some(vec![e.to_string()]))
+            .build()
+    })?;
+
+    Ok(GetTableMetadataResult {
+        table: TableIdent {
+            namespace,
+            name: table.table_name,
+        },
+        table_id: table.table_id.into(),
+        warehouse_id: warehouse_id.clone(),
         location: table.table_location,
         metadata_location: table.metadata_location,
         storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
@@ -1312,5 +1390,54 @@ pub(crate) mod tests {
             response2.commit_response.metadata.properties,
             HashMap::from_iter(vec![("t2_key".to_string(), "t2_value".to_string())])
         );
+    }
+
+    #[sqlx::test]
+    async fn test_get_metadata_by_location(pool: sqlx::PgPool) {
+        let state = CatalogState {
+            read_pool: pool.clone(),
+            write_pool: pool.clone(),
+        };
+
+        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let table = initialize_table(&warehouse_id, state.clone(), false).await;
+
+        let metadata =
+            get_table_metadata_by_id(&warehouse_id, &table.table_id, false, state.clone())
+                .await
+                .unwrap();
+
+        // Exact path works
+        let metadata = get_table_metadata_by_s3_location(
+            &warehouse_id,
+            &metadata.location,
+            false,
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(metadata.table, table.table_ident);
+        assert_eq!(metadata.table_id, table.table_id);
+
+        // Subpath works
+        let metadata = get_table_metadata_by_s3_location(
+            &warehouse_id,
+            &format!("{}/data/foo.parquet", &metadata.location),
+            false,
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        // Shorter path does not work
+        get_table_metadata_by_s3_location(
+            &warehouse_id,
+            &metadata.location[0..metadata.location.len() - 1],
+            false,
+            state.clone(),
+        )
+        .await
+        .unwrap_err();
     }
 }

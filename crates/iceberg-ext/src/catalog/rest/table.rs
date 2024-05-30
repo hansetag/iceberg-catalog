@@ -117,15 +117,38 @@ impl TableRequirementExt for TableRequirement {
                         .into());
                 }
             }
-            TableRequirement::CurrentSchemaIdMatch {
-                current_schema_id: _,
-            } => {
-                unimplemented!("TableRequirement::CurrentSchemaIdMatch")
+            TableRequirement::CurrentSchemaIdMatch { current_schema_id } => {
+                // ToDo: Harmonize the types of current_schema_id
+                if i64::from(metadata.current_schema_id) != *current_schema_id {
+                    return Err(ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.as_u16())
+                        .message("assert-current-schema-id Table Requirement violated".to_string())
+                        .r#type("TableRequirementCurrentSchemaIdMatch".to_string())
+                        .stack(Some(vec![format!(
+                            "Expected: {current_schema_id}, Found: {}",
+                            metadata.current_schema_id
+                        )]))
+                        .build()
+                        .into());
+                }
             }
             TableRequirement::DefaultSortOrderIdMatch {
-                default_sort_order_id: _,
+                default_sort_order_id,
             } => {
-                unimplemented!("TableRequirement::DefaultSortOrderIdMatch")
+                if metadata.default_sort_order_id != *default_sort_order_id {
+                    return Err(ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.as_u16())
+                        .message(
+                            "assert-default-sort-order-id Table Requirement violated".to_string(),
+                        )
+                        .r#type("TableRequirementDefaultSortOrderIdMatch".to_string())
+                        .stack(Some(vec![format!(
+                            "Expected: {default_sort_order_id}, Found: {}",
+                            metadata.default_sort_order_id
+                        )]))
+                        .build()
+                        .into());
+                }
             }
             TableRequirement::RefSnapshotIdMatch { r#ref, snapshot_id } => {
                 if let Some(snapshot_id) = snapshot_id {
@@ -164,13 +187,39 @@ impl TableRequirementExt for TableRequirement {
                         .into());
                 }
             }
-            TableRequirement::DefaultSpecIdMatch { default_spec_id: _ } => {
-                unimplemented!("TableRequirement::DefaultSpecIdMatch")
+            TableRequirement::DefaultSpecIdMatch { default_spec_id } => {
+                // ToDo: Harmonize the types of default_spec_id
+                if i64::from(metadata.default_spec_id) != *default_spec_id {
+                    return Err(ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.as_u16())
+                        .message("assert-default-spec-id Table Requirement violated".to_string())
+                        .r#type("TableRequirementDefaultSpecIdMatch".to_string())
+                        .stack(Some(vec![format!(
+                            "Expected: {default_spec_id}, Found: {}",
+                            metadata.default_spec_id
+                        )]))
+                        .build()
+                        .into());
+                }
             }
             TableRequirement::LastAssignedPartitionIdMatch {
-                last_assigned_partition_id: _,
+                last_assigned_partition_id,
             } => {
-                unimplemented!("TableRequirement::LastAssignedPartitionIdMatch")
+                if i64::from(metadata.last_partition_id) != *last_assigned_partition_id {
+                    return Err(ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.as_u16())
+                        .message(
+                            "assert-last-assigned-partition-id Table Requirement violated"
+                                .to_string(),
+                        )
+                        .r#type("TableRequirementLastAssignedPartitionIdMatch".to_string())
+                        .stack(Some(vec![format!(
+                            "Expected: {last_assigned_partition_id}, Found: {}",
+                            metadata.last_partition_id
+                        )]))
+                        .build()
+                        .into());
+                }
             }
             TableRequirement::LastAssignedFieldIdMatch {
                 last_assigned_field_id,

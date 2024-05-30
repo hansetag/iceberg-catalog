@@ -19,6 +19,15 @@ use crate::WarehouseIdent;
 
 const READ_METHODS: &[&str] = &["GET", "HEAD"];
 const WRITE_METHODS: &[&str] = &["PUT", "POST", "DELETE"];
+// Keep only the following headers:
+const HEADERS_TO_SIGN: [&str; 6] = [
+    "amz-sdk-invocation-id",
+    "amz-sdk-request",
+    "content-length",
+    "content-type",
+    "expect",
+    "host",
+];
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -32,8 +41,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<S3SignResponse> {
-        let warehouse_id = require_warehouse_id(prefix)?;
-        let table_id = require_table_id(table)?;
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
 
         let S3SignRequest {
             region: request_region,
@@ -41,7 +49,43 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             method: request_method,
             headers: request_headers,
             body: request_body,
-        } = request;
+        } = request.clone();
+
+        let include_staged = true;
+
+        // Unfortunately there is currently no way to pass information about warehouse_id & table_id
+        // to this function from a get_table or create_table process.
+        // Spark does not support per-table signer.uri.
+        // Tabular uses a token-exchange to include the information there.
+        // We are looking for the path in the database, which allows us to also work with AuthN solutions
+        // that do not support custom data in tokens. Its however also not ideal. Perspectively, we should
+        // try to get per-table signer.uri support in Spark.
+        let (table_id, table_metadata) = if let Ok(table_id) = require_table_id(table.clone()) {
+            (table_id, None)
+        } else {
+            // Ideally we could get rid of this else clause.
+            let location = parse_s3_url_to_location(&request_url)?;
+            let table_metadata = C::get_table_metadata_by_s3_location(
+                &warehouse_id,
+                &location,
+                include_staged,
+                state.v1_state.catalog.clone(),
+            )
+            .await
+            .map_err(|e| {
+                ErrorModel::builder()
+                    .code(http::StatusCode::UNAUTHORIZED.into())
+                    .message("Unauthorized".to_string())
+                    .r#type("InvalidLocation".to_string())
+                    .stack(Some(vec![format!("{e:?}")]))
+                    .build()
+            })?;
+
+            // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63/data/00001-1-840f0dc8-a888-4522-a327-12187ce32dbd-0-00001.parquet
+            // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63
+
+            (table_metadata.table_id.clone(), Some(table_metadata))
+        };
 
         // First check - fail fast if requested table is not allowed.
         // We also need to check later if the path matches the table location.
@@ -53,23 +97,28 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             state.v1_state.auth,
         )
         .await?;
+        drop(headers);
 
         // Included staged tables as this might be a commit
-        let include_staged = true;
         let GetTableMetadataResult {
             table: _,
             table_id,
+            warehouse_id: _,
             location,
             metadata_location: _,
             storage_secret_ident,
             storage_profile,
-        } = C::get_table_metadata_by_id(
-            &warehouse_id,
-            &table_id,
-            include_staged,
-            state.v1_state.catalog,
-        )
-        .await?;
+        } = if let Some(table_metadata) = table_metadata {
+            table_metadata
+        } else {
+            C::get_table_metadata_by_id(
+                &warehouse_id,
+                &table_id,
+                include_staged,
+                state.v1_state.catalog,
+            )
+            .await?
+        };
 
         let extend_err = |mut e: IcebergErrorResponse| {
             e.error.push_to_stack(format!("Table ID: {table_id}"));
@@ -127,7 +176,7 @@ fn sign(
     request_region: &str,
     request_url: &url::Url,
     request_method: &http::Method,
-    request_headers: &std::collections::HashMap<String, Vec<String>>,
+    request_headers: &indexmap::IndexMap<String, Vec<String>>,
 ) -> Result<S3SignResponse> {
     let body = request_body.map(std::string::String::into_bytes);
     let signable_body = if let Some(body) = &body {
@@ -146,22 +195,33 @@ fn sign(
         .time(SystemTime::now())
         .settings(sign_settings)
         .build()
-        .unwrap()
+        .map_err(|e| {
+            ErrorModel::builder()
+                .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
+                .message("Failed to create signing params".to_string())
+                .r#type("FailedToCreateSigningParams".to_string())
+                .stack(Some(vec![e.to_string()]))
+                .build()
+        })?
         .into();
 
-    let endpoint = request_url.to_string();
-    let headers_map: std::collections::HashMap<String, Vec<String>> = request_headers.clone();
+    let signable_request_headers = request_headers
+        .iter()
+        .filter(|(k, _)| HEADERS_TO_SIGN.contains(&k.to_lowercase().as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect::<indexmap::IndexMap<_, _>>();
     let mut headers_vec: Vec<(String, String)> = Vec::new();
 
-    for (key, values) in headers_map {
+    for (key, values) in signable_request_headers.clone() {
         for value in values {
             headers_vec.push((key.clone(), value));
         }
     }
 
+    let encoded_uri = partially_decode_uri(request_url)?;
     let signable_request = SignableRequest::new(
         request_method.as_str(),
-        &endpoint,
+        encoded_uri.to_string(),
         headers_vec.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         signable_body,
     )
@@ -185,19 +245,49 @@ fn sign(
         })?
         .into_parts();
 
-    let mut output_uri = request_url.clone();
+    let mut output_uri = encoded_uri.clone();
     for (key, value) in signing_instructions.params() {
         output_uri.query_pairs_mut().append_pair(key, value);
     }
-    let mut output_headers = request_headers.clone();
+    let mut output_headers = signable_request_headers.clone();
     for (key, value) in signing_instructions.headers() {
         output_headers.insert(key.to_string(), vec![value.to_string()]);
     }
 
-    Ok(S3SignResponse {
+    let sign_response = S3SignResponse {
         uri: output_uri,
         headers: output_headers,
-    })
+    };
+
+    Ok(sign_response)
+}
+
+fn partially_decode_uri(uri: &url::Url) -> Result<url::Url> {
+    // We only modify path segments. Iterate over all path segments and unr urlencoding::decode them.
+    let mut new_uri = uri.clone();
+    let path_segments = new_uri
+        .path_segments()
+        .map(std::iter::Iterator::collect::<Vec<_>>)
+        .unwrap_or_default();
+
+    let mut new_path_segments = Vec::new();
+    for segment in path_segments {
+        new_path_segments.push(
+            urlencoding::decode(segment)
+                .map(|s| s.replace(' ', "+"))
+                .map_err(|e| {
+                    ErrorModel::builder()
+                        .code(http::StatusCode::BAD_REQUEST.into())
+                        .message("Failed to decode URI segment".to_string())
+                        .r#type("FailedToDecodeURISegment".to_string())
+                        .stack(Some(vec![e.to_string()]))
+                        .build()
+                })?,
+        );
+    }
+
+    new_uri.set_path(&new_path_segments.join("/"));
+    Ok(new_uri)
 }
 
 fn require_table_id(table_id: Option<String>) -> Result<TableIdentUuid> {
@@ -399,6 +489,41 @@ fn validate_uri(
     }
 }
 
+// Parsing from http url to s3:// url is messy.
+// We should find a way to pass the required information from
+// the get_table request to the signer.
+// This function only supports path-style access
+// if the URIs host is a single identifier (no dots) or an IP address.
+fn parse_s3_url_to_location(uri: &url::Url) -> Result<String> {
+    // We need to check both virtual host and path style.
+    // Virtual Host style: https://<bucket>.<endpoint with optional.points>/<key>
+    // Path style: https://<endpoint with optional.points>/<bucket>/<key>
+    let host = uri.host().ok_or(
+        ErrorModel::builder()
+            .code(http::StatusCode::BAD_REQUEST.into())
+            .message("URI does not have a host".to_string())
+            .r#type("UriNoHost".to_string())
+            .build(),
+    )?;
+
+    let path = uri.path().trim_start_matches('/');
+
+    match host {
+        url::Host::Domain(domain) => {
+            if domain.contains('.') {
+                // Virtual Host style
+                let parts = domain.split('.').collect::<Vec<_>>();
+                let bucket = parts[0];
+                Ok(format!("s3://{bucket}/{path}"))
+            } else {
+                // Path style
+                Ok(format!("s3://{path}"))
+            }
+        }
+        url::Host::Ipv4(_) | url::Host::Ipv6(_) => Ok(format!("s3://{path}")),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -428,6 +553,23 @@ mod test {
         let table_location = test_case.table_location;
         let result = validate_uri(&request_uri, table_location, &storage_profile);
         assert_eq!(result.is_ok(), test_case.expected_outcome);
+    }
+
+    #[test]
+    fn test_parse_s3_url_to_location() {
+        let cases = vec![
+            ("https://foo.endpoint.com/bar/a/key", "s3://foo/bar/a/key"),
+            ("https://endpoint/bar/a/key", "s3://bar/a/key"),
+            ("http://localhost:9000/bar/a/key", "s3://bar/a/key"),
+            ("http://192.168.1.1/bar/a/key", "s3://bar/a/key"),
+            ("https://foo.bar.com/key", "s3://foo/key"),
+        ];
+
+        for (uri, expected) in cases {
+            let uri = url::Url::parse(uri).unwrap();
+            let result = parse_s3_url_to_location(&uri).unwrap();
+            assert_eq!(result, expected);
+        }
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use typed_builder::TypedBuilder;
 
@@ -10,14 +10,14 @@ pub struct S3SignRequest {
     pub uri: url::Url,
     #[serde(with = "http_method_serde")]
     pub method: http::Method,
-    pub headers: HashMap<String, Vec<String>>,
+    pub headers: IndexMap<String, Vec<String>>,
     pub body: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TypedBuilder)]
 pub struct S3SignResponse {
     pub uri: url::Url,
-    pub headers: HashMap<String, Vec<String>>,
+    pub headers: IndexMap<String, Vec<String>>,
 }
 
 impl_into_response!(S3SignResponse);
@@ -62,7 +62,7 @@ mod tests {
             .region("us-west-2".to_string())
             .uri(url::Url::parse("https://example.com").unwrap())
             .method(http::Method::GET)
-            .headers(HashMap::new())
+            .headers(IndexMap::new())
             .body(None)
             .build();
 

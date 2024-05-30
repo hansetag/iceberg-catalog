@@ -2,10 +2,7 @@
 use config::Config;
 use std::collections::HashSet;
 
-use crate::{
-    service::{NamespaceIdentUuid, TableIdentUuid},
-    WarehouseIdent,
-};
+use crate::WarehouseIdent;
 
 const DEFAULT_RESERVED_NAMESPACES: [&str; 2] = ["system", "examples"];
 
@@ -39,16 +36,22 @@ pub struct DynAppConfig {
 }
 
 impl DynAppConfig {
-    pub fn s3_signer_uri_for_table(
-        &self,
-        warehouse_id: &WarehouseIdent,
-        namespace_id: &NamespaceIdentUuid,
-        table_id: &TableIdentUuid,
-    ) -> url::Url {
+    // pub fn s3_signer_uri_for_table(
+    //     &self,
+    //     warehouse_id: &WarehouseIdent,
+    //     namespace_id: &NamespaceIdentUuid,
+    //     table_id: &TableIdentUuid,
+    // ) -> url::Url {
+    //     self.base_uri
+    //         .join(&format!(
+    //             "v1/{warehouse_id}/namespace/{namespace_id}/table/{table_id}"
+    //         ))
+    //         .expect("Valid URL")
+    // }
+
+    pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: &WarehouseIdent) -> url::Url {
         self.base_uri
-            .join(&format!(
-                "v1/{warehouse_id}/namespace/{namespace_id}/table/{table_id}"
-            ))
+            .join(&format!("v1/{warehouse_id}"))
             .expect("Valid URL")
     }
 
