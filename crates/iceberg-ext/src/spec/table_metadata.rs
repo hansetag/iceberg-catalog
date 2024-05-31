@@ -818,19 +818,18 @@ impl TableMetadataAggregate {
     }
 
     fn get_current_schema(&self) -> Result<&SchemaRef> {
+        let err = Self::throw_err(
+            format!(
+                "Failed to get current schema: '{}'!",
+                self.metadata.current_schema_id
+            ),
+            "FailedToGetCurrentSchema",
+        );
+
         self.metadata
             .schemas
             .get(&self.metadata.current_schema_id)
-            .ok_or_else(|| {
-                ErrorModel::builder()
-                    .code(StatusCode::CONFLICT.into())
-                    .message(format!(
-                        "Failed to get current schema: '{}'!",
-                        self.metadata.current_schema_id
-                    ))
-                    .r#type("FailedToGetCurrentSchema")
-                    .build()
-            })
+            .ok_or_else(err)
     }
 
     #[allow(clippy::cast_sign_loss)]
@@ -857,4 +856,245 @@ impl TableMetadataAggregate {
                 .build()
         }
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use iceberg::spec::Type::Primitive;
+    use iceberg::spec::{NestedField, PrimitiveType};
+
+    fn get_mock_schema(from_id: i32) -> (Schema, i32) {
+        let schema_fields = vec![
+            NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
+            NestedField::required(2, "data", Primitive(PrimitiveType::Date)).into(),
+            NestedField::required(3, "category", Primitive(PrimitiveType::String)).into(),
+        ];
+
+        let schema = Schema::builder()
+            .with_schema_id(from_id)
+            .with_fields(schema_fields)
+            .build()
+            .expect("Cannot create schema mock!");
+        (schema, from_id)
+    }
+
+    fn get_allowed_props() -> HashMap<String, String> {
+        (1..=9)
+            .map(|index| (format!("key{index}"), format!("value{index}")))
+            .collect()
+    }
+
+    fn get_unbounded_spec() -> (UnboundPartitionSpec, i32) {
+        let id = 1;
+        (
+            UnboundPartitionSpec::builder()
+                .with_spec_id(id)
+                .with_fields(vec![])
+                .build()
+                .expect("Cannot build partition spec."),
+            id,
+        )
+    }
+
+    fn get_sort_order(schema: Schema) -> (SortOrder, i64) {
+        let sort_id = 0;
+        (
+            SortOrder::builder()
+                .with_order_id(sort_id)
+                .with_fields(vec![])
+                .build(schema)
+                .expect("Cannot build sort order."),
+            sort_id,
+        )
+    }
+
+    fn get_empty_aggregate() -> TableMetadataAggregate {
+        TableMetadataAggregate::new(ToOwned::to_owned("location"))
+    }
+
+    fn get_full_aggregate() -> TableMetadataAggregate {
+        let (schema, schema_id) = get_mock_schema(1);
+        let (spec, spec_id) = get_unbounded_spec();
+        let (sort, sort_id) = get_sort_order(schema.clone());
+
+        let mut aggregate = TableMetadataAggregate::new(ToOwned::to_owned("location"));
+        aggregate
+            .assign_uuid(Uuid::now_v7())
+            .expect("Cannot assign uuid.")
+            .add_schema(schema, None)
+            .expect("Cannot set schema.")
+            .set_current_schema(schema_id)
+            .expect("Cannot set current schema.")
+            .upgrade_format_version(FormatVersion::V2)
+            .expect("Cannot set format version.")
+            .add_partition_spec(spec)
+            .expect("Cannot set partition spec.")
+            .set_default_partition_spec(spec_id)
+            .expect("Cannot set default partition spec.")
+            .add_sort_order(sort)
+            .expect("Cannot set sort order.")
+            .set_default_sort_order(sort_id)
+            .expect("Cannot set default sort order.")
+            .set_location("location".to_owned())
+            .expect("Cannot set location")
+            .set_properties(get_allowed_props())
+            .expect("Cannot set properties");
+
+        aggregate
+    }
+
+    #[test]
+    fn downgrade_version() {
+        let mut aggregate = get_full_aggregate();
+        assert!(aggregate.upgrade_format_version(FormatVersion::V1).is_err());
+    }
+
+    #[test]
+    fn same_version() {
+        let mut aggregate = get_empty_aggregate();
+        assert!(aggregate.upgrade_format_version(FormatVersion::V2).is_ok());
+    }
+
+    #[test]
+    fn add_schema() {
+        let (schema, _) = get_mock_schema(1);
+        let mut aggregate = get_empty_aggregate();
+        assert!(aggregate.add_schema(schema, None).is_ok());
+    }
+
+    #[test]
+    fn set_default_schema() {
+        let (schema, schema_id) = get_mock_schema(1);
+        let mut aggregate = get_empty_aggregate();
+        assert!(aggregate
+            .set_current_schema(schema_id)
+            .inspect_err(|e| {
+                dbg!(e);
+            })
+            .is_err());
+        assert!(aggregate.add_schema(schema, None).is_ok());
+        assert!(aggregate.set_current_schema(schema_id).is_ok());
+    }
+
+    #[test]
+    fn get_current_schema() {
+        let (schema, schema_id) = get_mock_schema(1);
+        let mut aggregate = get_empty_aggregate();
+        assert!(aggregate.set_current_schema(schema_id).is_err());
+        assert!(aggregate.add_schema(schema, None).is_ok());
+        assert!(aggregate.set_current_schema(schema_id).is_ok());
+        assert!(aggregate
+            .get_current_schema()
+            .is_ok_and(|schema| schema.schema_id().eq(&schema_id)));
+    }
+
+    #[test]
+    fn set_properties() {
+        let forbidden_props = TableMetadataAggregate::RESERVED_PROPERTIES
+            .iter()
+            .enumerate()
+            .map(|(index, prop)| ((*prop).to_string(), format!("value{index}")))
+            .collect();
+        let allowed_props = get_allowed_props();
+
+        let mut aggregate = get_empty_aggregate();
+
+        assert!(aggregate.set_properties(forbidden_props).is_err());
+        assert!(aggregate.set_properties(allowed_props).is_ok());
+    }
+
+    #[test]
+    fn can_create_new_schema_id_for_uniq_schema() {
+        let mut aggregate = get_empty_aggregate();
+
+        for schema_id in 1..=10 {
+            let (schema, schema_id) = get_mock_schema(schema_id);
+            aggregate.add_schema(schema, None).unwrap_or_else(|_| panic!("Cannot add {schema_id} new schema."));
+            assert!(aggregate.metadata.schemas.contains_key(&schema_id));
+        }
+    }
+
+    #[test]
+    fn cannot_add_schema_with_same_id_but_with_different_fields() {
+        let mut aggregate = get_empty_aggregate();
+
+        let schema_fields1 = vec![
+            NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
+            NestedField::required(2, "data", Primitive(PrimitiveType::Date)).into(),
+            NestedField::required(3, "category", Primitive(PrimitiveType::String)).into(),
+        ];
+
+        let schema_fields2 = vec![
+            NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
+            NestedField::required(2, "data", Primitive(PrimitiveType::Date)).into(),
+        ];
+
+        let schema_id1 = 1;
+        let schema1 = Schema::builder()
+            .with_schema_id(schema_id1)
+            .with_fields(schema_fields1)
+            .build()
+            .expect("Cannot create schema mock!");
+        let schema2 = Schema::builder()
+            .with_schema_id(schema_id1)
+            .with_fields(schema_fields2)
+            .build()
+            .expect("Cannot create schema mock!");
+
+        aggregate.add_schema(schema1, None).expect("Cannot add new schema.");
+        assert!(dbg!(aggregate.add_schema(schema2, None)).is_err());
+    }
+
+    #[test]
+    fn reuse_schema_id_if_schemas_is_eq() {
+        let mut aggregate = get_empty_aggregate();
+
+        let schema_id = 1;
+        let (schema, schema_id) = get_mock_schema(schema_id);
+
+        aggregate.add_schema(schema, None).expect("Cannot add new schema.");
+        assert!(aggregate.metadata.schemas.contains_key(&schema_id));
+
+        let (schema, schema_id) = get_mock_schema(schema_id);
+
+        aggregate.add_schema(schema, None).expect("Cannot add new schema.");
+        assert!(aggregate.metadata.schemas.contains_key(&schema_id));
+
+        assert!(aggregate.metadata.schemas.len().eq(&1));
+    }
+
+    // This test will fail because of changes in this commit:
+    // https://github.com/hansetag/iceberg-rest-server/pull/36/commits/6faeb8d360f5c9779a4cd0d4ac237da1c6ec97ca
+    // In `table_metadata.rs` file on line 248.
+    // Because of this changes it do not assign new schema id to schema after `reuse_or_create_new_schema_id` call.
+    #[test]
+    #[ignore]
+    fn should_take_highest_schema_id_plus_one_is() {
+        let mut aggregate = get_empty_aggregate();
+        let highest = 5;
+
+        for schema_id in 1..=highest {
+            let (schema, schema_id) = get_mock_schema(schema_id);
+            aggregate.add_schema(schema, None).unwrap_or_else(|_| panic!("Cannot add {schema_id} new schema."));
+            assert!(aggregate.metadata.schemas.contains_key(&schema_id));
+        }
+
+        let fields = vec![
+            NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
+            NestedField::required(2, "data", Primitive(PrimitiveType::Date)).into(),
+            NestedField::required(3, "email", Primitive(PrimitiveType::String)).into(),
+            NestedField::required(4, "name", Primitive(PrimitiveType::String)).into()
+        ];
+
+        let schema_id = -1;
+        let schema = Schema::builder()
+            .with_schema_id(schema_id)
+            .with_fields(fields)
+            .build()
+            .expect("Cannot create schema mock!");
+        aggregate.add_schema(schema, None).unwrap_or_else(|e| panic!("Cannot add new schema: {e:?}."));
+        assert!(dbg!(aggregate.metadata.schemas).contains_key(&(highest + 1)));
+    }
+
 }
