@@ -237,50 +237,40 @@ impl TableMetadataAggregate {
     }
 
     fn reuse_or_create_new_schema_id(&self, other: &Schema) -> Result<i32> {
-        if other.schema_id() == Self::LAST_ADDED_I32 {
+        let (other_id, other_fields) = (other.schema_id(), other.identifier_field_ids());
+
+        let err = Self::throw_err(
+            format!("Schema with id '{other_id}' already exists and is different!"),
+            "SchemaIdAlreadyExistsAndDifferent",
+        );
+
+        let is_schemas_eq = |(id, this_schema): (&i32, &SchemaRef)| -> Option<i32> {
+            other
+                .as_struct()
+                .eq(this_schema.as_struct())
+                .bitand(other_fields.eq(this_schema.identifier_field_ids()))
+                .then_some(*id)
+        };
+
+        if other_id == Self::LAST_ADDED_I32 {
             // Search for an identical schema and reuse the ID.
             // If no identical schema is found, use the next available ID.
             Ok(self
                 .metadata
                 .schemas
                 .iter()
-                .find_map(|(id, schema)| {
-                    other
-                        .as_struct()
-                        .eq(schema.as_struct())
-                        .bitand(
-                            other
-                                .identifier_field_ids()
-                                .eq(schema.identifier_field_ids()),
-                        )
-                        .then_some(*id)
-                })
+                .find_map(is_schemas_eq)
                 .unwrap_or_else(|| self.get_highest_schema_id() + 1))
         } else {
             // If the schema_id() already exists, it must be the same schema.
-            let candidate = self
+            Ok(self
                 .metadata
                 .schemas
-                .get(&other.schema_id())
-                .map(|exising_schema| {
-                    exising_schema
-                        .as_ref()
-                        .eq(other)
-                        .then_some(other.schema_id())
-                        .ok_or(
-                            ErrorModel::builder()
-                                .message(format!(
-                                    "Schema with id '{}' already exists and is different!",
-                                    other.schema_id()
-                                ))
-                                .r#type("SchemaIdAlreadyExistsAndDifferent")
-                                .code(StatusCode::CONFLICT.into())
-                                .build(),
-                        )
-                })
-                .transpose()?;
-
-            Ok(candidate.unwrap_or_else(|| other.schema_id()))
+                .get(&other_id)
+                .map(AsRef::as_ref)
+                .is_some_and(|exising| exising.eq(other))
+                .then_some(other_id)
+                .ok_or_else(err)?)
         }
     }
 
@@ -418,42 +408,36 @@ impl TableMetadataAggregate {
 
     /// If the spec already exists, use the same ID. Otherwise, use 1 more than the highest ID.
     fn reuse_or_create_new_spec_id(&self, other: &PartitionSpec) -> Result<i32> {
-        if other.spec_id == Self::LAST_ADDED_I32 {
-            // Search for identical spec_id and reuse the ID if possible.
+        let (other_id, other_fields) = (other.spec_id, &other.fields);
+
+        let err = Self::throw_err(
+            format!("PartitionSpec with id '{other_id}' already exists and it's different!",),
+            "PartitionSpecIdAlreadyExistsAndDifferent",
+        );
+
+        let is_specs_eq = |(id, this_partition): (&i32, &PartitionSpecRef)| -> Option<i32> {
+            this_partition.fields.eq(other_fields).then_some(*id)
+        };
+
+        if other_id == Self::LAST_ADDED_I32 {
+            // Search for identical `spec_id` and reuse the ID if possible.
             // Otherwise, use the next available ID.
             Ok(self
                 .metadata
                 .partition_specs
                 .iter()
-                .find_map(|(id, partition_spec)| {
-                    partition_spec.fields.eq(&other.fields).then_some(*id)
-                })
+                .find_map(is_specs_eq)
                 .unwrap_or_else(|| self.highest_spec_id() + 1))
         } else {
-            // If the spec_id already exists, it must be the same spec.
-            let candidate = self
+            // If the `spec_id` already exists, it must be the same spec.
+            Ok(self
                 .metadata
                 .partition_specs
-                .get(&other.spec_id)
-                .map(|existing_spec| {
-                    existing_spec
-                        .as_ref()
-                        .eq(other)
-                        .then_some(other.spec_id)
-                        .ok_or(
-                            ErrorModel::builder()
-                                .message(format!(
-                                    "Partition Spec with id '{}' already exists and is different!",
-                                    other.spec_id
-                                ))
-                                .r#type("PartitionSpecIdAlreadyExistsAndDifferent")
-                                .code(StatusCode::CONFLICT.into())
-                                .build(),
-                        )
-                })
-                .transpose()?;
-
-            Ok(candidate.unwrap_or(other.spec_id))
+                .get(&other_id)
+                .map(AsRef::as_ref)
+                .is_some_and(|existing| existing.eq(other))
+                .then_some(other_id)
+                .ok_or_else(err)?)
         }
     }
 
@@ -519,7 +503,11 @@ impl TableMetadataAggregate {
                     .build()
             })?;
 
-        sort_order.order_id = self.reuse_or_create_new_sort_id(&sort_order)?;
+        sort_order.order_id = if sort_order.is_unsorted() {
+            0
+        } else {
+            self.reuse_or_create_new_sort_id(&sort_order)?
+        };
         self.last_added_order_id = Some(sort_order.order_id);
         if let HashMapEntry::Vacant(e) = self.metadata.sort_orders.entry(sort_order.order_id) {
             self.changes.push(TableUpdate::AddSortOrder {
@@ -533,44 +521,36 @@ impl TableMetadataAggregate {
     }
 
     fn reuse_or_create_new_sort_id(&self, other: &SortOrder) -> Result<i64> {
-        if other.is_unsorted() {
-            return Ok(0);
-        }
+        let (other_id, other_fields) = (other.order_id, &other.fields);
 
-        if other.order_id == Self::LAST_ADDED_I64 {
+        let err = Self::throw_err(
+            format!("Sort Order with id '{other_id}' already exists and is different!",),
+            "SortOrderIdAlreadyExistsAndDifferent",
+        );
+
+        let is_order_eq = |(id, this_order): (&i64, &SortOrderRef)| -> Option<i64> {
+            this_order.fields.eq(other_fields).then_some(*id)
+        };
+
+        if other_id == Self::LAST_ADDED_I64 {
             // Search for identical order_id and reuse the ID if possible.
             // Otherwise, use the next available ID.
             Ok(self
                 .metadata
                 .sort_orders
                 .iter()
-                .find_map(|(id, sort_order)| sort_order.fields.eq(&other.fields).then_some(*id))
+                .find_map(is_order_eq)
                 .unwrap_or_else(|| self.highest_sort_id() + 1))
         } else {
             // If the order_id already exists, it must be the same sort order.
-            let candidate = self
+            Ok(self
                 .metadata
                 .sort_orders
-                .get(&other.order_id)
-                .map(|existing_sort_order| {
-                    existing_sort_order
-                        .as_ref()
-                        .eq(other)
-                        .then_some(other.order_id)
-                        .ok_or(
-                            ErrorModel::builder()
-                                .message(format!(
-                                    "Sort Order with id '{}' already exists and is different!",
-                                    other.order_id
-                                ))
-                                .r#type("SortOrderIdAlreadyExistsAndDifferent")
-                                .code(StatusCode::CONFLICT.into())
-                                .build(),
-                        )
-                })
-                .transpose()?;
-
-            Ok(candidate.unwrap_or(other.order_id))
+                .get(&other_id)
+                .map(AsRef::as_ref)
+                .is_some_and(|existing| existing.eq(other))
+                .then_some(other_id)
+                .ok_or_else(err)?)
         }
     }
 
@@ -862,5 +842,19 @@ impl TableMetadataAggregate {
         }
 
         true
+    }
+
+    #[inline]
+    fn throw_err<A: Into<String>, B: Into<String>>(
+        msg: A,
+        r#type: B,
+    ) -> impl FnOnce() -> ErrorModel {
+        || -> ErrorModel {
+            ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message(msg)
+                .r#type(r#type)
+                .build()
+        }
     }
 }
