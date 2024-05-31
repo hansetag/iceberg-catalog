@@ -1,5 +1,6 @@
 use std::cmp::max;
 use std::collections::HashSet;
+use std::ops::BitAnd;
 use std::{
     collections::{hash_map::Entry as HashMapEntry, HashMap},
     vec,
@@ -243,7 +244,17 @@ impl TableMetadataAggregate {
                 .metadata
                 .schemas
                 .iter()
-                .find_map(|(id, schema)| schema.as_ref().eq(other).then_some(*id))
+                .find_map(|(id, schema)| {
+                    other
+                        .as_struct()
+                        .eq(schema.as_struct())
+                        .bitand(
+                            other
+                                .identifier_field_ids()
+                                .eq(schema.identifier_field_ids()),
+                        )
+                        .then_some(*id)
+                })
                 .unwrap_or_else(|| self.get_highest_schema_id() + 1))
         } else {
             // If the schema_id() already exists, it must be the same schema.
@@ -370,15 +381,12 @@ impl TableMetadataAggregate {
     ///
     /// # Errors
     /// None yet. Fails during build if `spec` cannot be bound.
-    pub fn add_partition_spec(
-        &mut self,
-        unbounded_spec: UnboundPartitionSpec,
-    ) -> Result<&mut Self> {
+    pub fn add_partition_spec(&mut self, unbound_spec: UnboundPartitionSpec) -> Result<&mut Self> {
         let mut spec = PartitionSpecBinder::new(
             self.get_current_schema()?.clone(),
-            unbounded_spec.spec_id.unwrap_or_default(),
+            unbound_spec.spec_id.unwrap_or_default(),
         )
-        .bind_spec_schema(unbounded_spec.clone())?;
+        .bind_spec_schema(unbound_spec.clone())?;
 
         // No spec_id specified, we need to reuse or create a new one.
         spec.spec_id = self.reuse_or_create_new_spec_id(&spec)?;
@@ -396,9 +404,8 @@ impl TableMetadataAggregate {
         self.last_added_spec_id = Some(spec.spec_id);
 
         if let HashMapEntry::Vacant(e) = self.metadata.partition_specs.entry(spec.spec_id) {
-            self.changes.push(TableUpdate::AddSpec {
-                spec: unbounded_spec,
-            });
+            self.changes
+                .push(TableUpdate::AddSpec { spec: unbound_spec });
             self.metadata.last_partition_id = max(
                 self.metadata.last_partition_id,
                 spec.fields.iter().last().map_or(0, |field| field.field_id),
@@ -418,7 +425,9 @@ impl TableMetadataAggregate {
                 .metadata
                 .partition_specs
                 .iter()
-                .find_map(|(id, partition_spec)| partition_spec.as_ref().eq(other).then_some(*id))
+                .find_map(|(id, partition_spec)| {
+                    partition_spec.fields.eq(&other.fields).then_some(*id)
+                })
                 .unwrap_or_else(|| self.highest_spec_id() + 1))
         } else {
             // If the spec_id already exists, it must be the same spec.
@@ -535,7 +544,7 @@ impl TableMetadataAggregate {
                 .metadata
                 .sort_orders
                 .iter()
-                .find_map(|(id, sort_order)| sort_order.as_ref().eq(other).then_some(*id))
+                .find_map(|(id, sort_order)| sort_order.fields.eq(&other.fields).then_some(*id))
                 .unwrap_or_else(|| self.highest_sort_id() + 1))
         } else {
             // If the order_id already exists, it must be the same sort order.
