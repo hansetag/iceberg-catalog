@@ -268,9 +268,9 @@ impl TableMetadataAggregate {
                 .schemas
                 .get(&other_id)
                 .map(AsRef::as_ref)
-                .is_some_and(|exising| exising.eq(other))
-                .then_some(other_id)
-                .ok_or_else(err)?)
+                .map(|exising| exising.eq(other).then_some(other_id).ok_or_else(err))
+                .transpose()?
+                .unwrap_or(other_id))
         }
     }
 
@@ -435,9 +435,9 @@ impl TableMetadataAggregate {
                 .partition_specs
                 .get(&other_id)
                 .map(AsRef::as_ref)
-                .is_some_and(|existing| existing.eq(other))
-                .then_some(other_id)
-                .ok_or_else(err)?)
+                .map(|exising| exising.eq(other).then_some(other_id).ok_or_else(err))
+                .transpose()?
+                .unwrap_or(other_id))
         }
     }
 
@@ -548,9 +548,9 @@ impl TableMetadataAggregate {
                 .sort_orders
                 .get(&other_id)
                 .map(AsRef::as_ref)
-                .is_some_and(|existing| existing.eq(other))
-                .then_some(other_id)
-                .ok_or_else(err)?)
+                .map(|exising| exising.eq(other).then_some(other_id).ok_or_else(err))
+                .transpose()?
+                .unwrap_or(other_id))
         }
     }
 
