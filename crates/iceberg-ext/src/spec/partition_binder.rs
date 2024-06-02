@@ -2,7 +2,8 @@ use crate::catalog::rest::ErrorModel;
 use crate::spec::partition_binder::bindable::Bindable;
 use http::StatusCode;
 use iceberg::spec::{
-    NestedFieldRef, PartitionField, PartitionSpec, SchemaRef, Transform, Type, UnboundPartitionSpec,
+    NestedFieldRef, PartitionField, PartitionSpec, SchemaRef, Transform, Type,
+    UnboundPartitionField, UnboundPartitionSpec,
 };
 use std::cmp::max;
 use std::collections::HashSet;
@@ -67,7 +68,8 @@ pub(crate) struct PartitionSpecBinder {
 }
 
 impl PartitionSpecBinder {
-    const PARTITION_DATA_ID_START: i32 = 1000;
+    pub(crate) const PARTITION_DATA_ID_START: i32 = 1000;
+    pub(crate) const UNPARTITIONED_LAST_ASSIGNED_ID: i32 = 999;
 
     pub(crate) fn new(schema: SchemaRef, spec_id: i32) -> Self {
         Self {
@@ -79,18 +81,53 @@ impl PartitionSpecBinder {
         }
     }
 
-    pub(crate) fn bind_spec_schema(mut self, spec: UnboundPartitionSpec) -> Result<PartitionSpec> {
+    pub(crate) fn bind_spec(mut self, spec: UnboundPartitionSpec) -> Result<PartitionSpec> {
         self.bind(self.spec_id, spec.fields)
     }
 
-    pub(crate) fn update_spec_schema(mut self, other: &PartitionSpec) -> Result<PartitionSpec> {
-        self.bind(self.spec_id, other.fields.clone())
+    pub(crate) fn update_spec_schema(mut self, other: PartitionSpec) -> Result<PartitionSpec> {
+        // build without validation because the schema may have changed in a way that makes this spec
+        // invalid. the spec should still be preserved so that older metadata can be interpreted.
+
+        // We perform some basic checks here similar to java implementation.
+        // They should never fail if the spec was valid before the schema update.
+        other
+            .fields
+            .iter()
+            .map(|field| self.add_bound_field(field))
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(PartitionSpec {
+            spec_id: self.spec_id,
+            fields: other.fields,
+        })
     }
 
-    fn bind<T: Bindable>(
+    fn add_bound_field(&mut self, field: &PartitionField) -> Result<()> {
+        self.get_schema_field_by_id(field.source_id)
+            // Schema field is almost always going to be NULL, as the field is typically bound to a different schema
+            .ok()
+            .map(|schema_field| {
+                self.check_name_does_not_collide_with_schema(
+                    schema_field,
+                    &field.name,
+                    field.transform,
+                )
+            })
+            .transpose()?;
+
+        self.check_partition_name_set_and_unique(&field.get_name())?;
+
+        self.last_assigned_field_id = max(self.last_assigned_field_id, field.field_id);
+        self.update_names(&field.name);
+
+        Ok(())
+    }
+
+    fn bind(
         &mut self,
         spec_id: i32,
-        fields: impl IntoIterator<Item = T>,
+        fields: impl IntoIterator<Item = UnboundPartitionField>,
     ) -> Result<PartitionSpec> {
         Ok(PartitionSpec {
             spec_id,
@@ -101,20 +138,26 @@ impl PartitionSpecBinder {
         })
     }
 
-    fn bind_field<T: Bindable>(&mut self, spec_field: &T) -> Result<PartitionField> {
+    fn bind_field(&mut self, spec_field: &UnboundPartitionField) -> Result<PartitionField> {
         let spec_field_name = spec_field.get_name();
-        self.check_partition_names(&spec_field_name)?;
+        let spec_field_id = spec_field.get_source_id();
+        let transform = spec_field.get_transform();
+        self.check_partition_name_set_and_unique(&spec_field_name)?;
 
-        let schema_field = self.get_schema_field_by_name(&spec_field_name)?;
+        let schema_field = self.get_schema_field_by_id(spec_field_id)?;
+        Self::check_transform_compatibility(transform, &schema_field.field_type)?;
 
-        Self::check_transform_compatibility(spec_field.get_transform(), &schema_field.field_type)?;
-        Self::check_schema_field_eq_source_id(schema_field, spec_field.get_source_id())?;
+        self.check_name_does_not_collide_with_schema(schema_field, &spec_field_name, transform)?;
+
+        // Self::check_schema_field_eq_source_id(schema_field, spec_field.get_source_id())?;
         self.check_for_redundant_partitions(
             spec_field.get_source_id(),
             spec_field.get_transform(),
         )?;
 
         self.update_names(&spec_field_name);
+        self.dedup_fields
+            .insert((spec_field.get_source_id(), transform.dedup_name()));
 
         let field_id = spec_field
             .get_spec_id()
@@ -146,7 +189,7 @@ impl PartitionSpecBinder {
         self.last_assigned_field_id
     }
 
-    fn check_partition_names(&self, new_name: &str) -> Result<()> {
+    fn check_partition_name_set_and_unique(&self, new_name: &str) -> Result<()> {
         if new_name.is_empty() {
             return Err(Self::err("Cannot use empty partition name."));
         }
@@ -160,25 +203,39 @@ impl PartitionSpecBinder {
         Ok(())
     }
 
-    fn get_schema_field_by_name(&self, field_name: &str) -> Result<&NestedFieldRef> {
+    fn get_schema_field_by_id(&self, field_id: i32) -> Result<&NestedFieldRef> {
         self.schema
-            .as_struct()
-            .field_by_name(field_name)
-            .ok_or_else(|| Self::err(format!("Field '{field_name}' not found in schema.")))
+            .field_by_id(field_id)
+            .ok_or_else(|| Self::err(format!("Field '{field_id}' not found in schema.")))
     }
 
-    fn check_schema_field_eq_source_id(
+    fn check_name_does_not_collide_with_schema(
+        &self,
         schema_field: &NestedFieldRef,
-        source_id: i32,
+        partition_name: &str,
+        transform: Transform,
     ) -> Result<()> {
-        if schema_field.id == source_id {
-            return Ok(());
-        }
+        let schema_collision = self.schema.field_by_name(partition_name);
 
-        Err(Self::err(format!(
-            "Cannot create identity partition sourced from different field in schema: '{}'.",
-            schema_field.name
-        )))
+        if let Some(schema_collision) = schema_collision {
+            // for identity transform case we allow conflicts between partition and schema field name
+            // as long as they are sourced from the same schema field
+            if transform == Transform::Identity {
+                if schema_collision.id == schema_field.id {
+                    Ok(())
+                } else {
+                    Err(Self::err(format!(
+                        "Cannot create identity partition sourced from different field in schema: Schema Name '{}' != Partition Name '{partition_name}'.", schema_field.name
+                    )))
+                }
+            } else {
+                Err(Self::err(format!(
+                    "Cannot create partition with name: '{partition_name}' that conflicts with schema field and is not an identity transform."
+                )))
+            }
+        } else {
+            Ok(())
+        }
     }
 
     fn update_names(&mut self, new_name: &str) {
@@ -216,7 +273,7 @@ impl PartitionSpecBinder {
         }
 
         Err(Self::err(format!(
-            "Cannot add redundant partition for: '{source_id}' with transform: '{transform}' !",
+            "Cannot add redundant partition for: '{source_id}' with transform: '{transform}'",
         )))
     }
 }
@@ -237,7 +294,7 @@ mod test {
 
     const MOCK_SPEC_ID: i32 = 0;
 
-    fn is_all_elements_uniq<T>(elements: T) -> bool
+    fn is_all_elements_unique<T>(elements: T) -> bool
     where
         T: IntoIterator,
         T::Item: Eq + Hash,
@@ -269,88 +326,31 @@ mod test {
         let schema_fields = vec![
             NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
             NestedField::required(2, "data", Primitive(PrimitiveType::Date)).into(),
-            NestedField::required(3, "category", Primitive(PrimitiveType::String)).into(),
+            NestedField::required(3, "category", Primitive(PrimitiveType::Int)).into(),
         ];
 
         let spec_fields = vec![
             UnboundPartitionField::builder()
                 .name("id".to_owned())
-                .transform(Transform::Void)
+                .transform(Transform::Identity)
                 .partition_id(1)
                 .source_id(1)
                 .build(),
             UnboundPartitionField::builder()
-                .name("data".to_owned())
+                .name("data_day".to_owned())
                 .transform(Transform::Day)
                 .partition_id(2)
                 .source_id(2)
                 .build(),
             UnboundPartitionField::builder()
-                .name("category".to_owned())
-                .transform(Transform::Unknown)
+                .name("category_bucket[2]".to_owned())
+                .transform(Transform::Bucket(2))
                 .partition_id(3)
                 .source_id(3)
                 .build(),
         ];
 
         create_schema_and_spec(schema_fields, spec_fields)
-    }
-
-    fn mock_incompatible_schema_and_spec() -> (SchemaRef, UnboundPartitionSpec) {
-        let schema_fields = vec![
-            NestedField::required(1, "id", Primitive(PrimitiveType::Int)).into(),
-            NestedField::required(2, "data", Primitive(PrimitiveType::String)).into(),
-            NestedField::required(3, "category", Primitive(PrimitiveType::String)).into(),
-        ];
-
-        let spec_fields = vec![
-            UnboundPartitionField::builder()
-                .name("id".to_owned())
-                .transform(Transform::Identity)
-                .partition_id(1)
-                .source_id(1)
-                .build(),
-            UnboundPartitionField::builder()
-                .name("full_name".to_owned())
-                .transform(Transform::Identity)
-                .partition_id(2)
-                .source_id(2)
-                .build(),
-            UnboundPartitionField::builder()
-                .name("email".to_owned())
-                .transform(Transform::Identity)
-                .partition_id(4)
-                .source_id(4)
-                .build(),
-        ];
-
-        create_schema_and_spec(schema_fields, spec_fields)
-    }
-
-    /// Ensure that the field names in the `UnboundPartitionSpec` are consistent with the names in the schema.
-    #[test]
-    fn names_consistent() {
-        let (schema, spec) = mock_compatible_schema_and_spec();
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
-
-        assert!(spec
-            .fields
-            .iter()
-            .map(|unbound| binder.get_schema_field_by_name(&unbound.name))
-            .all(|field| field.is_ok()));
-    }
-
-    /// Ensure that if field names in the `UnboundPartitionSpec` is inconsistent return an error.
-    #[test]
-    fn names_inconsistent() {
-        let (schema, spec) = mock_incompatible_schema_and_spec();
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
-
-        assert!(spec
-            .fields
-            .iter()
-            .map(|unbound| binder.get_schema_field_by_name(&unbound.name))
-            .any(|field| field.is_err()));
     }
 
     /// Ensure each field referenced in the `UnboundPartitionSpec` exists in the schema.
@@ -362,21 +362,27 @@ mod test {
         assert!(spec
             .fields
             .iter()
-            .map(|unbound| binder.get_schema_field_by_name(&unbound.name))
+            .map(|unbound| binder.get_schema_field_by_id(unbound.source_id))
             .all(|schema_field| schema_field.is_ok()));
     }
 
     /// Ensure that if a field referenced in the `UnboundPartitionSpec` not exists an error is returned.
     #[test]
     fn names_not_exist() {
-        let (schema, spec) = mock_incompatible_schema_and_spec();
+        let schema_fields =
+            vec![NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into()];
+
+        let spec_fields = vec![UnboundPartitionField::builder()
+            .name("id".to_owned())
+            .transform(Transform::Identity)
+            .partition_id(2)
+            .source_id(2)
+            .build()];
+
+        let (schema, spec) = create_schema_and_spec(schema_fields, spec_fields);
         let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
 
-        assert!(spec
-            .fields
-            .iter()
-            .map(|unbound| binder.get_schema_field_by_name(&unbound.name))
-            .any(|schema_field| schema_field.is_err()));
+        binder.bind_spec(spec).expect_err("Should fail binding!");
     }
 
     /// Ensure there are no duplicate fields in the `PartitionSpec`.
@@ -388,12 +394,12 @@ mod test {
         assert!(spec
             .fields
             .iter()
-            .map(|unbound| binder.check_partition_names(&unbound.name))
+            .map(|unbound| binder.check_partition_name_set_and_unique(&unbound.name))
             .all(|partition_name| partition_name.is_ok()));
 
-        assert!(is_all_elements_uniq(
+        assert!(is_all_elements_unique(
             binder
-                .bind_spec_schema(spec)
+                .bind_spec(spec)
                 .expect("Cannot bind spec!")
                 .fields
                 .into_iter()
@@ -402,74 +408,96 @@ mod test {
         ));
     }
 
-    /// Verify that the field IDs in the `UnboundPartitionSpec` match the field IDs in the schema.
+    /// Verify we can add a duplicate partition for identity transform
     #[test]
-    fn field_ids_match() {
-        let (schema, spec) = mock_compatible_schema_and_spec();
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
-
-        assert!(spec
-            .fields
-            .iter()
-            .map(
-                |field| PartitionSpecBinder::check_schema_field_eq_source_id(
-                    binder
-                        .get_schema_field_by_name(&field.name)
-                        .expect("Cannot get field."),
-                    field.source_id
-                )
-            )
-            .all(|res| res.is_ok()));
-    }
-
-    /// Verify that if the field IDs in the `UnboundPartitionSpec` doesn't match the field IDs in the schema an error returns.
-    #[test]
-    fn field_ids_not_match() {
+    fn duplicate_identity_partition() {
         let (schema, spec) = {
-            let schema_fields = vec![
-                NestedField::required(1, "id", Primitive(PrimitiveType::Int)).into(),
-                NestedField::required(3, "data", Primitive(PrimitiveType::String)).into(),
-                NestedField::required(3, "category", Primitive(PrimitiveType::String)).into(),
-            ];
+            let schema_fields =
+                vec![NestedField::required(1, "id", Primitive(PrimitiveType::Int)).into()];
 
-            let spec_fields = vec![
-                UnboundPartitionField::builder()
-                    .name("id".to_owned())
-                    .transform(Transform::Void)
-                    .partition_id(1)
-                    .source_id(1)
-                    .build(),
-                UnboundPartitionField::builder()
-                    .name("data".to_owned())
-                    .transform(Transform::Unknown)
-                    .partition_id(3)
-                    .source_id(3)
-                    .build(),
-                UnboundPartitionField::builder()
-                    .name("category".to_owned())
-                    .transform(Transform::Unknown)
-                    .partition_id(4)
-                    .source_id(4)
-                    .build(),
-            ];
+            let spec_fields = vec![UnboundPartitionField::builder()
+                .name("id".to_owned())
+                .transform(Transform::Identity)
+                .partition_id(1)
+                .source_id(1)
+                .build()];
 
             create_schema_and_spec(schema_fields, spec_fields)
         };
 
         let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        binder
+            .bind_spec(spec)
+            .expect("Can bind duplicate field name for identity transform.");
+    }
 
-        assert!(spec
-            .fields
-            .iter()
-            .map(
-                |field| PartitionSpecBinder::check_schema_field_eq_source_id(
-                    binder
-                        .get_schema_field_by_name(&field.name)
-                        .expect("Cannot get field."),
-                    field.source_id
-                )
-            )
-            .any(|res| res.is_err()));
+    /// Validate that we cannot add a duplicate partition for non-identity transform
+    #[test]
+    fn duplicate_partition() {
+        let (schema, spec) = {
+            let schema_fields =
+                vec![NestedField::required(1, "id", Primitive(PrimitiveType::Int)).into()];
+
+            let spec_fields = vec![UnboundPartitionField::builder()
+                .name("id".to_owned())
+                .transform(Transform::Unknown)
+                .partition_id(1)
+                .source_id(1)
+                .build()];
+
+            create_schema_and_spec(schema_fields, spec_fields)
+        };
+
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        binder
+            .bind_spec(spec)
+            .expect_err("Cannot bind duplicate field name for non-identity transform.");
+    }
+
+    /// Validate that for identity transforms, the partition name can also be different from the schema field name
+    #[test]
+    fn identity_partition_with_different_name() {
+        let (schema, spec) = {
+            let schema_fields =
+                vec![NestedField::required(1, "id", Primitive(PrimitiveType::Int)).into()];
+
+            let spec_fields = vec![UnboundPartitionField::builder()
+                .name("id_partition".to_owned())
+                .transform(Transform::Identity)
+                .partition_id(2)
+                .source_id(1)
+                .build()];
+
+            create_schema_and_spec(schema_fields, spec_fields)
+        };
+
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        binder
+            .bind_spec(spec)
+            .expect("Can bind identity partition with different name.");
+    }
+
+    /// Validate that for identity transforms, the field id must match if the name is identical
+    #[test]
+    fn identity_partition_with_different_field_id() {
+        let (schema, spec) = {
+            let schema_fields =
+                vec![NestedField::required(1, "id", Primitive(PrimitiveType::Int)).into()];
+
+            let spec_fields = vec![UnboundPartitionField::builder()
+                .name("id".to_owned())
+                .transform(Transform::Identity)
+                .partition_id(3)
+                .source_id(2)
+                .build()];
+
+            create_schema_and_spec(schema_fields, spec_fields)
+        };
+
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        binder
+            .bind_spec(spec)
+            .expect_err("Cannot bind identity partition with different field id.");
     }
 
     /// Ensure the transforms applied to the fields in the `UnboundPartitionSpec` are valid and supported.
@@ -484,7 +512,7 @@ mod test {
             (
                 spec.fields[index].transform,
                 &*binder
-                    .get_schema_field_by_name(&spec.fields[index].name)
+                    .get_schema_field_by_id(spec.fields[index].partition_id.unwrap())
                     .expect("Cannot get name!")
                     .field_type,
             )
@@ -493,28 +521,28 @@ mod test {
         let (schema, spec) = {
             let schema_fields = vec![
                 NestedField::required(1, "id", Primitive(PrimitiveType::Int)).into(),
-                NestedField::required(3, "data", Primitive(PrimitiveType::String)).into(),
+                NestedField::required(2, "data", Primitive(PrimitiveType::String)).into(),
                 NestedField::required(3, "category", Struct(StructType::default())).into(),
             ];
 
             let spec_fields = vec![
                 UnboundPartitionField::builder()
-                    .name("id".to_owned())
+                    .name("id_void".to_owned())
                     .transform(Transform::Void)
                     .partition_id(1)
                     .source_id(1)
                     .build(),
                 UnboundPartitionField::builder()
-                    .name("data".to_owned())
+                    .name("data_unknown".to_owned())
                     .transform(Transform::Unknown)
-                    .partition_id(3)
-                    .source_id(3)
+                    .partition_id(2)
+                    .source_id(2)
                     .build(),
                 UnboundPartitionField::builder()
-                    .name("category".to_owned())
+                    .name("category_bucket_1".to_owned())
                     .transform(Transform::Bucket(1))
-                    .partition_id(4)
-                    .source_id(4)
+                    .partition_id(3)
+                    .source_id(3)
                     .build(),
             ];
 

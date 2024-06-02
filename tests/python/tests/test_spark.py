@@ -4,16 +4,18 @@ import pytest
 
 
 def test_create_namespace(spark, warehouse: conftest.Warehouse):
-    spark.sql("CREATE NAMESPACE test_create_namespace")
-    assert ("test_create_namespace",) in warehouse.pyiceberg_catalog.list_namespaces()
+    spark.sql("CREATE NAMESPACE test_create_namespace_spark")
+    assert (
+        "test_create_namespace_spark",
+    ) in warehouse.pyiceberg_catalog.list_namespaces()
 
 
 def test_list_namespaces(spark, warehouse: conftest.Warehouse):
-    spark.sql("CREATE NAMESPACE test_list_namespaces_1")
-    spark.sql("CREATE NAMESPACE test_list_namespaces_2")
+    spark.sql("CREATE NAMESPACE test_list_namespaces_spark_1")
+    spark.sql("CREATE NAMESPACE test_list_namespaces_spark_2")
     pdf = spark.sql("SHOW NAMESPACES").toPandas()
-    assert "test_list_namespaces_1" in pdf["namespace"].values
-    assert "test_list_namespaces_2" in pdf["namespace"].values
+    assert "test_list_namespaces_spark_1" in pdf["namespace"].values
+    assert "test_list_namespaces_spark_2" in pdf["namespace"].values
 
 
 def test_namespace_create_if_not_exists(spark, warehouse: conftest.Warehouse):
@@ -173,15 +175,15 @@ def test_change_partitioning(spark, namespace):
 
 
 # ToDo: Fix {"error_id":"018fcac4-44a3-7333-b3c2-c0a4e0127339","message":"Field 'my_ints_bucket' not found in schema.","type":"FailedToBuildPartitionSpec","code":409,"stack":null}
-# def test_partition_bucket(spark, namespace):
-#     spark.sql(
-#         f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg PARTITIONED BY (bucket(16, my_ints))"
-#     )
-#     spark.sql(
-#         f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo'), (2, 2.2, 'bar')"
-#     )
-#     pdf = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
-#     assert len(pdf) == 2
+def test_partition_bucket(spark, namespace):
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg PARTITIONED BY (bucket(16, my_ints))"
+    )
+    spark.sql(
+        f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo'), (2, 2.2, 'bar')"
+    )
+    pdf = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
+    assert len(pdf) == 2
 
 
 def test_alter_schema(spark, namespace):

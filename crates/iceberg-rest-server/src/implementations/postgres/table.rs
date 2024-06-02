@@ -13,7 +13,6 @@ use iceberg_ext::{
     NamespaceIdent, TableRequirement, TableUpdate,
 };
 
-use iceberg::spec::{SortOrder, UnboundPartitionSpec};
 use iceberg_rest_service::{
     v1::TableIdent, CommitTableResponse, CommitTransactionRequest, CreateTableRequest, ErrorModel,
     Result, TableRequirementExt as _, TableUpdateExt,
@@ -198,21 +197,13 @@ pub(crate) async fn create_table(
             .build()
     })?;
 
-    let mut builder = TableMetadataAggregate::new(location.clone());
-    builder.add_schema(schema, None)?;
-    builder.set_current_schema(-1)?;
+    let mut builder = TableMetadataAggregate::new(location.clone(), schema);
     if let Some(partition_spec) = partition_spec {
         builder.add_partition_spec(partition_spec)?;
-        builder.set_default_partition_spec(-1)?;
-    } else {
-        builder.add_partition_spec(UnboundPartitionSpec::default())?;
         builder.set_default_partition_spec(-1)?;
     }
     if let Some(write_order) = write_order {
         builder.add_sort_order(write_order)?;
-        builder.set_default_sort_order(-1)?;
-    } else {
-        builder.add_sort_order(SortOrder::default())?;
         builder.set_default_sort_order(-1)?;
     }
     builder.set_properties(properties.unwrap_or_default())?;

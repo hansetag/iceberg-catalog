@@ -31,3 +31,6 @@ strum_macros = { workspace = true }
 typed-builder = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+lazy_static = { workspace = true }

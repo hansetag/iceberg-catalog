@@ -1,15 +1,13 @@
 use std::cmp::max;
 use std::collections::HashSet;
 use std::ops::BitAnd;
-use std::{
-    collections::{hash_map::Entry as HashMapEntry, HashMap},
-    vec,
-};
+use std::{collections::HashMap, vec};
 
 use http::StatusCode;
 use iceberg::spec::{
     FormatVersion, PartitionField, PartitionSpec, PartitionSpecRef, Schema, SchemaRef, Snapshot,
     SnapshotLog, SnapshotReference, SortOrder, SortOrderRef, TableMetadata, UnboundPartitionSpec,
+    DEFAULT_SORT_ORDER_ID, DEFAULT_SPEC_ID, MAIN_BRANCH,
 };
 use iceberg::TableUpdate;
 use uuid::Uuid;
@@ -31,13 +29,9 @@ pub struct TableMetadataAggregate {
 }
 
 impl TableMetadataAggregate {
-    const MAIN_BRANCH: &'static str = "main";
-    const INITIAL_SPEC_ID: i32 = 0;
-    const INITIAL_SORT_ORDER_ID: i64 = 0;
-    const PARTITION_DATA_ID_START: usize = 1000;
+    const PARTITION_DATA_ID_START: i32 = 1000;
     const LAST_ADDED_I32: i32 = -1;
     const LAST_ADDED_I64: i64 = -1;
-    const INITIAL_SCHEMA_ID: i32 = 0;
     const RESERVED_PROPERTIES: [&'static str; 9] = [
         "format-version",
         "uuid",
@@ -50,9 +44,11 @@ impl TableMetadataAggregate {
         "default-sort-order",
     ];
 
-    /// Initialize new table metadata aggregate.
     #[must_use]
-    pub fn new(location: String) -> Self {
+    /// Creates a new table metadata builder.
+    pub fn new(location: String, schema: Schema) -> Self {
+        // ToDo: Assign fresh IDs?
+        // https://github.com/apache/iceberg/blob/6a594546b06df9fb75dd7e9713a8dc173e67c870/core/src/main/java/org/apache/iceberg/TableMetadata.java#L119
         Self {
             metadata: TableMetadata {
                 format_version: FormatVersion::V2,
@@ -60,19 +56,19 @@ impl TableMetadataAggregate {
                 location,
                 last_sequence_number: 0,
                 last_updated_ms: chrono::Utc::now().timestamp_millis(),
-                last_column_id: Self::LAST_ADDED_I32,
-                current_schema_id: Self::INITIAL_SCHEMA_ID,
-                schemas: HashMap::new(),
+                last_column_id: schema.highest_field_id(),
+                current_schema_id: schema.schema_id(),
+                schemas: HashMap::from_iter(vec![(schema.schema_id(), schema.into())]),
                 partition_specs: HashMap::new(),
-                default_spec_id: Self::LAST_ADDED_I32,
-                last_partition_id: 0,
+                default_spec_id: DEFAULT_SPEC_ID - 1,
+                last_partition_id: Self::PARTITION_DATA_ID_START - 1,
                 properties: HashMap::new(),
                 current_snapshot_id: None,
                 snapshots: HashMap::new(),
                 snapshot_log: vec![],
                 sort_orders: HashMap::new(),
                 metadata_log: vec![],
-                default_sort_order_id: i64::from(Self::LAST_ADDED_I32),
+                default_sort_order_id: DEFAULT_SORT_ORDER_ID - 1,
                 refs: HashMap::default(),
             },
             changes: Vec::default(),
@@ -217,61 +213,73 @@ impl TableMetadataAggregate {
                 .build());
         }
 
-        let new_schema_id = self.reuse_or_create_new_schema_id(&schema)?;
+        let new_schema_id = self.reuse_or_create_new_schema_id(&schema);
         let schema_found = self.metadata.schemas.contains_key(&new_schema_id);
+
+        if schema_found && new_last_column_id == self.metadata.last_column_id {
+            // the new spec and last column id is already current and no change is needed
+            // update lastAddedSchemaId if the schema was added in this set of changes (since it is now
+            // the last)
+            let is_new_schema = self.last_added_schema_id
+                .map_or(false, |id| {
+                    self.changes
+                        .iter()
+                        .any(|update| matches!(update, TableUpdate::AddSchema { schema, .. } if schema.schema_id() == id))
+                });
+
+            self.last_added_schema_id = is_new_schema.then_some(new_schema_id);
+
+            return Ok(self);
+        }
+
+        let schema = if new_schema_id == schema.schema_id() {
+            schema
+        } else {
+            Schema::into_builder(schema)
+                .with_schema_id(new_schema_id)
+                .build()
+                .map_err(|e| {
+                    ErrorModel::builder()
+                        .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                        .message("Failed to assign new schema id")
+                        .r#type("FailedToAssignSchemaId")
+                        .stack(Some(vec![e.to_string()]))
+                        .build()
+                })?
+        };
+
+        self.metadata.last_column_id = new_last_column_id;
 
         if !schema_found {
             self.metadata
                 .schemas
                 .insert(schema.schema_id(), schema.clone().into());
-            self.changes.push(TableUpdate::AddSchema {
-                schema,
-                last_column_id: Some(new_last_column_id),
-            });
-            self.metadata.last_column_id = new_last_column_id;
         }
+        self.changes.push(TableUpdate::AddSchema {
+            schema,
+            last_column_id: Some(new_last_column_id),
+        });
 
         self.last_added_schema_id = Some(new_schema_id);
 
         Ok(self)
     }
 
-    fn reuse_or_create_new_schema_id(&self, other: &Schema) -> Result<i32> {
-        let (other_id, other_fields) = (other.schema_id(), other.identifier_field_ids());
-
-        let err = Self::throw_err(
-            format!("Schema with id '{other_id}' already exists and is different!"),
-            "SchemaIdAlreadyExistsAndDifferent",
-        );
-
-        let is_schemas_eq = |(id, this_schema): (&i32, &SchemaRef)| -> Option<i32> {
-            other
-                .as_struct()
-                .eq(this_schema.as_struct())
-                .bitand(other_fields.eq(this_schema.identifier_field_ids()))
-                .then_some(*id)
+    fn reuse_or_create_new_schema_id(&self, new_schema: &Schema) -> i32 {
+        // ToDo: Migrate to schema impl
+        let same_schema = |(first, second): (&SchemaRef, &Schema)| -> bool {
+            first.as_struct().eq(second.as_struct()).bitand(
+                first
+                    .identifier_field_ids()
+                    .eq(second.identifier_field_ids()),
+            )
         };
 
-        if other_id == Self::LAST_ADDED_I32 {
-            // Search for an identical schema and reuse the ID.
-            // If no identical schema is found, use the next available ID.
-            Ok(self
-                .metadata
-                .schemas
-                .iter()
-                .find_map(is_schemas_eq)
-                .unwrap_or_else(|| self.get_highest_schema_id() + 1))
-        } else {
-            // If the schema_id() already exists, it must be the same schema.
-            Ok(self
-                .metadata
-                .schemas
-                .get(&other_id)
-                .map(AsRef::as_ref)
-                .map(|exising| exising.eq(other).then_some(other_id).ok_or_else(err))
-                .transpose()?
-                .unwrap_or(other_id))
-        }
+        self.metadata
+            .schemas
+            .iter()
+            .find_map(|(id, schema)| same_schema((schema, new_schema)).then_some(*id))
+            .unwrap_or_else(|| self.get_highest_schema_id() + 1)
     }
 
     fn get_highest_schema_id(&self) -> i32 {
@@ -298,7 +306,7 @@ impl TableMetadataAggregate {
                 Err(ErrorModel::builder()
                     .code(StatusCode::CONFLICT.into())
                     .message("Cannot set last added schema: no schema has been added.")
-                    .r#type("CannotSetCurrentSchema")
+                    .r#type("CurrentSchemaNotAdded")
                     .build())
             };
         }
@@ -311,24 +319,28 @@ impl TableMetadataAggregate {
             return Err(ErrorModel::builder()
                 .code(StatusCode::CONFLICT.into())
                 .message(format!(
-                    "Cannot set current schema to schema with unknown Id: '{schema_id}'!"
+                    "Cannot set current schema to schema with unknown Id: '{schema_id}'"
                 ))
-                .r#type("CannotSetCurrentSchema")
+                .r#type("CurrentSchemaNotFound")
                 .build());
         };
 
+        // rebuild all the partition specs and sort orders for the new current schema
         self.metadata.partition_specs = self
             .metadata
             .partition_specs
             .values()
-            .cloned()
+            // ToDo: Check new() impl
+            // ToDo: Check Snapshot impl
             .map(|spec| {
-                PartitionSpecBinder::new(schema.clone(), spec.spec_id).update_spec_schema(&spec)
+                PartitionSpecBinder::new(schema.clone(), spec.spec_id)
+                    .update_spec_schema((**spec).clone())
             })
             .collect::<Result<Vec<PartitionSpec>>>()?
             .into_iter()
             .map(|spec| (spec.spec_id, spec.into()))
             .collect::<HashMap<i32, PartitionSpecRef>>();
+
         self.metadata.sort_orders = self
             .metadata
             .sort_orders
@@ -338,12 +350,12 @@ impl TableMetadataAggregate {
                 SortOrder::builder()
                     .with_order_id(sort_order.order_id)
                     .with_fields(sort_order.fields.clone())
-                    .build(schema.as_ref().clone())
+                    .build_unbound()
                     .map_err(|e| {
                         ErrorModel::builder()
-                            .message("Failed to bound 'SortOrder'!")
+                            .message(e.message())
                             .code(StatusCode::CONFLICT.into())
-                            .r#type("CannotSetCurrentSchema")
+                            .r#type(e.kind().into_static())
                             .stack(Some(vec![e.to_string()]))
                             .build()
                     })
@@ -372,14 +384,37 @@ impl TableMetadataAggregate {
     /// # Errors
     /// None yet. Fails during build if `spec` cannot be bound.
     pub fn add_partition_spec(&mut self, unbound_spec: UnboundPartitionSpec) -> Result<&mut Self> {
+        if self.metadata.current_schema_id == Self::LAST_ADDED_I32 {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message("Cannot add partition spec before current schema has been set.")
+                .r#type("AddPartitionSpecBeforeSchema")
+                .build());
+        }
         let mut spec = PartitionSpecBinder::new(
             self.get_current_schema()?.clone(),
             unbound_spec.spec_id.unwrap_or_default(),
         )
-        .bind_spec_schema(unbound_spec.clone())?;
+        .bind_spec(unbound_spec.clone())?;
 
         // No spec_id specified, we need to reuse or create a new one.
-        spec.spec_id = self.reuse_or_create_new_spec_id(&spec)?;
+        let new_spec_id = self.reuse_or_create_new_spec_id(&spec);
+
+        if self.metadata.partition_specs.contains_key(&new_spec_id) {
+            // update lastAddedSpecId if the spec was added in this set of changes (since it is now the
+            // last)
+            let is_new_spec = self.last_added_spec_id
+                .map_or(false, |id| {
+                    self.changes
+                        .iter()
+                        // spec.spec_id should always be some, because we set the final id in this function before adding the change.
+                        .any(|update| matches!(update, TableUpdate::AddSpec { spec, .. } if spec.spec_id == Some(id)))
+                });
+
+            self.last_added_spec_id = is_new_spec.then_some(new_spec_id);
+
+            return Ok(self);
+        }
 
         if self.metadata.format_version <= FormatVersion::V1
             && !Self::has_sequential_ids(&spec.fields)
@@ -391,54 +426,63 @@ impl TableMetadataAggregate {
                 .build());
         }
 
-        self.last_added_spec_id = Some(spec.spec_id);
+        // We already checked compatibility in the binder.
+        spec.spec_id = new_spec_id;
+        let mut unbound_spec = unbound_spec;
+        unbound_spec.spec_id = Some(new_spec_id);
 
-        if let HashMapEntry::Vacant(e) = self.metadata.partition_specs.entry(spec.spec_id) {
-            self.changes
-                .push(TableUpdate::AddSpec { spec: unbound_spec });
-            self.metadata.last_partition_id = max(
-                self.metadata.last_partition_id,
-                spec.fields.iter().last().map_or(0, |field| field.field_id),
-            );
-            e.insert(spec.into());
-        }
+        self.last_added_spec_id = Some(spec.spec_id);
+        self.metadata.last_partition_id = max(
+            self.metadata.last_partition_id,
+            // ToDo: Move to last_assigned_field_id impl in PartitionSpec
+            spec.fields
+                .iter()
+                .map(|field| field.field_id)
+                .max()
+                .unwrap_or(PartitionSpecBinder::UNPARTITIONED_LAST_ASSIGNED_ID),
+        );
+
+        self.metadata
+            .partition_specs
+            .insert(spec.spec_id, spec.clone().into());
+        self.changes
+            .push(TableUpdate::AddSpec { spec: unbound_spec });
 
         Ok(self)
     }
 
     /// If the spec already exists, use the same ID. Otherwise, use 1 more than the highest ID.
-    fn reuse_or_create_new_spec_id(&self, other: &PartitionSpec) -> Result<i32> {
-        let (other_id, other_fields) = (other.spec_id, &other.fields);
+    fn reuse_or_create_new_spec_id(&self, new_spec: &PartitionSpec) -> i32 {
+        // ToDo: Migrate to PartitionSpec impl
+        /// Returns true if this spec is equivalent to the other, with partition field ids ignored. That
+        /// is, if both specs have the same number of fields, field order, field name, source columns, and
+        /// transforms.
+        fn compatible_with(this: &PartitionSpec, other: &PartitionSpec) -> bool {
+            if this.eq(other) {
+                return true;
+            }
 
-        let err = Self::throw_err(
-            format!("PartitionSpec with id '{other_id}' already exists and it's different!",),
-            "PartitionSpecIdAlreadyExistsAndDifferent",
-        );
+            if this.fields.len() != other.fields.len() {
+                return false;
+            }
 
-        let is_specs_eq = |(id, this_partition): (&i32, &PartitionSpecRef)| -> Option<i32> {
-            this_partition.fields.eq(other_fields).then_some(*id)
-        };
+            for (this_field, other_field) in this.fields.iter().zip(other.fields.iter()) {
+                if this_field.source_id != other_field.source_id
+                    || this_field.transform.to_string() != other_field.transform.to_string()
+                    || this_field.name != other_field.name
+                {
+                    return false;
+                }
+            }
 
-        if other_id == Self::LAST_ADDED_I32 {
-            // Search for identical `spec_id` and reuse the ID if possible.
-            // Otherwise, use the next available ID.
-            Ok(self
-                .metadata
-                .partition_specs
-                .iter()
-                .find_map(is_specs_eq)
-                .unwrap_or_else(|| self.highest_spec_id() + 1))
-        } else {
-            // If the `spec_id` already exists, it must be the same spec.
-            Ok(self
-                .metadata
-                .partition_specs
-                .get(&other_id)
-                .map(AsRef::as_ref)
-                .map(|exising| exising.eq(other).then_some(other_id).ok_or_else(err))
-                .transpose()?
-                .unwrap_or(other_id))
+            true
         }
+
+        self.metadata
+            .partition_specs
+            .iter()
+            .find_map(|(id, old_spec)| compatible_with(old_spec, new_spec).then_some(*id))
+            .unwrap_or_else(|| self.highest_spec_id() + 1)
     }
 
     fn highest_spec_id(&self) -> i32 {
@@ -447,7 +491,7 @@ impl TableMetadataAggregate {
             .partition_specs
             .keys()
             .max()
-            .unwrap_or(&Self::INITIAL_SPEC_ID)
+            .unwrap_or(&(DEFAULT_SPEC_ID - 1))
     }
 
     /// Set the default partition spec.
@@ -489,6 +533,30 @@ impl TableMetadataAggregate {
     /// # Errors
     /// - Sort Order ID to add already exists.
     pub fn add_sort_order(&mut self, sort_order: SortOrder) -> Result<&mut Self> {
+        let new_order_id = self.reuse_or_create_new_sort_id(&sort_order);
+        if self.metadata.sort_orders.contains_key(&new_order_id) {
+            // update lastAddedOrderId if the order was added in this set of changes (since it is now
+            // the last)
+            let is_new_order = self.last_added_order_id
+                .map_or(false, |id| {
+                    self.changes
+                        .iter()
+                        .any(|update| matches!(update, TableUpdate::AddSortOrder { sort_order: order, .. } if order.order_id == id))
+                });
+
+            self.last_added_order_id = is_new_order.then_some(new_order_id);
+
+            return Ok(self);
+        }
+
+        if self.metadata.current_schema_id == Self::LAST_ADDED_I32 {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message("Cannot add sort order before current schema has been set.")
+                .r#type("AddSortOrderBeforeSchema")
+                .build());
+        }
+
         let schema = self.get_current_schema()?.clone().as_ref().clone();
         let mut sort_order = SortOrder::builder()
             .with_order_id(sort_order.order_id)
@@ -496,62 +564,38 @@ impl TableMetadataAggregate {
             .build(schema)
             .map_err(|e| {
                 ErrorModel::builder()
-                    .message("Failed to bound 'SortOrder'!")
+                    .message("Failed to bind 'SortOrder'")
                     .code(StatusCode::CONFLICT.into())
-                    .r#type("FailedToBuildSortOrder")
+                    .r#type("FailedToBindSortOrder")
                     .stack(Some(vec![e.to_string()]))
                     .build()
             })?;
 
-        sort_order.order_id = if sort_order.is_unsorted() {
-            0
-        } else {
-            self.reuse_or_create_new_sort_id(&sort_order)?
-        };
-        self.last_added_order_id = Some(sort_order.order_id);
-        if let HashMapEntry::Vacant(e) = self.metadata.sort_orders.entry(sort_order.order_id) {
-            self.changes.push(TableUpdate::AddSortOrder {
-                sort_order: sort_order.clone(),
-            });
+        sort_order.order_id = self.reuse_or_create_new_sort_id(&sort_order);
 
-            e.insert(sort_order.into());
-        }
+        self.last_added_order_id = Some(sort_order.order_id);
+        self.metadata
+            .sort_orders
+            .insert(sort_order.order_id, sort_order.clone().into());
+        self.changes.push(TableUpdate::AddSortOrder { sort_order });
 
         Ok(self)
     }
 
-    fn reuse_or_create_new_sort_id(&self, other: &SortOrder) -> Result<i64> {
-        let (other_id, other_fields) = (other.order_id, &other.fields);
+    fn reuse_or_create_new_sort_id(&self, new_sort_order: &SortOrder) -> i64 {
+        if new_sort_order.is_unsorted() {
+            return SortOrder::unsorted_order().order_id;
+        }
 
-        let err = Self::throw_err(
-            format!("Sort Order with id '{other_id}' already exists and is different!",),
-            "SortOrderIdAlreadyExistsAndDifferent",
-        );
-
-        let is_order_eq = |(id, this_order): (&i64, &SortOrderRef)| -> Option<i64> {
-            this_order.fields.eq(other_fields).then_some(*id)
+        let same_order = |(first, second): (&SortOrderRef, &SortOrder)| -> bool {
+            first.fields.eq(&second.fields)
         };
 
-        if other_id == Self::LAST_ADDED_I64 {
-            // Search for identical order_id and reuse the ID if possible.
-            // Otherwise, use the next available ID.
-            Ok(self
-                .metadata
-                .sort_orders
-                .iter()
-                .find_map(is_order_eq)
-                .unwrap_or_else(|| self.highest_sort_id() + 1))
-        } else {
-            // If the order_id already exists, it must be the same sort order.
-            Ok(self
-                .metadata
-                .sort_orders
-                .get(&other_id)
-                .map(AsRef::as_ref)
-                .map(|exising| exising.eq(other).then_some(other_id).ok_or_else(err))
-                .transpose()?
-                .unwrap_or(other_id))
-        }
+        self.metadata
+            .sort_orders
+            .iter()
+            .find_map(|(id, sort_order)| same_order((sort_order, new_sort_order)).then_some(*id))
+            .unwrap_or_else(|| self.highest_sort_id() + 1)
     }
 
     fn highest_sort_id(&self) -> i64 {
@@ -560,7 +604,7 @@ impl TableMetadataAggregate {
             .sort_orders
             .keys()
             .max()
-            .unwrap_or(&Self::INITIAL_SORT_ORDER_ID)
+            .unwrap_or(&DEFAULT_SORT_ORDER_ID)
     }
 
     /// Set the default sort order.
@@ -728,7 +772,7 @@ impl TableMetadataAggregate {
 
         self.metadata.last_updated_ms = snapshot.timestamp().timestamp_millis();
 
-        if ref_name == Self::MAIN_BRANCH {
+        if ref_name == MAIN_BRANCH {
             self.metadata.current_snapshot_id = Some(snapshot.snapshot_id());
             self.metadata.last_updated_ms = if self.metadata.last_updated_ms == 0 {
                 chrono::Utc::now().timestamp_millis()
@@ -756,7 +800,7 @@ impl TableMetadataAggregate {
     /// # Errors
     /// None yet.
     pub fn remove_snapshot_by_ref(&mut self, snapshot_ref: &str) -> Result<&mut Self> {
-        if snapshot_ref == Self::MAIN_BRANCH {
+        if snapshot_ref == MAIN_BRANCH {
             self.metadata.current_snapshot_id = Some(i64::from(Self::LAST_ADDED_I32));
             self.metadata.snapshot_log.clear();
         }
@@ -777,9 +821,13 @@ impl TableMetadataAggregate {
     /// - Default sort order is set to -1 but no sort order has been added.
     /// - Default partition spec is set to -1 but no partition spec has been added.
     /// - Ref is set to an unknown snapshot.
-    pub fn build(self) -> Result<TableMetadata> {
-        if self.changes.is_empty() {
-            return Ok(self.metadata);
+    pub fn build(mut self) -> Result<TableMetadata> {
+        if self.metadata.current_schema_id < 0 {
+            return Err(ErrorModel::builder()
+                .message("Cannot create a table without current_schema_id")
+                .code(StatusCode::CONFLICT.into())
+                .r#type("CurrentSchemaIdMissing")
+                .build());
         }
 
         if self.metadata.last_column_id < 0 {
@@ -790,28 +838,28 @@ impl TableMetadataAggregate {
                 .build());
         }
 
-        if self.metadata.current_schema_id < 0 {
-            return Err(ErrorModel::builder()
-                .message("Cannot create a table without current_schema_id")
-                .code(StatusCode::CONFLICT.into())
-                .r#type("CurrentSchemaIdMissing")
-                .build());
+        // It hasn't been changed at all
+        if self.metadata.default_spec_id == DEFAULT_SPEC_ID - 1 {
+            self.metadata.default_spec_id = DEFAULT_SPEC_ID;
+            self.metadata
+                .partition_specs
+                .entry(DEFAULT_SPEC_ID)
+                .or_insert_with(|| {
+                    PartitionSpec {
+                        spec_id: DEFAULT_SPEC_ID,
+                        fields: vec![],
+                    }
+                    .into()
+                });
         }
 
-        if self.metadata.default_spec_id < 0 {
-            return Err(ErrorModel::builder()
-                .message("Cannot create a table without default_spec_id")
-                .code(StatusCode::CONFLICT.into())
-                .r#type("DefaultSpecIdMissing")
-                .build());
-        }
-
-        if self.metadata.default_sort_order_id < 0 {
-            return Err(ErrorModel::builder()
-                .message("Cannot create a table without default_sort_order_id")
-                .code(StatusCode::CONFLICT.into())
-                .r#type("DefaultSortOrderIdMissing")
-                .build());
+        if self.metadata.default_sort_order_id == (DEFAULT_SORT_ORDER_ID - 1) {
+            let unsorted = SortOrder::unsorted_order();
+            self.metadata.default_sort_order_id = DEFAULT_SORT_ORDER_ID;
+            self.metadata
+                .sort_orders
+                .entry(DEFAULT_SORT_ORDER_ID)
+                .or_insert_with(|| unsorted.into());
         }
 
         Ok(self.metadata)
@@ -835,7 +883,7 @@ impl TableMetadataAggregate {
     #[allow(clippy::cast_sign_loss)]
     fn has_sequential_ids(fields: &[PartitionField]) -> bool {
         for (index, field) in fields.iter().enumerate() {
-            if (field.field_id as usize).ne(&(Self::PARTITION_DATA_ID_START + index)) {
+            if (field.field_id as usize).ne(&(Self::PARTITION_DATA_ID_START as usize + index)) {
                 return false;
             }
         }
@@ -860,23 +908,61 @@ impl TableMetadataAggregate {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use super::*;
-    use iceberg::spec::Type::Primitive;
-    use iceberg::spec::{NestedField, PrimitiveType};
+    use iceberg::spec::Type::{self, Primitive};
+    use iceberg::spec::{
+        NestedField, NullOrder, PrimitiveType, SortDirection, SortField, Transform,
+        UnboundPartitionField,
+    };
 
-    fn get_mock_schema(from_id: i32) -> (Schema, i32) {
-        let schema_fields = vec![
-            NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
-            NestedField::required(2, "data", Primitive(PrimitiveType::Date)).into(),
-            NestedField::required(3, "category", Primitive(PrimitiveType::String)).into(),
-        ];
-
-        let schema = Schema::builder()
-            .with_schema_id(from_id)
-            .with_fields(schema_fields)
+    lazy_static::lazy_static! {
+        static ref SCHEMA: Schema = Schema::builder()
+            .with_schema_id(1)
+            .with_fields(vec![Arc::new(NestedField::required(
+                1,
+                "id",
+                Type::Primitive(PrimitiveType::Int),
+            ))])
             .build()
-            .expect("Cannot create schema mock!");
-        (schema, from_id)
+            .unwrap();
+
+        static ref PARTITION_SPEC: PartitionSpec = PartitionSpec::builder()
+        .with_spec_id(1)
+        .with_partition_field(PartitionField {
+            name: "id".to_string(),
+            transform: Transform::Identity,
+            source_id: 1,
+            field_id: 1000,
+        })
+        .build()
+        .unwrap();
+
+        static ref TABLE_METADATA: TableMetadata = TableMetadata {
+            format_version: FormatVersion::V2,
+            table_uuid: Uuid::parse_str("fb072c92-a02b-11e9-ae9c-1bb7bc9eca94").unwrap(),
+            location: "s3://b/wh/data.db/table".to_string(),
+            last_updated_ms: chrono::Utc::now().timestamp_millis(),
+            last_column_id: 1,
+            schemas: HashMap::from_iter(vec![(1, Arc::new(SCHEMA.clone()))]),
+            current_schema_id: 1,
+            partition_specs: HashMap::from_iter(vec![(1, PARTITION_SPEC.clone().into())]),
+            default_spec_id: 0,
+            last_partition_id: 1000,
+            default_sort_order_id: 0,
+            sort_orders: HashMap::from_iter(vec![]),
+            snapshots: HashMap::default(),
+            current_snapshot_id: None,
+            last_sequence_number: 1,
+            properties: HashMap::from_iter(vec![(
+                "commit.retry.num-retries".to_string(),
+                "1".to_string(),
+            )]),
+            snapshot_log: Vec::new(),
+            metadata_log: vec![],
+            refs: HashMap::new(),
+        };
     }
 
     fn get_allowed_props() -> HashMap<String, String> {
@@ -885,108 +971,128 @@ mod test {
             .collect()
     }
 
-    fn get_unbounded_spec() -> (UnboundPartitionSpec, i32) {
-        let id = 1;
-        (
-            UnboundPartitionSpec::builder()
-                .with_spec_id(id)
-                .with_fields(vec![])
-                .build()
-                .expect("Cannot build partition spec."),
-            id,
-        )
+    #[test]
+    fn default_order_id_is_unsorted() {
+        let unsorted = SortOrder::unsorted_order();
+        assert_eq!(unsorted.order_id, DEFAULT_SORT_ORDER_ID);
     }
 
-    fn get_sort_order(schema: Schema) -> (SortOrder, i64) {
-        let sort_id = 0;
-        (
-            SortOrder::builder()
-                .with_order_id(sort_id)
-                .with_fields(vec![])
-                .build(schema)
-                .expect("Cannot build sort order."),
-            sort_id,
-        )
-    }
+    #[test]
+    fn get_full_aggregate() {
+        let new_schema = Schema::builder()
+            .with_schema_id(2)
+            .with_fields(vec![Arc::new(NestedField::required(
+                2,
+                "name",
+                Type::Primitive(PrimitiveType::String),
+            ))])
+            .build()
+            .unwrap();
 
-    fn get_empty_aggregate() -> TableMetadataAggregate {
-        TableMetadataAggregate::new(ToOwned::to_owned("location"))
-    }
+        let new_spec = UnboundPartitionSpec::builder()
+            .with_spec_id(2)
+            .with_fields(vec![UnboundPartitionField {
+                name: "name".to_string(),
+                transform: Transform::Identity,
+                source_id: 2,
+                partition_id: None,
+            }])
+            .build()
+            .unwrap();
 
-    fn get_full_aggregate() -> TableMetadataAggregate {
-        let (schema, schema_id) = get_mock_schema(1);
-        let (spec, spec_id) = get_unbounded_spec();
-        let (sort, sort_id) = get_sort_order(schema.clone());
+        let new_sort_order = SortOrder::builder()
+            .with_order_id(1)
+            .with_fields(vec![SortField {
+                source_id: 2,
+                transform: Transform::Identity,
+                direction: SortDirection::Ascending,
+                null_order: NullOrder::First,
+            }])
+            .build_unbound()
+            .unwrap();
 
-        let mut aggregate = TableMetadataAggregate::new(ToOwned::to_owned("location"));
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
+
+        let new_uuid = Uuid::now_v7();
         aggregate
-            .assign_uuid(Uuid::now_v7())
+            .assign_uuid(new_uuid)
             .expect("Cannot assign uuid.")
-            .add_schema(schema, None)
+            .add_schema(new_schema, None)
             .expect("Cannot set schema.")
-            .set_current_schema(schema_id)
+            .set_current_schema(-1)
             .expect("Cannot set current schema.")
             .upgrade_format_version(FormatVersion::V2)
             .expect("Cannot set format version.")
-            .add_partition_spec(spec)
+            .add_partition_spec(new_spec)
             .expect("Cannot set partition spec.")
-            .set_default_partition_spec(spec_id)
+            .set_default_partition_spec(-1)
             .expect("Cannot set default partition spec.")
-            .add_sort_order(sort)
+            .add_sort_order(new_sort_order)
             .expect("Cannot set sort order.")
-            .set_default_sort_order(sort_id)
+            .set_default_sort_order(-1)
             .expect("Cannot set default sort order.")
             .set_location("location".to_owned())
             .expect("Cannot set location")
             .set_properties(get_allowed_props())
             .expect("Cannot set properties");
 
-        aggregate
+        let metadata = aggregate.build().expect("Cannot build metadata.");
+        assert_eq!(metadata.format_version, FormatVersion::V2);
+        assert_eq!(metadata.table_uuid, new_uuid);
+        assert_eq!(metadata.location, "location");
+        assert_eq!(metadata.schemas.len(), 2);
+        assert_eq!(metadata.partition_specs.len(), 2);
+        assert_eq!(metadata.sort_orders.len(), 1);
     }
 
     #[test]
     fn downgrade_version() {
-        let mut aggregate = get_full_aggregate();
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
         assert!(aggregate.upgrade_format_version(FormatVersion::V1).is_err());
     }
 
     #[test]
     fn same_version() {
-        let mut aggregate = get_empty_aggregate();
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
         assert!(aggregate.upgrade_format_version(FormatVersion::V2).is_ok());
     }
 
     #[test]
     fn add_schema() {
-        let (schema, _) = get_mock_schema(1);
-        let mut aggregate = get_empty_aggregate();
-        assert!(aggregate.add_schema(schema, None).is_ok());
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
+        let new_schema = Schema::builder()
+            .with_schema_id(2)
+            .with_fields(vec![Arc::new(NestedField::required(
+                2,
+                "name",
+                Type::Primitive(PrimitiveType::String),
+            ))])
+            .build()
+            .unwrap();
+        assert!(aggregate.add_schema(new_schema, None).is_ok());
+        let metadata = aggregate.build().expect("Cannot build metadata.");
+        assert_eq!(metadata.schemas.len(), 2);
+        assert!(metadata.schemas.contains_key(&2));
+        assert_eq!(metadata.current_schema_id, 1);
     }
 
     #[test]
     fn set_default_schema() {
-        let (schema, schema_id) = get_mock_schema(1);
-        let mut aggregate = get_empty_aggregate();
-        assert!(aggregate
-            .set_current_schema(schema_id)
-            .inspect_err(|e| {
-                dbg!(e);
-            })
-            .is_err());
-        assert!(aggregate.add_schema(schema, None).is_ok());
-        assert!(aggregate.set_current_schema(schema_id).is_ok());
-    }
-
-    #[test]
-    fn get_current_schema() {
-        let (schema, schema_id) = get_mock_schema(1);
-        let mut aggregate = get_empty_aggregate();
-        assert!(aggregate.set_current_schema(schema_id).is_err());
-        assert!(aggregate.add_schema(schema, None).is_ok());
-        assert!(aggregate.set_current_schema(schema_id).is_ok());
-        assert!(aggregate
-            .get_current_schema()
-            .is_ok_and(|schema| schema.schema_id().eq(&schema_id)));
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
+        let new_schema = Schema::builder()
+            .with_schema_id(2)
+            .with_fields(vec![Arc::new(NestedField::required(
+                2,
+                "name",
+                Type::Primitive(PrimitiveType::String),
+            ))])
+            .build()
+            .unwrap();
+        assert!(aggregate.add_schema(new_schema.clone(), None).is_ok());
+        assert!(aggregate.set_current_schema(-1).is_ok());
+        let metadata = aggregate.build().expect("Cannot build metadata.");
+        assert_eq!(metadata.current_schema_id, 2);
+        assert_eq!(metadata.current_schema(), &Arc::new(new_schema));
     }
 
     #[test]
@@ -998,103 +1104,199 @@ mod test {
             .collect();
         let allowed_props = get_allowed_props();
 
-        let mut aggregate = get_empty_aggregate();
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
 
         assert!(aggregate.set_properties(forbidden_props).is_err());
         assert!(aggregate.set_properties(allowed_props).is_ok());
     }
 
     #[test]
-    fn can_create_new_schema_id_for_uniq_schema() {
-        let mut aggregate = get_empty_aggregate();
+    fn cannot_add_schema_with_column_id_too_low() {
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
 
-        for schema_id in 1..=10 {
-            let (schema, schema_id) = get_mock_schema(schema_id);
-            aggregate.add_schema(schema, None).unwrap_or_else(|_| panic!("Cannot add {schema_id} new schema."));
-            assert!(aggregate.metadata.schemas.contains_key(&schema_id));
-        }
-    }
-
-    #[test]
-    fn cannot_add_schema_with_same_id_but_with_different_fields() {
-        let mut aggregate = get_empty_aggregate();
-
-        let schema_fields1 = vec![
+        let schema_fields_1 = vec![
             NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
             NestedField::required(2, "data", Primitive(PrimitiveType::Date)).into(),
             NestedField::required(3, "category", Primitive(PrimitiveType::String)).into(),
         ];
 
-        let schema_fields2 = vec![
+        let schema_fields_2 = vec![
             NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
             NestedField::required(2, "data", Primitive(PrimitiveType::Date)).into(),
         ];
 
-        let schema_id1 = 1;
-        let schema1 = Schema::builder()
-            .with_schema_id(schema_id1)
-            .with_fields(schema_fields1)
+        let schema_1 = Schema::builder()
+            .with_schema_id(2)
+            .with_fields(schema_fields_1)
             .build()
             .expect("Cannot create schema mock!");
-        let schema2 = Schema::builder()
-            .with_schema_id(schema_id1)
-            .with_fields(schema_fields2)
+        let schema_2 = Schema::builder()
+            .with_schema_id(3)
+            .with_fields(schema_fields_2)
             .build()
             .expect("Cannot create schema mock!");
 
-        aggregate.add_schema(schema1, None).expect("Cannot add new schema.");
-        assert!(dbg!(aggregate.add_schema(schema2, None)).is_err());
+        aggregate
+            .add_schema(schema_1, None)
+            .expect("Cannot add new schema.");
+        assert!(dbg!(aggregate.add_schema(schema_2, None)).is_err());
     }
 
     #[test]
     fn reuse_schema_id_if_schemas_is_eq() {
-        let mut aggregate = get_empty_aggregate();
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
 
-        let schema_id = 1;
-        let (schema, schema_id) = get_mock_schema(schema_id);
-
-        aggregate.add_schema(schema, None).expect("Cannot add new schema.");
-        assert!(aggregate.metadata.schemas.contains_key(&schema_id));
-
-        let (schema, schema_id) = get_mock_schema(schema_id);
-
-        aggregate.add_schema(schema, None).expect("Cannot add new schema.");
-        assert!(aggregate.metadata.schemas.contains_key(&schema_id));
-
+        aggregate
+            .add_schema(SCHEMA.clone(), None)
+            .expect("Cannot add new schema.");
         assert!(aggregate.metadata.schemas.len().eq(&1));
     }
 
-    // This test will fail because of changes in this commit:
-    // https://github.com/hansetag/iceberg-rest-server/pull/36/commits/6faeb8d360f5c9779a4cd0d4ac237da1c6ec97ca
-    // In `table_metadata.rs` file on line 248.
-    // Because of this changes it do not assign new schema id to schema after `reuse_or_create_new_schema_id` call.
     #[test]
-    #[ignore]
-    fn should_take_highest_schema_id_plus_one_is() {
-        let mut aggregate = get_empty_aggregate();
-        let highest = 5;
+    fn should_take_highest_schema_id_plus_one() {
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
 
-        for schema_id in 1..=highest {
-            let (schema, schema_id) = get_mock_schema(schema_id);
-            aggregate.add_schema(schema, None).unwrap_or_else(|_| panic!("Cannot add {schema_id} new schema."));
-            assert!(aggregate.metadata.schemas.contains_key(&schema_id));
-        }
-
-        let fields = vec![
+        let fields_1 = vec![
             NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
             NestedField::required(2, "data", Primitive(PrimitiveType::Date)).into(),
             NestedField::required(3, "email", Primitive(PrimitiveType::String)).into(),
-            NestedField::required(4, "name", Primitive(PrimitiveType::String)).into()
         ];
-
-        let schema_id = -1;
-        let schema = Schema::builder()
-            .with_schema_id(schema_id)
-            .with_fields(fields)
+        let schema_1 = Schema::builder()
+            .with_schema_id(0)
+            .with_fields(fields_1)
             .build()
             .expect("Cannot create schema mock!");
-        aggregate.add_schema(schema, None).unwrap_or_else(|e| panic!("Cannot add new schema: {e:?}."));
-        assert!(dbg!(aggregate.metadata.schemas).contains_key(&(highest + 1)));
+
+        let fields_2 = vec![
+            NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
+            NestedField::required(2, "data", Primitive(PrimitiveType::Date)).into(),
+            NestedField::required(3, "email", Primitive(PrimitiveType::String)).into(),
+            NestedField::required(4, "name", Primitive(PrimitiveType::String)).into(),
+        ];
+
+        let schema_2 = Schema::builder()
+            .with_schema_id(1)
+            .with_fields(fields_2)
+            .build()
+            .expect("Cannot create schema mock!");
+
+        aggregate
+            .add_schema(schema_1, None)
+            .unwrap()
+            .set_current_schema(-1)
+            .unwrap();
+        let schema_id = aggregate.metadata.current_schema_id;
+        aggregate.add_schema(schema_2, None).unwrap();
+
+        assert!(aggregate.metadata.schemas.contains_key(&(schema_id + 1)));
+        assert!(aggregate.metadata.last_column_id.eq(&4));
     }
 
+    #[test]
+    fn partition_spec_with_transform() {
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
+        let new_schema = Schema::builder()
+            .with_schema_id(2)
+            .with_fields(vec![Arc::new(NestedField::required(
+                2,
+                "ints",
+                Type::Primitive(PrimitiveType::Int),
+            ))])
+            .build()
+            .unwrap();
+        let partition_spec = UnboundPartitionSpec::builder()
+            .with_spec_id(2)
+            .with_fields(vec![UnboundPartitionField::builder()
+                .source_id(2)
+                .name("ints_bucket".to_string())
+                .transform(iceberg::spec::Transform::Bucket(16))
+                .build()])
+            .build()
+            .unwrap();
+        aggregate
+            .add_schema(new_schema.clone(), None)
+            .unwrap()
+            .set_current_schema(-1)
+            .unwrap()
+            .add_partition_spec(partition_spec)
+            .unwrap()
+            .set_default_partition_spec(-1)
+            .unwrap();
+        let metadata = aggregate.build().unwrap();
+        assert_eq!(
+            metadata.partition_specs[&2].fields[0].transform,
+            iceberg::spec::Transform::Bucket(16)
+        );
+        assert_eq!(metadata.partition_specs[&2].fields[0].name, "ints_bucket");
+        assert_eq!(metadata.partition_specs[&2].fields[0].source_id, 2);
+        assert_eq!(metadata.default_spec_id, 2);
+    }
+
+    #[test]
+    fn default_sort_order_and_partitioning() {
+        let aggregate = TableMetadataAggregate::new("foo".to_string(), SCHEMA.clone());
+        let metadata = aggregate.build().unwrap();
+        assert_eq!(metadata.default_spec_id, 0);
+        assert!(metadata
+            .default_partition_spec()
+            .unwrap()
+            .fields
+            .len()
+            .eq(&0));
+        assert_eq!(metadata.default_sort_order_id, 0);
+        assert!(metadata.default_sort_order().unwrap().fields.len().eq(&0),);
+    }
+
+    #[test]
+    fn test_first_partition_gets_id_0() {
+        let mut aggregate = TableMetadataAggregate::new("foo".to_string(), SCHEMA.clone());
+        let partition_spec = UnboundPartitionSpec {
+            spec_id: None,
+            fields: vec![],
+        };
+        assert!(aggregate.add_partition_spec(partition_spec.clone()).is_ok());
+        let metadata = aggregate.build().unwrap();
+
+        assert_eq!(metadata.partition_specs[&0].fields.len(), 0);
+        assert_eq!(metadata.default_spec_id, 0);
+    }
+
+    #[test]
+    fn test_add_unsort_order() {
+        let mut aggregate = TableMetadataAggregate::new("foo".to_string(), SCHEMA.clone());
+        let sort_order = SortOrder::builder()
+            .with_order_id(0)
+            .with_fields(vec![])
+            .build_unbound()
+            .unwrap();
+        assert!(aggregate.add_sort_order(sort_order).is_ok());
+        let metadata = aggregate.build().unwrap();
+
+        assert_eq!(metadata.sort_orders[&0].fields.len(), 0);
+        assert_eq!(metadata.default_sort_order_id, 0);
+    }
+
+    #[test]
+    fn add_sort_order() {
+        let mut aggregate = TableMetadataAggregate::new("foo".to_string(), SCHEMA.clone());
+        let sort_order = SortOrder::builder()
+            .with_order_id(1)
+            .with_fields(vec![SortField {
+                source_id: 1,
+                transform: Transform::Identity,
+                direction: SortDirection::Ascending,
+                null_order: NullOrder::First,
+            }])
+            .build_unbound()
+            .unwrap();
+        aggregate
+            .add_sort_order(sort_order)
+            .unwrap()
+            .set_default_sort_order(-1)
+            .unwrap();
+        let metadata = aggregate.build().unwrap();
+
+        assert_eq!(metadata.sort_orders[&1].fields.len(), 1);
+        assert_eq!(metadata.default_sort_order_id, 1);
+    }
 }
