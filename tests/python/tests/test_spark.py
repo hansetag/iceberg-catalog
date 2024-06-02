@@ -174,7 +174,6 @@ def test_change_partitioning(spark, namespace):
     assert len(partitions) == 3
 
 
-# ToDo: Fix {"error_id":"018fcac4-44a3-7333-b3c2-c0a4e0127339","message":"Field 'my_ints_bucket' not found in schema.","type":"FailedToBuildPartitionSpec","code":409,"stack":null}
 def test_partition_bucket(spark, namespace):
     spark.sql(
         f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg PARTITIONED BY (bucket(16, my_ints))"
@@ -197,3 +196,34 @@ def test_alter_schema(spark, namespace):
     spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1.2, 'bar', true)")
     pdf = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
     assert len(pdf) == 2
+
+
+def test_alter_partitioning(spark, namespace):
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(
+        f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo'), (2, 2.2, 'bar')"
+    )
+    spark.sql(
+        f"ALTER TABLE {namespace.spark_name}.my_table ADD PARTITION FIELD bucket(16, my_ints) as int_bucket"
+    )
+    spark.sql(
+        f"INSERT INTO {namespace.spark_name}.my_table VALUES (3, 3.2, 'baz'), (4, 4.2, 'qux')"
+    )
+    pdf = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
+    assert len(pdf) == 4
+    assert sorted(pdf["my_ints"].tolist()) == [1, 2, 3, 4]
+
+    spark.sql(
+        f"ALTER TABLE {namespace.spark_name}.my_table DROP PARTITION FIELD int_bucket"
+    )
+    spark.sql(
+        f"ALTER TABLE {namespace.spark_name}.my_table ADD PARTITION FIELD truncate(4, strings) as string_bucket"
+    )
+    spark.sql(
+        f"INSERT INTO {namespace.spark_name}.my_table VALUES (5, 5.2, 'foo'), (6, 6.2, 'bar')"
+    )
+    pdf = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
+    assert len(pdf) == 6
+    assert sorted(pdf["strings"].tolist()) == ["bar", "bar", "baz", "foo", "foo", "qux"]

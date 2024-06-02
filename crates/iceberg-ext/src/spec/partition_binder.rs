@@ -81,6 +81,11 @@ impl PartitionSpecBinder {
         }
     }
 
+    pub(crate) fn with_last_assigned_field_id(mut self, last_assigned_field_id: i32) -> Self {
+        self.last_assigned_field_id = last_assigned_field_id;
+        self
+    }
+
     pub(crate) fn bind_spec(mut self, spec: UnboundPartitionSpec) -> Result<PartitionSpec> {
         self.bind(self.spec_id, spec.fields)
     }

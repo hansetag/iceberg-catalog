@@ -393,6 +393,7 @@ impl TableMetadataAggregate {
             self.get_current_schema()?.clone(),
             unbound_spec.spec_id.unwrap_or_default(),
         )
+        .with_last_assigned_field_id(self.metadata.last_partition_id)
         .bind_spec(unbound_spec.clone())?;
 
         // No spec_id specified, we need to reuse or create a new one.
