@@ -71,19 +71,19 @@ impl PartitionSpecBinder {
     pub(crate) const PARTITION_DATA_ID_START: i32 = 1000;
     pub(crate) const UNPARTITIONED_LAST_ASSIGNED_ID: i32 = 999;
 
-    pub(crate) fn new(schema: SchemaRef, spec_id: i32) -> Self {
+    pub(crate) fn new(
+        schema: SchemaRef,
+        spec_id: i32,
+        last_assigned_field_id: Option<i32>,
+    ) -> Self {
         Self {
             spec_id,
             schema,
-            last_assigned_field_id: Self::PARTITION_DATA_ID_START - 1,
+            last_assigned_field_id: last_assigned_field_id
+                .unwrap_or(Self::PARTITION_DATA_ID_START - 1),
             partition_names: HashSet::default(),
             dedup_fields: HashSet::default(),
         }
-    }
-
-    pub(crate) fn with_last_assigned_field_id(mut self, last_assigned_field_id: i32) -> Self {
-        self.last_assigned_field_id = last_assigned_field_id;
-        self
     }
 
     pub(crate) fn bind_spec(mut self, spec: UnboundPartitionSpec) -> Result<PartitionSpec> {
@@ -362,7 +362,7 @@ mod test {
     #[test]
     fn names_exist() {
         let (schema, spec) = mock_compatible_schema_and_spec();
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID, None);
 
         assert!(spec
             .fields
@@ -385,7 +385,7 @@ mod test {
             .build()];
 
         let (schema, spec) = create_schema_and_spec(schema_fields, spec_fields);
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID, None);
 
         binder.bind_spec(spec).expect_err("Should fail binding!");
     }
@@ -394,7 +394,7 @@ mod test {
     #[test]
     fn no_duplicates() {
         let (schema, spec) = mock_compatible_schema_and_spec();
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID, None);
 
         assert!(spec
             .fields
@@ -430,7 +430,7 @@ mod test {
             create_schema_and_spec(schema_fields, spec_fields)
         };
 
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID, None);
         binder
             .bind_spec(spec)
             .expect("Can bind duplicate field name for identity transform.");
@@ -453,7 +453,7 @@ mod test {
             create_schema_and_spec(schema_fields, spec_fields)
         };
 
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID, None);
         binder
             .bind_spec(spec)
             .expect_err("Cannot bind duplicate field name for non-identity transform.");
@@ -476,7 +476,7 @@ mod test {
             create_schema_and_spec(schema_fields, spec_fields)
         };
 
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID, None);
         binder
             .bind_spec(spec)
             .expect("Can bind identity partition with different name.");
@@ -499,7 +499,7 @@ mod test {
             create_schema_and_spec(schema_fields, spec_fields)
         };
 
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID, None);
         binder
             .bind_spec(spec)
             .expect_err("Cannot bind identity partition with different field id.");
@@ -554,7 +554,7 @@ mod test {
             create_schema_and_spec(schema_fields, spec_fields)
         };
 
-        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        let binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID, None);
 
         let (transform, source_type) = get_transform_and_source(0, &spec, &binder);
         assert!(PartitionSpecBinder::check_transform_compatibility(transform, source_type).is_ok());
@@ -595,7 +595,7 @@ mod test {
             create_schema_and_spec(schema_fields, spec_fields)
         };
 
-        let mut binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID);
+        let mut binder = PartitionSpecBinder::new(schema, MOCK_SPEC_ID, None);
         binder
             .bind_field(&spec.fields[0].clone())
             .expect("Cannot bind field!");
