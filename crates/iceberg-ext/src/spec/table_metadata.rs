@@ -161,7 +161,7 @@ impl TableMetadataAggregate {
         {
             return Err(ErrorModel::builder()
                 .code(StatusCode::CONFLICT.into())
-                .message("Table properties should not contain reserved properties!")
+                .message("Table properties should not contain reserved properties")
                 .r#type("FailedToSetProperties")
                 .build());
         }
@@ -330,8 +330,6 @@ impl TableMetadataAggregate {
             .metadata
             .partition_specs
             .values()
-            // ToDo: Check new() impl
-            // ToDo: Check Snapshot impl
             .map(|spec| {
                 PartitionSpecBinder::new(schema.clone(), spec.spec_id)
                     .update_spec_schema((**spec).clone())
@@ -650,7 +648,7 @@ impl TableMetadataAggregate {
     pub fn add_snapshot(&mut self, snapshot: Snapshot) -> Result<&mut Self> {
         if self.metadata.schemas.is_empty() {
             return Err(ErrorModel::builder()
-                .message("Attempting to add a snapshot before a schema is added!")
+                .message("Attempting to add a snapshot before a schema is added")
                 .code(StatusCode::CONFLICT.into())
                 .r#type("AddSnapshotBeforeSchema")
                 .build());
@@ -658,7 +656,7 @@ impl TableMetadataAggregate {
 
         if self.metadata.partition_specs.is_empty() {
             return Err(ErrorModel::builder()
-                .message("Attempting to add a snapshot before a partition spec is added!")
+                .message("Attempting to add a snapshot before a partition spec is added")
                 .code(StatusCode::CONFLICT.into())
                 .r#type("AddSnapshotBeforePartitionSpec")
                 .build());
@@ -666,7 +664,7 @@ impl TableMetadataAggregate {
 
         if self.metadata.sort_orders.is_empty() {
             return Err(ErrorModel::builder()
-                .message("Attempting to add a snapshot before a sort order is added!")
+                .message("Attempting to add a snapshot before a sort order is added")
                 .code(StatusCode::CONFLICT.into())
                 .r#type("AddSnapshotBeforeSortOrder")
                 .build());
@@ -679,7 +677,7 @@ impl TableMetadataAggregate {
         {
             return Err(ErrorModel::builder()
                 .message(format!(
-                    "Snapshot already exists for: '{}'!",
+                    "Snapshot already exists for: '{}'",
                     snapshot.snapshot_id()
                 ))
                 .code(StatusCode::CONFLICT.into())
@@ -687,7 +685,7 @@ impl TableMetadataAggregate {
                 .build());
         }
 
-        if self.metadata.format_version == FormatVersion::V2
+        if self.metadata.format_version != FormatVersion::V1
             && snapshot.sequence_number() <= self.metadata.last_sequence_number
             && snapshot.parent_snapshot_id().is_some()
         {
@@ -763,10 +761,11 @@ impl TableMetadataAggregate {
         let Some(snapshot) = self.metadata.snapshots.get(&reference.snapshot_id) else {
             return Err(ErrorModel::builder()
                 .message(format!(
-                    "Cannot set '{ref_name}' to unknown snapshot: '{reference:?}'."
+                    "Cannot set '{ref_name}' to unknown snapshot: '{}'",
+                    reference.snapshot_id
                 ))
                 .code(StatusCode::CONFLICT.into())
-                .r#type("ReferenceAlreadyExists")
+                .r#type("SetReferenceToUnknownSnapshot")
                 .build());
         };
 
@@ -868,7 +867,7 @@ impl TableMetadataAggregate {
     fn get_current_schema(&self) -> Result<&SchemaRef> {
         let err = Self::throw_err(
             format!(
-                "Failed to get current schema: '{}'!",
+                "Failed to get current schema: '{}'",
                 self.metadata.current_schema_id
             ),
             "FailedToGetCurrentSchema",
@@ -1129,12 +1128,12 @@ mod test {
             .with_schema_id(2)
             .with_fields(schema_fields_1)
             .build()
-            .expect("Cannot create schema mock!");
+            .expect("Cannot create schema mock");
         let schema_2 = Schema::builder()
             .with_schema_id(3)
             .with_fields(schema_fields_2)
             .build()
-            .expect("Cannot create schema mock!");
+            .expect("Cannot create schema mock");
 
         aggregate
             .add_schema(schema_1, None)
@@ -1165,7 +1164,7 @@ mod test {
             .with_schema_id(0)
             .with_fields(fields_1)
             .build()
-            .expect("Cannot create schema mock!");
+            .expect("Cannot create schema mock");
 
         let fields_2 = vec![
             NestedField::required(1, "id", Primitive(PrimitiveType::Uuid)).into(),
@@ -1178,7 +1177,7 @@ mod test {
             .with_schema_id(1)
             .with_fields(fields_2)
             .build()
-            .expect("Cannot create schema mock!");
+            .expect("Cannot create schema mock");
 
         aggregate
             .add_schema(schema_1, None)
