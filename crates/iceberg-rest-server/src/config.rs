@@ -2,10 +2,9 @@
 use config::Config;
 use std::collections::HashSet;
 
-use crate::{
-    service::{NamespaceIdentUuid, TableIdentUuid},
-    WarehouseIdent,
-};
+use crate::WarehouseIdent;
+
+const DEFAULT_RESERVED_NAMESPACES: [&str; 2] = ["system", "examples"];
 
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
@@ -37,16 +36,22 @@ pub struct DynAppConfig {
 }
 
 impl DynAppConfig {
-    pub fn s3_signer_uri_for_table(
-        &self,
-        warehouse_id: &WarehouseIdent,
-        namespace_id: &NamespaceIdentUuid,
-        table_id: &TableIdentUuid,
-    ) -> url::Url {
+    // pub fn s3_signer_uri_for_table(
+    //     &self,
+    //     warehouse_id: &WarehouseIdent,
+    //     namespace_id: &NamespaceIdentUuid,
+    //     table_id: &TableIdentUuid,
+    // ) -> url::Url {
+    //     self.base_uri
+    //         .join(&format!(
+    //             "v1/{warehouse_id}/namespace/{namespace_id}/table/{table_id}"
+    //         ))
+    //         .expect("Valid URL")
+    // }
+
+    pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: &WarehouseIdent) -> url::Url {
         self.base_uri
-            .join(&format!(
-                "v1/{warehouse_id}/namespace/{namespace_id}/table/{table_id}"
-            ))
+            .join(&format!("v1/{warehouse_id}"))
             .expect("Valid URL")
     }
 
@@ -100,7 +105,12 @@ fn build_config() -> DynAppConfig {
         .reserved_namespaces
         .into_iter()
         .map(|namespace| namespace.to_lowercase())
-        .chain(["system".to_owned(), "examples".to_owned()])
+        .chain(
+            DEFAULT_RESERVED_NAMESPACES
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect::<Vec<String>>(),
+        )
         .collect::<HashSet<String>>();
 
     config
@@ -108,7 +118,7 @@ fn build_config() -> DynAppConfig {
 
 lazy_static::lazy_static! {
     #[derive(Debug)]
-    /// Configurtion of the SAGA Module
+    /// Configuration of the SAGA Module
     pub static ref CONFIG: DynAppConfig = {
         build_config()
     };

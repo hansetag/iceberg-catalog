@@ -31,9 +31,9 @@ pub enum StorageType {
 #[allow(clippy::module_name_repetitions)]
 impl StorageProfile {
     #[must_use]
-    pub fn generate_catalog_config(&self) -> CatalogConfig {
+    pub fn generate_catalog_config(&self, warehouse_id: &WarehouseIdent) -> CatalogConfig {
         match self {
-            StorageProfile::S3(profile) => profile.generate_catalog_config(),
+            StorageProfile::S3(profile) => profile.generate_catalog_config(warehouse_id),
         }
     }
 
