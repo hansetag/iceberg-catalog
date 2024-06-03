@@ -19,6 +19,7 @@ pub mod v1 {
         post, ApiContext, AuthZHandler, AxumState, Catalog, HeaderMap, Json, Router, SecretStore,
         State,
     };
+    use axum::routing::put;
     pub mod warehouse;
     use warehouse::WarehouseService;
 
@@ -34,6 +35,12 @@ pub mod v1 {
                      headers: HeaderMap,
                      Json(request): Json<warehouse::CreateWarehouseRequest>| {
                         Self::create_warehouse(request, api_context, headers)
+                    },
+                ).put(
+                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+                     headers: HeaderMap,
+                     Json(request): Json<warehouse::UpdateWarehouseRequest>| {
+                        Self::update_warehouse(request, api_context, headers)
                     },
                 ),
             )

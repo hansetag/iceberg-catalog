@@ -72,6 +72,9 @@ pub struct CommitTableResponseExt {
     pub storage_config: GetStorageConfigResult,
 }
 
+#[derive(Debug)]
+pub struct UpdateWarehouseResponse {}
+
 #[async_trait::async_trait]
 #[allow(clippy::module_name_repetitions)]
 pub trait Catalog
@@ -95,11 +98,36 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<WarehouseIdent>;
 
+    async fn update_warehouse(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<UpdateWarehouseResponse>;
+
+    async fn deactivate_warehouse(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<()>;
+
+    async fn reactivate_warehouse(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<()>;
+
+    async fn delete_warehouse(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<()>;
+
     async fn get_storage_config(
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
         catalog_state: Self::State,
     ) -> Result<GetStorageConfigResult>;
+
+    async fn is_warehouse_available(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<bool>;
 
     async fn create_namespace<'a>(
         warehouse_id: &WarehouseIdent,

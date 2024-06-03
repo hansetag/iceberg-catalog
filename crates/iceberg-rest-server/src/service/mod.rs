@@ -8,7 +8,7 @@ pub mod storage;
 
 pub use catalog::{
     Catalog, CommitTableResponseExt, CreateTableResult, GetStorageConfigResult,
-    GetTableMetadataResult, LoadTableResult, Transaction,
+    GetTableMetadataResult, LoadTableResult, Transaction, UpdateWarehouseResponse,
 };
 
 use http::StatusCode;
@@ -158,6 +158,14 @@ pub struct ProjectIdent(uuid::Uuid);
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
 pub struct WarehouseIdent(uuid::Uuid);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(feature = "sqlx", sqlx(type_name = "status", rename_all = "lowercase"))]
+pub enum WarehouseStatus {
+    Active,
+    Inactive,
+}
 
 impl WarehouseIdent {
     #[must_use]

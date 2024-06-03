@@ -64,11 +64,11 @@ fn is_valid_bucket_name(bucket: &str) -> Result<()> {
 #[schema(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub struct S3Profile {
-    /// Name of the S3 bucket
+    /// Name of the S3 bucket // should stay the same
     pub bucket: String,
     /// Subpath in the bucket to use.
     /// The same prefix can be used for multiple warehouses.
-    pub key_prefix: Option<String>,
+    pub key_prefix: Option<String>, // should stay the same
     #[serde(default)]
     /// Optional ARN to assume when accessing the bucket
     pub assume_role_arn: Option<String>,

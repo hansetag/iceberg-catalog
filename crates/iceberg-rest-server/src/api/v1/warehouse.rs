@@ -26,7 +26,33 @@ pub struct CreateWarehouseResponse {
     pub warehouse_id: uuid::Uuid,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub struct UpdateWarehouseRequest {
+    /// Name of the warehouse to create. Must be unique
+    /// within a project.
+    pub warehouse_id: uuid::Uuid,
+    /// Storage profile to use for the warehouse.
+    pub storage_profile: StorageProfile,
+    /// Optional storage credential to use for the warehouse.
+    pub storage_credential: Option<StorageCredential>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub struct UpdateWarehouseResponse {
+    /// TODO: change response struct
+    /// ID of the created warehouse.
+    pub warehouse_id: uuid::Uuid,
+}
+
 impl axum::response::IntoResponse for CreateWarehouseResponse {
+    fn into_response(self) -> axum::http::Response<axum::body::Body> {
+        axum::Json(self).into_response()
+    }
+}
+
+impl axum::response::IntoResponse for UpdateWarehouseResponse {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
         axum::Json(self).into_response()
     }
@@ -74,6 +100,14 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore> {
         Ok(CreateWarehouseResponse {
             warehouse_id: warehouse_id.into_uuid(),
         })
+    }
+
+    async fn update_warehouse(
+        request: UpdateWarehouseRequest,
+        context: ApiContext<State<A, C, S>>,
+        _headers: HeaderMap,
+    ) -> Result<UpdateWarehouseResponse> {
+        todo!()
     }
 }
 

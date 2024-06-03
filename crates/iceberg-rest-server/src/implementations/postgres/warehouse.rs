@@ -1,5 +1,7 @@
 use crate::service::config::ConfigProvider;
-use crate::{service::storage::StorageProfile, ProjectIdent, SecretIdent, WarehouseIdent};
+use crate::{
+    service::storage::StorageProfile, ProjectIdent, SecretIdent, WarehouseIdent, WarehouseStatus,
+};
 use http::StatusCode;
 use iceberg_rest_service::{CatalogConfig, ErrorModel, Result};
 
@@ -15,10 +17,11 @@ impl ConfigProvider<Catalog> for super::Catalog {
         project_id: &ProjectIdent,
         catalog_state: CatalogState,
     ) -> Result<WarehouseIdent> {
-        let warehouse_id = sqlx::query_scalar!(
+        let warehouse_data = sqlx::query!(
             r#"
             SELECT 
-                warehouse_id
+                warehouse_id AS "warehouse_id: WarehouseIdent",
+                status AS "status: WarehouseStatus"
             FROM warehouse
             WHERE warehouse_name = $1 AND project_id = $2
             "#,
@@ -41,7 +44,22 @@ impl ConfigProvider<Catalog> for super::Catalog {
                 .build(),
         })?;
 
-        Ok(warehouse_id.into())
+        let is_warehouse_available = match warehouse_data.status {
+            WarehouseStatus::Active => true,
+            WarehouseStatus::Inactive => false,
+        };
+
+        if !is_warehouse_available {
+            let msg = format!("Warehouse '{warehouse_name}' is not available.");
+            return Err(ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message(msg)
+                .r#type("WarehouseIsNotAvailable")
+                .build()
+                .into());
+        }
+
+        Ok(warehouse_data.warehouse_id)
     }
 
     async fn get_config_for_warehouse(
@@ -138,6 +156,90 @@ fn validate_warehouse_name(warehouse_name: &str) -> Result<()> {
             .into());
     }
     Ok(())
+}
+
+pub(crate) async fn get_warehouse_status(
+    warehouse_id: &WarehouseIdent,
+    catalog_state: CatalogState,
+) -> Result<WarehouseStatus> {
+    let status = sqlx::query!(
+        r#"
+                SELECT 
+                    status AS "status: WarehouseStatus"
+                FROM 
+                   warehouse
+                WHERE  
+                    warehouse_id = $1
+            "#,
+        warehouse_id.as_uuid(),
+    )
+    .fetch_one(&catalog_state.read_pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => warehouse_not_found(warehouse_id),
+        _ => e.into_error_model("Error fetching warehouses".to_string()),
+    })?
+    .status;
+
+    Ok(status)
+}
+
+pub(crate) async fn deactivate_warehouse(
+    warehouse_id: &WarehouseIdent,
+    catalog_state: CatalogState,
+) -> Result<()> {
+    sqlx::query!(
+        r#"
+            UPDATE 
+                warehouse
+            SET 
+                status = 'inactive'
+            WHERE
+                warehouse_id = $1
+        "#,
+        warehouse_id.as_uuid(),
+    )
+    .execute(&catalog_state.write_pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => warehouse_not_found(warehouse_id),
+        _ => e.into_error_model("Error fetching warehouses".to_string()),
+    })?;
+
+    Ok(())
+}
+
+pub(crate) async fn reactivate_warehouse(
+    warehouse_id: &WarehouseIdent,
+    catalog_state: CatalogState,
+) -> Result<()> {
+    sqlx::query!(
+        r#"
+            UPDATE 
+                warehouse
+            SET 
+                status = 'active'
+            WHERE
+                warehouse_id = $1
+        "#,
+        warehouse_id.as_uuid(),
+    )
+    .execute(&catalog_state.write_pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => warehouse_not_found(warehouse_id),
+        _ => e.into_error_model("Error fetching warehouses".to_string()),
+    })?;
+
+    Ok(())
+}
+
+fn warehouse_not_found(warehouse_id: &WarehouseIdent) -> ErrorModel {
+    ErrorModel::builder()
+        .code(StatusCode::NOT_FOUND.into())
+        .message(format!("Warehouse not found: '{warehouse_id:?}'"))
+        .r#type("WarehouseNotFound")
+        .build()
 }
 
 #[cfg(test)]

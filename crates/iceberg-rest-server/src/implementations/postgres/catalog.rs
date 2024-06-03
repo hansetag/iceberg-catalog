@@ -13,13 +13,17 @@ use super::{
     warehouse::create_warehouse_profile,
     CatalogState, PostgresTransaction,
 };
+use crate::implementations::postgres::warehouse::{
+    deactivate_warehouse, get_warehouse_status, reactivate_warehouse,
+};
+use crate::service::UpdateWarehouseResponse;
 use crate::{
     service::{
         storage::StorageProfile, Catalog, CommitTableResponseExt, CreateTableResult,
         GetStorageConfigResult, GetTableMetadataResult, LoadTableResult, NamespaceIdentUuid,
         ProjectIdent, TableIdentUuid, Transaction, WarehouseIdent,
     },
-    SecretIdent,
+    SecretIdent, WarehouseStatus,
 };
 use iceberg_rest_service::{
     v1::{
@@ -58,6 +62,16 @@ impl Catalog for super::Catalog {
         catalog_state: CatalogState,
     ) -> Result<GetStorageConfigResult> {
         get_storage_config(warehouse_id, namespace, catalog_state).await
+    }
+
+    async fn is_warehouse_available(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: CatalogState,
+    ) -> Result<bool> {
+        match get_warehouse_status(warehouse_id, catalog_state).await? {
+            WarehouseStatus::Active => Ok(true),
+            WarehouseStatus::Inactive => Ok(false),
+        }
     }
 
     async fn get_namespace_metadata<'a>(
@@ -220,5 +234,35 @@ impl Catalog for super::Catalog {
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<Vec<CommitTableResponseExt>> {
         commit_table_transaction(warehouse_id, request, table_ids, transaction).await
+    }
+
+    async fn update_warehouse(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<UpdateWarehouseResponse> {
+        if Self::is_warehouse_available(warehouse_id, catalog_state).await? {
+            
+        }
+
+        todo!()
+    }
+
+    async fn deactivate_warehouse(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<()> {
+        deactivate_warehouse(warehouse_id, catalog_state).await
+    }
+
+    async fn reactivate_warehouse(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<()> {
+        reactivate_warehouse(warehouse_id, catalog_state).await
+    }
+
+    // Should delete warehouse record. Only if it marked as `inactive`.
+    async fn delete_warehouse(_: &WarehouseIdent, _: Self::State) -> Result<()> {
+        unimplemented!()
     }
 }
