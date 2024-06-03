@@ -6,8 +6,9 @@ use super::{
         list_namespaces, namespace_ident_to_id, update_namespace_properties,
     },
     table::{
-        commit_table_transaction, create_table, drop_table, get_table_metadata_by_id, list_tables,
-        load_table, rename_table, table_ident_to_id, table_idents_to_ids,
+        commit_table_transaction, create_table, drop_table, get_table_metadata_by_id,
+        get_table_metadata_by_s3_location, list_tables, load_table, rename_table,
+        table_ident_to_id, table_idents_to_ids,
     },
     warehouse::create_warehouse_profile,
     CatalogState, PostgresTransaction,
@@ -152,6 +153,16 @@ impl Catalog for super::Catalog {
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResult> {
         get_table_metadata_by_id(warehouse_id, table, include_staged, catalog_state).await
+    }
+
+    async fn get_table_metadata_by_s3_location(
+        warehouse_id: &WarehouseIdent,
+        location: &str,
+        include_staged: bool,
+        catalog_state: Self::State,
+    ) -> Result<GetTableMetadataResult> {
+        get_table_metadata_by_s3_location(warehouse_id, location, include_staged, catalog_state)
+            .await
     }
 
     async fn table_ident_to_id(

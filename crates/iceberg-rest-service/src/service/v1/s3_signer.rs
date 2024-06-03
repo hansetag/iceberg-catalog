@@ -40,41 +40,14 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             ),
         )
         .route(
-            "/:prefix/namespace/:namespace/table/:table/aws/s3/sign",
+            "/:prefix/v1/aws/s3/sign",
             post(
-                |Path((prefix, namespace, table)): Path<(Prefix, String, String)>,
+                |Path(prefix): Path<Prefix>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap,
                  Json(request): Json<S3SignRequest>| {
                     {
-                        I::sign(
-                            Some(prefix),
-                            Some(namespace),
-                            Some(table),
-                            request,
-                            api_context,
-                            headers,
-                        )
-                    }
-                },
-            ),
-        )
-        .route(
-            "/:prefix/namespace/:namespace/table/:table/v1/aws/s3/sign",
-            post(
-                |Path((prefix, namespace, table)): Path<(Prefix, String, String)>,
-                 State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
-                 Json(request): Json<S3SignRequest>| {
-                    {
-                        I::sign(
-                            Some(prefix),
-                            Some(namespace),
-                            Some(table),
-                            request,
-                            api_context,
-                            headers,
-                        )
+                        I::sign(Some(prefix), None, None, request, api_context, headers)
                     }
                 },
             ),

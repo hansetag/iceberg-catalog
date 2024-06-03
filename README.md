@@ -1,8 +1,4 @@
 # Current State
-WIP!
-
-We are very much still in development. Please check the table below for an overview of implemented features.
-
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Build Status][actions-badge]][actions-url]
 
@@ -16,12 +12,12 @@ Please also check the Issues if you are missing something.
 
 ### Supported Operations - Iceberg-Rest
 
-| Operation |    Status    | Description                                         |
-|-----------|:------------:|-----------------------------------------------------|
-| Namespace |   ![done]    | All operations implemented                          |
-| Table     | ![semi-done] | Not all requirements / updates supported yet        |
-| Views     |   ![open]    | Remove unused files and log entries                 |
-| Metrics   |   ![open]    | Endpoint is available but doesn't store the metrics |
+| Operation | Status  | Description                                         |
+|-----------|:-------:|-----------------------------------------------------|
+| Namespace | ![done] | All operations implemented                          |
+| Table     | ![done] | All operations implemented - integration tests      |
+| Views     | ![open] | Remove unused files and log entries                 |
+| Metrics   | ![open] | Endpoint is available but doesn't store the metrics |
 
 ### Storage Profile Support
 

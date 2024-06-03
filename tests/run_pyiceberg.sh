@@ -12,4 +12,4 @@ pip3 install -q tox
 # Running tests
 echo "Running tests ..."
 cd python
-tox -e pyiceberg
+tox -q -e pyiceberg

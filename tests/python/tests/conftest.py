@@ -1,19 +1,3 @@
-# lazy_static::lazy_static! {
-#     static ref S3_ACCESS_KEY: Option<String> = std::env::var("ICEBERG_REST_TEST_S3_ACCESS_KEY").ok();
-#     static ref S3_SECRET_KEY: Option<String> = std::env::var("ICEBERG_REST_TEST_S3_SECRET_KEY").ok();
-#     static ref S3_BUCKET: Option<String> = std::env::var("ICEBERG_REST_TEST_S3_BUCKET").ok();
-#     static ref S3_ENDPOINT: Option<String> = std::env::var("ICEBERG_REST_TEST_S3_ENDPOINT").ok();
-#     static ref S3_REGION: Option<String> = std::env::var("ICEBERG_REST_TEST_S3_REGION").ok();
-#     static ref S3_PATH_STYLE_ACCESS: Option<bool> = std::env::var("ICEBERG_REST_TEST_S3_PATH_STYLE_ACCESS").ok().map(string_to_bool);
-# }
-# pub struct Server {
-#     pub catalog_url: url::Url,
-#     pub management_url: url::Url,
-#     pub pool: sqlx::Pool<sqlx::Postgres>,
-#     pub handle: tokio::task::JoinHandle<Result<(), anyhow::Error>>,
-# }
-
-
 import dataclasses
 import os
 import urllib
@@ -131,6 +115,10 @@ class Namespace:
     def pyiceberg_catalog(self) -> pyiceberg.catalog.rest.RestCatalog:
         return self.warehouse.pyiceberg_catalog
 
+    @property
+    def spark_name(self) -> str:
+        return "`" + ".".join(self.name) + "`"
+
 
 @pytest.fixture(scope="session")
 def server() -> Server:
@@ -145,12 +133,13 @@ def server() -> Server:
     )
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def warehouse(server: Server):
     project_id = uuid.uuid4()
     test_id = uuid.uuid4()
     warehouse_name = f"warehouse-{test_id}"
     warehouse_id = server.create_warehouse(warehouse_name, project_id=project_id)
+    print(f"SERVER CREATED: {warehouse_id}")
     return Warehouse(
         server=server,
         project_id=project_id,
@@ -159,7 +148,7 @@ def warehouse(server: Server):
     )
 
 
-@pytest.fixture()
+@pytest.fixture(scope="function")
 def namespace(warehouse: Warehouse):
     catalog = warehouse.pyiceberg_catalog
     namespace = (f"namespace-{uuid.uuid4()}",)
@@ -168,7 +157,8 @@ def namespace(warehouse: Warehouse):
 
 
 @pytest.fixture(scope="session")
-def findspark():
+def spark(warehouse: Warehouse):
+    """Spark with a pre-configured Iceberg catalog"""
     try:
         import findspark
 
@@ -176,10 +166,6 @@ def findspark():
     except ImportError:
         pytest.skip("findspark not installed")
 
-
-@pytest.fixture()
-def spark(findspark, warehouse: Warehouse):
-    """Spark with a pre-configured Iceberg catalog"""
     import pyspark
     import pyspark.sql
 
@@ -191,16 +177,15 @@ def spark(findspark, warehouse: Warehouse):
         f"org.apache.iceberg:iceberg-spark-runtime-{pyspark_version}_2.12:{ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION},"
         f"org.apache.iceberg:iceberg-aws-bundle:{ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION}"
     )
-
     configuration = {
         "spark.jars.packages": spark_jars_packages,
         "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
         "spark.sql.defaultCatalog": "test",
-        "spark.sql.catalog.test": "org.apache.iceberg.spark.SparkCatalog",
-        "spark.sql.catalog.test.catalog-impl": "org.apache.iceberg.rest.RESTCatalog",
-        "spark.sql.catalog.test.uri": warehouse.server.catalog_url,
-        "spark.sql.catalog.test.token": "dummy",
-        "spark.sql.catalog.test.warehouse": f"{warehouse.project_id}/{warehouse.warehouse_name}",
+        f"spark.sql.catalog.test": "org.apache.iceberg.spark.SparkCatalog",
+        f"spark.sql.catalog.test.catalog-impl": "org.apache.iceberg.rest.RESTCatalog",
+        f"spark.sql.catalog.test.uri": warehouse.server.catalog_url,
+        f"spark.sql.catalog.test.token": "dummy",
+        f"spark.sql.catalog.test.warehouse": f"{warehouse.project_id}/{warehouse.warehouse_name}",
     }
 
     spark_conf = pyspark.SparkConf().setMaster("local[*]")
@@ -209,6 +194,6 @@ def spark(findspark, warehouse: Warehouse):
         spark_conf = spark_conf.set(k, v)
 
     spark = pyspark.sql.SparkSession.builder.config(conf=spark_conf).getOrCreate()
-    spark.sql("USE test")
+    spark.sql(f"USE test")
     yield spark
     spark.stop()

@@ -1,7 +1,7 @@
 use http::StatusCode;
 
 use crate::catalog::{TableIdent, TableRequirement, TableUpdate};
-use crate::spec::{Schema, SortOrder, TableMetadata, TableMetadataBuilder, UnboundPartitionSpec};
+use crate::spec::{Schema, SortOrder, TableMetadata, TableMetadataAggregate, UnboundPartitionSpec};
 
 use super::{impl_into_response, ErrorModel, IcebergErrorResponse};
 
@@ -117,15 +117,38 @@ impl TableRequirementExt for TableRequirement {
                         .into());
                 }
             }
-            TableRequirement::CurrentSchemaIdMatch {
-                current_schema_id: _,
-            } => {
-                unimplemented!("TableRequirement::CurrentSchemaIdMatch")
+            TableRequirement::CurrentSchemaIdMatch { current_schema_id } => {
+                // ToDo: Harmonize the types of current_schema_id
+                if i64::from(metadata.current_schema_id) != *current_schema_id {
+                    return Err(ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.as_u16())
+                        .message("assert-current-schema-id Table Requirement violated".to_string())
+                        .r#type("TableRequirementCurrentSchemaIdMatch".to_string())
+                        .stack(Some(vec![format!(
+                            "Expected: {current_schema_id}, Found: {}",
+                            metadata.current_schema_id
+                        )]))
+                        .build()
+                        .into());
+                }
             }
             TableRequirement::DefaultSortOrderIdMatch {
-                default_sort_order_id: _,
+                default_sort_order_id,
             } => {
-                unimplemented!("TableRequirement::DefaultSortOrderIdMatch")
+                if metadata.default_sort_order_id != *default_sort_order_id {
+                    return Err(ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.as_u16())
+                        .message(
+                            "assert-default-sort-order-id Table Requirement violated".to_string(),
+                        )
+                        .r#type("TableRequirementDefaultSortOrderIdMatch".to_string())
+                        .stack(Some(vec![format!(
+                            "Expected: {default_sort_order_id}, Found: {}",
+                            metadata.default_sort_order_id
+                        )]))
+                        .build()
+                        .into());
+                }
             }
             TableRequirement::RefSnapshotIdMatch { r#ref, snapshot_id } => {
                 if let Some(snapshot_id) = snapshot_id {
@@ -164,13 +187,39 @@ impl TableRequirementExt for TableRequirement {
                         .into());
                 }
             }
-            TableRequirement::DefaultSpecIdMatch { default_spec_id: _ } => {
-                unimplemented!("TableRequirement::DefaultSpecIdMatch")
+            TableRequirement::DefaultSpecIdMatch { default_spec_id } => {
+                // ToDo: Harmonize the types of default_spec_id
+                if i64::from(metadata.default_spec_id) != *default_spec_id {
+                    return Err(ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.as_u16())
+                        .message("assert-default-spec-id Table Requirement violated".to_string())
+                        .r#type("TableRequirementDefaultSpecIdMatch".to_string())
+                        .stack(Some(vec![format!(
+                            "Expected: {default_spec_id}, Found: {}",
+                            metadata.default_spec_id
+                        )]))
+                        .build()
+                        .into());
+                }
             }
             TableRequirement::LastAssignedPartitionIdMatch {
-                last_assigned_partition_id: _,
+                last_assigned_partition_id,
             } => {
-                unimplemented!("TableRequirement::LastAssignedPartitionIdMatch")
+                if i64::from(metadata.last_partition_id) != *last_assigned_partition_id {
+                    return Err(ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.as_u16())
+                        .message(
+                            "assert-last-assigned-partition-id Table Requirement violated"
+                                .to_string(),
+                        )
+                        .r#type("TableRequirementLastAssignedPartitionIdMatch".to_string())
+                        .stack(Some(vec![format!(
+                            "Expected: {last_assigned_partition_id}, Found: {}",
+                            metadata.last_partition_id
+                        )]))
+                        .build()
+                        .into());
+                }
             }
             TableRequirement::LastAssignedFieldIdMatch {
                 last_assigned_field_id,
@@ -207,15 +256,15 @@ pub trait TableUpdateExt {
     /// For more details, check the docs of the `TableMetadataBuilder`
     fn apply(
         self,
-        builder: &mut TableMetadataBuilder,
-    ) -> Result<&mut TableMetadataBuilder, ErrorModel>;
+        builder: &mut TableMetadataAggregate,
+    ) -> Result<&mut TableMetadataAggregate, ErrorModel>;
 }
 
 impl TableUpdateExt for TableUpdate {
     fn apply(
         self,
-        builder: &mut TableMetadataBuilder,
-    ) -> Result<&mut TableMetadataBuilder, ErrorModel> {
+        builder: &mut TableMetadataAggregate,
+    ) -> Result<&mut TableMetadataAggregate, ErrorModel> {
         match self {
             TableUpdate::AssignUuid { uuid } => {
                 builder.assign_uuid(uuid)?;
@@ -244,7 +293,7 @@ impl TableUpdateExt for TableUpdate {
             TableUpdate::SetDefaultSortOrder { sort_order_id } => {
                 // ToDo: Check why TableUpdate uses i64 for sort_order_id
                 // and metadata i32
-                builder.set_default_sort_order(sort_order_id.into())?;
+                builder.set_default_sort_order(sort_order_id)?;
             }
             TableUpdate::AddSpec { spec } => {
                 builder.add_partition_spec(spec)?;
@@ -258,9 +307,8 @@ impl TableUpdateExt for TableUpdate {
             TableUpdate::AddSnapshot { snapshot } => {
                 builder.add_snapshot(snapshot)?;
             }
-            TableUpdate::RemoveSnapshots { snapshot_ids: _ } => {
-                // ToDo: Implement
-                unimplemented!("TableUpdate::RemoveSnapshots")
+            TableUpdate::RemoveSnapshots { snapshot_ids } => {
+                builder.remove_snapshots(&snapshot_ids)?;
             }
             TableUpdate::SetSnapshotRef {
                 ref_name,
@@ -268,9 +316,8 @@ impl TableUpdateExt for TableUpdate {
             } => {
                 builder.set_snapshot_ref(ref_name, reference)?;
             }
-            TableUpdate::RemoveSnapshotRef { ref_name: _ } => {
-                // ToDo: Implement
-                unimplemented!("TableUpdate::RemoveSnapshotRef")
+            TableUpdate::RemoveSnapshotRef { ref_name } => {
+                builder.remove_snapshot_by_ref(&ref_name)?;
             }
         }
         Ok(builder)

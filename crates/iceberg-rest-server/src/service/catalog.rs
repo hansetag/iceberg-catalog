@@ -51,6 +51,7 @@ pub struct LoadTableResult {
 pub struct GetTableMetadataResult {
     pub table: TableIdent,
     pub table_id: TableIdentUuid,
+    pub warehouse_id: WarehouseIdent,
     pub location: String,
     pub metadata_location: Option<String>,
     pub storage_secret_ident: Option<SecretIdent>,
@@ -184,6 +185,14 @@ where
     async fn get_table_metadata_by_id(
         warehouse_id: &WarehouseIdent,
         table: &TableIdentUuid,
+        include_staged: bool,
+        catalog_state: Self::State,
+    ) -> Result<GetTableMetadataResult>;
+
+    /// Get table metadata by location.
+    async fn get_table_metadata_by_s3_location(
+        warehouse_id: &WarehouseIdent,
+        location: &str,
         include_staged: bool,
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResult>;

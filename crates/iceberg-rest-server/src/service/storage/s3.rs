@@ -230,11 +230,14 @@ impl S3Profile {
     }
 
     #[must_use]
-    pub fn generate_catalog_config(&self) -> CatalogConfig {
+    pub fn generate_catalog_config(&self, warehouse_id: &WarehouseIdent) -> CatalogConfig {
         CatalogConfig {
             // ToDo: s3.delete-enabled?
             defaults: HashMap::default(),
-            overrides: HashMap::default(),
+            overrides: HashMap::from_iter(vec![(
+                "s3.signer.uri".to_string(),
+                CONFIG.s3_signer_uri_for_warehouse(warehouse_id).to_string(),
+            )]),
         }
     }
 
@@ -263,9 +266,9 @@ impl S3Profile {
     /// Fails if vended credentials are used - currently not supported.
     pub async fn generate_table_config(
         &self,
-        warehouse_id: &WarehouseIdent,
-        table_id: &TableIdentUuid,
-        namespace_id: &NamespaceIdentUuid,
+        _: &WarehouseIdent,
+        _: &TableIdentUuid,
+        _: &NamespaceIdentUuid,
         data_access: &DataAccess,
         _: Option<&S3Credential>,
     ) -> Result<HashMap<String, String>> {
@@ -318,8 +321,10 @@ impl S3Profile {
 
         if remote_signing {
             config.insert("s3.remote-signing-enabled".to_string(), "true".to_string());
-            let signer_uri = CONFIG.s3_signer_uri_for_table(warehouse_id, namespace_id, table_id);
-            config.insert("s3.signer.uri".to_string(), signer_uri.to_string());
+            // Currently per-table signer uris are not supported by Spark.
+            // The URI is cached for one table, and then re-used for another.
+            // let signer_uri = CONFIG.s3_signer_uri_for_table(warehouse_id, namespace_id, table_id);
+            // config.insert("s3.signer.uri".to_string(), signer_uri.to_string());
         }
 
         Ok(config)

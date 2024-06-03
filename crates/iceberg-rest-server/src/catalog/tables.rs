@@ -160,11 +160,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             config: Some(config),
         };
 
-        println!(
-            "Load Table Result: {}",
-            serde_json::to_string(&load_table_result).unwrap()
-        );
-
         // Metadata file written, now we can commit the transaction
         transaction.commit().await?;
 

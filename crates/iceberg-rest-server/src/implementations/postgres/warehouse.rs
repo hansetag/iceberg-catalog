@@ -73,7 +73,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
                 .build(),
         })?;
 
-        Ok(storage_profile.generate_catalog_config())
+        Ok(storage_profile.generate_catalog_config(warehouse_id))
     }
 }
 

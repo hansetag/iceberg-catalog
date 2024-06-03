@@ -46,6 +46,7 @@ mod http_method_serde {
 
 #[cfg(test)]
 mod tests {
+
     use serde::Deserialize;
 
     use super::*;

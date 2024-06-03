@@ -19,4 +19,4 @@ done
 # Running tests
 echo "Running tests ..."
 cd python
-tox -e pyspark
+tox -q -e pyspark
