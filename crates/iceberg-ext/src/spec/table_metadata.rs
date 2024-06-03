@@ -775,7 +775,13 @@ impl TableMetadataAggregate {
                 .build());
         };
 
-        self.metadata.last_updated_ms = snapshot.timestamp().timestamp_millis();
+        // Update last_updated_ms to the exact timestamp of the snapshot if it was added in this commit
+        let is_added_snapshot = self.changes.iter().any(|update| {
+            matches!(update, TableUpdate::AddSnapshot { snapshot: snap } if snap.snapshot_id() == snapshot.snapshot_id())
+        });
+        if is_added_snapshot {
+            self.metadata.last_updated_ms = snapshot.timestamp().timestamp_millis();
+        }
 
         if ref_name == MAIN_BRANCH {
             self.metadata.current_snapshot_id = Some(snapshot.snapshot_id());
