@@ -1,6 +1,5 @@
 use std::cmp::max;
 use std::collections::HashSet;
-use std::ops::BitAnd;
 use std::{collections::HashMap, vec};
 
 use http::StatusCode;
@@ -15,6 +14,70 @@ use uuid::Uuid;
 use crate::catalog::rest::ErrorModel;
 use crate::spec::partition_binder::PartitionSpecBinder;
 
+// ToDo: Migrate to schema impl
+trait SchemaExt {
+    fn is_same_schema(&self, other: &SchemaRef) -> bool;
+}
+
+impl SchemaExt for Schema {
+    fn is_same_schema(&self, other: &SchemaRef) -> bool {
+        self.as_struct().eq(other.as_struct())
+            && self.identifier_field_ids().eq(other.identifier_field_ids())
+    }
+}
+
+// ToDo: Migrate to PartitionSpec impl
+// ToDo: Move to last_assigned_field_id impl in PartitionSpec
+/// Returns true if this spec is equivalent to the other, with partition field ids ignored. That
+/// is, if both specs have the same number of fields, field order, field name, source columns, and
+/// transforms.
+trait PartitionSpecExt {
+    fn compatible_with(&self, other: &PartitionSpec) -> bool;
+    fn last_assigned_field_id(&self) -> i32;
+}
+
+impl PartitionSpecExt for PartitionSpec {
+    fn compatible_with(&self, other: &PartitionSpec) -> bool {
+        if self.eq(other) {
+            return true;
+        }
+
+        if self.fields.len() != other.fields.len() {
+            return false;
+        }
+
+        for (this_field, other_field) in self.fields.iter().zip(&other.fields) {
+            if this_field.source_id != other_field.source_id
+                || this_field.transform.to_string() != other_field.transform.to_string()
+                || this_field.name != other_field.name
+            {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn last_assigned_field_id(&self) -> i32 {
+        self.fields
+            .iter()
+            .map(|field| field.field_id)
+            .max()
+            .unwrap_or(PartitionSpecBinder::UNPARTITIONED_LAST_ASSIGNED_ID)
+    }
+}
+
+macro_rules! extract {
+    ($field_to_extract:ident, $update_operation:path, $from_update:expr) => {
+        match $from_update {
+            $update_operation {
+                $field_to_extract, ..
+            } => Some($field_to_extract),
+            _ => None,
+        }
+    };
+}
+
 type Result<T> = std::result::Result<T, ErrorModel>;
 
 #[derive(Debug)]
@@ -22,7 +85,6 @@ type Result<T> = std::result::Result<T, ErrorModel>;
 pub struct TableMetadataAggregate {
     metadata: TableMetadata,
     changes: Vec<TableUpdate>,
-
     last_added_schema_id: Option<i32>,
     last_added_spec_id: Option<i32>,
     last_added_order_id: Option<i64>,
@@ -220,12 +282,12 @@ impl TableMetadataAggregate {
             // the new spec and last column id is already current and no change is needed
             // update lastAddedSchemaId if the schema was added in this set of changes (since it is now
             // the last)
-            let is_new_schema = self.last_added_schema_id
-                .map_or(false, |id| {
-                    self.changes
-                        .iter()
-                        .any(|update| matches!(update, TableUpdate::AddSchema { schema, .. } if schema.schema_id() == id))
-                });
+            let is_new_schema = self.last_added_schema_id.map_or(false, |id| {
+                self.changes
+                    .iter()
+                    .find_map(|update| extract!(schema, TableUpdate::AddSchema, update))
+                    .is_some_and(|schema| schema.schema_id().eq(&id))
+            });
 
             self.last_added_schema_id = is_new_schema.then_some(new_schema_id);
 
@@ -266,19 +328,10 @@ impl TableMetadataAggregate {
     }
 
     fn reuse_or_create_new_schema_id(&self, new_schema: &Schema) -> i32 {
-        // ToDo: Migrate to schema impl
-        let same_schema = |(first, second): (&SchemaRef, &Schema)| -> bool {
-            first.as_struct().eq(second.as_struct()).bitand(
-                first
-                    .identifier_field_ids()
-                    .eq(second.identifier_field_ids()),
-            )
-        };
-
         self.metadata
             .schemas
             .iter()
-            .find_map(|(id, schema)| same_schema((schema, new_schema)).then_some(*id))
+            .find_map(|(id, schema)| new_schema.is_same_schema(schema).then_some(*id))
             .unwrap_or_else(|| self.get_highest_schema_id() + 1)
     }
 
@@ -407,13 +460,13 @@ impl TableMetadataAggregate {
         if self.metadata.partition_specs.contains_key(&new_spec_id) {
             // update lastAddedSpecId if the spec was added in this set of changes (since it is now the
             // last)
-            let is_new_spec = self.last_added_spec_id
-                .map_or(false, |id| {
-                    self.changes
-                        .iter()
-                        // spec.spec_id should always be some, because we set the final id in this function before adding the change.
-                        .any(|update| matches!(update, TableUpdate::AddSpec { spec, .. } if spec.spec_id == Some(id)))
-                });
+            let is_new_spec = self.last_added_spec_id.map_or(false, |id| {
+                self.changes
+                    .iter()
+                    // spec.spec_id should always be some, because we set the final id in this function before adding the change.
+                    .find_map(|update| extract!(spec, TableUpdate::AddSpec, update))
+                    .is_some_and(|spec| spec.spec_id.eq(&Some(id)))
+            });
 
             self.last_added_spec_id = is_new_spec.then_some(new_spec_id);
 
@@ -438,12 +491,7 @@ impl TableMetadataAggregate {
         self.last_added_spec_id = Some(spec.spec_id);
         self.metadata.last_partition_id = max(
             self.metadata.last_partition_id,
-            // ToDo: Move to last_assigned_field_id impl in PartitionSpec
-            spec.fields
-                .iter()
-                .map(|field| field.field_id)
-                .max()
-                .unwrap_or(PartitionSpecBinder::UNPARTITIONED_LAST_ASSIGNED_ID),
+            spec.last_assigned_field_id(),
         );
 
         self.metadata
@@ -457,35 +505,10 @@ impl TableMetadataAggregate {
 
     /// If the spec already exists, use the same ID. Otherwise, use 1 more than the highest ID.
     fn reuse_or_create_new_spec_id(&self, new_spec: &PartitionSpec) -> i32 {
-        // ToDo: Migrate to PartitionSpec impl
-        /// Returns true if this spec is equivalent to the other, with partition field ids ignored. That
-        /// is, if both specs have the same number of fields, field order, field name, source columns, and
-        /// transforms.
-        fn compatible_with(this: &PartitionSpec, other: &PartitionSpec) -> bool {
-            if this.eq(other) {
-                return true;
-            }
-
-            if this.fields.len() != other.fields.len() {
-                return false;
-            }
-
-            for (this_field, other_field) in this.fields.iter().zip(other.fields.iter()) {
-                if this_field.source_id != other_field.source_id
-                    || this_field.transform.to_string() != other_field.transform.to_string()
-                    || this_field.name != other_field.name
-                {
-                    return false;
-                }
-            }
-
-            true
-        }
-
         self.metadata
             .partition_specs
             .iter()
-            .find_map(|(id, old_spec)| compatible_with(old_spec, new_spec).then_some(*id))
+            .find_map(|(id, old_spec)| new_spec.compatible_with(old_spec).then_some(*id))
             .unwrap_or_else(|| self.highest_spec_id() + 1)
     }
 
@@ -541,12 +564,12 @@ impl TableMetadataAggregate {
         if self.metadata.sort_orders.contains_key(&new_order_id) {
             // update lastAddedOrderId if the order was added in this set of changes (since it is now
             // the last)
-            let is_new_order = self.last_added_order_id
-                .map_or(false, |id| {
-                    self.changes
-                        .iter()
-                        .any(|update| matches!(update, TableUpdate::AddSortOrder { sort_order: order, .. } if order.order_id == id))
-                });
+            let is_new_order = self.last_added_order_id.map_or(false, |id| {
+                self.changes
+                    .iter()
+                    .find_map(|update| extract!(sort_order, TableUpdate::AddSortOrder, update))
+                    .is_some_and(|sort_order| sort_order.order_id.eq(&id))
+            });
 
             self.last_added_order_id = is_new_order.then_some(new_order_id);
 
@@ -591,14 +614,12 @@ impl TableMetadataAggregate {
             return SortOrder::unsorted_order().order_id;
         }
 
-        let same_order = |(first, second): (&SortOrderRef, &SortOrder)| -> bool {
-            first.fields.eq(&second.fields)
-        };
-
         self.metadata
             .sort_orders
             .iter()
-            .find_map(|(id, sort_order)| same_order((sort_order, new_sort_order)).then_some(*id))
+            .find_map(|(id, sort_order)| {
+                sort_order.fields.eq(&new_sort_order.fields).then_some(*id)
+            })
             .unwrap_or_else(|| self.highest_sort_id() + 1)
     }
 
