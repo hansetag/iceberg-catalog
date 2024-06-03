@@ -1,5 +1,4 @@
 use crate::catalog::rest::ErrorModel;
-use crate::spec::partition_binder::bindable::Bindable;
 use http::StatusCode;
 use iceberg::spec::{
     NestedFieldRef, PartitionField, PartitionSpec, SchemaRef, Transform, Type,
@@ -7,53 +6,6 @@ use iceberg::spec::{
 };
 use std::cmp::max;
 use std::collections::HashSet;
-
-mod bindable {
-    use iceberg::spec::{PartitionField, Transform, UnboundPartitionField};
-
-    pub(super) trait Bindable {
-        fn get_spec_id(&self) -> Option<i32>;
-        fn get_source_id(&self) -> i32;
-        fn get_name(&self) -> String;
-        fn get_transform(&self) -> Transform;
-    }
-
-    impl Bindable for PartitionField {
-        fn get_spec_id(&self) -> Option<i32> {
-            Some(self.field_id)
-        }
-
-        fn get_source_id(&self) -> i32 {
-            self.source_id
-        }
-
-        fn get_name(&self) -> String {
-            self.name.clone()
-        }
-
-        fn get_transform(&self) -> Transform {
-            self.transform
-        }
-    }
-
-    impl Bindable for UnboundPartitionField {
-        fn get_spec_id(&self) -> Option<i32> {
-            self.partition_id
-        }
-
-        fn get_source_id(&self) -> i32 {
-            self.source_id
-        }
-
-        fn get_name(&self) -> String {
-            self.name.clone()
-        }
-
-        fn get_transform(&self) -> Transform {
-            self.transform
-        }
-    }
-}
 
 type Result<T> = std::result::Result<T, ErrorModel>;
 
@@ -87,7 +39,14 @@ impl PartitionSpecBinder {
     }
 
     pub(crate) fn bind_spec(mut self, spec: UnboundPartitionSpec) -> Result<PartitionSpec> {
-        self.bind(self.spec_id, spec.fields)
+        Ok(PartitionSpec {
+            spec_id: self.spec_id,
+            fields: spec
+                .fields
+                .into_iter()
+                .map(|bindable_field| self.bind_field(&bindable_field))
+                .collect::<Result<Vec<PartitionField>>>()?,
+        })
     }
 
     pub(crate) fn update_spec_schema(mut self, other: PartitionSpec) -> Result<PartitionSpec> {
@@ -121,7 +80,7 @@ impl PartitionSpecBinder {
             })
             .transpose()?;
 
-        self.check_partition_name_set_and_unique(&field.get_name())?;
+        self.check_partition_name_set_and_unique(&field.name)?;
 
         self.last_assigned_field_id = max(self.last_assigned_field_id, field.field_id);
         self.update_names(&field.name);
@@ -129,50 +88,33 @@ impl PartitionSpecBinder {
         Ok(())
     }
 
-    fn bind(
-        &mut self,
-        spec_id: i32,
-        fields: impl IntoIterator<Item = UnboundPartitionField>,
-    ) -> Result<PartitionSpec> {
-        Ok(PartitionSpec {
-            spec_id,
-            fields: fields
-                .into_iter()
-                .map(|bindable_field| self.bind_field(&bindable_field))
-                .collect::<Result<Vec<PartitionField>>>()?,
-        })
-    }
-
     fn bind_field(&mut self, spec_field: &UnboundPartitionField) -> Result<PartitionField> {
-        let spec_field_name = spec_field.get_name();
-        let spec_field_id = spec_field.get_source_id();
-        let transform = spec_field.get_transform();
-        self.check_partition_name_set_and_unique(&spec_field_name)?;
+        let spec_field_name = spec_field.name.as_str();
+        let spec_field_id = spec_field.source_id;
+        let transform = spec_field.transform;
+        self.check_partition_name_set_and_unique(spec_field_name)?;
 
         let schema_field = self.get_schema_field_by_id(spec_field_id)?;
         Self::check_transform_compatibility(transform, &schema_field.field_type)?;
 
-        self.check_name_does_not_collide_with_schema(schema_field, &spec_field_name, transform)?;
+        self.check_name_does_not_collide_with_schema(schema_field, spec_field_name, transform)?;
 
         // Self::check_schema_field_eq_source_id(schema_field, spec_field.get_source_id())?;
-        self.check_for_redundant_partitions(
-            spec_field.get_source_id(),
-            spec_field.get_transform(),
-        )?;
+        self.check_for_redundant_partitions(spec_field.source_id, spec_field.transform)?;
 
-        self.update_names(&spec_field_name);
+        self.update_names(spec_field_name);
         self.dedup_fields
-            .insert((spec_field.get_source_id(), transform.dedup_name()));
+            .insert((spec_field.source_id, transform.dedup_name()));
 
         let field_id = spec_field
-            .get_spec_id()
+            .partition_id
             .unwrap_or_else(|| self.increment_and_get_next_field_id());
 
         let res = PartitionField::builder()
-            .source_id(spec_field.get_source_id())
+            .source_id(spec_field.source_id)
             .field_id(field_id)
-            .name(spec_field_name)
-            .transform(spec_field.get_transform())
+            .name(spec_field_name.to_owned())
+            .transform(spec_field.transform)
             .build();
 
         self.last_assigned_field_id = max(self.last_assigned_field_id, field_id);
@@ -220,26 +162,28 @@ impl PartitionSpecBinder {
         partition_name: &str,
         transform: Transform,
     ) -> Result<()> {
-        let schema_collision = self.schema.field_by_name(partition_name);
+        match self.schema.field_by_name(partition_name) {
+            Some(schema_collision) => {
+                if transform == Transform::Identity {
+                    if schema_collision.id == schema_field.id {
+                        Ok(())
+                    } else {
+                        let err = Self::err(format!(
+                            "Cannot create identity partition sourced from different field in schema: Schema Name '{}' != Partition Name '{partition_name}'.",
+                            schema_field.name
+                        ));
 
-        if let Some(schema_collision) = schema_collision {
-            // for identity transform case we allow conflicts between partition and schema field name
-            // as long as they are sourced from the same schema field
-            if transform == Transform::Identity {
-                if schema_collision.id == schema_field.id {
-                    Ok(())
+                        Err(err)
+                    }
                 } else {
-                    Err(Self::err(format!(
-                        "Cannot create identity partition sourced from different field in schema: Schema Name '{}' != Partition Name '{partition_name}'.", schema_field.name
-                    )))
+                    let err = Self::err(format!(
+                        "Cannot create partition with name: '{partition_name}' that conflicts with schema field and is not an identity transform.",
+                    ));
+
+                    Err(err)
                 }
-            } else {
-                Err(Self::err(format!(
-                    "Cannot create partition with name: '{partition_name}' that conflicts with schema field and is not an identity transform."
-                )))
             }
-        } else {
-            Ok(())
+            None => Ok(()),
         }
     }
 
