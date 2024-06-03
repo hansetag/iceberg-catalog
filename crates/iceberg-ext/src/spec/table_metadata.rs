@@ -1158,7 +1158,7 @@ mod test {
     }
 
     #[test]
-    fn should_take_highest_schema_id_plus_one() {
+    fn schema_ids_should_increase_by_1() {
         let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
 
         let fields_1 = vec![
@@ -1239,6 +1239,10 @@ mod test {
 
     #[test]
     fn default_sort_order_and_partitioning() {
+        // When building a new metadata, we test that the default partition spec and sort order are set to 0.
+        // Setting the default partition spec and sort order increases compatibility with other languages.
+        // I.e. java would request a "create table" statement without a "write-order": null, however fails deserialization
+        // if the returned metadata does not contain one explicitly.
         let aggregate = TableMetadataAggregate::new("foo".to_string(), SCHEMA.clone());
         let metadata = aggregate.build().unwrap();
         assert_eq!(metadata.default_spec_id, 0);
@@ -1253,7 +1257,7 @@ mod test {
     }
 
     #[test]
-    fn test_first_partition_gets_id_0() {
+    fn first_partition_gets_id_0_and_field_999() {
         let mut aggregate = TableMetadataAggregate::new("foo".to_string(), SCHEMA.clone());
         let partition_spec = UnboundPartitionSpec {
             spec_id: None,
@@ -1264,10 +1268,92 @@ mod test {
 
         assert_eq!(metadata.partition_specs[&0].fields.len(), 0);
         assert_eq!(metadata.default_spec_id, 0);
+        assert_eq!(metadata.last_partition_id, 999);
     }
 
     #[test]
-    fn test_add_unsort_order() {
+    fn second_partition_spec_gets_id_1_and_field_1000() {
+        let aggregate = TableMetadataAggregate::new("foo".to_string(), SCHEMA.clone());
+        let metadata = aggregate.build().unwrap();
+
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(metadata);
+        let partition_spec = UnboundPartitionSpec {
+            spec_id: None,
+            fields: vec![UnboundPartitionField {
+                name: "id".to_string(),
+                transform: Transform::Identity,
+                source_id: 1,
+                partition_id: None,
+            }],
+        };
+        assert!(aggregate.add_partition_spec(partition_spec.clone()).is_ok());
+        assert!(aggregate.set_default_partition_spec(-1).is_ok());
+        let metadata = aggregate.build().unwrap();
+
+        assert_eq!(metadata.partition_specs[&1].fields.len(), 1);
+        assert_eq!(metadata.default_spec_id, 1);
+        assert_eq!(metadata.last_partition_id, 1000);
+    }
+
+    #[test]
+    fn partition_last_field_id_respected() {
+        let mut aggregate = TableMetadataAggregate::new("foo".to_string(), SCHEMA.clone());
+        let partition_spec = UnboundPartitionSpec {
+            spec_id: None,
+            fields: vec![UnboundPartitionField {
+                name: "id".to_string(),
+                transform: Transform::Identity,
+                source_id: 1,
+                partition_id: None,
+            }],
+        };
+        aggregate
+            .add_partition_spec(partition_spec.clone())
+            .unwrap();
+        let metadata = aggregate.build().unwrap();
+
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(metadata);
+        let new_schema = Schema::builder()
+            .with_schema_id(-1)
+            .with_fields(vec![Arc::new(NestedField::required(
+                2,
+                "name",
+                Type::Primitive(PrimitiveType::String),
+            ))])
+            .build()
+            .unwrap();
+        let new_partition_spec = UnboundPartitionSpec {
+            spec_id: None,
+            fields: vec![UnboundPartitionField {
+                name: "name".to_string(),
+                transform: Transform::Identity,
+                source_id: 2,
+                partition_id: None,
+            }],
+        };
+
+        aggregate
+            .add_schema(new_schema, None)
+            .unwrap()
+            .set_current_schema(-1)
+            .unwrap()
+            .add_partition_spec(new_partition_spec)
+            .unwrap()
+            .set_default_partition_spec(-1)
+            .unwrap();
+
+        let metadata = aggregate.build().unwrap();
+        assert_eq!(metadata.last_partition_id, 1001);
+        assert_eq!(metadata.partition_specs[&1].fields[0].field_id, 1001);
+        assert_eq!(metadata.default_spec_id, 1);
+        assert_eq!(
+            metadata.default_partition_spec().unwrap().fields[0].name,
+            "name"
+        );
+    }
+
+    #[test]
+    fn add_unsort_order() {
         let mut aggregate = TableMetadataAggregate::new("foo".to_string(), SCHEMA.clone());
         let sort_order = SortOrder::builder()
             .with_order_id(0)
