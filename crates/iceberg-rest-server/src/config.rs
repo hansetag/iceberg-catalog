@@ -1,6 +1,7 @@
 //! Contains Configuration of the SAGA Module
 use config::Config;
 use std::collections::HashSet;
+use url::Url;
 
 use crate::WarehouseIdent;
 
@@ -33,6 +34,10 @@ pub struct DynAppConfig {
     pub(crate) pg_database_url_write: String,
     pub pg_read_pool_connections: u32,
     pub pg_write_pool_connections: u32,
+
+    // ------------- NATS CLOUDEVENTS -------------
+    pub nats_address: Option<Url>,
+    pub nats_topic: String,
 }
 
 impl DynAppConfig {

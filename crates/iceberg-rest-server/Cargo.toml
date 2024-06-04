@@ -30,15 +30,18 @@ aws-credential-types = { version = "^1.2", optional = true }
 aws-sigv4 = { version = "^1.2", optional = true }
 axum = { workspace = true, optional = true }
 chrono = { workspace = true }
+cloudevents-sdk = { version = "0.7.0", features = ["nats"] }
 config = { workspace = true }
 derive_more = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
+hostname = { workspace = true }
 http = { workspace = true }
 iceberg = { workspace = true }
 iceberg-ext = { path = "../iceberg-ext" }
 iceberg-rest-service = { path = "../iceberg-rest-service" }
 lazy_static = { workspace = true }
+async-nats = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
 sqlx = { workspace = true, optional = true }

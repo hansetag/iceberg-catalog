@@ -20,7 +20,7 @@ use super::{
     namespace::{uppercase_first_letter, validate_namespace_ident},
     require_warehouse_id, CatalogServer,
 };
-use crate::service::event_publisher::{EventMetadata, EventPublisher};
+use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::StorageCredential;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResult,
@@ -29,14 +29,14 @@ use crate::service::{
 use crate::service::{GetStorageConfigResult, TableIdentUuid};
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
-    iceberg_rest_service::v1::tables::Service<State<A, C, S, P>> for CatalogServer<C, A, S, P>
+impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+    iceberg_rest_service::v1::tables::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     /// List all table identifiers underneath a given namespace
     async fn list_tables(
         parameters: NamespaceParameters,
         _query: PaginationQuery,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<ListTablesResponse> {
         // ------------------- VALIDATIONS -------------------
@@ -69,7 +69,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         // mut because we need to change location
         mut request: CreateTableRequest,
         data_access: DataAccess,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<LoadTableResult> {
         // ------------------- VALIDATIONS -------------------
@@ -174,7 +174,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn register_table(
         _parameters: NamespaceParameters,
         _request: RegisterTableRequest,
-        _state: ApiContext<State<A, C, S, P>>,
+        _state: ApiContext<State<A, C, S>>,
         _headers: HeaderMap,
     ) -> Result<LoadTableResult> {
         // ToDo: Should we support this?
@@ -191,7 +191,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn load_table(
         parameters: TableParameters,
         data_access: DataAccess,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<LoadTableResult> {
         // ------------------- VALIDATIONS -------------------
@@ -267,7 +267,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn commit_table(
         parameters: TableParameters,
         mut request: CommitTableRequest,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<CommitTableResponse> {
         // ------------------- VALIDATIONS -------------------
@@ -421,7 +421,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     /// Drop a table from the catalog
     async fn drop_table(
         parameters: TableParameters,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
@@ -493,7 +493,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     /// Check if a table exists
     async fn table_exists(
         parameters: TableParameters,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
@@ -550,7 +550,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn rename_table(
         prefix: Option<Prefix>,
         request: RenameTableRequest,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
@@ -628,7 +628,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn commit_transaction(
         prefix: Option<Prefix>,
         request: CommitTransactionRequest,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
@@ -829,11 +829,12 @@ async fn emit_change_event<'c>(
     parameters: EventMetadata<'c>,
     body: serde_json::Value,
     operation_id: &str,
-    publisher: impl EventPublisher,
+    publisher: CloudEventsPublisher,
 ) {
-    publisher
+    let _ = publisher
         .publish(Uuid::now_v7(), operation_id, body, parameters)
-        .await;
+        .await
+        .map_err(|err| tracing::warn!("Emitting an event failed due to: {}", err));
 }
 
 fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {

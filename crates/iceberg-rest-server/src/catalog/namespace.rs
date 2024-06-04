@@ -9,7 +9,6 @@ use iceberg_rest_service::v1::{
 };
 
 use super::{require_warehouse_id, CatalogServer};
-use crate::service::event_publisher::EventPublisher;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, NamespaceIdentExt, State, Transaction as _,
 };
@@ -20,13 +19,13 @@ pub const UNSUPPORTED_NAMESPACE_PROPERTIES: &[&str] = &["location"];
 pub const MAX_NAMESPACE_DEPTH: i32 = 1;
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
-    iceberg_rest_service::v1::namespace::Service<State<A, C, S, P>> for CatalogServer<C, A, S, P>
+impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+    iceberg_rest_service::v1::namespace::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     async fn list_namespaces(
         prefix: Option<Prefix>,
         query: ListNamespacesQuery,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<ListNamespacesResponse> {
         // ------------------- VALIDATIONS -------------------
@@ -54,7 +53,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn create_namespace(
         prefix: Option<Prefix>,
         request: CreateNamespaceRequest,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<CreateNamespaceResponse> {
         // ------------------- VALIDATIONS -------------------
@@ -100,7 +99,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     /// Return all stored metadata properties for a given namespace
     async fn load_namespace_metadata(
         parameters: NamespaceParameters,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<GetNamespaceResponse> {
         // ------------------- VALIDATIONS -------------------
@@ -127,7 +126,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     /// Check if a namespace exists
     async fn namespace_exists(
         parameters: NamespaceParameters,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<()> {
         //  ------------------- VALIDATIONS -------------------
@@ -162,7 +161,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     /// Drop a namespace from the catalog. Namespace must be empty.
     async fn drop_namespace(
         parameters: NamespaceParameters,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<()> {
         //  ------------------- VALIDATIONS -------------------
@@ -201,7 +200,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn update_namespace_properties(
         parameters: NamespaceParameters,
         request: UpdateNamespacePropertiesRequest,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<UpdateNamespacePropertiesResponse> {
         //  ------------------- VALIDATIONS -------------------

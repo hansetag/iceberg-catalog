@@ -1,12 +1,18 @@
+use anyhow::Context;
+use async_nats::ServerAddr;
 use clap::{Parser, Subcommand};
-use iceberg_rest_server::service::event_publisher::TracingPublisher;
+use iceberg_rest_server::service::event_publisher::{
+    CloudEventSink, CloudEventsPublisher, NatsPublisher,
+};
 use iceberg_rest_server::{
     implementations::{
         postgres::{Catalog, CatalogState, SecretsState, SecretsStore},
         AllowAllAuthState, AllowAllAuthZHandler,
     },
     service::router::{new_full_router, serve as service_serve},
+    CONFIG,
 };
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -36,23 +42,39 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         write_pool,
     };
 
-    let tracing_publisher = TracingPublisher;
+    let mut cloud_event_sinks = vec![];
 
+    if let Some(nat_addr) = &CONFIG.nats_address {
+        tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
+        let nats_publisher = NatsPublisher {
+            client: async_nats::connect(
+                ServerAddr::from_url(nat_addr.clone())
+                    .context("Converting nats URL to ServerAddr failed.")?,
+            )
+            .await
+            .context("Connecting to nats server failed.")?,
+            topic: CONFIG.nats_topic.clone(),
+        };
+        cloud_event_sinks.push(Arc::new(nats_publisher) as Arc<dyn CloudEventSink + Sync + Send>);
+    } else {
+        tracing::info!("Running without publisher.");
+    };
+
+    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     let router = new_full_router::<
         Catalog,
         Catalog,
         AllowAllAuthZHandler,
         AllowAllAuthZHandler,
         SecretsStore,
-        TracingPublisher,
     >(
         AllowAllAuthState,
         catalog_state,
         secrets_state,
-        tracing_publisher,
+        CloudEventsPublisher {
+            sinks: cloud_event_sinks,
+        },
     );
-
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
 
     service_serve(listener, router).await?;
 
