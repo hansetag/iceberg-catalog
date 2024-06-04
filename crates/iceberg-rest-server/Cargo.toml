@@ -35,6 +35,7 @@ config = { workspace = true }
 derive_more = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
+hostname = { workspace = true }
 http = { workspace = true }
 iceberg = { workspace = true }
 iceberg-ext = { path = "../iceberg-ext" }

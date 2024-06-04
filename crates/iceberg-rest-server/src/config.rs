@@ -37,6 +37,7 @@ pub struct DynAppConfig {
 
     // ------------- NATS CLOUDEVENTS -------------
     pub nats_address: Option<Url>,
+    pub nats_topic: String,
 }
 
 impl DynAppConfig {

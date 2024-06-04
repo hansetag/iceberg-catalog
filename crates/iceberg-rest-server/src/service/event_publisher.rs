@@ -79,7 +79,12 @@ impl EventPublisher for NatsPublisher {
 
         let event = EventBuilderV10::new()
             .id(id.to_string())
-            .source("uri:iceberg-rest-service:{}") // TODO: add host
+            .source(format!(
+                "uri:iceberg-rest-service:{}",
+                hostname::get()
+                    .map(|os| os.to_string_lossy().to_string())
+                    .unwrap_or("hostname-unavailable".into())
+            ))
             .ty(typ)
             .data("application/json", data)
             .extension("x-trace-id", "") // TODO: add trace-id

@@ -49,6 +49,7 @@ tower-http = { version = "^0.5", features = [
     "timeout",
     "trace",
 ] }
+hostname = "0.4.0"
 http-body-util = "^0.1"
 strum = "^0.26"
 urlencoding = "^2.1"

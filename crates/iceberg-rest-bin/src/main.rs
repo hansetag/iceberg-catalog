@@ -47,7 +47,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             )
             .await
             .context("Connecting to nats server failed.")?,
-            topic: "test".to_string(),
+            topic: CONFIG.nats_topic.clone(),
         };
         new_full_router::<
             Catalog,
