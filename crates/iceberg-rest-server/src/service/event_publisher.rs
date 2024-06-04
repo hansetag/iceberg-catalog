@@ -1,9 +1,5 @@
-use crate::CONFIG;
-use async_trait::async_trait;
-use serde::Serialize;
 use std::borrow::Cow;
 use std::fmt::Debug;
-use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -27,9 +23,9 @@ where
         &self,
         id: Uuid,
         typ: &str,
-        data: impl Serialize + Send,
+        data: serde_json::Value,
         metadata: EventMetadata<'c>,
-    );
+    ) -> anyhow::Result<()>;
 }
 
 #[derive(Clone, Debug)]
@@ -41,9 +37,10 @@ impl EventPublisher for NoOpPublisher {
         &self,
         _id: Uuid,
         _typ: &str,
-        _data: impl Serialize + Send,
+        _data: serde_json::Value,
         _metadata: EventMetadata<'c>,
-    ) {
+    ) -> anyhow::Result<()> {
+        Ok(())
     }
 }
 
@@ -56,11 +53,12 @@ impl EventPublisher for TracingPublisher {
         &self,
         id: Uuid,
         typ: &str,
-        data: impl Serialize + Send,
+        data: serde_json::Value,
         metadata: EventMetadata<'c>,
-    ) {
+    ) -> anyhow::Result<()> {
         let data = serde_json::to_string(&data).unwrap_or("Serialization failed".to_string());
         tracing::info!("Received event of type: '{typ}' with id: '{id}', data: '{data}' and metadata: '{metadata:?}'");
+        Ok(())
     }
 }
 
@@ -72,12 +70,16 @@ pub struct NatsPublisher {
 
 #[async_trait::async_trait]
 impl EventPublisher for NatsPublisher {
-    async fn publish(&self, id: Uuid, typ: &str, data: impl Serialize + Send) {
+    async fn publish<'c>(
+        &self,
+        id: Uuid,
+        typ: &str,
+        data: serde_json::Value,
+        metadata: EventMetadata<'c>,
+    ) -> anyhow::Result<()> {
         use cloudevents::{EventBuilder, EventBuilderV10};
-        use url::Url;
-        let data = serde_json::to_string(&data).unwrap();
 
-        let event = EventBuilderV10::new()
+        let event_builder = EventBuilderV10::new()
             .id(id.to_string())
             .source(format!(
                 "uri:iceberg-rest-service:{}",
@@ -86,16 +88,43 @@ impl EventPublisher for NatsPublisher {
                     .unwrap_or("hostname-unavailable".into())
             ))
             .ty(typ)
-            .data("application/json", data)
-            .extension("x-trace-id", "") // TODO: add trace-id
-            .build()
-            .unwrap();
+            .data("application/json", data);
+
+        let EventMetadata {
+            table_id,
+            warehouse_id,
+            name,
+            namespace,
+            prefix,
+            num_events,
+            sequence_number,
+            trace_id,
+        } = metadata;
+        // TODO: this could be more elegant with a proc macro to give us IntoIter for EventMetadata
+        let event_builder = event_builder
+            .extension("table-id", table_id.to_string())
+            .extension("warehouse-id", warehouse_id.to_string())
+            .extension("name", name.to_string())
+            .extension("namespace", namespace.to_string())
+            .extension("prefix", prefix.to_string())
+            // TODO: decide what to do with these numbbers, likely they are never anywhere close to
+            // saturating the respective int types, so probably a non-issue. Still we are converting
+            // the numbers to_string here to avoid usize -> i64 which is what EventBuilderV10
+            // uses to represent integers. The Cloudevents spec states i32 would be the correct int
+            // type.
+            .extension("num-events", num_events.to_string())
+            .extension("sequence-number", sequence_number.to_string())
+            // TODO: decide if we want to stick to a simple UUID or go for the spec:
+            //       https://github.com/cloudevents/spec/blob/main/cloudevents/extensions/distributed-tracing.md
+            //       https://w3c.github.io/trace-context/#traceparent-header
+            .extension("trace-id", trace_id.to_string());
+
         self.client
             .publish(
                 self.topic.clone(),
-                serde_json::to_vec(&event).unwrap().into(),
+                serde_json::to_vec(&event_builder.build()?)?.into(),
             )
-            .await
-            .unwrap();
+            .await?;
+        Ok(())
     }
 }

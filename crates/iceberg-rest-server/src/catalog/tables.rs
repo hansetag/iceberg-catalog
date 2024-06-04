@@ -831,9 +831,10 @@ async fn emit_change_event<'c>(
     operation_id: &str,
     publisher: impl EventPublisher,
 ) {
-    publisher
+    let _ = publisher
         .publish(Uuid::now_v7(), operation_id, body, parameters)
-        .await;
+        .await
+        .map_err(|err| tracing::warn!("Emitting an event failed due to: {}", err));
 }
 
 fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
