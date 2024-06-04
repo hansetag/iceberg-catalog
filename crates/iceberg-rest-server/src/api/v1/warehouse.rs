@@ -1,7 +1,7 @@
 use crate::api::ApiServer;
 use crate::service::storage::{StorageCredential, StorageProfile};
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
-use crate::WarehouseIdent;
+use crate::{WarehouseIdent, WarehouseStatus};
 use http::{HeaderMap, StatusCode};
 use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
 use iceberg_rest_service::{ApiContext, Result};
@@ -36,9 +36,10 @@ pub struct UpdateWarehouseRequest {
     pub warehouse_id: uuid::Uuid,
     pub new_name: Option<String>,
     /// Storage profile to use for the warehouse.
-    pub storage_profile: Option<StorageProfile>,
+    pub new_storage_profile: Option<StorageProfile>,
     /// Optional storage credential to use for the warehouse.
-    pub storage_credential: Option<StorageCredential>,
+    pub new_storage_credential: Option<StorageCredential>,
+    pub new_warehouse_status: Option<WarehouseStatus>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -124,11 +125,12 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         if let Some(new_name) = request.new_name {
             if new_name != old_name {
-                C::update_warehouse_name(warehouse_id, &new_name, transaction.transaction()).await?;
+                C::update_warehouse_name(warehouse_id, &new_name, transaction.transaction())
+                    .await?;
             }
         }
 
-        match (request.storage_credential, request.storage_profile) {
+        match (request.new_storage_credential, request.new_storage_profile) {
             (None, Some(_)) => {
                 let err: IcebergErrorResponse = ErrorModel::builder()
                     .message("Cannot update 'storage_profile' without new creds.")
@@ -191,6 +193,18 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore> {
                 .await?)
             }
         }?;
+
+        if let Some(new_status) = request.new_warehouse_status {
+            match new_status {
+                WarehouseStatus::Active => {
+                    C::activate_warehouse(warehouse_id, context.v1_state.catalog)
+                }
+                WarehouseStatus::Inactive => {
+                    C::deactivate_warehouse(warehouse_id, context.v1_state.catalog)
+                }
+            }
+            .await?
+        }
 
         transaction.commit().await?;
 

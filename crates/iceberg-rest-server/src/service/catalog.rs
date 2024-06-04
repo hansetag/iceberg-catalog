@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::SecretIdent;
+use crate::{SecretIdent, WarehouseStatus};
 
 use super::{
     storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent,
@@ -80,6 +80,7 @@ pub struct GetWarehouseResponse {
     pub warehouse_ident: WarehouseIdent,
     pub warehouse_name: String,
     pub storage_profile: StorageProfile,
+    pub warehouse_status: WarehouseStatus,
     pub storage_credential_id: Option<SecretIdent>,
 }
 
@@ -129,7 +130,7 @@ where
         catalog_state: Self::State,
     ) -> Result<()>;
 
-    async fn reactivate_warehouse(
+    async fn activate_warehouse(
         warehouse_id: &WarehouseIdent,
         catalog_state: Self::State,
     ) -> Result<()>;

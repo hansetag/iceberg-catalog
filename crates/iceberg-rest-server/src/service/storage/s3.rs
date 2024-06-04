@@ -4,7 +4,6 @@ use crate::{
 };
 use http::StatusCode;
 
-
 use iceberg_rest_service::{v1::DataAccess, CatalogConfig, ErrorModel, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

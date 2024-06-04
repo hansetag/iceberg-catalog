@@ -1,4 +1,3 @@
-
 use std::collections::{HashMap, HashSet};
 
 use super::{
@@ -15,7 +14,7 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::implementations::postgres::warehouse::{
-    deactivate_warehouse, get_warehouse, get_warehouse_status, reactivate_warehouse,
+    activate_warehouse, deactivate_warehouse, get_warehouse, get_warehouse_status,
     update_warehouse_name, update_warehouse_storage_profile, update_warehouse_storage_secret_id,
 };
 use crate::service::GetWarehouseResponse;
@@ -252,11 +251,11 @@ impl Catalog for super::Catalog {
         deactivate_warehouse(warehouse_id, catalog_state).await
     }
 
-    async fn reactivate_warehouse(
+    async fn activate_warehouse(
         warehouse_id: &WarehouseIdent,
         catalog_state: Self::State,
     ) -> Result<()> {
-        reactivate_warehouse(warehouse_id, catalog_state).await
+        activate_warehouse(warehouse_id, catalog_state).await
     }
 
     // Should delete warehouse record. Only if it marked as `inactive`.

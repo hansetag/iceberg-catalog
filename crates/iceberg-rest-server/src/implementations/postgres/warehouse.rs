@@ -279,7 +279,8 @@ pub(crate) async fn get_warehouse(
                     warehouse_id AS "warehouse_ident: WarehouseIdent",
                     warehouse_name AS "warehouse_name: String",
                     storage_profile AS "storage_profile: Value",
-                    storage_secret_id AS "storage_secret_id: Uuid"
+                    storage_secret_id AS "storage_secret_id: Uuid",
+                    status AS "warehouse_status: WarehouseStatus"
                 FROM 
                    warehouse
                 WHERE  
@@ -299,6 +300,7 @@ pub(crate) async fn get_warehouse(
         warehouse_ident: res.warehouse_ident,
         warehouse_name: res.warehouse_name,
         storage_profile: deserialize_storage_profile(res.storage_profile)?,
+        warehouse_status: res.warehouse_status,
         storage_credential_id: res.storage_secret_id.map(SecretIdent::from),
     })
 }
@@ -328,7 +330,7 @@ pub(crate) async fn deactivate_warehouse(
     Ok(())
 }
 
-pub(crate) async fn reactivate_warehouse(
+pub(crate) async fn activate_warehouse(
     warehouse_id: &WarehouseIdent,
     catalog_state: CatalogState,
 ) -> Result<()> {

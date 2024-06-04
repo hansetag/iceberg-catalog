@@ -17,6 +17,7 @@ use iceberg::NamespaceIdent;
 use iceberg_rest_service::v1::Prefix;
 use iceberg_rest_service::State as ServiceState;
 use iceberg_rest_service::{ErrorModel, IcebergErrorResponse, Result};
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 pub use secrets::{SecretIdent, SecretStore};
@@ -160,7 +161,7 @@ pub struct ProjectIdent(uuid::Uuid);
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
 pub struct WarehouseIdent(uuid::Uuid);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "status", rename_all = "lowercase"))]
 pub enum WarehouseStatus {
