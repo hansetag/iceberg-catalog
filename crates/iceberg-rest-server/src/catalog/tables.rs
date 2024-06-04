@@ -11,6 +11,7 @@ use iceberg_rest_service::{
     CommitTableResponse, CommitTransactionRequest, ErrorModel, ListTablesResponse, LoadTableResult,
     RegisterTableRequest, RenameTableRequest,
 };
+use serde::Serialize;
 use uuid::Uuid;
 
 use super::{
@@ -269,7 +270,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         headers: HeaderMap,
     ) -> Result<CommitTableResponse> {
         // ------------------- VALIDATIONS -------------------
-        let warehouse_id = require_warehouse_id(parameters.prefix)?;
+        let warehouse_id = require_warehouse_id(parameters.prefix.clone())?;
         if request.identifier.is_none() {
             request.identifier = Some(parameters.table.clone());
         }
@@ -333,6 +334,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         })?;
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        // serialize body before moving it
+        let body = maybe_body_to_json(&request);
+
         let transaction_request = CommitTransactionRequest {
             table_changes: vec![request],
         };
@@ -386,11 +390,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         .await?;
 
         transaction.commit().await?;
-        state
-            .v1_state
-            .publisher
-            .publish(Uuid::new_v4(), "table.commit", &result.commit_response)
-            .await;
+
+        emit_change_event(
+            maybe_table_parameters_to_json(&parameters),
+            body,
+            "updateTable",
+            state.v1_state.publisher,
+        )
+        .await;
+
         Ok(result.commit_response)
     }
 
@@ -402,7 +410,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
-        let warehouse_id = require_warehouse_id(prefix)?;
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
         validate_table_ident(&table)?;
 
         // ------------------- AUTHZ -------------------
@@ -439,6 +447,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         C::drop_table(&warehouse_id, &table_id, transaction.transaction()).await?;
 
         transaction.commit().await?;
+
+        emit_change_event(
+            maybe_table_parameters_to_json(&TableParameters { prefix, table }),
+            serde_json::Value::Null,
+            "dropTable",
+            state.v1_state.publisher,
+        )
+        .await;
 
         Ok(())
     }
@@ -585,7 +601,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         headers: HeaderMap,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
-        let warehouse_id = require_warehouse_id(prefix)?;
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
         let CommitTransactionRequest { table_changes } = &request;
         for change in table_changes {
             let CommitTableRequest {
@@ -675,6 +691,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
             .collect::<Result<std::collections::HashMap<_, _>>>()?;
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+
+        // serialize request body before moving it here
+        let body = maybe_body_to_json(&request);
+
         let commit_response = C::commit_table_transaction(
             &warehouse_id,
             request,
@@ -732,9 +752,30 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         futures::future::try_join_all(write_futures).await?;
 
         transaction.commit().await?;
-
+        emit_change_event(
+            serde_json::json!({"prefix": prefix.as_ref().map(|p| p.as_str().to_string())}),
+            body,
+            "commitTransaction",
+            state.v1_state.publisher,
+        )
+        .await;
         Ok(())
     }
+}
+
+async fn emit_change_event(
+    parameters: serde_json::Value,
+    body: serde_json::Value,
+    operation_id: &str,
+    publisher: impl EventPublisher,
+) {
+    publisher
+        .publish(
+            Uuid::now_v7(),
+            operation_id,
+            &serde_json::json!({"body": body, "path_parameters": parameters}),
+        )
+        .await;
 }
 
 fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
@@ -785,4 +826,24 @@ fn validate_table_ident(table: &TableIdent) -> Result<()> {
             .into());
     }
     Ok(())
+}
+
+fn maybe_table_parameters_to_json(tab: &TableParameters) -> serde_json::Value {
+    let table_json = if let Ok(table) = serde_json::to_value(&tab.table) {
+        table
+    } else {
+        tracing::warn!("Failed to convert table parameters to json, they will be missing from the published event.");
+        serde_json::Value::Null
+    };
+    serde_json::json!({"prefix": tab.prefix.as_ref().map(|pre| pre.as_str().to_string()),
+                           "table": table_json})
+}
+
+fn maybe_body_to_json(request: impl Serialize) -> serde_json::Value {
+    if let Ok(body) = serde_json::to_value(&request) {
+        body
+    } else {
+        tracing::warn!("Serializing the request body to json failed, this is very unexpected. It will not be part of any emitted Event.");
+        serde_json::Value::Null
+    }
 }
