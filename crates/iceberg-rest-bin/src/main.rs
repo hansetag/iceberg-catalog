@@ -1,11 +1,14 @@
+use anyhow::Context;
+use async_nats::ServerAddr;
 use clap::{Parser, Subcommand};
-use iceberg_rest_server::service::event_publisher::TracingPublisher;
+use iceberg_rest_server::service::event_publisher::{NatsPublisher, NoOpPublisher};
 use iceberg_rest_server::{
     implementations::{
         postgres::{Catalog, CatalogState, SecretsState, SecretsStore},
         AllowAllAuthState, AllowAllAuthZHandler,
     },
     service::router::{new_full_router, serve as service_serve},
+    CONFIG,
 };
 
 #[derive(Parser)]
@@ -35,22 +38,41 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         read_pool,
         write_pool,
     };
-
-    let tracing_publisher = TracingPublisher;
-
-    let router = new_full_router::<
-        Catalog,
-        Catalog,
-        AllowAllAuthZHandler,
-        AllowAllAuthZHandler,
-        SecretsStore,
-        TracingPublisher,
-    >(
-        AllowAllAuthState,
-        catalog_state,
-        secrets_state,
-        tracing_publisher,
-    );
+    let router = if let Some(nat_addr) = &CONFIG.nats_address {
+        tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
+        let publisher = NatsPublisher {
+            client: async_nats::connect(
+                ServerAddr::from_url(nat_addr.clone())
+                    .context("Converting nats URL to ServerAddr failed.")?,
+            )
+            .await
+            .context("Connecting to nats server failed.")?,
+            topic: "test".to_string(),
+        };
+        new_full_router::<
+            Catalog,
+            Catalog,
+            AllowAllAuthZHandler,
+            AllowAllAuthZHandler,
+            SecretsStore,
+            NatsPublisher,
+        >(AllowAllAuthState, catalog_state, secrets_state, publisher)
+    } else {
+        tracing::info!("Running without publisher.");
+        new_full_router::<
+            Catalog,
+            Catalog,
+            AllowAllAuthZHandler,
+            AllowAllAuthZHandler,
+            SecretsStore,
+            NoOpPublisher,
+        >(
+            AllowAllAuthState,
+            catalog_state,
+            secrets_state,
+            NoOpPublisher,
+        )
+    };
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
 
