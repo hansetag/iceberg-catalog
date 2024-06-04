@@ -1,6 +1,7 @@
 pub mod auth;
 mod catalog;
 pub mod config;
+pub mod event_publisher;
 #[cfg(feature = "router")]
 pub mod router;
 pub mod secrets;
