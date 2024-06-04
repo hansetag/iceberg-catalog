@@ -828,6 +828,11 @@ fn validate_table_ident(table: &TableIdent) -> Result<()> {
     Ok(())
 }
 
+// This function does not return a result but serde_json::Value::Null if serialization of tab.table
+// fails. This follows the rationale that we'll likely end up ignoring the error in the API handler
+// anyway since we already effected the change and only the event emission about the change failed.
+// Given that we are serializing stuff that we've received as path parameters and successfully
+// processed, it's unlikely to cause issues.
 fn maybe_table_parameters_to_json(tab: &TableParameters) -> serde_json::Value {
     let table_json = if let Ok(table) = serde_json::to_value(&tab.table) {
         table
@@ -839,6 +844,11 @@ fn maybe_table_parameters_to_json(tab: &TableParameters) -> serde_json::Value {
                            "table": table_json})
 }
 
+// This function does not return a result but serde_json::Value::Null if serialization of tab.table
+// fails. This follows the rationale that we'll likely end up ignoring the error in the API handler
+// anyway since we already effected the change and only the event emission about the change failed.
+// Given that we are serializing stuff we've received as a json body and also successfully
+// processed, it's unlikely to cause issues.
 fn maybe_body_to_json(request: impl Serialize) -> serde_json::Value {
     if let Ok(body) = serde_json::to_value(&request) {
         body
