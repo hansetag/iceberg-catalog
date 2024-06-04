@@ -86,7 +86,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
             // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63/data/00001-1-840f0dc8-a888-4522-a327-12187ce32dbd-0-00001.parquet
             // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63
 
-            (table_metadata.table_id.clone(), Some(table_metadata))
+            (table_metadata.table_id, Some(table_metadata))
         };
 
         // First check - fail fast if requested table is not allowed.

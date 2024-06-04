@@ -1157,7 +1157,7 @@ pub(crate) mod tests {
         assert_eq!(exists.len(), 1);
         assert_eq!(
             exists.get(&table_1.table_ident).unwrap(),
-            &Some(table_1.table_id.clone())
+            &Some(table_1.table_id)
         );
 
         // Second Table
@@ -1171,7 +1171,7 @@ pub(crate) mod tests {
         assert!(exists.get(&table_1.table_ident).unwrap().is_none());
         assert_eq!(
             exists.get(&table_2.table_ident).unwrap(),
-            &Some(table_2.table_id.clone())
+            &Some(table_2.table_id)
         );
 
         let exists = table_idents_to_ids(&warehouse_id, tables.clone(), true, &state.read_pool)
