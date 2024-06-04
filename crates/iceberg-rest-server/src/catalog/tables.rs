@@ -11,6 +11,7 @@ use iceberg_rest_service::{
     CommitTableResponse, CommitTransactionRequest, ErrorModel, ListTablesResponse, LoadTableResult,
     RegisterTableRequest, RenameTableRequest,
 };
+use uuid::Uuid;
 
 use super::{
     io::write_metadata_file,
@@ -260,6 +261,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     }
 
     /// Commit updates to a table
+    #[allow(clippy::too_many_lines)]
     async fn commit_table(
         parameters: TableParameters,
         mut request: CommitTableRequest,
@@ -384,7 +386,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         .await?;
 
         transaction.commit().await?;
-
+        state
+            .v1_state
+            .publisher
+            .publish(Uuid::new_v4(), "table.commit", &result.commit_response)
+            .await;
         Ok(result.commit_response)
     }
 
