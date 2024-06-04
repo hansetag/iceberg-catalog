@@ -19,7 +19,6 @@ pub mod v1 {
         post, ApiContext, AuthZHandler, AxumState, Catalog, HeaderMap, Json, Router, SecretStore,
         State,
     };
-    use axum::routing::put;
     pub mod warehouse;
     use warehouse::WarehouseService;
 

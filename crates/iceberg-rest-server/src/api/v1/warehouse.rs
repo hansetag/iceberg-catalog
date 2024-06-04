@@ -1,7 +1,9 @@
 use crate::api::ApiServer;
 use crate::service::storage::{StorageCredential, StorageProfile};
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
-use http::HeaderMap;
+use crate::WarehouseIdent;
+use http::{HeaderMap, StatusCode};
+use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
 use iceberg_rest_service::{ApiContext, Result};
 use utoipa::ToSchema;
 
@@ -32,8 +34,9 @@ pub struct UpdateWarehouseRequest {
     /// Name of the warehouse to create. Must be unique
     /// within a project.
     pub warehouse_id: uuid::Uuid,
+    pub new_name: Option<String>,
     /// Storage profile to use for the warehouse.
-    pub storage_profile: StorageProfile,
+    pub storage_profile: Option<StorageProfile>,
     /// Optional storage credential to use for the warehouse.
     pub storage_credential: Option<StorageCredential>,
 }
@@ -107,7 +110,93 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore> {
         context: ApiContext<State<A, C, S>>,
         _headers: HeaderMap,
     ) -> Result<UpdateWarehouseResponse> {
-        todo!()
+        let warehouse_id = &WarehouseIdent::from(request.warehouse_id);
+        let mut transaction = C::Transaction::begin_write(context.v1_state.catalog.clone()).await?;
+        let old_warehouse_config =
+            C::get_warehouse(warehouse_id, context.v1_state.catalog.clone()).await?;
+        let (old_name, old_storage_profile, old_storage_credential_id) = {
+            (
+                old_warehouse_config.warehouse_name,
+                old_warehouse_config.storage_profile,
+                old_warehouse_config.storage_credential_id,
+            )
+        };
+
+        if let Some(new_name) = request.new_name {
+            if new_name != old_name {
+                C::update_warehouse_name(warehouse_id, &new_name, transaction.transaction()).await?;
+            }
+        }
+
+        match (request.storage_credential, request.storage_profile) {
+            (None, Some(_)) => {
+                let err: IcebergErrorResponse = ErrorModel::builder()
+                    .message("Cannot update 'storage_profile' without new creds.")
+                    .code(StatusCode::CONFLICT.into())
+                    .r#type("CannotUpdateWarehouse")
+                    .build()
+                    .into();
+
+                Err(err)
+            }
+            (None, None) => Ok(()),
+            (Some(new_storage_credential), Some(new_storage_profile)) => {
+                let mut new_storage_profile = new_storage_profile;
+                new_storage_profile
+                    .validate(Some(&new_storage_credential))
+                    .await?;
+
+                let can_be_updated = match (&new_storage_profile, old_storage_profile) {
+                    (StorageProfile::S3(new_profile), StorageProfile::S3(old_profile)) => {
+                        old_profile.can_be_updated_with(new_profile)
+                    }
+                };
+
+                if can_be_updated {
+                    C::update_warehouse_storage_profile(
+                        warehouse_id,
+                        new_storage_profile,
+                        transaction.transaction(),
+                    )
+                    .await?;
+                }
+
+                if let Some(old_cred) = old_storage_credential_id {
+                    S::delete_secret(&old_cred, context.v1_state.secrets.clone()).await?;
+                }
+
+                let new_secret_id =
+                    Some(S::create_secret(new_storage_credential, context.v1_state.secrets).await?);
+
+                Ok(C::update_warehouse_storage_secret_id(
+                    warehouse_id,
+                    new_secret_id,
+                    transaction.transaction(),
+                )
+                .await?)
+            }
+            (Some(new_storage_credential), None) => {
+                if let Some(old_cred) = old_storage_credential_id {
+                    S::delete_secret(&old_cred, context.v1_state.secrets.clone()).await?;
+                }
+
+                let new_secret_id =
+                    Some(S::create_secret(new_storage_credential, context.v1_state.secrets).await?);
+
+                Ok(C::update_warehouse_storage_secret_id(
+                    warehouse_id,
+                    new_secret_id,
+                    transaction.transaction(),
+                )
+                .await?)
+            }
+        }?;
+
+        transaction.commit().await?;
+
+        Ok(UpdateWarehouseResponse {
+            warehouse_id: Default::default(),
+        })
     }
 }
 

@@ -76,4 +76,6 @@ where
         secret: S,
         state: Self::State,
     ) -> Result<SecretIdent>;
+
+    async fn delete_secret(secret_id: &SecretIdent, state: Self::State) -> Result<()>;
 }

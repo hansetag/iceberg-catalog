@@ -8,7 +8,8 @@ pub mod storage;
 
 pub use catalog::{
     Catalog, CommitTableResponseExt, CreateTableResult, GetStorageConfigResult,
-    GetTableMetadataResult, LoadTableResult, Transaction, UpdateWarehouseResponse,
+    GetTableMetadataResult, GetWarehouseResponse, LoadTableResult, Transaction,
+    UpdateWarehouseResponse,
 };
 
 use http::StatusCode;

@@ -4,6 +4,7 @@ use crate::CONFIG;
 use http::StatusCode;
 use iceberg_rest_service::{ErrorModel, Result};
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 
 #[derive(Debug, Clone)]
 pub struct Server {}
@@ -114,6 +115,27 @@ impl SecretStore for Server {
         })?;
 
         Ok(secret_id.into())
+    }
+
+    async fn delete_secret(secret_id: &SecretIdent, state: Self::State) -> Result<()> {
+        sqlx::query!(
+            r#"
+                DELETE FROM secret WHERE secret_id = $1
+            "#,
+            secret_id.as_uuid()
+        )
+        .execute(&state.write_pool)
+        .await
+        .map_err(|e| {
+            ErrorModel::builder()
+                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                .message("Error deleting secret")
+                .r#type("SecretDeleteError")
+                .stack(Some(vec![e.to_string()]))
+                .build()
+        })?;
+
+        Ok(())
     }
 }
 

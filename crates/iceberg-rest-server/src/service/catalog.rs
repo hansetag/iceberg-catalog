@@ -75,6 +75,14 @@ pub struct CommitTableResponseExt {
 #[derive(Debug)]
 pub struct UpdateWarehouseResponse {}
 
+#[derive(Debug)]
+pub struct GetWarehouseResponse {
+    pub warehouse_ident: WarehouseIdent,
+    pub warehouse_name: String,
+    pub storage_profile: StorageProfile,
+    pub storage_credential_id: Option<SecretIdent>,
+}
+
 #[async_trait::async_trait]
 #[allow(clippy::module_name_repetitions)]
 pub trait Catalog
@@ -98,10 +106,23 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<WarehouseIdent>;
 
-    async fn update_warehouse(
+    async fn update_warehouse_name<'a>(
         warehouse_id: &WarehouseIdent,
-        catalog_state: Self::State,
-    ) -> Result<UpdateWarehouseResponse>;
+        warehouse_name: &str,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
+
+    async fn update_warehouse_storage_profile<'a>(
+        warehouse_id: &WarehouseIdent,
+        storage_profile: StorageProfile,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
+
+    async fn update_warehouse_storage_secret_id<'a>(
+        warehouse_id: &WarehouseIdent,
+        storage_secret_id: Option<SecretIdent>,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
 
     async fn deactivate_warehouse(
         warehouse_id: &WarehouseIdent,
@@ -252,4 +273,9 @@ where
         table_ids: &HashMap<TableIdent, TableIdentUuid>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Vec<CommitTableResponseExt>>;
+
+    async fn get_warehouse(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<GetWarehouseResponse>;
 }

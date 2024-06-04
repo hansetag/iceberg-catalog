@@ -1,3 +1,4 @@
+
 use std::collections::{HashMap, HashSet};
 
 use super::{
@@ -14,9 +15,10 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::implementations::postgres::warehouse::{
-    deactivate_warehouse, get_warehouse_status, reactivate_warehouse,
+    deactivate_warehouse, get_warehouse, get_warehouse_status, reactivate_warehouse,
+    update_warehouse_name, update_warehouse_storage_profile, update_warehouse_storage_secret_id,
 };
-use crate::service::UpdateWarehouseResponse;
+use crate::service::GetWarehouseResponse;
 use crate::{
     service::{
         storage::StorageProfile, Catalog, CommitTableResponseExt, CreateTableResult,
@@ -62,6 +64,13 @@ impl Catalog for super::Catalog {
         catalog_state: CatalogState,
     ) -> Result<GetStorageConfigResult> {
         get_storage_config(warehouse_id, namespace, catalog_state).await
+    }
+
+    async fn get_warehouse(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: CatalogState,
+    ) -> Result<GetWarehouseResponse> {
+        get_warehouse(warehouse_id, catalog_state).await
     }
 
     async fn is_warehouse_available(
@@ -236,17 +245,6 @@ impl Catalog for super::Catalog {
         commit_table_transaction(warehouse_id, request, table_ids, transaction).await
     }
 
-    async fn update_warehouse(
-        warehouse_id: &WarehouseIdent,
-        catalog_state: Self::State,
-    ) -> Result<UpdateWarehouseResponse> {
-        if Self::is_warehouse_available(warehouse_id, catalog_state).await? {
-            
-        }
-
-        todo!()
-    }
-
     async fn deactivate_warehouse(
         warehouse_id: &WarehouseIdent,
         catalog_state: Self::State,
@@ -264,5 +262,29 @@ impl Catalog for super::Catalog {
     // Should delete warehouse record. Only if it marked as `inactive`.
     async fn delete_warehouse(_: &WarehouseIdent, _: Self::State) -> Result<()> {
         unimplemented!()
+    }
+
+    async fn update_warehouse_name<'a>(
+        warehouse_id: &WarehouseIdent,
+        warehouse_name: &str,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()> {
+        update_warehouse_name(warehouse_id, warehouse_name, transaction).await
+    }
+
+    async fn update_warehouse_storage_profile<'a>(
+        warehouse_id: &WarehouseIdent,
+        storage_profile: StorageProfile,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()> {
+        update_warehouse_storage_profile(warehouse_id, storage_profile, transaction).await
+    }
+
+    async fn update_warehouse_storage_secret_id<'a>(
+        warehouse_id: &WarehouseIdent,
+        storage_secret_id: Option<SecretIdent>,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()> {
+        update_warehouse_storage_secret_id(warehouse_id, storage_secret_id, transaction).await
     }
 }

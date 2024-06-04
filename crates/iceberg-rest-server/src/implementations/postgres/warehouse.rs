@@ -4,10 +4,13 @@ use crate::{
 };
 use http::StatusCode;
 use iceberg_rest_service::{CatalogConfig, ErrorModel, Result};
+use serde_json::Value;
+use uuid::Uuid;
 
 use super::dbutils::DBErrorHandler as _;
 
 use super::{Catalog, CatalogState};
+use crate::service::GetWarehouseResponse;
 use sqlx::types::Json;
 
 #[async_trait::async_trait]
@@ -103,14 +106,7 @@ pub(crate) async fn create_warehouse_profile<'a>(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<WarehouseIdent> {
     validate_warehouse_name(&warehouse_name)?;
-    let storage_profile_ser = serde_json::to_value(storage_profile).map_err(|e| {
-        ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Error serializing storage profile".to_string())
-            .r#type("StorageProfileSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
-            .build()
-    })?;
+    let storage_profile_ser = serialize_storage_profile(storage_profile)?;
 
     let warehouse_id = sqlx::query_scalar!(
         r#"
@@ -184,6 +180,129 @@ pub(crate) async fn get_warehouse_status(
     Ok(status)
 }
 
+// Cannot update `storage_secret_id`, `storage_profile`.
+// Can update `name`.
+// In S3Profile cannot update `bucket`, `key_prefix`, `region`.
+
+pub(crate) async fn update_warehouse_storage_secret_id<'a>(
+    warehouse_id: &WarehouseIdent,
+    storage_secret_id: Option<SecretIdent>,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<()> {
+    sqlx::query!(
+        r#"
+            UPDATE
+                warehouse
+            SET
+                storage_secret_id = $1
+            WHERE
+                warehouse_id = $2
+        "#,
+        storage_secret_id.map(|id| id.into_uuid()),
+        warehouse_id.as_uuid(),
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => warehouse_not_found(warehouse_id),
+        _ => e.into_error_model("Error fetching warehouses".to_string()),
+    })?;
+
+    Ok(())
+}
+
+pub(crate) async fn update_warehouse_storage_profile<'a>(
+    warehouse_id: &WarehouseIdent,
+    storage_profile: StorageProfile,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<()> {
+    let storage_profile = serialize_storage_profile(storage_profile)?;
+
+    sqlx::query!(
+        r#"
+            UPDATE
+                warehouse
+            SET
+                storage_profile = $1
+            WHERE
+                warehouse_id = $2
+        "#,
+        storage_profile,
+        warehouse_id.as_uuid(),
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => warehouse_not_found(warehouse_id),
+        _ => e.into_error_model("Error fetching warehouses".to_string()),
+    })?;
+
+    Ok(())
+}
+
+pub(crate) async fn update_warehouse_name<'a>(
+    warehouse_id: &WarehouseIdent,
+    warehouse_name: &str,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<()> {
+    validate_warehouse_name(warehouse_name)?;
+
+    sqlx::query!(
+        r#"
+            UPDATE
+                warehouse
+            SET
+                warehouse_name = $1
+            WHERE
+                warehouse_id = $2
+        "#,
+        warehouse_name,
+        warehouse_id.as_uuid(),
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => warehouse_not_found(warehouse_id),
+        _ => e.into_error_model("Error fetching warehouses".to_string()),
+    })?;
+
+    Ok(())
+}
+
+pub(crate) async fn get_warehouse(
+    warehouse_id: &WarehouseIdent,
+    catalog_state: CatalogState,
+) -> Result<GetWarehouseResponse> {
+    let res = sqlx::query!(
+        r#"
+                SELECT 
+                    warehouse_id AS "warehouse_ident: WarehouseIdent",
+                    warehouse_name AS "warehouse_name: String",
+                    storage_profile AS "storage_profile: Value",
+                    storage_secret_id AS "storage_secret_id: Uuid"
+                FROM 
+                   warehouse
+                WHERE  
+                    warehouse_id = $1
+    
+        "#,
+        warehouse_id.as_uuid(),
+    )
+    .fetch_one(&catalog_state.read_pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => warehouse_not_found(warehouse_id),
+        _ => e.into_error_model("Error fetching warehouses".to_string()),
+    })?;
+
+    Ok(GetWarehouseResponse {
+        warehouse_ident: res.warehouse_ident,
+        warehouse_name: res.warehouse_name,
+        storage_profile: deserialize_storage_profile(res.storage_profile)?,
+        storage_credential_id: res.storage_secret_id.map(SecretIdent::from),
+    })
+}
+
 pub(crate) async fn deactivate_warehouse(
     warehouse_id: &WarehouseIdent,
     catalog_state: CatalogState,
@@ -240,6 +359,28 @@ fn warehouse_not_found(warehouse_id: &WarehouseIdent) -> ErrorModel {
         .message(format!("Warehouse not found: '{warehouse_id:?}'"))
         .r#type("WarehouseNotFound")
         .build()
+}
+
+fn serialize_storage_profile(storage_profile: StorageProfile) -> Result<Value, ErrorModel> {
+    serde_json::to_value(storage_profile).map_err(|e| {
+        ErrorModel::builder()
+            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+            .message("Error serializing storage profile")
+            .r#type("StorageProfileSerializationError")
+            .stack(Some(vec![e.to_string()]))
+            .build()
+    })
+}
+
+fn deserialize_storage_profile(storage_profile: Value) -> Result<StorageProfile, ErrorModel> {
+    serde_json::from_value(storage_profile).map_err(|e| {
+        ErrorModel::builder()
+            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+            .message("Error deserializing storage profile")
+            .r#type("StorageProfileDeserializationError")
+            .stack(Some(vec![e.to_string()]))
+            .build()
+    })
 }
 
 #[cfg(test)]

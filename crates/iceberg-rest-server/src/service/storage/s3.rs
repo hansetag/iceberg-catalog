@@ -4,6 +4,7 @@ use crate::{
 };
 use http::StatusCode;
 
+
 use iceberg_rest_service::{v1::DataAccess, CatalogConfig, ErrorModel, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -78,7 +79,7 @@ pub struct S3Profile {
     #[serde(default)]
     pub endpoint: Option<String>,
     /// Region to use for S3 requests.
-    pub region: String,
+    pub region: String, // should stay the same
     /// Path style access for S3 requests.
     #[serde(default)]
     pub path_style_access: Option<bool>,
@@ -372,6 +373,12 @@ impl S3Profile {
                 .build()
                 .into()
         })
+    }
+
+    pub fn can_be_updated_with(&self, other: &Self) -> bool {
+        self.bucket.eq(&other.bucket)
+            && self.key_prefix.eq(&other.key_prefix)
+            && self.region.eq(&other.region)
     }
 }
 
