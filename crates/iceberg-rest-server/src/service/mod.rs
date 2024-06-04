@@ -19,6 +19,7 @@ use iceberg_rest_service::State as ServiceState;
 use iceberg_rest_service::{ErrorModel, IcebergErrorResponse, Result};
 use std::str::FromStr;
 
+use crate::service::event_publisher::EventPublisher;
 pub use secrets::{SecretIdent, SecretStore};
 
 use self::auth::AuthZHandler;
@@ -54,13 +55,17 @@ impl NamespaceIdentExt for NamespaceIdent {
 // ---------------- State ----------------
 
 #[derive(Clone, Debug)]
-pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
+pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore, P: EventPublisher> {
     pub auth: A::State,
     pub catalog: C::State,
     pub secrets: S::State,
+    pub publisher: P,
 }
 
-impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}
+impl<A: AuthZHandler, C: Catalog, S: SecretStore, P: EventPublisher> ServiceState
+    for State<A, C, S, P>
+{
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NamespaceIdentUuid(uuid::Uuid);

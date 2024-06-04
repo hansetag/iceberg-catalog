@@ -1,22 +1,25 @@
 use serde::Serialize;
+use std::fmt::Debug;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait EventPublisher
 where
-    Self: Sized + Send + Sync + Clone + 'static,
+    Self: Sized + Send + Sync + Clone + Debug + 'static,
 {
     fn publish(&self, id: Uuid, typ: &str, data: impl Serialize);
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NoOpPublisher;
+
+impl NoOpPublisher {}
 
 impl EventPublisher for NoOpPublisher {
     fn publish(&self, _id: Uuid, _typ: &str, _data: impl Serialize) {}
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TracingPublisher;
 
 impl EventPublisher for TracingPublisher {

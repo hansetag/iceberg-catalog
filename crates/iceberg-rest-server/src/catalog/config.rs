@@ -7,6 +7,7 @@ use iceberg_rest_service::v1::{
 use std::marker::PhantomData;
 use std::str::FromStr;
 
+use crate::service::event_publisher::EventPublisher;
 use crate::service::SecretStore;
 use crate::service::{
     auth::{AuthConfigHandler, AuthZHandler, UserWarehouse},
@@ -16,11 +17,18 @@ use crate::service::{
 use crate::CONFIG;
 
 #[derive(Clone, Debug)]
-pub struct Server<C: ConfigProvider<D>, D: Catalog, T: AuthConfigHandler<A>, A: AuthZHandler> {
+pub struct Server<
+    C: ConfigProvider<D>,
+    D: Catalog,
+    T: AuthConfigHandler<A>,
+    A: AuthZHandler,
+    P: EventPublisher,
+> {
     auth_handler: PhantomData<T>,
     auth_state: PhantomData<A::State>,
     config_server: PhantomData<C>,
     catalog_state: PhantomData<D::State>,
+    publisher: PhantomData<P>,
 }
 
 fn parse_warehouse_arg(arg: &str) -> (Option<ProjectIdent>, Option<String>) {
@@ -64,11 +72,12 @@ impl<
         D: Catalog,
         S: SecretStore,
         T: AuthConfigHandler<A>,
-    > iceberg_rest_service::v1::config::Service<State<A, D, S>> for Server<C, D, T, A>
+        P: EventPublisher,
+    > iceberg_rest_service::v1::config::Service<State<A, D, S, P>> for Server<C, D, T, A, P>
 {
     async fn get_config(
         query: GetConfigQueryParams,
-        api_context: ApiContext<State<A, D, S>>,
+        api_context: ApiContext<State<A, D, S, P>>,
         headers: HeaderMap,
     ) -> Result<CatalogConfig> {
         let auth_info =
