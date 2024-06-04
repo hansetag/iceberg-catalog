@@ -111,7 +111,7 @@ impl From<uuid::Uuid> for NamespaceIdentUuid {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 pub struct TableIdentUuid(uuid::Uuid);
 
 impl std::fmt::Display for TableIdentUuid {

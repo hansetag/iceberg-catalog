@@ -392,7 +392,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         transaction.commit().await?;
 
         emit_change_event(
-            maybe_table_parameters_to_json(&parameters),
+            vec![
+                ("table-id".into(), table_id.as_uuid().to_string()),
+                ("warehouse-id".into(), warehouse_id.as_uuid().to_string()),
+                ("name".into(), parameters.table.name.clone()),
+                (
+                    "namespace".into(),
+                    parameters.table.namespace.encode_in_url(),
+                ),
+            ],
             body,
             "updateTable",
             state.v1_state.publisher,
@@ -449,7 +457,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         transaction.commit().await?;
 
         emit_change_event(
-            maybe_table_parameters_to_json(&TableParameters { prefix, table }),
+            vec![
+                ("table-id".into(), table_id.as_uuid().to_string()),
+                ("warehouse-id".into(), warehouse_id.as_uuid().to_string()),
+                ("name".into(), table.name.clone()),
+                ("namespace".into(), table.namespace.encode_in_url()),
+            ],
             serde_json::Value::Null,
             "dropTable",
             state.v1_state.publisher,
@@ -753,7 +766,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         transaction.commit().await?;
         emit_change_event(
-            serde_json::json!({"prefix": prefix.as_ref().map(|p| p.as_str().to_string())}),
+            vec![("warehouse-id".into(), warehouse_id.as_uuid().to_string())],
             body,
             "commitTransaction",
             state.v1_state.publisher,
@@ -764,17 +777,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 }
 
 async fn emit_change_event(
-    parameters: serde_json::Value,
+    parameters: Vec<(String, String)>,
     body: serde_json::Value,
     operation_id: &str,
     publisher: impl EventPublisher,
 ) {
     publisher
-        .publish(
-            Uuid::now_v7(),
-            operation_id,
-            &serde_json::json!({"body": body, "path_parameters": parameters}),
-        )
+        .publish(Uuid::now_v7(), operation_id, body, parameters)
         .await;
 }
 
@@ -826,22 +835,6 @@ fn validate_table_ident(table: &TableIdent) -> Result<()> {
             .into());
     }
     Ok(())
-}
-
-// This function does not return a result but serde_json::Value::Null if serialization of tab.table
-// fails. This follows the rationale that we'll likely end up ignoring the error in the API handler
-// anyway since we already effected the change and only the event emission about the change failed.
-// Given that we are serializing stuff that we've received as path parameters and successfully
-// processed, it's unlikely to cause issues.
-fn maybe_table_parameters_to_json(tab: &TableParameters) -> serde_json::Value {
-    let table_json = if let Ok(table) = serde_json::to_value(&tab.table) {
-        table
-    } else {
-        tracing::warn!("Failed to convert table parameters to json, they will be missing from the published event.");
-        serde_json::Value::Null
-    };
-    serde_json::json!({"prefix": tab.prefix.as_ref().map(|pre| pre.as_str().to_string()),
-                           "table": table_json})
 }
 
 // This function does not return a result but serde_json::Value::Null if serialization of tab.table
