@@ -161,7 +161,7 @@ pub struct ProjectIdent(uuid::Uuid);
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
 pub struct WarehouseIdent(uuid::Uuid);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(type_name = "status", rename_all = "lowercase"))]
 pub enum WarehouseStatus {

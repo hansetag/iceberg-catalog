@@ -162,6 +162,12 @@ where
         namespace: Option<&NamespaceIdent>,
         state: Self::State,
     ) -> Result<()>;
+
+    async fn check_is_warehouse_available(
+        headers: &HeaderMap,
+        warehouse_id: &WarehouseIdent,
+        state: Self::State,
+    ) -> Result<()>;
 }
 
 /// Interface to provide Auth-related functions to the config gateway.

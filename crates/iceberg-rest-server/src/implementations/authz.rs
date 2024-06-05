@@ -184,4 +184,12 @@ impl AuthZHandler for AllowAllAuthZHandler {
     ) -> Result<()> {
         Ok(())
     }
+
+    async fn check_is_warehouse_available(
+        _headers: &HeaderMap,
+        _warehouse_id: &WarehouseIdent,
+        _state: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
 }

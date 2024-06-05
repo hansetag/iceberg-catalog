@@ -11,9 +11,9 @@ create table "warehouse" (
     -- over `warehouse` you will want a separate index with the default collation:
     --
     -- create index on "warehouse" (warehouse_name collate "ucs_basic");
-    warehouse_name text collate "case_insensitive" not null, -- can be change 
-    storage_profile jsonb not null default '{}'::jsonb, -- can be change
-    storage_secret_id uuid, -- can be change 
+    warehouse_name text collate "case_insensitive" not null,
+    storage_profile jsonb not null default '{}'::jsonb,
+    storage_secret_id uuid,
     created_at timestamptz not null default now(),
     updated_at timestamptz,
     status warehouse_status not null default 'active',

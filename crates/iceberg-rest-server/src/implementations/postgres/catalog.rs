@@ -14,8 +14,8 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::implementations::postgres::warehouse::{
-    activate_warehouse, deactivate_warehouse, get_warehouse, get_warehouse_status,
-    update_warehouse_name, update_warehouse_storage_profile, update_warehouse_storage_secret_id,
+    change_warehouse_status, get_warehouse, get_warehouse_status, update_warehouse_name,
+    update_warehouse_storage_profile, update_warehouse_storage_secret_id,
 };
 use crate::service::GetWarehouseResponse;
 use crate::{
@@ -244,20 +244,6 @@ impl Catalog for super::Catalog {
         commit_table_transaction(warehouse_id, request, table_ids, transaction).await
     }
 
-    async fn deactivate_warehouse(
-        warehouse_id: &WarehouseIdent,
-        catalog_state: Self::State,
-    ) -> Result<()> {
-        deactivate_warehouse(warehouse_id, catalog_state).await
-    }
-
-    async fn activate_warehouse(
-        warehouse_id: &WarehouseIdent,
-        catalog_state: Self::State,
-    ) -> Result<()> {
-        activate_warehouse(warehouse_id, catalog_state).await
-    }
-
     // Should delete warehouse record. Only if it marked as `inactive`.
     async fn delete_warehouse(_: &WarehouseIdent, _: Self::State) -> Result<()> {
         unimplemented!()
@@ -285,5 +271,13 @@ impl Catalog for super::Catalog {
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()> {
         update_warehouse_storage_secret_id(warehouse_id, storage_secret_id, transaction).await
+    }
+
+    async fn change_warehouse_status<'a>(
+        warehouse_id: &WarehouseIdent,
+        new_status: WarehouseStatus,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()> {
+        change_warehouse_status(warehouse_id, new_status, transaction).await
     }
 }

@@ -305,47 +305,24 @@ pub(crate) async fn get_warehouse(
     })
 }
 
-pub(crate) async fn deactivate_warehouse(
+pub(crate) async fn change_warehouse_status<'a>(
     warehouse_id: &WarehouseIdent,
-    catalog_state: CatalogState,
+    new_status: WarehouseStatus,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
     sqlx::query!(
         r#"
             UPDATE 
                 warehouse
             SET 
-                status = 'inactive'
+                status = $1
             WHERE
-                warehouse_id = $1
+                warehouse_id = $2
         "#,
+        new_status as WarehouseStatus,
         warehouse_id.as_uuid(),
     )
-    .execute(&catalog_state.write_pool)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => warehouse_not_found(warehouse_id),
-        _ => e.into_error_model("Error fetching warehouses".to_string()),
-    })?;
-
-    Ok(())
-}
-
-pub(crate) async fn activate_warehouse(
-    warehouse_id: &WarehouseIdent,
-    catalog_state: CatalogState,
-) -> Result<()> {
-    sqlx::query!(
-        r#"
-            UPDATE 
-                warehouse
-            SET 
-                status = 'active'
-            WHERE
-                warehouse_id = $1
-        "#,
-        warehouse_id.as_uuid(),
-    )
-    .execute(&catalog_state.write_pool)
+    .execute(&mut **transaction)
     .await
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => warehouse_not_found(warehouse_id),

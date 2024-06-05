@@ -137,6 +137,15 @@ impl StorageProfile {
                 .into()),
         }
     }
+
+    #[must_use]
+    pub fn can_be_updated_with(&self, other: &Self) -> bool {
+        match (&self, other) {
+            (StorageProfile::S3(this_profile), StorageProfile::S3(other_profile)) => {
+                this_profile.can_be_updated_with(other_profile)
+            }
+        }
+    }
 }
 
 /// Storage secret for a warehouse.

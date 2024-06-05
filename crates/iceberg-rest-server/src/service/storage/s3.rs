@@ -64,11 +64,11 @@ fn is_valid_bucket_name(bucket: &str) -> Result<()> {
 #[schema(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub struct S3Profile {
-    /// Name of the S3 bucket // should stay the same
+    /// Name of the S3 bucket
     pub bucket: String,
     /// Subpath in the bucket to use.
     /// The same prefix can be used for multiple warehouses.
-    pub key_prefix: Option<String>, // should stay the same
+    pub key_prefix: Option<String>,
     #[serde(default)]
     /// Optional ARN to assume when accessing the bucket
     pub assume_role_arn: Option<String>,
@@ -78,7 +78,7 @@ pub struct S3Profile {
     #[serde(default)]
     pub endpoint: Option<String>,
     /// Region to use for S3 requests.
-    pub region: String, // should stay the same
+    pub region: String,
     /// Path style access for S3 requests.
     #[serde(default)]
     pub path_style_access: Option<bool>,
@@ -374,6 +374,7 @@ impl S3Profile {
         })
     }
 
+    #[must_use]
     pub fn can_be_updated_with(&self, other: &Self) -> bool {
         self.bucket.eq(&other.bucket)
             && self.key_prefix.eq(&other.key_prefix)

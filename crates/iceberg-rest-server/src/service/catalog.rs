@@ -125,14 +125,10 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
-    async fn deactivate_warehouse(
+    async fn change_warehouse_status<'a>(
         warehouse_id: &WarehouseIdent,
-        catalog_state: Self::State,
-    ) -> Result<()>;
-
-    async fn activate_warehouse(
-        warehouse_id: &WarehouseIdent,
-        catalog_state: Self::State,
+        new_status: WarehouseStatus,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
     async fn delete_warehouse(
