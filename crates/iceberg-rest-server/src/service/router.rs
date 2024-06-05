@@ -1,4 +1,4 @@
-use crate::service::event_publisher::EventPublisher;
+use crate::service::event_publisher::CloudEventsPublisher;
 use axum::Router;
 use iceberg_rest_service::{new_v1_full_router, shutdown_signal, ApiContext};
 use tower_http::{
@@ -19,17 +19,16 @@ pub fn new_full_router<
     AH: AuthConfigHandler<A>,
     A: AuthZHandler,
     S: SecretStore,
-    P: EventPublisher,
 >(
     auth_state: A::State,
     catalog_state: C::State,
     secrets_state: S::State,
-    publisher: P,
+    publisher: CloudEventsPublisher,
 ) -> Router {
     let v1_routes = new_v1_full_router::<
-        crate::catalog::ConfigServer<CP, C, AH, A, P>,
-        crate::catalog::CatalogServer<C, A, S, P>,
-        State<A, C, S, P>,
+        crate::catalog::ConfigServer<CP, C, AH, A>,
+        crate::catalog::CatalogServer<C, A, S>,
+        State<A, C, S>,
     >();
     let management_routes = Router::new().merge(crate::api::ApiServer::v1_router());
 

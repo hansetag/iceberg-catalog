@@ -1,7 +1,9 @@
 use anyhow::Context;
 use async_nats::ServerAddr;
 use clap::{Parser, Subcommand};
-use iceberg_rest_server::service::event_publisher::{NatsPublisher, NoOpPublisher};
+use iceberg_rest_server::service::event_publisher::{
+    CloudEventSink, CloudEventsPublisher, NatsPublisher,
+};
 use iceberg_rest_server::{
     implementations::{
         postgres::{Catalog, CatalogState, SecretsState, SecretsStore},
@@ -10,6 +12,7 @@ use iceberg_rest_server::{
     service::router::{new_full_router, serve as service_serve},
     CONFIG,
 };
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -38,9 +41,12 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         read_pool,
         write_pool,
     };
-    let router = if let Some(nat_addr) = &CONFIG.nats_address {
+
+    let mut cloud_event_sinks = vec![];
+
+    if let Some(nat_addr) = &CONFIG.nats_address {
         tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
-        let publisher = NatsPublisher {
+        let nats_publisher = NatsPublisher {
             client: async_nats::connect(
                 ServerAddr::from_url(nat_addr.clone())
                     .context("Converting nats URL to ServerAddr failed.")?,
@@ -49,32 +55,26 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             .context("Connecting to nats server failed.")?,
             topic: CONFIG.nats_topic.clone(),
         };
-        new_full_router::<
-            Catalog,
-            Catalog,
-            AllowAllAuthZHandler,
-            AllowAllAuthZHandler,
-            SecretsStore,
-            NatsPublisher,
-        >(AllowAllAuthState, catalog_state, secrets_state, publisher)
+        cloud_event_sinks.push(Arc::new(nats_publisher) as Arc<dyn CloudEventSink + Sync + Send>);
     } else {
         tracing::info!("Running without publisher.");
-        new_full_router::<
-            Catalog,
-            Catalog,
-            AllowAllAuthZHandler,
-            AllowAllAuthZHandler,
-            SecretsStore,
-            NoOpPublisher,
-        >(
-            AllowAllAuthState,
-            catalog_state,
-            secrets_state,
-            NoOpPublisher,
-        )
     };
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+    let router = new_full_router::<
+        Catalog,
+        Catalog,
+        AllowAllAuthZHandler,
+        AllowAllAuthZHandler,
+        SecretsStore,
+    >(
+        AllowAllAuthState,
+        catalog_state,
+        secrets_state,
+        CloudEventsPublisher {
+            sinks: cloud_event_sinks,
+        },
+    );
 
     service_serve(listener, router).await?;
 
