@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
@@ -19,7 +20,7 @@ use super::{
     namespace::{uppercase_first_letter, validate_namespace_ident},
     require_warehouse_id, CatalogServer,
 };
-use crate::service::event_publisher::EventPublisher;
+use crate::service::event_publisher::{EventMetadata, EventPublisher};
 use crate::service::storage::StorageCredential;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResult,
@@ -390,20 +391,27 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         .await?;
 
         transaction.commit().await?;
-
+        // TODO: use actual trace_id here
+        let trace_id = Uuid::now_v7();
         emit_change_event(
-            vec![
-                ("table-id".into(), table_id.as_uuid().to_string()),
-                ("warehouse-id".into(), warehouse_id.as_uuid().to_string()),
-                ("name".into(), parameters.table.name.clone()),
-                (
-                    "namespace".into(),
-                    parameters.table.namespace.encode_in_url(),
+            EventMetadata {
+                table_id: *table_id.as_uuid(),
+                warehouse_id: *warehouse_id.as_uuid(),
+                name: Cow::Borrowed(&parameters.table.name),
+                namespace: Cow::Owned(parameters.table.namespace.encode_in_url()),
+                prefix: Cow::Owned(
+                    parameters
+                        .prefix
+                        .map(iceberg_rest_service::types::Prefix::into_string)
+                        .unwrap_or_default(),
                 ),
-            ],
+                num_events: 1,
+                sequence_number: 0,
+                trace_id,
+            },
             body,
             "updateTable",
-            state.v1_state.publisher,
+            state.v1_state.publisher.clone(),
         )
         .await;
 
@@ -456,13 +464,19 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         transaction.commit().await?;
 
+        // TODO: use actual trace_id here
+        let trace_id = Uuid::now_v7();
         emit_change_event(
-            vec![
-                ("table-id".into(), table_id.as_uuid().to_string()),
-                ("warehouse-id".into(), warehouse_id.as_uuid().to_string()),
-                ("name".into(), table.name.clone()),
-                ("namespace".into(), table.namespace.encode_in_url()),
-            ],
+            EventMetadata {
+                table_id: *table_id.as_uuid(),
+                warehouse_id: *warehouse_id.as_uuid(),
+                name: Cow::Borrowed(&table.name),
+                namespace: Cow::Owned(table.namespace.encode_in_url()),
+                prefix: Cow::Owned(prefix.map(iceberg_rest_service::types::Prefix::into_string).unwrap_or_default()),
+                num_events: 1,
+                sequence_number: 0,
+                trace_id,
+            },
             serde_json::Value::Null,
             "dropTable",
             state.v1_state.publisher,
@@ -706,7 +720,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
 
         // serialize request body before moving it here
-        let body = maybe_body_to_json(&request);
+        let mut events = vec![];
+        let mut event_table_ids: Vec<(TableIdent, TableIdentUuid)> = vec![];
+        for req in &request.table_changes {
+            if let Some(id) = &req.identifier {
+                if let Some(uuid) = table_ids.get(id) {
+                    events.push(maybe_body_to_json(&request));
+                    event_table_ids.push((id.clone(), *uuid));
+                }
+            }
+        }
 
         let commit_response = C::commit_table_transaction(
             &warehouse_id,
@@ -765,19 +788,41 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         futures::future::try_join_all(write_futures).await?;
 
         transaction.commit().await?;
-        emit_change_event(
-            vec![("warehouse-id".into(), warehouse_id.as_uuid().to_string())],
-            body,
-            "commitTransaction",
-            state.v1_state.publisher,
-        )
-        .await;
+        let number_of_events = events.len();
+        // TODO: use actual trace_id here
+        let trace_id = Uuid::now_v7();
+        for (event_sequence_number, (body, (table_ident, table_id))) in
+            events.into_iter().zip(event_table_ids).enumerate()
+        {
+            emit_change_event(
+                EventMetadata {
+                    table_id: *table_id.as_uuid(),
+                    warehouse_id: *warehouse_id.as_uuid(),
+                    name: table_ident.name.into(),
+                    namespace: Cow::Owned(table_ident.namespace.encode_in_url()),
+                    prefix: Cow::Owned(
+                        prefix
+                            .clone()
+                            .map(|p| p.as_str().to_string())
+                            .unwrap_or_default(),
+                    ),
+                    num_events: number_of_events,
+                    sequence_number: event_sequence_number,
+                    trace_id,
+                },
+                body,
+                "updateTable",
+                state.v1_state.publisher.clone(),
+            )
+            .await;
+        }
+
         Ok(())
     }
 }
 
-async fn emit_change_event(
-    parameters: Vec<(String, String)>,
+async fn emit_change_event<'c>(
+    parameters: EventMetadata<'c>,
     body: serde_json::Value,
     operation_id: &str,
     publisher: impl EventPublisher,
