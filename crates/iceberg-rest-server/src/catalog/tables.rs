@@ -472,7 +472,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
                 warehouse_id: *warehouse_id.as_uuid(),
                 name: Cow::Borrowed(&table.name),
                 namespace: Cow::Owned(table.namespace.encode_in_url()),
-                prefix: Cow::Owned(prefix.map(iceberg_rest_service::types::Prefix::into_string).unwrap_or_default()),
+                prefix: Cow::Owned(
+                    prefix
+                        .map(iceberg_rest_service::types::Prefix::into_string)
+                        .unwrap_or_default(),
+                ),
                 num_events: 1,
                 sequence_number: 0,
                 trace_id,
