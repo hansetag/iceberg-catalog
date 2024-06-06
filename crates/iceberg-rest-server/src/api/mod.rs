@@ -19,6 +19,7 @@ pub mod v1 {
         post, ApiContext, AuthZHandler, AxumState, Catalog, HeaderMap, Json, Router, SecretStore,
         State,
     };
+    use axum::routing::put;
     pub mod warehouse;
     use warehouse::WarehouseService;
 
@@ -38,10 +39,32 @@ pub mod v1 {
                 ).put(
                     |AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
                      headers: HeaderMap,
-                     Json(request): Json<warehouse::UpdateWarehouseRequest>| {
+                     Json(request): Json<warehouse::UpdateWarehouseStorage>| {
                         Self::update_warehouse(request, api_context, headers)
                     },
+                ).delete(
+                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+                     headers: HeaderMap,
+                     Json(request): Json<warehouse::DeleteWarehouseRequest>| {
+                        Self::delete_warehouse(request, api_context, headers)
+                    },
                 ),
+            )
+                .route("/warehouse/name", put(
+                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+                    headers: HeaderMap,
+                    Json(request): Json<warehouse::UpdateWarehouseNameRequest>| {
+                        Self::update_warehouse_name(request, api_context, headers)
+                    },
+                )
+            )
+                .route("/warehouse/status", put(
+                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+                     headers: HeaderMap,
+                     Json(request): Json<warehouse::UpdateWarehouseStatusRequest>| {
+                        Self::update_warehouse_status(request, api_context, headers)
+                    },
+                )
             )
         }
     }

@@ -332,6 +332,35 @@ pub(crate) async fn change_warehouse_status<'a>(
     Ok(())
 }
 
+pub(crate) async fn delete_warehouse(
+    warehouse_id: &WarehouseIdent,
+    catalog_state: CatalogState,
+) -> Result<()> {
+    sqlx::query!(
+        r#"
+            DELETE FROM
+                warehouse
+            WHERE
+                warehouse_id = $1
+        "#,
+        warehouse_id.as_uuid(),
+    )
+    .execute(&catalog_state.read_pool)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => warehouse_not_found(warehouse_id),
+        sqlx::Error::Database(e) => ErrorModel::builder()
+            .code(StatusCode::NOT_FOUND.into())
+            .message(format!("Cannot delete warehouse: '{warehouse_id:?}'"))
+            .r#type("CannotDeleteWarehouse")
+            .stack(Some(vec![e.to_string()]))
+            .build(),
+        _ => e.into_error_model("Error fetching warehouses".to_string()),
+    })?;
+
+    Ok(())
+}
+
 fn warehouse_not_found(warehouse_id: &WarehouseIdent) -> ErrorModel {
     ErrorModel::builder()
         .code(StatusCode::NOT_FOUND.into())
@@ -373,7 +402,7 @@ pub(crate) mod test {
     pub(crate) async fn initialize_warehouse(
         state: CatalogState,
         storage_profile: Option<StorageProfile>,
-    ) -> crate::WarehouseIdent {
+    ) -> WarehouseIdent {
         let mut transaction = PostgresTransaction::begin_write(state.clone())
             .await
             .unwrap();
@@ -401,6 +430,47 @@ pub(crate) mod test {
         warehouse_id
     }
 
+    async fn get_warehouse_name(warehouse_ident: &WarehouseIdent, state: &CatalogState) -> String {
+        sqlx::query!(
+            r#"
+                SELECT
+                    warehouse_name
+                FROM
+                   warehouse
+                WHERE
+                   warehouse_id = $1
+            "#,
+            warehouse_ident.as_uuid(),
+        )
+        .fetch_one(&state.read_pool)
+        .await
+        .inspect_err(|e| eprint!("Cannot get warehouse name: '{e}'"))
+        .unwrap()
+        .warehouse_name
+    }
+
+    async fn get_warehouse_status(
+        warehouse_ident: &WarehouseIdent,
+        state: &CatalogState,
+    ) -> WarehouseStatus {
+        sqlx::query!(
+            r#"
+                SELECT
+                    status AS "status: WarehouseStatus"
+                FROM
+                   warehouse
+                WHERE
+                   warehouse_id = $1
+            "#,
+            warehouse_ident.as_uuid(),
+        )
+        .fetch_one(&state.read_pool)
+        .await
+        .inspect_err(|e| eprint!("Cannot get warehouse status: '{e}'"))
+        .unwrap()
+        .status
+    }
+
     #[sqlx::test]
     async fn test_get_warehouse_by_name(pool: sqlx::PgPool) {
         let state = CatalogState {
@@ -418,5 +488,76 @@ pub(crate) mod test {
         .unwrap();
 
         assert_eq!(warehouse_id, fetched_warehouse_id);
+    }
+
+    #[sqlx::test]
+    async fn update_warehouse_name(pool: sqlx::PgPool) {
+        let state = CatalogState {
+            read_pool: pool.clone(),
+            write_pool: pool.clone(),
+        };
+
+        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+
+        let old_warehouse_name = get_warehouse_name(&warehouse_id, &state).await;
+
+        let mut transaction = PostgresTransaction::begin_write(state.clone())
+            .await
+            .expect("Cannot start transaction!");
+
+        Catalog::update_warehouse_name(
+            &warehouse_id,
+            "new_warehouse_name",
+            transaction.transaction(),
+        )
+        .await
+        .inspect_err(|e| eprint!("Cannot update warehouse: {e:?}"))
+        .unwrap();
+
+        transaction
+            .commit()
+            .await
+            .expect("Cannot close transaction!");
+
+        let new_ware_house_name = get_warehouse_name(&warehouse_id, &state).await;
+
+        assert_ne!(new_ware_house_name, old_warehouse_name);
+    }
+
+    #[sqlx::test]
+    async fn update_warehouse_status(pool: sqlx::PgPool) {
+        let state = CatalogState {
+            read_pool: pool.clone(),
+            write_pool: pool.clone(),
+        };
+
+        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+
+        let old_warehouse_status = get_warehouse_status(&warehouse_id, &state).await;
+
+        assert!(old_warehouse_status.eq(&WarehouseStatus::Active));
+
+        let mut transaction = PostgresTransaction::begin_write(state.clone())
+            .await
+            .expect("Cannot start transaction!");
+
+        Catalog::change_warehouse_status(
+            &warehouse_id,
+            WarehouseStatus::Inactive,
+            transaction.transaction(),
+        )
+        .await
+        .inspect_err(|e| eprint!("Cannot update warehouse: {e:?}"))
+        .unwrap();
+
+        transaction
+            .commit()
+            .await
+            .expect("Cannot close transaction!");
+
+        let new_warehouse_status = get_warehouse_status(&warehouse_id, &state).await;
+        assert!(new_warehouse_status.eq(&WarehouseStatus::Inactive));
+
+        assert_ne!(new_warehouse_status, old_warehouse_status);
     }
 }

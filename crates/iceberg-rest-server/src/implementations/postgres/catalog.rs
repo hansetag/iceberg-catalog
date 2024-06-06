@@ -14,8 +14,8 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::implementations::postgres::warehouse::{
-    change_warehouse_status, get_warehouse, get_warehouse_status, update_warehouse_name,
-    update_warehouse_storage_profile, update_warehouse_storage_secret_id,
+    change_warehouse_status, delete_warehouse, get_warehouse, get_warehouse_status,
+    update_warehouse_name, update_warehouse_storage_profile, update_warehouse_storage_secret_id,
 };
 use crate::service::GetWarehouseResponse;
 use crate::{
@@ -245,8 +245,11 @@ impl Catalog for super::Catalog {
     }
 
     // Should delete warehouse record. Only if it marked as `inactive`.
-    async fn delete_warehouse(_: &WarehouseIdent, _: Self::State) -> Result<()> {
-        unimplemented!()
+    async fn delete_warehouse(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<()> {
+        delete_warehouse(warehouse_id, catalog_state).await
     }
 
     async fn update_warehouse_name<'a>(

@@ -30,16 +30,38 @@ pub struct CreateWarehouseResponse {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
-pub struct UpdateWarehouseRequest {
+pub struct UpdateWarehouseStorage {
     /// Name of the warehouse to create. Must be unique
     /// within a project.
     pub warehouse_id: uuid::Uuid,
-    pub new_name: Option<String>,
     /// Storage profile to use for the warehouse.
     pub new_storage_profile: Option<StorageProfile>,
     /// Optional storage credential to use for the warehouse.
     pub new_storage_credential: Option<StorageCredential>,
-    pub new_warehouse_status: Option<WarehouseStatus>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub struct DeleteWarehouseRequest {
+    pub warehouse_id: uuid::Uuid,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub struct UpdateWarehouseNameRequest {
+    /// Name of the warehouse to create. Must be unique
+    /// within a project.
+    pub warehouse_id: uuid::Uuid,
+    pub new_name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub struct UpdateWarehouseStatusRequest {
+    /// Name of the warehouse to create. Must be unique
+    /// within a project.
+    pub warehouse_id: uuid::Uuid,
+    pub new_warehouse_status: WarehouseStatus,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -104,42 +126,23 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
     #[allow(clippy::too_many_lines)]
     async fn update_warehouse(
-        request: UpdateWarehouseRequest,
+        request: UpdateWarehouseStorage,
         context: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<Response> {
         let warehouse_id = &WarehouseIdent::from(request.warehouse_id);
         A::check_is_warehouse_available(&headers, warehouse_id, context.v1_state.auth.clone())
             .await?;
-        let mut response_code = StatusCode::NOT_MODIFIED;
-        let (old_name, old_storage_profile, old_storage_credential_id, old_status) = {
+        let (old_storage_profile, old_storage_credential_id) = {
             let old_warehouse_config =
                 C::get_warehouse(warehouse_id, context.v1_state.catalog.clone()).await?;
             (
-                old_warehouse_config.warehouse_name,
                 old_warehouse_config.storage_profile,
                 old_warehouse_config.storage_credential_id,
-                old_warehouse_config.warehouse_status,
             )
         };
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog.clone()).await?;
-
-        if let Some(new_status) = request.new_warehouse_status {
-            if new_status != old_status {
-                C::change_warehouse_status(warehouse_id, new_status, transaction.transaction())
-                    .await?;
-                response_code = StatusCode::OK;
-            }
-        }
-
-        if let Some(new_name) = request.new_name {
-            if new_name != old_name {
-                C::update_warehouse_name(warehouse_id, &new_name, transaction.transaction())
-                    .await?;
-                response_code = StatusCode::OK;
-            }
-        }
 
         match (request.new_storage_credential, request.new_storage_profile) {
             (None, Some(new_storage_profile)) => {
@@ -234,9 +237,75 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore> {
             }
             (None, None) => {
                 transaction.commit().await?;
-                Ok((response_code, UpdateWarehouseResponse).into_response())
+                Ok((StatusCode::NOT_MODIFIED, UpdateWarehouseResponse).into_response())
             }
         }
+    }
+
+    async fn update_warehouse_name(
+        request: UpdateWarehouseNameRequest,
+        context: ApiContext<State<A, C, S>>,
+        headers: HeaderMap,
+    ) -> Result<Response> {
+        let warehouse_id = &WarehouseIdent::from(request.warehouse_id);
+        A::check_is_warehouse_available(&headers, warehouse_id, context.v1_state.auth.clone())
+            .await?;
+        let old_name = C::get_warehouse(warehouse_id, context.v1_state.catalog.clone())
+            .await?
+            .warehouse_name;
+
+        if request.new_name == old_name {
+            return Ok(StatusCode::NOT_MODIFIED.into_response());
+        }
+
+        let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
+        C::update_warehouse_name(warehouse_id, &request.new_name, transaction.transaction())
+            .await?;
+        transaction.commit().await?;
+
+        Ok(StatusCode::OK.into_response())
+    }
+
+    async fn update_warehouse_status(
+        request: UpdateWarehouseStatusRequest,
+        context: ApiContext<State<A, C, S>>,
+        headers: HeaderMap,
+    ) -> Result<Response> {
+        let warehouse_id = &WarehouseIdent::from(request.warehouse_id);
+        A::check_is_warehouse_available(&headers, warehouse_id, context.v1_state.auth.clone())
+            .await?;
+        let old_status = C::get_warehouse(warehouse_id, context.v1_state.catalog.clone())
+            .await?
+            .warehouse_status;
+
+        if request.new_warehouse_status == old_status {
+            return Ok(StatusCode::NOT_MODIFIED.into_response());
+        }
+
+        let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
+        C::change_warehouse_status(
+            warehouse_id,
+            request.new_warehouse_status,
+            transaction.transaction(),
+        )
+        .await?;
+        transaction.commit().await?;
+
+        Ok(StatusCode::OK.into_response())
+    }
+
+    async fn delete_warehouse(
+        request: DeleteWarehouseRequest,
+        context: ApiContext<State<A, C, S>>,
+        headers: HeaderMap,
+    ) -> Result<Response> {
+        let warehouse_id = &WarehouseIdent::from(request.warehouse_id);
+        A::check_is_warehouse_available(&headers, warehouse_id, context.v1_state.auth.clone())
+            .await?;
+
+        C::delete_warehouse(warehouse_id, context.v1_state.catalog).await?;
+
+        Ok(StatusCode::OK.into_response())
     }
 }
 
