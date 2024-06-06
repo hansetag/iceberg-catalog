@@ -1,6 +1,9 @@
-use http::Request;
+use axum::middleware::Next;
+use axum::response::Response;
+use http::{HeaderMap, Request, StatusCode};
 use tower_http::trace::MakeSpan;
 use tracing::{Level, Span};
+use uuid::Uuid;
 
 /// A `MakeSpan` implementation that attaches the request_id to the span.
 #[derive(Debug, Clone)]
@@ -47,4 +50,26 @@ impl<B> MakeSpan<B> for RestMakeSpan {
             Level::ERROR => make_span!(tracing::Level::ERROR),
         }
     }
+}
+
+async fn set_request_id(
+    // run the `HeaderMap` extractor
+    headers: HeaderMap,
+    // you can also add more extractors here but the last
+    // extractor must implement `FromRequest` which
+    // `Request` does
+    request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let request_id = headers
+        .get("x-request-id")
+        .map(|hv| hv.to_str().ok().map(ToString::to_string))
+        .flatten()
+        .unwrap_or(Uuid::now_v7().to_string());
+    let fut = next.run(request);
+    REQUEST_ID.scope(request_id.clone(), fut).await
+}
+
+tokio::task_local! {
+    pub(crate) static REQUEST_ID: String;
 }

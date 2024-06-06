@@ -17,4 +17,4 @@ pub use service::{ProjectIdent, SecretIdent, WarehouseIdent};
 pub use config::CONFIG;
 
 pub mod implementations;
-mod tracing;
+pub(crate) mod tracing;
