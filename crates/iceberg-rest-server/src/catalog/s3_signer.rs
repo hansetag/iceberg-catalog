@@ -12,6 +12,7 @@ use iceberg_rest_service::{ErrorModel, IcebergErrorResponse, S3SignRequest, S3Si
 
 use super::CatalogServer;
 use crate::catalog::require_warehouse_id;
+use crate::service::event_publisher::EventPublisher;
 use crate::service::secrets::SecretStore;
 use crate::service::storage::{S3Profile, StorageCredential};
 use crate::service::{auth::AuthZHandler, Catalog, State};
@@ -31,15 +32,15 @@ const HEADERS_TO_SIGN: [&str; 6] = [
 ];
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore>
-    iceberg_rest_service::v1::s3_signer::Service<State<A, C, S>> for CatalogServer<C, A, S>
+impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
+    iceberg_rest_service::v1::s3_signer::Service<State<A, C, S, P>> for CatalogServer<C, A, S, P>
 {
     async fn sign(
         prefix: Option<Prefix>,
         _namespace: Option<String>,
         table: Option<String>,
         request: S3SignRequest,
-        state: ApiContext<State<A, C, S>>,
+        state: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<S3SignResponse> {
         let warehouse_id = require_warehouse_id(prefix.clone())?;
@@ -85,7 +86,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63/data/00001-1-840f0dc8-a888-4522-a327-12187ce32dbd-0-00001.parquet
             // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63
 
-            (table_metadata.table_id.clone(), Some(table_metadata))
+            (table_metadata.table_id, Some(table_metadata))
         };
 
         // First check - fail fast if requested table is not allowed.

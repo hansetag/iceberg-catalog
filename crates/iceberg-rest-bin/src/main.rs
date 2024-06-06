@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use iceberg_rest_server::service::event_publisher::TracingPublisher;
 use iceberg_rest_server::{
     implementations::{
         postgres::{Catalog, CatalogState, SecretsState, SecretsStore},
@@ -35,13 +36,21 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         write_pool,
     };
 
+    let tracing_publisher = TracingPublisher;
+
     let router = new_full_router::<
         Catalog,
         Catalog,
         AllowAllAuthZHandler,
         AllowAllAuthZHandler,
         SecretsStore,
-    >(AllowAllAuthState, catalog_state, secrets_state);
+        TracingPublisher,
+    >(
+        AllowAllAuthState,
+        catalog_state,
+        secrets_state,
+        tracing_publisher,
+    );
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
 
