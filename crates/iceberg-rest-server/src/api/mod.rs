@@ -40,13 +40,13 @@ pub mod v1 {
                         Self::create_warehouse(request, api_context, headers)
                     },
                 ).put(
-                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S, P>>>,
                      headers: HeaderMap,
                      Json(request): Json<warehouse::UpdateWarehouseStorage>| {
                         Self::update_warehouse(request, api_context, headers)
                     },
                 ).delete(
-                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S, P>>>,
                      headers: HeaderMap,
                      Json(request): Json<warehouse::DeleteWarehouseRequest>| {
                         Self::delete_warehouse(request, api_context, headers)
@@ -54,15 +54,15 @@ pub mod v1 {
                 ),
             )
                 .route("/warehouse/name", put(
-                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
-                    headers: HeaderMap,
-                    Json(request): Json<warehouse::UpdateWarehouseNameRequest>| {
+                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S, P>>>,
+                     headers: HeaderMap,
+                     Json(request): Json<warehouse::UpdateWarehouseNameRequest>| {
                         Self::update_warehouse_name(request, api_context, headers)
                     },
                 )
             )
                 .route("/warehouse/status", put(
-                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+                    |AxumState(api_context): AxumState<ApiContext<State<A, C, S, P>>>,
                      headers: HeaderMap,
                      Json(request): Json<warehouse::UpdateWarehouseStatusRequest>| {
                         Self::update_warehouse_status(request, api_context, headers)

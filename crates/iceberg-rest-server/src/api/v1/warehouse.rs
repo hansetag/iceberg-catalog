@@ -131,7 +131,7 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore, P: Event
     #[allow(clippy::too_many_lines)]
     async fn update_warehouse(
         request: UpdateWarehouseStorage,
-        context: ApiContext<State<A, C, S>>,
+        context: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<Response> {
         let warehouse_id = &WarehouseIdent::from(request.warehouse_id);
@@ -248,7 +248,7 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore, P: Event
 
     async fn update_warehouse_name(
         request: UpdateWarehouseNameRequest,
-        context: ApiContext<State<A, C, S>>,
+        context: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<Response> {
         let warehouse_id = &WarehouseIdent::from(request.warehouse_id);
@@ -272,7 +272,7 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore, P: Event
 
     async fn update_warehouse_status(
         request: UpdateWarehouseStatusRequest,
-        context: ApiContext<State<A, C, S>>,
+        context: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<Response> {
         let warehouse_id = &WarehouseIdent::from(request.warehouse_id);
@@ -300,7 +300,7 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore, P: Event
 
     async fn delete_warehouse(
         request: DeleteWarehouseRequest,
-        context: ApiContext<State<A, C, S>>,
+        context: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<Response> {
         let warehouse_id = &WarehouseIdent::from(request.warehouse_id);
