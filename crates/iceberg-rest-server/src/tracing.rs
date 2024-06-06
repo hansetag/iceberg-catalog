@@ -1,6 +1,7 @@
 use axum::middleware::Next;
 use axum::response::Response;
 use http::{HeaderMap, Request, StatusCode};
+use std::str::FromStr;
 use tower_http::trace::MakeSpan;
 use tracing::{Level, Span};
 use uuid::Uuid;
@@ -39,7 +40,9 @@ impl<B> MakeSpan<B> for RestMakeSpan {
                                     .headers()
                                     .get("x-request-id")
                                     .and_then(|v| v.to_str().ok())
-                                    .unwrap_or("MISSING-REQUEST-ID"))
+                                    .unwrap_or("MISSING-REQUEST-ID"),
+                        )
+
             }
         }
         match self.level {
@@ -52,7 +55,7 @@ impl<B> MakeSpan<B> for RestMakeSpan {
     }
 }
 
-async fn set_request_id(
+pub(crate) async fn set_request_id(
     // run the `HeaderMap` extractor
     headers: HeaderMap,
     // you can also add more extractors here but the last
@@ -61,15 +64,22 @@ async fn set_request_id(
     request: axum::extract::Request,
     next: Next,
 ) -> Response {
-    let request_id = headers
+    let request_id: Uuid = headers
         .get("x-request-id")
-        .map(|hv| hv.to_str().ok().map(ToString::to_string))
+        .map(|hv| {
+            hv.to_str()
+                .map(Uuid::from_str)
+                .ok()
+                .transpose()
+                .ok()
+                .flatten()
+        })
         .flatten()
-        .unwrap_or(Uuid::now_v7().to_string());
+        .unwrap_or(Uuid::now_v7());
     let fut = next.run(request);
-    REQUEST_ID.scope(request_id.clone(), fut).await
+    REQUEST_ID.scope(request_id, fut).await
 }
 
 tokio::task_local! {
-    pub(crate) static REQUEST_ID: String;
+    pub(crate) static REQUEST_ID: Uuid;
 }

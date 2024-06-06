@@ -7,6 +7,8 @@ use iceberg_rest_server::{
     },
     service::router::{new_full_router, serve as service_serve},
 };
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -63,7 +65,18 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    env_logger::init();
+    tracing_subscriber::fmt()
+        // Configure the subscriber to emit logs in JSON format.
+        .json()
+        // Configure the subscriber to flatten event fields in the output JSON objects.
+        .flatten_event(true)
+        // Set the subscriber as the default, returning an error if this fails.
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .init();
 
     match cli.command {
         Some(Commands::Migrate {}) => {

@@ -23,6 +23,7 @@ pub mod v1 {
     };
     pub mod warehouse;
     use crate::service::event_publisher::EventPublisher;
+    use crate::tracing::REQUEST_ID;
     use warehouse::WarehouseService;
 
     impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher> super::ApiServer<C, A, S, P> {

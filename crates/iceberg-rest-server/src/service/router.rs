@@ -40,6 +40,7 @@ pub fn new_full_router<
     Router::new()
         .nest("/catalog/v1", v1_routes)
         .nest("/management/v1", management_routes)
+        .layer(axum::middleware::from_fn(crate::tracing::set_request_id))
         .layer(
             ServiceBuilder::new()
                 .set_x_request_id(MakeRequestUuid)

@@ -53,6 +53,7 @@ strum = "^0.26"
 urlencoding = "^2.1"
 utoipa = "^4.2"
 tracing = { version = "^0.1", features = ["attributes"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 sqlx = { version = "^0.7", features = [
     "runtime-tokio",
     "tls-rustls",
