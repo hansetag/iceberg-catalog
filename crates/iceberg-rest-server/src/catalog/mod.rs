@@ -9,6 +9,7 @@ mod tables;
 pub use config::Server as ConfigServer;
 pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
 
+use crate::service::event_publisher::EventPublisher;
 use crate::{
     service::{auth::AuthZHandler, secrets::SecretStore, Catalog},
     WarehouseIdent,
@@ -18,10 +19,11 @@ use std::marker::PhantomData;
 
 #[derive(Clone, Debug)]
 #[allow(clippy::module_name_repetitions)]
-pub struct CatalogServer<C: Catalog, A: AuthZHandler, S: SecretStore> {
+pub struct CatalogServer<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher> {
     auth_handler: PhantomData<A>,
     config_server: PhantomData<C>,
     secret_store: PhantomData<S>,
+    publisher: PhantomData<P>,
 }
 
 fn require_warehouse_id(prefix: Option<Prefix>) -> Result<WarehouseIdent> {

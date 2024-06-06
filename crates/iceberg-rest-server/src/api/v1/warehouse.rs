@@ -1,4 +1,5 @@
 use crate::api::ApiServer;
+use crate::service::event_publisher::EventPublisher;
 use crate::service::storage::{StorageCredential, StorageProfile};
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
 use crate::{WarehouseIdent, WarehouseStatus};
@@ -74,20 +75,23 @@ impl axum::response::IntoResponse for CreateWarehouseResponse {
     }
 }
 
+
 impl axum::response::IntoResponse for UpdateWarehouseResponse {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
         axum::Json(self).into_response()
     }
 }
 
-impl<C: Catalog, A: AuthZHandler, S: SecretStore> WarehouseService<C, A, S> for ApiServer<C, A, S> {}
+impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher> WarehouseService<C, A, S, P>
+    for ApiServer<C, A, S, P> {}
+
 
 #[async_trait::async_trait]
 #[allow(clippy::module_name_repetitions)]
-pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore> {
+pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher> {
     async fn create_warehouse(
         request: CreateWarehouseRequest,
-        context: ApiContext<State<A, C, S>>,
+        context: ApiContext<State<A, C, S, P>>,
         _headers: HeaderMap,
     ) -> Result<CreateWarehouseResponse> {
         let CreateWarehouseRequest {

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
@@ -11,12 +12,15 @@ use iceberg_rest_service::{
     CommitTableResponse, CommitTransactionRequest, ErrorModel, ListTablesResponse, LoadTableResult,
     RegisterTableRequest, RenameTableRequest,
 };
+use serde::Serialize;
+use uuid::Uuid;
 
 use super::{
     io::write_metadata_file,
     namespace::{uppercase_first_letter, validate_namespace_ident},
     require_warehouse_id, CatalogServer,
 };
+use crate::service::event_publisher::{EventMetadata, EventPublisher};
 use crate::service::storage::StorageCredential;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResult,
@@ -25,14 +29,14 @@ use crate::service::{
 use crate::service::{GetStorageConfigResult, TableIdentUuid};
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore>
-    iceberg_rest_service::v1::tables::Service<State<A, C, S>> for CatalogServer<C, A, S>
+impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
+    iceberg_rest_service::v1::tables::Service<State<A, C, S, P>> for CatalogServer<C, A, S, P>
 {
     /// List all table identifiers underneath a given namespace
     async fn list_tables(
         parameters: NamespaceParameters,
         _query: PaginationQuery,
-        state: ApiContext<State<A, C, S>>,
+        state: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<ListTablesResponse> {
         // ------------------- VALIDATIONS -------------------
@@ -65,7 +69,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // mut because we need to change location
         mut request: CreateTableRequest,
         data_access: DataAccess,
-        state: ApiContext<State<A, C, S>>,
+        state: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<LoadTableResult> {
         // ------------------- VALIDATIONS -------------------
@@ -170,7 +174,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     async fn register_table(
         _parameters: NamespaceParameters,
         _request: RegisterTableRequest,
-        _state: ApiContext<State<A, C, S>>,
+        _state: ApiContext<State<A, C, S, P>>,
         _headers: HeaderMap,
     ) -> Result<LoadTableResult> {
         // ToDo: Should we support this?
@@ -187,7 +191,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     async fn load_table(
         parameters: TableParameters,
         data_access: DataAccess,
-        state: ApiContext<State<A, C, S>>,
+        state: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<LoadTableResult> {
         // ------------------- VALIDATIONS -------------------
@@ -259,14 +263,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     }
 
     /// Commit updates to a table
+    #[allow(clippy::too_many_lines)]
     async fn commit_table(
         parameters: TableParameters,
         mut request: CommitTableRequest,
-        state: ApiContext<State<A, C, S>>,
+        state: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<CommitTableResponse> {
         // ------------------- VALIDATIONS -------------------
-        let warehouse_id = require_warehouse_id(parameters.prefix)?;
+        let warehouse_id = require_warehouse_id(parameters.prefix.clone())?;
         if request.identifier.is_none() {
             request.identifier = Some(parameters.table.clone());
         }
@@ -330,6 +335,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         })?;
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        // serialize body before moving it
+        let body = maybe_body_to_json(&request);
+
         let transaction_request = CommitTransactionRequest {
             table_changes: vec![request],
         };
@@ -383,6 +391,29 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         transaction.commit().await?;
+        // TODO: use actual trace_id here
+        let trace_id = Uuid::now_v7();
+        emit_change_event(
+            EventMetadata {
+                table_id: *table_id.as_uuid(),
+                warehouse_id: *warehouse_id.as_uuid(),
+                name: Cow::Borrowed(&parameters.table.name),
+                namespace: Cow::Owned(parameters.table.namespace.encode_in_url()),
+                prefix: Cow::Owned(
+                    parameters
+                        .prefix
+                        .map(iceberg_rest_service::types::Prefix::into_string)
+                        .unwrap_or_default(),
+                ),
+                num_events: 1,
+                sequence_number: 0,
+                trace_id,
+            },
+            body,
+            "updateTable",
+            state.v1_state.publisher.clone(),
+        )
+        .await;
 
         Ok(result.commit_response)
     }
@@ -390,12 +421,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     /// Drop a table from the catalog
     async fn drop_table(
         parameters: TableParameters,
-        state: ApiContext<State<A, C, S>>,
+        state: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
-        let warehouse_id = require_warehouse_id(prefix)?;
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
         validate_table_ident(&table)?;
 
         // ------------------- AUTHZ -------------------
@@ -433,13 +464,36 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         transaction.commit().await?;
 
+        // TODO: use actual trace_id here
+        let trace_id = Uuid::now_v7();
+        emit_change_event(
+            EventMetadata {
+                table_id: *table_id.as_uuid(),
+                warehouse_id: *warehouse_id.as_uuid(),
+                name: Cow::Borrowed(&table.name),
+                namespace: Cow::Owned(table.namespace.encode_in_url()),
+                prefix: Cow::Owned(
+                    prefix
+                        .map(iceberg_rest_service::types::Prefix::into_string)
+                        .unwrap_or_default(),
+                ),
+                num_events: 1,
+                sequence_number: 0,
+                trace_id,
+            },
+            serde_json::Value::Null,
+            "dropTable",
+            state.v1_state.publisher,
+        )
+        .await;
+
         Ok(())
     }
 
     /// Check if a table exists
     async fn table_exists(
         parameters: TableParameters,
-        state: ApiContext<State<A, C, S>>,
+        state: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
@@ -496,7 +550,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     async fn rename_table(
         prefix: Option<Prefix>,
         request: RenameTableRequest,
-        state: ApiContext<State<A, C, S>>,
+        state: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
@@ -574,11 +628,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     async fn commit_transaction(
         prefix: Option<Prefix>,
         request: CommitTransactionRequest,
-        state: ApiContext<State<A, C, S>>,
+        state: ApiContext<State<A, C, S, P>>,
         headers: HeaderMap,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
-        let warehouse_id = require_warehouse_id(prefix)?;
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
         let CommitTransactionRequest { table_changes } = &request;
         for change in table_changes {
             let CommitTableRequest {
@@ -668,6 +722,19 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .collect::<Result<std::collections::HashMap<_, _>>>()?;
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+
+        // serialize request body before moving it here
+        let mut events = vec![];
+        let mut event_table_ids: Vec<(TableIdent, TableIdentUuid)> = vec![];
+        for req in &request.table_changes {
+            if let Some(id) = &req.identifier {
+                if let Some(uuid) = table_ids.get(id) {
+                    events.push(maybe_body_to_json(&request));
+                    event_table_ids.push((id.clone(), *uuid));
+                }
+            }
+        }
+
         let commit_response = C::commit_table_transaction(
             &warehouse_id,
             request,
@@ -725,9 +792,48 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         futures::future::try_join_all(write_futures).await?;
 
         transaction.commit().await?;
+        let number_of_events = events.len();
+        // TODO: use actual trace_id here
+        let trace_id = Uuid::now_v7();
+        for (event_sequence_number, (body, (table_ident, table_id))) in
+            events.into_iter().zip(event_table_ids).enumerate()
+        {
+            emit_change_event(
+                EventMetadata {
+                    table_id: *table_id.as_uuid(),
+                    warehouse_id: *warehouse_id.as_uuid(),
+                    name: table_ident.name.into(),
+                    namespace: Cow::Owned(table_ident.namespace.encode_in_url()),
+                    prefix: Cow::Owned(
+                        prefix
+                            .clone()
+                            .map(|p| p.as_str().to_string())
+                            .unwrap_or_default(),
+                    ),
+                    num_events: number_of_events,
+                    sequence_number: event_sequence_number,
+                    trace_id,
+                },
+                body,
+                "updateTable",
+                state.v1_state.publisher.clone(),
+            )
+            .await;
+        }
 
         Ok(())
     }
+}
+
+async fn emit_change_event<'c>(
+    parameters: EventMetadata<'c>,
+    body: serde_json::Value,
+    operation_id: &str,
+    publisher: impl EventPublisher,
+) {
+    publisher
+        .publish(Uuid::now_v7(), operation_id, body, parameters)
+        .await;
 }
 
 fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
@@ -778,4 +884,18 @@ fn validate_table_ident(table: &TableIdent) -> Result<()> {
             .into());
     }
     Ok(())
+}
+
+// This function does not return a result but serde_json::Value::Null if serialization of tab.table
+// fails. This follows the rationale that we'll likely end up ignoring the error in the API handler
+// anyway since we already effected the change and only the event emission about the change failed.
+// Given that we are serializing stuff we've received as a json body and also successfully
+// processed, it's unlikely to cause issues.
+fn maybe_body_to_json(request: impl Serialize) -> serde_json::Value {
+    if let Ok(body) = serde_json::to_value(&request) {
+        body
+    } else {
+        tracing::warn!("Serializing the request body to json failed, this is very unexpected. It will not be part of any emitted Event.");
+        serde_json::Value::Null
+    }
 }
