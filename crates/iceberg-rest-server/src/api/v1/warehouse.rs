@@ -75,7 +75,6 @@ impl axum::response::IntoResponse for CreateWarehouseResponse {
     }
 }
 
-
 impl axum::response::IntoResponse for UpdateWarehouseResponse {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
         axum::Json(self).into_response()
@@ -83,8 +82,9 @@ impl axum::response::IntoResponse for UpdateWarehouseResponse {
 }
 
 impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher> WarehouseService<C, A, S, P>
-    for ApiServer<C, A, S, P> {}
-
+    for ApiServer<C, A, S, P>
+{
+}
 
 #[async_trait::async_trait]
 #[allow(clippy::module_name_repetitions)]
