@@ -76,6 +76,23 @@ Please also check the Issues if you are missing something.
 # Usage
 For a working example please check the [`DEVELOPER_GUIDE.md`](./DEVELOPER_GUIDE.md).
 
+# Multiple Projects
+The iceberg-rest server can host multiple independent warehouses that are again grouped by projects. The overall structure looks like this:
+
+```
+<project-1-uuid>/
+├─ foo-warehouse
+├─ bar-warehouse
+<project-2-uuid>/
+├─ foo-warehouse
+├─ bas-warehouse
+  
+```
+
+All warehouses use isolated namespaces and can be configured in client by specifying `warehouse` as `'<project-uuid>/<warehouse-name>'`. Warehouse Names inside Projects must be unique. We recommend using human readable names for warehouses.
+
+If you do not need the hierarchy level of projects, set the `ICEBERG_CATALOG_DEFAULT_PROJECT_ID` environment variable to the project you want to use. For single project deployments we recommend using the NULL UUID ("00000000-0000-0000-0000-000000000000") as project-id. Users then just specify `warehouse` as `<warehouse-name>` when connecting.
+
 # Limitations
 * Table Metadata is currently limited to `256Mb` for the `postgres` implementation. If you need more, you should probably vaccum your table ;)
 

@@ -1,0 +1,69 @@
+services:
+  jupyter:
+    image: quay.io/jupyter/pyspark-notebook:latest
+    depends_on:
+      - server
+    volumes:
+      - ./notebooks:/home/jovyan/examples/
+    networks:
+      iceberg_net:
+    ports:
+      - "8888:8888"
+
+  server:
+    image: hansetag/iceberg-catalog:latest
+    environment:
+      - ICEBERG_REST__BASE_URI=http://server:8080/catalog/
+      - ICEBERG_REST__PG_ENCRYPTION_KEY=This-is-NOT-Secure!
+      - ICEBERG_REST__PG_DATABASE_URL_READ=postgresql://postgres:postgres@db:5432/postgres
+      - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:postgres@db:5432/postgres
+      - RUST_LOG=info
+    entrypoint: [ "bash", "-c", "./iceberg-rest migrate && ./iceberg-rest serve" ]
+    depends_on:
+      db: 
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      iceberg_net:
+    ports:
+      - "8080:8080"
+
+  db:
+    image: bitnami/postgresql:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+      - PGUSER=postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -p 2345 -d postgres"]
+      interval: 2s
+      timeout: 10s
+      retries: 2
+      start_period: 10s
+    networks:
+      iceberg_net:
+
+  minio:
+    image: bitnami/minio:latest
+    environment:
+      - MINIO_ROOT_USER=minio-root-user
+      - MINIO_ROOT_PASSWORD=minio-root-password
+      - MINIO_API_PORT_NUMBER=9000
+      - MINIO_CONSOLE_PORT_NUMBER=9001
+      - MINIO_SCHEME=http
+      - MINIO_DEFAULT_BUCKETS=tests
+    healthcheck:
+      test: ["CMD", "curl", "-I", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 10s
+      retries: 2
+      start_period: 10s
+    networks:
+      iceberg_net:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+networks:
+  iceberg_net:
