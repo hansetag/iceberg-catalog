@@ -169,7 +169,10 @@ pub struct WarehouseIdent(uuid::Uuid);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(type_name = "warehouse_status", rename_all = "lowercase"))]
+#[cfg_attr(
+    feature = "sqlx",
+    sqlx(type_name = "warehouse_status", rename_all = "lowercase")
+)]
 pub enum WarehouseStatus {
     Active,
     Inactive,

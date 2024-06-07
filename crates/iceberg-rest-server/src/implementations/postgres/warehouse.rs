@@ -65,6 +65,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
         Ok(warehouse_data.warehouse_id)
     }
 
+    #[allow(clippy::missing_panics_doc)]
     async fn get_config_for_warehouse(
         warehouse_id: &WarehouseIdent,
         catalog_state: CatalogState,
@@ -444,7 +445,7 @@ pub(crate) mod test {
         )
         .fetch_one(&state.read_pool)
         .await
-        .inspect_err(|e| eprint!("Cannot get warehouse name: '{e}'"))
+        .map_err(|e| eprint!("Cannot get warehouse name: '{e}'"))
         .unwrap()
         .warehouse_name
     }
@@ -466,7 +467,7 @@ pub(crate) mod test {
         )
         .fetch_one(&state.read_pool)
         .await
-        .inspect_err(|e| eprint!("Cannot get warehouse status: '{e}'"))
+        .map_err(|e| eprint!("Cannot get warehouse status: '{e}'"))
         .unwrap()
         .status
     }
