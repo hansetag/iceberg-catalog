@@ -1,25 +1,40 @@
-# Iceberg Rest Server
+# Iceberg Catalog - The TIP of the Iceberg
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Build Status][actions-badge]][actions-url]
 
-[actions-badge]: https://github.com/hansetag/iceberg-rest-server/workflows/CI/badge.svg
+[actions-badge]: https://github.com/hansetag/iceberg-rest-server/workflows/CI/badge.svg?branch=main
 [actions-url]: https://github.com/hansetag/iceberg-rest-server/actions?query=workflow%3ACI+branch%3Amain
 
-Native rust implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification, based on [iceberg-rust](https://github.com/apache/iceberg-rust) and [axum](https://docs.rs/axum/latest/axum/).
+This is TIP: A Native rust implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification, based on [iceberg-rust](https://github.com/apache/iceberg-rust) and [axum](https://docs.rs/axum/latest/axum/).
 
-For a minimal configuration, a postgres Database is currently the only external dependency required to run the server.
+For a minimal configuration, a postgres Database is the only external dependency required to run the server.
+
 # Features
 
-* Multi-Tenant capable: A single deployment of our server can serve multiple projects. Each project can in turn serve multiple `warehouses`.
-* Single 18Mb all-in-one binary - no JVM or Python env required
-* Built-in support to emit change events (CloudEvents), which enables you to react to any change that happen to your tables.
-* Built-in S3-Signing that enables support for self-hosted S3 WITHOUT sharing S3 credentials with clients
-* Production-grade API including server-side timeout handling, tracing and support for compression
-* Tested with `spark`, `trino` and `pyiceberg`
-* Extensible: Do you need to use your own enterprise solution to store secrets or integrate with your own special Authorization solution? If you are happy to implement a handful of rust methods yourself, you can easily integrate with those!
+* **Multi-Tenant capable**: A single deployment of our server can serve multiple projects. Each project can in turn serve multiple `warehouses`.
+* **Written in Rust**: Single 18Mb all-in-one binary - no JVM or Python env required
+* **Change Events**: Built-in support to emit change events (CloudEvents), which enables you to react to any change that happen to your tables.
+* **Storage Access Management**: Built-in S3-Signing that enables support for self-hosted as well as AWS S3 WITHOUT sharing S3 credentials with clients.
+* **Robust**: Production-grade API including server-side timeout handling, tracing and support for compression
+* **Well-Tested**: Integration-tested with `spark`, `trino` and `pyiceberg` (support for S3 from pyiceberg 0.7.0)
+* **Extensible**: Do you need to use your own enterprise solution to store secrets or integrate with your own special Authorization solution? If you are happy to implement a handful of rust methods yourself, you can easily integrate with those!
+* **High Available & Horizontally Scalable**: There is no local state - the catalog can be scaled horizontally and updated without downtimes.
+* **Authorization:** on Table-level using OpenFGA including a UI is coming soon!
 
-Please find following an overview of currently supported features.
-Please also check the Issues if you are missing something.
+Please find following an overview of currently supported features. Please also check the Issues if you are missing something.
+
+# Try out the Examples!
+
+We have prepared a self-contained docker-compose file to demonstrate the usage of `spark` with our catalog:
+
+```sh
+git clone https://github.com/hansetag/iceberg-rest-server.git
+cd iceberg-rest-server/examples
+docker compose up
+```
+
+Then open your browser and head to `localhost:8888`.
+
 
 ### Supported Operations - Iceberg-Rest
 
@@ -73,9 +88,6 @@ Please also check the Issues if you are missing something.
 | Custom (AuthZ)  | ![done] | If you are willing to implement a single rust Trait, the `AuthZHandler` can be implement to connect to your system |
 | OpenFGA (AuthZ) | ![open] | Internal Authorization management                                                                                  |
 
-# Usage
-For a working example please check the [`DEVELOPER_GUIDE.md`](./DEVELOPER_GUIDE.md).
-
 # Multiple Projects
 The iceberg-rest server can host multiple independent warehouses that are again grouped by projects. The overall structure looks like this:
 
@@ -91,7 +103,7 @@ The iceberg-rest server can host multiple independent warehouses that are again 
 
 All warehouses use isolated namespaces and can be configured in client by specifying `warehouse` as `'<project-uuid>/<warehouse-name>'`. Warehouse Names inside Projects must be unique. We recommend using human readable names for warehouses.
 
-If you do not need the hierarchy level of projects, set the `ICEBERG_CATALOG_DEFAULT_PROJECT_ID` environment variable to the project you want to use. For single project deployments we recommend using the NULL UUID ("00000000-0000-0000-0000-000000000000") as project-id. Users then just specify `warehouse` as `<warehouse-name>` when connecting.
+If you do not need the hierarchy level of projects, set the `ICEBERG_REST__DEFAULT_PROJECT_ID` environment variable to the project you want to use. For single project deployments we recommend using the NULL UUID ("00000000-0000-0000-0000-000000000000") as project-id. Users then just specify `warehouse` as `<warehouse-name>` when connecting.
 
 # Limitations
 * Table Metadata is currently limited to `256Mb` for the `postgres` implementation. If you need more, you should probably vaccum your table ;)

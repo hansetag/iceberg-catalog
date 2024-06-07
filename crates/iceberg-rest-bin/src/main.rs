@@ -21,6 +21,8 @@ enum Commands {
     Migrate {},
     /// Run the server - The database must be migrated before running the server
     Serve {},
+    /// Check the health of the server
+    Healthcheck {},
 }
 
 async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -80,6 +82,19 @@ async fn main() -> anyhow::Result<()> {
             println!("Starting server on 0.0.0.0:8080...");
             let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
             serve(bind_addr).await?;
+        }
+        Some(Commands::Healthcheck {}) => {
+            println!("Checking health...");
+            let client = reqwest::Client::new();
+            let response = client.get("http://localhost:8080/health").send().await?;
+            let status = response.status();
+            // Fail with an error if the server is not healthy
+            if !status.is_success() {
+                eprintln!("Server is not healthy: {}", status);
+                std::process::exit(1);
+            } else {
+                println!("Server is healthy.");
+            }
         }
         None => {
             // Error out if no subcommand is provided.
