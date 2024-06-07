@@ -23,6 +23,7 @@ pub struct RequestMetadata {
 
 impl RequestMetadata {
     #[cfg(test)]
+    #[must_use]
     pub fn new_random() -> Self {
         Self {
             request_id: Uuid::new_v4(),
