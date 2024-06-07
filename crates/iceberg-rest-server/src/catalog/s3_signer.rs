@@ -6,9 +6,10 @@ use std::vec;
 use aws_sigv4::http_request::{sign as aws_sign, SignableBody, SignableRequest, SigningSettings};
 use aws_sigv4::sign::v4;
 use aws_sigv4::{self};
-use http::HeaderMap;
 use iceberg_rest_service::v1::{ApiContext, Prefix, Result};
-use iceberg_rest_service::{ErrorModel, IcebergErrorResponse, S3SignRequest, S3SignResponse};
+use iceberg_rest_service::{
+    ErrorModel, IcebergErrorResponse, RequestMetadata, S3SignRequest, S3SignResponse,
+};
 
 use super::CatalogServer;
 use crate::catalog::require_warehouse_id;
@@ -41,7 +42,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         table: Option<String>,
         request: S3SignRequest,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<S3SignResponse> {
         let warehouse_id = require_warehouse_id(prefix.clone())?;
 
@@ -93,13 +94,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         // We also need to check later if the path matches the table location.
         validate_table_method::<A>(
             &request_method,
-            &headers,
+            &request_metadata,
             &warehouse_id,
             &table_id,
             state.v1_state.auth,
         )
         .await?;
-        drop(headers);
+        // TODO: why were headers dropped here?
+        // drop(request_metadata);
 
         // Included staged tables as this might be a commit
         let GetTableMetadataResult {
@@ -320,7 +322,7 @@ fn validate_region(region: &str, storage_profile: &S3Profile) -> Result<()> {
 
 async fn validate_table_method<A: AuthZHandler>(
     method: &http::Method,
-    headers: &HeaderMap,
+    metadata: &RequestMetadata,
     warehouse_id: &WarehouseIdent,
     table_id: &TableIdentUuid,
     auth_state: A::State,
@@ -330,9 +332,9 @@ async fn validate_table_method<A: AuthZHandler>(
     if WRITE_METHODS.contains(&method.as_str()) {
         // We specify namespace as none for AuthZ check because we don't want to grant access to potentially
         // locations not known to the catalog.
-        A::check_commit_table(headers, warehouse_id, Some(table_id), None, auth_state).await?;
+        A::check_commit_table(metadata, warehouse_id, Some(table_id), None, auth_state).await?;
     } else if READ_METHODS.contains(&method.as_str()) {
-        A::check_load_table(headers, warehouse_id, None, Some(table_id), auth_state).await?;
+        A::check_load_table(metadata, warehouse_id, None, Some(table_id), auth_state).await?;
     } else {
         return Err(ErrorModel::builder()
             .code(http::StatusCode::METHOD_NOT_ALLOWED.into())

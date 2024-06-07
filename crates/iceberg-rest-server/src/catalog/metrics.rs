@@ -1,5 +1,5 @@
-use http::HeaderMap;
 use iceberg_rest_service::v1::{ApiContext, Result, TableParameters};
+use iceberg_rest_service::RequestMetadata;
 
 use crate::service::event_publisher::EventPublisher;
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
@@ -14,7 +14,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         _: TableParameters,
         _: serde_json::Value,
         _: ApiContext<State<A, C, S, P>>,
-        _: HeaderMap,
+        _: RequestMetadata,
     ) -> Result<()> {
         // ToDo: implement
         Ok(())

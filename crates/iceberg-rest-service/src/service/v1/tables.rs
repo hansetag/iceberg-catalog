@@ -4,8 +4,9 @@ use super::{
     LoadTableResult, NamespaceParameters, PaginationQuery, Path, Prefix, Query,
     RegisterTableRequest, RenameTableRequest, Result, Router, State, TableIdent,
 };
-use axum::async_trait;
+use crate::RequestMetadata;
 use axum::response::IntoResponse;
+use axum::{async_trait, Extension};
 use http::StatusCode;
 
 #[async_trait]
@@ -18,7 +19,7 @@ where
         parameters: NamespaceParameters,
         query: PaginationQuery,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<ListTablesResponse>;
 
     /// Create a table in the given namespace
@@ -27,7 +28,7 @@ where
         request: CreateTableRequest,
         data_access: DataAccess,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult>;
 
     /// Register a table in the given namespace using given metadata file location
@@ -35,7 +36,7 @@ where
         parameters: NamespaceParameters,
         request: RegisterTableRequest,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult>;
 
     /// Load a table from the catalog
@@ -43,7 +44,7 @@ where
         parameters: TableParameters,
         data_access: DataAccess,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult>;
 
     /// Commit updates to a table
@@ -51,21 +52,21 @@ where
         parameters: TableParameters,
         request: CommitTableRequest,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<CommitTableResponse>;
 
     /// Drop a table from the catalog
     async fn drop_table(
         parameters: TableParameters,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()>;
 
     /// Check if a table exists
     async fn table_exists(
         parameters: TableParameters,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()>;
 
     /// Rename a table
@@ -73,7 +74,7 @@ where
         prefix: Option<Prefix>,
         request: RenameTableRequest,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()>;
 
     /// Commit updates to multiple tables in an atomic operation
@@ -81,7 +82,7 @@ where
         prefix: Option<Prefix>,
         request: CommitTransactionRequest,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()>;
 }
 
@@ -96,7 +97,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                 |Path((prefix, namespace)): Path<(Prefix, NamespaceIdentUrl)>,
                  Query(query): Query<PaginationQuery>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
+                 Extension(metadata): Extension<RequestMetadata>| {
                     I::list_tables(
                         NamespaceParameters {
                             prefix: Some(prefix),
@@ -104,7 +105,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         },
                         query,
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             )
@@ -113,6 +114,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                 |Path((prefix, namespace)): Path<(Prefix, NamespaceIdentUrl)>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CreateTableRequest>| {
                     I::create_table(
                         NamespaceParameters {
@@ -122,7 +124,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         request,
                         parse_data_access(&headers),
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             ),
@@ -134,7 +136,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                 |Path(namespace): Path<NamespaceIdentUrl>,
                  Query(query): Query<PaginationQuery>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
+                 Extension(metadata): Extension<RequestMetadata>| {
                     I::list_tables(
                         NamespaceParameters {
                             prefix: None,
@@ -142,7 +144,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         },
                         query,
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             )
@@ -151,6 +153,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                 |Path(namespace): Path<NamespaceIdentUrl>,
                  State(api_context): State<ApiContext<S>>,
                  headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CreateTableRequest>| {
                     I::create_table(
                         NamespaceParameters {
@@ -160,7 +163,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         request,
                         parse_data_access(&headers),
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             ),
@@ -172,7 +175,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             post(
                 |Path((prefix, namespace)): Path<(Prefix, NamespaceIdentUrl)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<RegisterTableRequest>| {
                     I::register_table(
                         NamespaceParameters {
@@ -181,7 +184,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         },
                         request,
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             ),
@@ -192,7 +195,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             post(
                 |Path(namespace): Path<NamespaceIdentUrl>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<RegisterTableRequest>| {
                     I::register_table(
                         NamespaceParameters {
@@ -201,7 +204,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         },
                         request,
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             ),
@@ -213,7 +216,8 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             get(
                 |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
+                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>| {
                     I::load_table(
                         TableParameters {
                             prefix: Some(prefix),
@@ -224,7 +228,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         },
                         parse_data_access(&headers),
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             )
@@ -232,7 +236,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .post(
                 |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CommitTableRequest>| {
                     I::commit_table(
                         TableParameters {
@@ -244,7 +248,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         },
                         request,
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             )
@@ -252,7 +256,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .delete(
                 |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     I::drop_table(
                         TableParameters {
                             prefix: Some(prefix),
@@ -262,7 +266,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                         },
                         api_context,
-                        headers,
+                        metadata,
                     )
                     .await
                     .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -272,7 +276,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .head(
                 |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     I::table_exists(
                         TableParameters {
                             prefix: Some(prefix),
@@ -282,7 +286,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                         },
                         api_context,
-                        headers,
+                        metadata,
                     )
                     .await
                     .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -295,7 +299,8 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             get(
                 |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
+                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>| {
                     I::load_table(
                         TableParameters {
                             prefix: None,
@@ -306,7 +311,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         },
                         parse_data_access(&headers),
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             )
@@ -314,7 +319,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .post(
                 |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CommitTableRequest>| {
                     I::commit_table(
                         TableParameters {
@@ -326,7 +331,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         },
                         request,
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             )
@@ -334,7 +339,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .delete(
                 |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     I::drop_table(
                         TableParameters {
                             prefix: None,
@@ -344,7 +349,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                         },
                         api_context,
-                        headers,
+                        metadata,
                     )
                     .await
                     .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -354,7 +359,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .head(
                 |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     I::table_exists(
                         TableParameters {
                             prefix: None,
@@ -364,7 +369,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                         },
                         api_context,
-                        headers,
+                        metadata,
                     )
                     .await
                     .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -378,10 +383,10 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             post(
                 |Path(prefix): Path<Prefix>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<RenameTableRequest>| {
                     async {
-                        I::rename_table(Some(prefix), request, api_context, headers)
+                        I::rename_table(Some(prefix), request, api_context, metadata)
                             .await
                             .map(|()| StatusCode::NO_CONTENT)
                     }
@@ -393,10 +398,10 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             // Rename a table in the given namespace
             post(
                 |State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<RenameTableRequest>| {
                     async {
-                        I::rename_table(None, request, api_context, headers)
+                        I::rename_table(None, request, api_context, metadata)
                             .await
                             .map(|()| StatusCode::NO_CONTENT)
                     }
@@ -410,9 +415,9 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             post(
                 |Path(prefix): Path<Prefix>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CommitTransactionRequest>| {
-                    I::commit_transaction(Some(prefix), request, api_context, headers)
+                    I::commit_transaction(Some(prefix), request, api_context, metadata)
                 },
             ),
         )
@@ -421,9 +426,9 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             // Commit updates to multiple tables in an atomic operation
             post(
                 |State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CommitTransactionRequest>| {
-                    I::commit_transaction(None, request, api_context, headers)
+                    I::commit_transaction(None, request, api_context, metadata)
                 },
             ),
         )

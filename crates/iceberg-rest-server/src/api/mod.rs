@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
 use axum::{extract::State as AxumState, routing::post, Json, Router};
-use http::HeaderMap;
 use iceberg_rest_service::ApiContext;
 
 use crate::service::event_publisher::EventPublisher;
@@ -18,12 +17,12 @@ pub struct ApiServer<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublis
 
 pub mod v1 {
     use super::{
-        post, ApiContext, AuthZHandler, AxumState, Catalog, HeaderMap, Json, Router, SecretStore,
-        State,
+        post, ApiContext, AuthZHandler, AxumState, Catalog, Json, Router, SecretStore, State,
     };
+    use axum::Extension;
+    use iceberg_rest_service::RequestMetadata;
     pub mod warehouse;
     use crate::service::event_publisher::EventPublisher;
-    use crate::tracing::REQUEST_ID;
     use warehouse::WarehouseService;
 
     impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher> super::ApiServer<C, A, S, P> {
@@ -35,9 +34,9 @@ pub mod v1 {
                 // List Namespaces
                 post(
                     |AxumState(api_context): AxumState<ApiContext<State<A, C, S, P>>>,
-                     headers: HeaderMap,
+                     Extension(metadata): Extension<RequestMetadata>,
                      Json(request): Json<warehouse::CreateWarehouseRequest>| {
-                        Self::create_warehouse(request, api_context, headers)
+                        Self::create_warehouse(request, api_context, metadata)
                     },
                 ),
             )

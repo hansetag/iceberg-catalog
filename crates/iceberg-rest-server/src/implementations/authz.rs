@@ -6,8 +6,7 @@ use crate::{
     },
     ProjectIdent, WarehouseIdent,
 };
-use http::HeaderMap;
-use iceberg_rest_service::{v1::NamespaceIdent, Result};
+use iceberg_rest_service::{v1::NamespaceIdent, RequestMetadata, Result};
 
 #[derive(Clone, Debug, Default)]
 pub struct AllowAllAuthState;
@@ -20,7 +19,7 @@ pub struct AllowAllAuthZHandler;
 impl AuthConfigHandler<AllowAllAuthZHandler> for AllowAllAuthZHandler {
     async fn get_and_validate_user_warehouse(
         _: AllowAllAuthState,
-        _: &HeaderMap,
+        _: &RequestMetadata,
     ) -> Result<UserWarehouse> {
         // The AuthHandler should return the user's project or warehouse if this
         // information is available. Otherwise return "None".
@@ -35,7 +34,7 @@ impl AuthConfigHandler<AllowAllAuthZHandler> for AllowAllAuthZHandler {
 
     async fn exchange_token_for_warehouse(
         _: AllowAllAuthState,
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &ProjectIdent,
         _: &WarehouseIdent,
     ) -> Result<Option<String>> {
@@ -64,7 +63,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     type State = AllowAllAuthState;
 
     async fn check_list_namespace(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: Option<&NamespaceIdent>,
         _: AllowAllAuthState,
@@ -73,7 +72,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_create_namespace(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: Option<&NamespaceIdent>,
         _: AllowAllAuthState,
@@ -82,7 +81,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_load_namespace_metadata(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
@@ -93,7 +92,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     // Should check if the user is allowed to check if a namespace exists,
     // not check if the namespace exists.
     async fn check_namespace_exists(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
@@ -102,7 +101,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_drop_namespace(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
@@ -111,7 +110,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_update_namespace_properties(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
@@ -120,7 +119,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_create_table(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
@@ -129,7 +128,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_list_tables(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
@@ -138,7 +137,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_rename_table(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: Option<&TableIdentUuid>,
         _: AllowAllAuthState,
@@ -147,7 +146,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_load_table(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: Option<&NamespaceIdent>,
         _: Option<&TableIdentUuid>,
@@ -157,7 +156,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_table_exists(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: Option<&NamespaceIdent>,
         _: Option<&TableIdentUuid>,
@@ -167,7 +166,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_drop_table(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: Option<&TableIdentUuid>,
         _: AllowAllAuthState,
@@ -176,7 +175,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     }
 
     async fn check_commit_table(
-        _: &HeaderMap,
+        _: &RequestMetadata,
         _: &WarehouseIdent,
         _: Option<&TableIdentUuid>,
         _: Option<&NamespaceIdent>,

@@ -1,5 +1,4 @@
 use crate::CONFIG;
-use http::HeaderMap;
 use http::StatusCode;
 use iceberg::NamespaceIdent;
 use iceberg_rest_service::v1::{
@@ -7,6 +6,7 @@ use iceberg_rest_service::v1::{
     ListNamespacesQuery, ListNamespacesResponse, NamespaceParameters, Prefix, Result,
     UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
+use iceberg_rest_service::RequestMetadata;
 
 use super::{require_warehouse_id, CatalogServer};
 use crate::service::event_publisher::EventPublisher;
@@ -27,7 +27,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         prefix: Option<Prefix>,
         query: ListNamespacesQuery,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<ListNamespacesResponse> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(prefix)?;
@@ -40,7 +40,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         // ------------------- AUTHZ -------------------
         A::check_list_namespace(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             query.parent.as_ref(),
             state.v1_state.auth,
@@ -55,7 +55,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         prefix: Option<Prefix>,
         request: CreateNamespaceRequest,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<CreateNamespaceResponse> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(prefix)?;
@@ -83,7 +83,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         // ------------------- AUTHZ -------------------
         A::check_create_namespace(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             request.namespace.parent().as_ref(),
             state.v1_state.auth,
@@ -101,7 +101,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn load_namespace_metadata(
         parameters: NamespaceParameters,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<GetNamespaceResponse> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(parameters.prefix)?;
@@ -109,7 +109,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         // ------------------- AUTHZ -------------------
         A::check_load_namespace_metadata(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             &parameters.namespace,
             state.v1_state.auth,
@@ -128,7 +128,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn namespace_exists(
         parameters: NamespaceParameters,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         //  ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(parameters.prefix)?;
@@ -136,7 +136,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         //  ------------------- AUTHZ -------------------
         A::check_namespace_exists(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             &parameters.namespace,
             state.v1_state.auth,
@@ -163,7 +163,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn drop_namespace(
         parameters: NamespaceParameters,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         //  ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(parameters.prefix)?;
@@ -183,7 +183,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         //  ------------------- AUTHZ -------------------
         A::check_drop_namespace(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             &parameters.namespace,
             state.v1_state.auth,
@@ -202,7 +202,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         parameters: NamespaceParameters,
         request: UpdateNamespacePropertiesRequest,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<UpdateNamespacePropertiesResponse> {
         //  ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(parameters.prefix)?;
@@ -219,7 +219,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         //  ------------------- AUTHZ -------------------
         A::check_update_namespace_properties(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             &parameters.namespace,
             state.v1_state.auth,

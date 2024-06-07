@@ -1,5 +1,6 @@
-use super::{post, ApiContext, HeaderMap, Json, Prefix, Result, Router, State};
-use axum::{async_trait, extract::Path};
+use super::{post, ApiContext, Json, Prefix, Result, Router, State};
+use crate::RequestMetadata;
+use axum::{async_trait, extract::Path, Extension};
 use iceberg_ext::catalog::rest::{S3SignRequest, S3SignResponse};
 
 #[async_trait]
@@ -21,7 +22,7 @@ where
         table: Option<String>,
         request: S3SignRequest,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<S3SignResponse>;
 }
 
@@ -31,10 +32,10 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             "/aws/s3/sign",
             post(
                 |State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<S3SignRequest>| {
                     {
-                        I::sign(None, None, None, request, api_context, headers)
+                        I::sign(None, None, None, request, api_context, metadata)
                     }
                 },
             ),
@@ -44,10 +45,10 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             post(
                 |Path(prefix): Path<Prefix>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<S3SignRequest>| {
                     {
-                        I::sign(Some(prefix), None, None, request, api_context, headers)
+                        I::sign(Some(prefix), None, None, request, api_context, metadata)
                     }
                 },
             ),

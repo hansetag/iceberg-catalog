@@ -1,5 +1,6 @@
 use axum::Router;
 pub use iceberg_ext::catalog::rest::*;
+use uuid::Uuid;
 
 pub mod v1;
 
@@ -9,6 +10,15 @@ pub trait State: Clone + Send + Sync + 'static {}
 #[derive(Debug, Clone)]
 pub struct ApiContext<S: State> {
     pub v1_state: S,
+}
+
+/// A struct to hold metadata about a request.
+///
+/// Currently, it only holds the `request_id`, later it can be expanded to hold more metadata for
+/// Authz etc.
+#[derive(Debug, Clone)]
+pub struct RequestMetadata {
+    pub request_id: Uuid,
 }
 
 pub type Result<T, E = IcebergErrorResponse> = std::result::Result<T, E>;

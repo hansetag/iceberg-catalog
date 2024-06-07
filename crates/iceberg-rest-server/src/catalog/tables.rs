@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
-use http::{HeaderMap, StatusCode};
+use http::StatusCode;
 use iceberg::TableUpdate;
 use iceberg_rest_service::v1::{
     ApiContext, CommitTableRequest, CreateTableRequest, DataAccess, NamespaceParameters,
@@ -10,7 +10,7 @@ use iceberg_rest_service::v1::{
 };
 use iceberg_rest_service::{
     CommitTableResponse, CommitTransactionRequest, ErrorModel, ListTablesResponse, LoadTableResult,
-    RegisterTableRequest, RenameTableRequest,
+    RegisterTableRequest, RenameTableRequest, RequestMetadata,
 };
 use serde::Serialize;
 use uuid::Uuid;
@@ -37,7 +37,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         parameters: NamespaceParameters,
         _query: PaginationQuery,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<ListTablesResponse> {
         // ------------------- VALIDATIONS -------------------
         let NamespaceParameters { namespace, prefix } = parameters;
@@ -45,7 +45,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         validate_namespace_ident(&namespace)?;
 
         // ------------------- AUTHZ -------------------
-        A::check_list_tables(&headers, &warehouse_id, &namespace, state.v1_state.auth).await?;
+        A::check_list_tables(
+            &request_metadata,
+            &warehouse_id,
+            &namespace,
+            state.v1_state.auth,
+        )
+        .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
         let include_staged = false;
@@ -70,7 +76,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         mut request: CreateTableRequest,
         data_access: DataAccess,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
         // ------------------- VALIDATIONS -------------------
         let NamespaceParameters { namespace, prefix } = parameters;
@@ -92,7 +98,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         }
 
         // ------------------- AUTHZ -------------------
-        A::check_create_table(&headers, &warehouse_id, &namespace, state.v1_state.auth).await?;
+        A::check_create_table(
+            &request_metadata,
+            &warehouse_id,
+            &namespace,
+            state.v1_state.auth,
+        )
+        .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
         let GetStorageConfigResult {
@@ -175,7 +187,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         _parameters: NamespaceParameters,
         _request: RegisterTableRequest,
         _state: ApiContext<State<A, C, S, P>>,
-        _headers: HeaderMap,
+        _request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
         // ToDo: Should we support this?
         // May be problematic if we don't know the location
@@ -192,7 +204,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         parameters: TableParameters,
         data_access: DataAccess,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
@@ -213,7 +225,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         .flatten();
 
         A::check_load_table(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             Some(&table.namespace),
             table_id.as_ref(),
@@ -268,7 +280,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         parameters: TableParameters,
         mut request: CommitTableRequest,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<CommitTableResponse> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(parameters.prefix.clone())?;
@@ -317,7 +329,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         .flatten();
 
         A::check_commit_table(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             table_id.as_ref(),
             Some(&parameters.table.namespace),
@@ -391,8 +403,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         .await?;
 
         transaction.commit().await?;
-        // TODO: use actual trace_id here
-        let trace_id = Uuid::now_v7();
         emit_change_event(
             EventMetadata {
                 table_id: *table_id.as_uuid(),
@@ -407,7 +417,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
                 ),
                 num_events: 1,
                 sequence_number: 0,
-                trace_id,
+                trace_id: request_metadata.request_id,
             },
             body,
             "updateTable",
@@ -422,7 +432,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn drop_table(
         parameters: TableParameters,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
@@ -443,7 +453,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         .flatten();
 
         A::check_drop_table(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             table_id.as_ref(),
             state.v1_state.auth,
@@ -464,8 +474,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         transaction.commit().await?;
 
-        // TODO: use actual trace_id here
-        let trace_id = Uuid::now_v7();
         emit_change_event(
             EventMetadata {
                 table_id: *table_id.as_uuid(),
@@ -479,7 +487,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
                 ),
                 num_events: 1,
                 sequence_number: 0,
-                trace_id,
+                trace_id: request_metadata.request_id,
             },
             serde_json::Value::Null,
             "dropTable",
@@ -494,7 +502,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
     async fn table_exists(
         parameters: TableParameters,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
@@ -515,7 +523,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         .flatten();
 
         A::check_table_exists(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             Some(&table.namespace),
             table_id.as_ref(),
@@ -551,7 +559,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         prefix: Option<Prefix>,
         request: RenameTableRequest,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(prefix)?;
@@ -577,13 +585,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         // We need to be allowed to delete the old table and create the new one
         let rename_check = A::check_rename_table(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             source_id.as_ref(),
             state.v1_state.auth.clone(),
         );
         let create_check = A::check_create_table(
-            &headers,
+            &request_metadata,
             &warehouse_id,
             &destination.namespace,
             state.v1_state.auth,
@@ -629,7 +637,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         prefix: Option<Prefix>,
         request: CommitTransactionRequest,
         state: ApiContext<State<A, C, S, P>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(prefix.clone())?;
@@ -691,7 +699,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
             .iter()
             .map(|(table_ident, table_id)| {
                 A::check_commit_table(
-                    &headers,
+                    &request_metadata,
                     &warehouse_id,
                     table_id.as_ref(),
                     Some(&table_ident.namespace),
@@ -793,8 +801,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
 
         transaction.commit().await?;
         let number_of_events = events.len();
-        // TODO: use actual trace_id here
-        let trace_id = Uuid::now_v7();
+
         for (event_sequence_number, (body, (table_ident, table_id))) in
             events.into_iter().zip(event_table_ids).enumerate()
         {
@@ -812,7 +819,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
                     ),
                     num_events: number_of_events,
                     sequence_number: event_sequence_number,
-                    trace_id,
+                    trace_id: request_metadata.request_id,
                 },
                 body,
                 "updateTable",

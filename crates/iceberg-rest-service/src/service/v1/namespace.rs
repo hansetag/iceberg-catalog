@@ -2,11 +2,12 @@ use std::ops::Deref;
 
 use super::{
     get, post, ApiContext, CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse,
-    HeaderMap, Json, ListNamespacesResponse, NamespaceIdent, PageToken, Path, Prefix, Query,
-    Result, Router, State, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
+    Json, ListNamespacesResponse, NamespaceIdent, PageToken, Path, Prefix, Query, Result, Router,
+    State, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
-use axum::async_trait;
+use crate::RequestMetadata;
 use axum::response::IntoResponse;
+use axum::{async_trait, Extension};
 use http::StatusCode;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -23,7 +24,7 @@ where
         prefix: Option<Prefix>,
         query: ListNamespacesQuery,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<ListNamespacesResponse>;
 
     /// Create a namespace, with an optional set of properties.
@@ -32,28 +33,28 @@ where
         prefix: Option<Prefix>,
         request: CreateNamespaceRequest,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<CreateNamespaceResponse>;
 
     /// Return all stored metadata properties for a given namespace
     async fn load_namespace_metadata(
         parameters: NamespaceParameters,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<GetNamespaceResponse>;
 
     /// Check if a namespace exists
     async fn namespace_exists(
         parameters: NamespaceParameters,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()>;
 
     /// Drop a namespace from the catalog. Namespace must be empty.
     async fn drop_namespace(
         parameters: NamespaceParameters,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()>;
 
     /// Set or remove properties on a namespace
@@ -61,7 +62,7 @@ where
         parameters: NamespaceParameters,
         request: UpdateNamespacePropertiesRequest,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<UpdateNamespacePropertiesResponse>;
 }
 
@@ -140,17 +141,17 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                 |Path(prefix): Path<Prefix>,
                  Query(query): Query<ListNamespacesQuery>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
-                    I::list_namespaces(Some(prefix), query, api_context, headers)
+                 Extension(metadata): Extension<RequestMetadata>| {
+                    I::list_namespaces(Some(prefix), query, api_context, metadata)
                 },
             )
             // Create Namespace
             .post(
                 |Path(prefix): Path<Prefix>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CreateNamespaceRequest>| {
-                    I::create_namespace(Some(prefix), request, api_context, headers)
+                    I::create_namespace(Some(prefix), request, api_context, metadata)
                 },
             ),
         )
@@ -159,15 +160,15 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             get(
                 |Query(query): Query<ListNamespacesQuery>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
-                    I::list_namespaces(None, query, api_context, headers)
+                 Extension(metadata): Extension<RequestMetadata>| {
+                    I::list_namespaces(None, query, api_context, metadata)
                 },
             ) // Create Namespace
             .post(
                 |State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CreateNamespaceRequest>| {
-                    I::create_namespace(None, request, api_context, headers)
+                    I::create_namespace(None, request, api_context, metadata)
                 },
             ),
         )
@@ -178,14 +179,14 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             get(
                 |Path((prefix, namespace)): Path<(Prefix, NamespaceIdentUrl)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
+                 Extension(metadata): Extension<RequestMetadata>| {
                     I::load_namespace_metadata(
                         NamespaceParameters {
                             prefix: Some(prefix),
                             namespace: namespace.into(),
                         },
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             )
@@ -193,14 +194,14 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .head(
                 |Path((prefix, namespace)): Path<(Prefix, NamespaceIdentUrl)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     I::namespace_exists(
                         NamespaceParameters {
                             prefix: Some(prefix),
                             namespace: namespace.into(),
                         },
                         api_context,
-                        headers,
+                        metadata,
                     )
                     .await
                     .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -210,14 +211,14 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .delete(
                 |Path((prefix, namespace)): Path<(Prefix, NamespaceIdentUrl)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     I::drop_namespace(
                         NamespaceParameters {
                             prefix: Some(prefix),
                             namespace: namespace.into(),
                         },
                         api_context,
-                        headers,
+                        metadata,
                     )
                     .await
                     .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -230,14 +231,14 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             get(
                 |Path(namespace): Path<NamespaceIdentUrl>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
+                 Extension(metadata): Extension<RequestMetadata>| {
                     I::load_namespace_metadata(
                         NamespaceParameters {
                             prefix: None,
                             namespace: namespace.into(),
                         },
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             )
@@ -245,14 +246,14 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .head(
                 |Path(namespace): Path<NamespaceIdentUrl>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     I::namespace_exists(
                         NamespaceParameters {
                             prefix: None,
                             namespace: namespace.into(),
                         },
                         api_context,
-                        headers,
+                        metadata,
                     )
                     .await
                     .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -262,14 +263,14 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .delete(
                 |Path(namespace): Path<NamespaceIdentUrl>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     I::drop_namespace(
                         NamespaceParameters {
                             prefix: None,
                             namespace: namespace.into(),
                         },
                         api_context,
-                        headers,
+                        metadata,
                     )
                     .await
                     .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -283,7 +284,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             post(
                 |Path((prefix, namespace)): Path<(Prefix, NamespaceIdentUrl)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<UpdateNamespacePropertiesRequest>| {
                     I::update_namespace_properties(
                         NamespaceParameters {
@@ -292,7 +293,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         },
                         request,
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             ),
@@ -303,7 +304,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             post(
                 |Path(namespace): Path<NamespaceIdentUrl>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<UpdateNamespacePropertiesRequest>| {
                     I::update_namespace_properties(
                         NamespaceParameters {
@@ -312,7 +313,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                         },
                         request,
                         api_context,
-                        headers,
+                        metadata,
                     )
                 },
             ),
@@ -373,6 +374,7 @@ pub struct NamespaceParameters {
 mod tests {
     use super::super::*;
     use super::*;
+    use crate::RequestMetadata;
     use axum::async_trait;
     use http_body_util::BodyExt;
 
@@ -395,7 +397,7 @@ mod tests {
                 prefix: Option<Prefix>,
                 query: ListNamespacesQuery,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<ListNamespacesResponse> {
                 assert_eq!(prefix.unwrap().into_string(), "test".to_string());
                 assert_eq!(query.page_size, Some(10));
@@ -415,7 +417,7 @@ mod tests {
                 _prefix: Option<Prefix>,
                 _request: CreateNamespaceRequest,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<CreateNamespaceResponse> {
                 panic!("Should not be called");
             }
@@ -424,7 +426,7 @@ mod tests {
             async fn load_namespace_metadata(
                 _parameters: NamespaceParameters,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<GetNamespaceResponse> {
                 panic!("Should not be called");
             }
@@ -433,7 +435,7 @@ mod tests {
             async fn namespace_exists(
                 _parameters: NamespaceParameters,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<()> {
                 panic!("Should not be called");
             }
@@ -442,7 +444,7 @@ mod tests {
             async fn drop_namespace(
                 _parameters: NamespaceParameters,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<()> {
                 panic!("Should not be called");
             }
@@ -452,7 +454,7 @@ mod tests {
                 _parameters: NamespaceParameters,
                 _request: UpdateNamespacePropertiesRequest,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<UpdateNamespacePropertiesResponse> {
                 panic!("Should not be called");
             }
@@ -498,7 +500,7 @@ mod tests {
                 prefix: Option<Prefix>,
                 query: ListNamespacesQuery,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<ListNamespacesResponse> {
                 assert_eq!(prefix, None);
                 assert_eq!(query.page_size, Some(10));
@@ -516,7 +518,7 @@ mod tests {
             async fn load_namespace_metadata(
                 _parameters: NamespaceParameters,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<GetNamespaceResponse> {
                 panic!("Should not be called");
             }
@@ -525,7 +527,7 @@ mod tests {
                 _prefix: Option<Prefix>,
                 _request: CreateNamespaceRequest,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<CreateNamespaceResponse> {
                 panic!("Should not be called");
             }
@@ -534,7 +536,7 @@ mod tests {
             async fn namespace_exists(
                 _parameters: NamespaceParameters,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<()> {
                 panic!("Should not be called");
             }
@@ -543,7 +545,7 @@ mod tests {
             async fn drop_namespace(
                 _parameters: NamespaceParameters,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<()> {
                 panic!("Should not be called");
             }
@@ -553,7 +555,7 @@ mod tests {
                 _parameters: NamespaceParameters,
                 _request: UpdateNamespacePropertiesRequest,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<UpdateNamespacePropertiesResponse> {
                 panic!("Should not be called");
             }
@@ -594,7 +596,7 @@ mod tests {
                 _prefix: Option<Prefix>,
                 _query: ListNamespacesQuery,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<ListNamespacesResponse> {
                 panic!("Should not be called");
             }
@@ -605,7 +607,7 @@ mod tests {
                 _prefix: Option<Prefix>,
                 _request: CreateNamespaceRequest,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<CreateNamespaceResponse> {
                 panic!("Should not be called");
             }
@@ -614,7 +616,7 @@ mod tests {
             async fn load_namespace_metadata(
                 parameters: NamespaceParameters,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<GetNamespaceResponse> {
                 assert_eq!(parameters.prefix.unwrap().into_string(), "test".to_string());
 
@@ -630,7 +632,7 @@ mod tests {
             async fn namespace_exists(
                 _parameters: NamespaceParameters,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<()> {
                 panic!("Should not be called");
             }
@@ -639,7 +641,7 @@ mod tests {
             async fn drop_namespace(
                 _parameters: NamespaceParameters,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<()> {
                 panic!("Should not be called");
             }
@@ -649,7 +651,7 @@ mod tests {
                 _parameters: NamespaceParameters,
                 _request: UpdateNamespacePropertiesRequest,
                 _state: ApiContext<ThisState>,
-                _headers: HeaderMap,
+                _request_metadata: RequestMetadata,
             ) -> Result<UpdateNamespacePropertiesResponse> {
                 panic!("Should not be called");
             }
