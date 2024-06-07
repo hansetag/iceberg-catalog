@@ -65,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
 
     env_logger::init();
 
-    match &cli.command {
+    match cli.command {
         Some(Commands::Migrate {}) => {
             println!("Migrating database...");
             let write_pool =
