@@ -69,9 +69,7 @@ impl CloudEventsPublisher {
             // type.
             .extension("num-events", num_events.to_string())
             .extension("sequence-number", sequence_number.to_string())
-            // TODO: decide if we want to stick to a simple UUID or go for the spec:
-            //       https://github.com/cloudevents/spec/blob/main/cloudevents/extensions/distributed-tracing.md
-            //       https://w3c.github.io/trace-context/#traceparent-header
+            // Implement distributed tracing: https://github.com/hansetag/iceberg-rest-server/issues/63
             .extension("trace-id", trace_id.to_string())
             .build()?;
 
