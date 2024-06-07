@@ -1,11 +1,8 @@
 use async_trait::async_trait;
-use clap::Parser;
 use cloudevents::Event;
-use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::sync::Arc;
-use url::Url;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -101,14 +98,6 @@ pub trait CloudEventSink: Debug {
 pub struct NatsPublisher {
     pub client: async_nats::Client,
     pub topic: String,
-}
-#[derive(Parser, Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NatsConfig {
-    // ------------- NATS CLOUDEVENTS -------------
-    #[clap(env = "ICEBERG_REST__NATS_ADDRESS", requires = "nats_topic")]
-    pub nats_address: Option<Url>,
-    #[clap(env = "ICEBERG_REST__NATS_TOPIC")]
-    pub nats_topic: String,
 }
 
 #[async_trait]

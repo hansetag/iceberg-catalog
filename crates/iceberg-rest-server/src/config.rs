@@ -1,8 +1,8 @@
 //! Contains Configuration of the service Module
 use clap::Parser;
 use std::collections::HashSet;
+use url::Url;
 
-use crate::service::event_publisher::NatsConfig;
 use std::convert::Infallible;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -63,8 +63,11 @@ pub struct DynAppConfig {
     #[clap(env = "ICEBERG_REST__PG_WRITE_POOL_CONNECTIONS", default_value = "5")]
     pub pg_write_pool_connections: u32,
 
-    #[clap(flatten)]
-    pub nats: NatsConfig,
+    // ------------- NATS CLOUDEVENTS -------------
+    #[clap(env = "ICEBERG_REST__NATS_ADDRESS")]
+    pub nats_address: Option<Url>,
+    #[clap(env = "ICEBERG_REST__NATS_TOPIC")]
+    pub nats_topic: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]

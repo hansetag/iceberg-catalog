@@ -44,7 +44,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
 
     let mut cloud_event_sinks = vec![];
 
-    if let Some(nat_addr) = &CONFIG.nats.nats_address {
+    if let Some(nat_addr) = &CONFIG.nats_address {
         tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
         let nats_publisher = NatsPublisher {
             client: async_nats::connect(
@@ -53,7 +53,10 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             )
             .await
             .context("Connecting to nats server failed.")?,
-            topic: CONFIG.nats.nats_topic.clone(),
+            topic: CONFIG
+                .nats_topic
+                .clone()
+                .ok_or(anyhow::anyhow!("Missing nats topic."))?,
         };
         cloud_event_sinks.push(Arc::new(nats_publisher) as Arc<dyn CloudEventSink + Sync + Send>);
     } else {
