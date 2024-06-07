@@ -1,0 +1,6 @@
+# See https://github.com/rustsec/rustsec/blob/main/cargo-audit/audit.toml.example
+
+[advisories]
+ignore = [
+    "RUSTSEC-2023-0071" # we're using postgres, this is likely a false positive: https://github.com/launchbadge/sqlx/issues/2911
+]
