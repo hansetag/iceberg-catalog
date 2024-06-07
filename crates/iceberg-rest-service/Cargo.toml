@@ -19,7 +19,6 @@ tokio = ["dep:tokio"]
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
-config = { workspace = true }
 http = { workspace = true }
 iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
 lazy_static = { workspace = true }
