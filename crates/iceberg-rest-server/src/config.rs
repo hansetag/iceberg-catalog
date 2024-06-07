@@ -15,7 +15,6 @@ pub struct DynAppConfig {
     /// This is used as the "uri" and "s3.signer.url"
     /// while generating the Catalog Config
     #[clap(
-        long,
         env = "ICEBERG_REST__BASE_URI",
         default_value = "https://localhost:8080/catalog/"
     )]
@@ -28,7 +27,6 @@ pub struct DynAppConfig {
     /// reverse proxy before routing to the catalog service.
     /// Example value: `{warehouse_id}`
     #[clap(
-        long,
         env = "ICEBERG_REST__PREFIX_TEMPLATE",
         default_value = "{warehouse_id}"
     )]
@@ -38,41 +36,29 @@ pub struct DynAppConfig {
     /// (sub)-namespaces. By default, `system` and `examples` are
     /// reserved. More namespaces can be added here.
     #[clap(
-        long,
         env = "ICEBERG_REST__RESERVED_NAMESPACES",
         default_value = "system,examples"
     )]
     pub reserved_namespaces: ReservedNamespaces,
     // ------------- POSTGRES IMPLEMENTATION -------------
     #[clap(
-        long,
         env = "ICEBERG_REST__PG_ENCRYPTION_KEY",
         default_value = "<This is unsafe, please set a proper key>"
     )]
     pub(crate) pg_encryption_key: String,
     #[clap(
-        long,
         env = "ICEBERG_REST__PG_DATABASE_URL_READ",
         default_value = "postgres://postgres:password@localhost:5432/iceberg"
     )]
     pub(crate) pg_database_url_read: String,
     #[clap(
-        long,
         env = "ICEBERG_REST__PG_DATABASE_URL_WRITE",
         default_value = "postgres://postgres:password@localhost:5432/iceberg"
     )]
     pub(crate) pg_database_url_write: String,
-    #[clap(
-        long,
-        env = "ICEBERG_REST__PG_READ_POOL_CONNECTIONS",
-        default_value = "10"
-    )]
+    #[clap(env = "ICEBERG_REST__PG_READ_POOL_CONNECTIONS", default_value = "10")]
     pub pg_read_pool_connections: u32,
-    #[clap(
-        long,
-        env = "ICEBERG_REST__PG_WRITE_POOL_CONNECTIONS",
-        default_value = "5"
-    )]
+    #[clap(env = "ICEBERG_REST__PG_WRITE_POOL_CONNECTIONS", default_value = "5")]
     pub pg_write_pool_connections: u32,
 }
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]
@@ -123,9 +109,10 @@ impl DynAppConfig {
 
 lazy_static::lazy_static! {
     #[derive(Debug)]
-    /// Configuration of the SAGA Module
+    /// Configuration of the service module.
     pub static ref CONFIG: DynAppConfig = {
-        DynAppConfig::parse()
+        // Hack to use clap to parse from env while we still support subcommands in main.
+        DynAppConfig::parse_from([""])
     };
 }
 
