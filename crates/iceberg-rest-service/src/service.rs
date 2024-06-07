@@ -21,6 +21,15 @@ pub struct RequestMetadata {
     pub request_id: Uuid,
 }
 
+impl RequestMetadata {
+    #[cfg(test)]
+    pub fn new_random() -> Self {
+        Self {
+            request_id: Uuid::new_v4(),
+        }
+    }
+}
+
 pub type Result<T, E = IcebergErrorResponse> = std::result::Result<T, E>;
 
 pub fn new_v1_full_router<

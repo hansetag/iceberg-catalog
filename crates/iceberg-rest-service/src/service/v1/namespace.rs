@@ -467,11 +467,11 @@ mod tests {
         let app = router::<TestService, ThisState>();
         let router = axum::Router::new().merge(app).with_state(api_context);
 
-        let req = http::Request::builder()
+        let mut req = http::Request::builder()
             .uri("/test/namespaces?pageToken&pageSize=10")
             .body(axum::body::Body::empty())
             .unwrap();
-
+        req.extensions_mut().insert(RequestMetadata::new_random());
         let r = router.oneshot(req).await.unwrap();
 
         // // parse json body
@@ -568,11 +568,11 @@ mod tests {
         let app = router::<TestService, ThisState>();
         let router = axum::Router::new().merge(app).with_state(api_context);
 
-        let req = http::Request::builder()
+        let mut req = http::Request::builder()
             .uri("/namespaces?pageToken&pageSize=10")
             .body(axum::body::Body::empty())
             .unwrap();
-
+        req.extensions_mut().insert(RequestMetadata::new_random());
         let r = router.oneshot(req).await.unwrap();
         assert_eq!(r.status().as_u16(), 406);
     }
@@ -665,10 +665,11 @@ mod tests {
         let router = axum::Router::new().merge(app).with_state(api_context);
 
         // Test 1: Single identifier
-        let req = http::Request::builder()
+        let mut req = http::Request::builder()
             .uri("/test/namespaces/this-namespace?pageToken&pageSize=10")
             .body(axum::body::Body::empty())
             .unwrap();
+        req.extensions_mut().insert(RequestMetadata::new_random());
 
         let r = router.clone().oneshot(req).await.unwrap();
 
@@ -679,10 +680,11 @@ mod tests {
         assert_eq!(error.error.message, "[\"this-namespace\"]");
 
         // Test 2: Composed identifier
-        let req = http::Request::builder()
+        let mut req = http::Request::builder()
             .uri("/test/namespaces/accounting%1Ftax?pageToken&pageSize=10")
             .body(axum::body::Body::empty())
             .unwrap();
+        req.extensions_mut().insert(RequestMetadata::new_random());
 
         let r = router.oneshot(req).await.unwrap();
         assert_eq!(r.status().as_u16(), 406);
