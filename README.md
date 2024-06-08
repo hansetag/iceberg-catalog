@@ -5,25 +5,25 @@
 [actions-badge]: https://github.com/hansetag/iceberg-rest-server/workflows/CI/badge.svg?branch=main
 [actions-url]: https://github.com/hansetag/iceberg-rest-server/actions?query=workflow%3ACI+branch%3Amain
 
-This is TIP: A Native rust implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification, based on [iceberg-rust](https://github.com/apache/iceberg-rust) and [axum](https://docs.rs/axum/latest/axum/).
+This is TIP: A Rust-native implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification.
 
-For a minimal configuration, a postgres Database is the only external dependency required to run the server.
+# Scope and Features
+The Iceberg REST Protocol has become the standard for catalogs in open Lakehouses. It natively enables multi-table commits, server-side deconflicting and much more.
 
-# Features
+We have started this implementation because we were missing customizability, support for on-premise deployments and features that are important for us in other Iceberg Catalogs. Please find following some of our focuses with this implementation:
 
-* **Multi-Tenant capable**: A single deployment of our server can serve multiple projects. Each project can in turn serve multiple `warehouses`.
-* **Written in Rust**: Single 18Mb all-in-one binary - no JVM or Python env required
-* **Change Events**: Built-in support to emit change events (CloudEvents), which enables you to react to any change that happen to your tables.
+* **Customizable**: If you already manage Access to Tables in your company somewhere else or need the catalog to stream change events to a different system, you can do so with by implementing just a few methods. Please find more details in the [Customization Guide](CUSTOMIZING.md).
+* **Change Events**: Built-in support to emit change events (CloudEvents), which enables you to react to any change that happen to your tables. Changes can also be prohibited by external systems using our request / response handler. This is can be used to prohibit changes to tables that would validate Data Contracts.
+* **Multi-Tenant capable**: A single deployment of our server can serve multiple projects - all with a single entrypoint.
+* **Written in Rust**: Single 18Mb all-in-one binary - no JVM or Python env required.
 * **Storage Access Management**: Built-in S3-Signing that enables support for self-hosted as well as AWS S3 WITHOUT sharing S3 credentials with clients.
-* **Robust**: Production-grade API including server-side timeout handling, tracing and support for compression
-* **Well-Tested**: Integration-tested with `spark`, `trino` and `pyiceberg` (support for S3 from pyiceberg 0.7.0)
-* **Extensible**: Do you need to use your own enterprise solution to store secrets or integrate with your own special Authorization solution? If you are happy to implement a handful of rust methods yourself, you can easily integrate with those!
+* **Well-Tested**: Integration-tested with `spark`, `trino` and `pyiceberg` (support for S3 with this catalog from pyiceberg 0.7.0)
 * **High Available & Horizontally Scalable**: There is no local state - the catalog can be scaled horizontally and updated without downtimes.
-* **Authorization:** on Table-level using OpenFGA including a UI is coming soon!
+* **Fine Grained Access (FGA) (Coming soon):** Simple Role-Based access control is not enough for many rapidly evolving Data & Analytics initiatives. We are leveraging OpenFGA based on googles [Zanzibar-Paper](https://research.google/pubs/zanzibar-googles-consistent-global-authorization-system/) to implement authorization. If your company already has a different system in place, you can integrate with it by implementing a handful of methods in the `AuthZHandler` trait.
 
 Please find following an overview of currently supported features. Please also check the Issues if you are missing something.
 
-# Try out the Examples!
+# Quickstart
 
 We have prepared a self-contained docker-compose file to demonstrate the usage of `spark` with our catalog:
 
@@ -35,6 +35,7 @@ docker compose up
 
 Then open your browser and head to `localhost:8888`.
 
+# Status
 
 ### Supported Operations - Iceberg-Rest
 
@@ -62,6 +63,7 @@ Then open your browser and head to `localhost:8888`.
 | Backend  | Status  | Comment |
 |----------|:-------:|---------|
 | Postgres | ![done] |         |
+| MongoDB  | ![open] |         |
 
 
 ### Supported Secret Stores
@@ -70,15 +72,19 @@ Then open your browser and head to `localhost:8888`.
 | Postgres             | ![done] |         |
 | HashiCorp-Vault-Like | ![open] |         |
 
+### Supported Event Stores
+| Backend | Status  | Comment |
+|---------|:-------:|---------|
+| Nats    | ![done] |         |
+| Kafka   | ![open] |         |
+
 ### Supported Operations - Management API
 
-| Operation          | Status  | Description                                        |
-|--------------------|:-------:|----------------------------------------------------|
-| Warehouse - Create | ![done] | Create a new Warehouse in a Project                |
-| Warehouse - Update | ![open] | Update a Warehouse, i.e. its Storage               |
-| Warehouse - Delete | ![open] | Delete a Warehouse                                 |
-| AuthZ              | ![open] | Manage access to warehouses, namespaces and tables |
-| More to come!      | ![open] |                                                    |
+| Operation            | Status  | Description                                        |
+|----------------------|:-------:|----------------------------------------------------|
+| Warehouse Management | ![done] | Create / Update / Delete a Warehouse               |
+| AuthZ                | ![open] | Manage access to warehouses, namespaces and tables |
+| More to come!        | ![open] |                                                    |
 
 ### Auth(N/Z) Handlers
 
