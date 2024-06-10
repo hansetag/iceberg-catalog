@@ -1,5 +1,5 @@
 use super::{ProjectIdent, TableIdentUuid, WarehouseIdent};
-use crate::api::v1::{NamespaceIdent, Result};
+use crate::api::iceberg::v1::{NamespaceIdent, Result};
 use crate::api::RequestMetadata;
 
 #[derive(Clone, Debug)]

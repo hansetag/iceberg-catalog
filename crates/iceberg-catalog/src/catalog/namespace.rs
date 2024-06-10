@@ -1,4 +1,4 @@
-use crate::api::v1::{
+use crate::api::iceberg::v1::{
     ApiContext, CreateNamespaceRequest, CreateNamespaceResponse, ErrorModel, GetNamespaceResponse,
     ListNamespacesQuery, ListNamespacesResponse, NamespaceParameters, Prefix, Result,
     UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
@@ -19,8 +19,8 @@ pub const UNSUPPORTED_NAMESPACE_PROPERTIES: &[&str] = &["location"];
 pub const MAX_NAMESPACE_DEPTH: i32 = 1;
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore> crate::api::v1::namespace::Service<State<A, C, S>>
-    for CatalogServer<C, A, S>
+impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+    crate::api::iceberg::v1::namespace::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     async fn list_namespaces(
         prefix: Option<Prefix>,

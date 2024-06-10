@@ -2,7 +2,7 @@ mod s3;
 
 use std::collections::HashMap;
 
-use crate::api::{v1::DataAccess, CatalogConfig, ErrorModel, Result};
+use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
 pub use s3::{S3Credential, S3Profile};
 use serde::{Deserialize, Serialize};
 

@@ -1,5 +1,5 @@
 use crate::api::{
-    v1::{ListNamespacesQuery, NamespaceIdent},
+    iceberg::v1::{ListNamespacesQuery, NamespaceIdent},
     CreateNamespaceRequest, CreateNamespaceResponse, ErrorModel, GetNamespaceResponse,
     ListNamespacesResponse, Result, UpdateNamespacePropertiesRequest,
     UpdateNamespacePropertiesResponse,

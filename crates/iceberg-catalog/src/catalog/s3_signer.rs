@@ -3,7 +3,8 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use std::vec;
 
-use crate::api::v1::{ApiContext, Prefix, Result};
+use crate::api::iceberg::types::Prefix;
+use crate::api::{ApiContext, Result};
 use crate::api::{
     ErrorModel, IcebergErrorResponse, RequestMetadata, S3SignRequest, S3SignResponse,
 };
@@ -32,8 +33,8 @@ const HEADERS_TO_SIGN: [&str; 6] = [
 ];
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore> crate::api::v1::s3_signer::Service<State<A, C, S>>
-    for CatalogServer<C, A, S>
+impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+    crate::api::iceberg::v1::s3_signer::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     async fn sign(
         prefix: Option<Prefix>,

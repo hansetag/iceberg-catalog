@@ -1,13 +1,21 @@
-use super::{
-    get, namespace::NamespaceIdentUrl, post, ApiContext, CommitViewRequest, CreateViewRequest,
-    Json, ListTablesResponse, LoadViewResult, NamespaceIdent, NamespaceParameters, PaginationQuery,
-    Path, Prefix, Query, RenameTableRequest, Result, Router, TableIdent,
-};
+use crate::api::iceberg::types::Prefix;
+use crate::api::iceberg::v1::namespace::{NamespaceIdentUrl, NamespaceParameters, PaginationQuery};
 use crate::api::RequestMetadata;
+use crate::api::{
+    ApiContext, CommitViewRequest, CreateViewRequest, ListTablesResponse, LoadViewResult,
+    RenameTableRequest, Result,
+};
 use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::{async_trait, Extension};
+use axum::routing::post;
+use axum::{
+    async_trait,
+    extract::{Path, Query},
+    routing::get,
+    Extension, Json, Router,
+};
 use http::StatusCode;
+use iceberg::{NamespaceIdent, TableIdent};
 
 #[async_trait]
 pub trait Service<S: crate::api::State>

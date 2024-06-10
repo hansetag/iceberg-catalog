@@ -14,7 +14,7 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::api::{
-    v1::{
+    iceberg::v1::{
         CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse, ListNamespacesQuery,
         ListNamespacesResponse, NamespaceIdent, Result, TableIdent,
         UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,

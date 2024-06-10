@@ -1,4 +1,4 @@
-use crate::api::v1::{ApiContext, Result, TableParameters};
+use crate::api::iceberg::v1::{ApiContext, Result, TableParameters};
 use crate::api::RequestMetadata;
 
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
@@ -6,8 +6,8 @@ use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
 use super::CatalogServer;
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore> crate::api::v1::metrics::Service<State<A, C, S>>
-    for CatalogServer<C, A, S>
+impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+    crate::api::iceberg::v1::metrics::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     async fn report_metrics(
         _: TableParameters,

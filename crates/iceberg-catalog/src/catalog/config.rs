@@ -1,5 +1,7 @@
-use crate::api::v1::config::GetConfigQueryParams;
-use crate::api::v1::{ApiContext, CatalogConfig, ErrorModel, IcebergErrorResponse, Result};
+use crate::api::iceberg::v1::config::GetConfigQueryParams;
+use crate::api::iceberg::v1::{
+    ApiContext, CatalogConfig, ErrorModel, IcebergErrorResponse, Result,
+};
 use crate::api::RequestMetadata;
 use http::StatusCode;
 use std::marker::PhantomData;
@@ -28,7 +30,7 @@ impl<
         D: Catalog,
         S: SecretStore,
         T: AuthConfigHandler<A>,
-    > crate::api::v1::config::Service<State<A, D, S>> for Server<C, D, T, A>
+    > crate::api::iceberg::v1::config::Service<State<A, D, S>> for Server<C, D, T, A>
 {
     async fn get_config(
         query: GetConfigQueryParams,

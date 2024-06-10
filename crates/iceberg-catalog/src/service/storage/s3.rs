@@ -4,7 +4,7 @@ use crate::{
 };
 use http::StatusCode;
 
-use crate::api::{v1::DataAccess, CatalogConfig, ErrorModel, Result};
+use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use veil::Redact;

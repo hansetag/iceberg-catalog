@@ -1,15 +1,17 @@
 use std::ops::Deref;
 
-use super::{
-    get, post, ApiContext, CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse,
-    Json, ListNamespacesResponse, NamespaceIdent, PageToken, Path, Prefix, Query, Result, Router,
+use crate::api::iceberg::types::{PageToken, Prefix};
+use crate::api::{ApiContext, RequestMetadata, Result};
+use axum::extract::{Path, Query, State};
+use axum::response::IntoResponse;
+use axum::routing::{get, post};
+use axum::{async_trait, Extension, Json, Router};
+use http::StatusCode;
+use iceberg::NamespaceIdent;
+use iceberg_ext::catalog::rest::{
+    CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse, ListNamespacesResponse,
     UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
-use crate::api::RequestMetadata;
-use axum::extract::State;
-use axum::response::IntoResponse;
-use axum::{async_trait, Extension};
-use http::StatusCode;
 use serde::{Deserialize, Deserializer, Serialize};
 
 #[async_trait]
@@ -379,6 +381,7 @@ mod tests {
     use crate::api::RequestMetadata;
     use axum::async_trait;
     use http_body_util::BodyExt;
+    use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
 
     #[tokio::test]
     async fn test_namespace_params() {

@@ -1,4 +1,4 @@
-use crate::api::{v1::NamespaceIdent, RequestMetadata, Result};
+use crate::api::{iceberg::v1::NamespaceIdent, RequestMetadata, Result};
 use crate::{
     implementations::DEFAULT_PROJECT_ID,
     service::{

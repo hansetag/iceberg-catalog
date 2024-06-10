@@ -1,9 +1,11 @@
 use super::namespace::NamespaceIdentUrl;
-use super::{post, ApiContext, Json, Path, Prefix, Result, Router, TableParameters};
-use crate::api::RequestMetadata;
-use axum::extract::State;
+use crate::api::iceberg::types::Prefix;
+use crate::api::iceberg::v1::tables::TableParameters;
+use crate::api::{ApiContext, RequestMetadata, Result};
+use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use axum::{async_trait, Extension};
+use axum::routing::post;
+use axum::{async_trait, Extension, Json, Router};
 use http::StatusCode;
 use iceberg_ext::TableIdent;
 

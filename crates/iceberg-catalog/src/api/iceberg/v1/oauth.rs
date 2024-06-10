@@ -1,9 +1,9 @@
-use super::{
-    async_trait, post, ApiContext, Form, OAuthTokenRequest, OAuthTokenResponse, Result, Router,
-};
-use crate::api::RequestMetadata;
+use crate::api::{ApiContext, RequestMetadata, Result};
+use async_trait::async_trait;
 use axum::extract::State;
-use axum::Extension;
+use axum::routing::post;
+use axum::{Extension, Form, Router};
+use iceberg_ext::catalog::rest::{OAuthTokenRequest, OAuthTokenResponse};
 
 #[async_trait]
 pub trait Service<S: crate::api::State>

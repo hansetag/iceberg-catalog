@@ -1,3 +1,7 @@
+use iceberg::spec::TableMetadata;
+use iceberg_ext::catalog::rest::{
+    CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
+};
 use std::collections::{HashMap, HashSet};
 
 use crate::SecretIdent;
@@ -5,13 +9,10 @@ use crate::SecretIdent;
 use super::{
     storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent,
 };
-use crate::api::{
-    v1::{
-        spec::TableMetadata, CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse,
-        ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result, TableIdent,
-        UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
-    },
-    CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
+use crate::api::iceberg::v1::{
+    CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse, ListNamespacesQuery,
+    ListNamespacesResponse, NamespaceIdent, Result, TableIdent, UpdateNamespacePropertiesRequest,
+    UpdateNamespacePropertiesResponse,
 };
 
 #[async_trait::async_trait]

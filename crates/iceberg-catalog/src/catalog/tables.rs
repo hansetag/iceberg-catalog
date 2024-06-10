@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
-use crate::api::v1::{
+use crate::api::iceberg::v1::{
     ApiContext, CommitTableRequest, CreateTableRequest, DataAccess, NamespaceParameters,
     PaginationQuery, Prefix, Result, TableIdent, TableParameters,
 };
@@ -29,8 +29,8 @@ use crate::service::{
 use crate::service::{GetStorageConfigResult, TableIdentUuid};
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore> crate::api::v1::tables::Service<State<A, C, S>>
-    for CatalogServer<C, A, S>
+impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+    crate::api::iceberg::v1::tables::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     /// List all table identifiers underneath a given namespace
     async fn list_tables(
@@ -412,7 +412,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore> crate::api::v1::tables::Servic
                 prefix: Cow::Owned(
                     parameters
                         .prefix
-                        .map(crate::api::types::Prefix::into_string)
+                        .map(crate::api::iceberg::types::Prefix::into_string)
                         .unwrap_or_default(),
                 ),
                 num_events: 1,
@@ -484,7 +484,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore> crate::api::v1::tables::Servic
                 namespace: Cow::Owned(table.namespace.encode_in_url()),
                 prefix: Cow::Owned(
                     prefix
-                        .map(crate::api::types::Prefix::into_string)
+                        .map(crate::api::iceberg::types::Prefix::into_string)
                         .unwrap_or_default(),
                 ),
                 num_events: 1,

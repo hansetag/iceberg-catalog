@@ -1,4 +1,4 @@
-use crate::api::v1::ApiServer;
+use crate::api::management::ApiServer;
 use crate::api::{ApiContext, RequestMetadata, Result};
 use crate::service::storage::{StorageCredential, StorageProfile};
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};

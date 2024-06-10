@@ -14,8 +14,8 @@ use iceberg_ext::{
 };
 
 use crate::api::{
-    v1::TableIdent, CommitTableResponse, CommitTransactionRequest, CreateTableRequest, ErrorModel,
-    Result, TableRequirementExt as _, TableUpdateExt,
+    iceberg::v1::TableIdent, CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
+    ErrorModel, Result, TableRequirementExt as _, TableUpdateExt,
 };
 use sqlx::{types::Json, Row};
 use std::default::Default;

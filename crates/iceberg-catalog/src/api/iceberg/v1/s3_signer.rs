@@ -1,7 +1,8 @@
-use super::{post, ApiContext, Json, Prefix, Result, Router};
+use super::{ApiContext, Prefix, Result};
 use crate::api::RequestMetadata;
 use axum::extract::State;
-use axum::{async_trait, extract::Path, Extension};
+use axum::routing::post;
+use axum::{async_trait, extract::Path, Extension, Json, Router};
 use iceberg_ext::catalog::rest::{S3SignRequest, S3SignResponse};
 
 #[async_trait]

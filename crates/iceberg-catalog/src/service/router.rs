@@ -1,8 +1,8 @@
 use crate::service::event_publisher::CloudEventsPublisher;
 use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
 
-use crate::api::v1::ApiServer;
-use crate::api::{new_v1_full_router, shutdown_signal, ApiContext};
+use crate::api::management::ApiServer;
+use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
 use axum::{routing::get, Router};
 use tower::ServiceBuilder;
 use tower_http::{
@@ -35,7 +35,7 @@ pub fn new_full_router<
         crate::catalog::CatalogServer<C, A, S>,
         State<A, C, S>,
     >();
-    let management_routes = Router::new().merge(ApiServer::v1_router());
+    let management_routes = Router::new().merge(ApiServer::new_v1_router());
     Router::new()
         .nest("/catalog/v1", v1_routes)
         .nest("/management/v1", management_routes)
