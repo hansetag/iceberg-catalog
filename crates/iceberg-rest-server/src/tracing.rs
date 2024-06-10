@@ -1,6 +1,8 @@
 use http::Request;
+use tower_http::request_id::{MakeRequestId, RequestId};
 use tower_http::trace::MakeSpan;
 use tracing::{Level, Span};
+use uuid::Uuid;
 
 /// A `MakeSpan` implementation that attaches the `request_id` to the span.
 #[derive(Debug, Clone)]
@@ -36,9 +38,8 @@ impl<B> MakeSpan<B> for RestMakeSpan {
                                     .headers()
                                     .get("x-request-id")
                                     .and_then(|v| v.to_str().ok())
-                                    .unwrap_or("MISSING-REQUEST-ID"),
-                        )
-
+                                    .unwrap_or("MISSING-REQUEST-ID")
+                    )
             }
         }
         match self.level {
@@ -48,5 +49,16 @@ impl<B> MakeSpan<B> for RestMakeSpan {
             Level::WARN => make_span!(tracing::Level::WARN),
             Level::ERROR => make_span!(tracing::Level::ERROR),
         }
+    }
+}
+
+/// A [`MakeRequestId`] that generates `UUIDv7`s.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct MakeRequestUuid7;
+
+impl MakeRequestId for MakeRequestUuid7 {
+    fn make_request_id<B>(&mut self, _request: &Request<B>) -> Option<RequestId> {
+        let request_id = Uuid::now_v7().to_string().parse().unwrap();
+        Some(RequestId::new(request_id))
     }
 }

@@ -1,10 +1,9 @@
 use crate::service::event_publisher::CloudEventsPublisher;
-use crate::tracing::RestMakeSpan;
+use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
 
 use axum::{routing::get, Router};
 use iceberg_rest_service::{new_v1_full_router, shutdown_signal, ApiContext};
 use tower::ServiceBuilder;
-use tower_http::request_id::MakeRequestUuid;
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer,
     sensitive_headers::SetSensitiveHeadersLayer, timeout::TimeoutLayer, trace, trace::TraceLayer,
@@ -45,19 +44,19 @@ pub fn new_full_router<
         ))
         .layer(
             ServiceBuilder::new()
-                .set_x_request_id(MakeRequestUuid)
-                .layer(CatchPanicLayer::new())
+                .set_x_request_id(MakeRequestUuid7)
                 .layer(SetSensitiveHeadersLayer::new([
                     axum::http::header::AUTHORIZATION,
                 ]))
+                .layer(CompressionLayer::new())
                 .layer(
                     TraceLayer::new_for_http()
                         .on_failure(())
                         .make_span_with(RestMakeSpan::new(tracing::Level::INFO))
                         .on_response(trace::DefaultOnResponse::new().level(tracing::Level::DEBUG)),
                 )
-                .layer(CompressionLayer::new())
                 .layer(TimeoutLayer::new(std::time::Duration::from_secs(30)))
+                .layer(CatchPanicLayer::new())
                 .propagate_x_request_id(),
         )
         .with_state(ApiContext {
