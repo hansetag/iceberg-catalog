@@ -1,9 +1,13 @@
 use crate::service::event_publisher::CloudEventsPublisher;
+use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
+
 use axum::{routing::get, Router};
 use iceberg_rest_service::{new_v1_full_router, shutdown_signal, ApiContext};
+use tower::ServiceBuilder;
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer,
     sensitive_headers::SetSensitiveHeadersLayer, timeout::TimeoutLayer, trace, trace::TraceLayer,
+    ServiceBuilderExt,
 };
 
 use super::{
@@ -31,21 +35,30 @@ pub fn new_full_router<
         State<A, C, S>,
     >();
     let management_routes = Router::new().merge(crate::api::ApiServer::v1_router());
-
     Router::new()
         .nest("/catalog/v1", v1_routes)
         .nest("/management/v1", management_routes)
         .route("/health", get(|| async { "OK" }))
-        .layer((
-            SetSensitiveHeadersLayer::new([axum::http::header::AUTHORIZATION]),
-            CompressionLayer::new(),
-            TraceLayer::new_for_http()
-                .on_failure(())
-                .make_span_with(trace::DefaultMakeSpan::new().level(tracing::Level::INFO))
-                .on_response(trace::DefaultOnResponse::new().level(tracing::Level::DEBUG)),
-            TimeoutLayer::new(std::time::Duration::from_secs(30)),
-            CatchPanicLayer::new(),
+        .layer(axum::middleware::from_fn(
+            crate::request_metadata::set_request_metadata,
         ))
+        .layer(
+            ServiceBuilder::new()
+                .set_x_request_id(MakeRequestUuid7)
+                .layer(SetSensitiveHeadersLayer::new([
+                    axum::http::header::AUTHORIZATION,
+                ]))
+                .layer(CompressionLayer::new())
+                .layer(
+                    TraceLayer::new_for_http()
+                        .on_failure(())
+                        .make_span_with(RestMakeSpan::new(tracing::Level::INFO))
+                        .on_response(trace::DefaultOnResponse::new().level(tracing::Level::DEBUG)),
+                )
+                .layer(TimeoutLayer::new(std::time::Duration::from_secs(30)))
+                .layer(CatchPanicLayer::new())
+                .propagate_x_request_id(),
+        )
         .with_state(ApiContext {
             v1_state: State {
                 auth: auth_state,

@@ -1,9 +1,8 @@
 use super::namespace::NamespaceIdentUrl;
-use super::{
-    post, ApiContext, HeaderMap, Json, Path, Prefix, Result, Router, State, TableParameters,
-};
-use axum::async_trait;
+use super::{post, ApiContext, Json, Path, Prefix, Result, Router, State, TableParameters};
+use crate::RequestMetadata;
 use axum::response::IntoResponse;
+use axum::{async_trait, Extension};
 use http::StatusCode;
 use iceberg_ext::TableIdent;
 
@@ -17,7 +16,7 @@ where
         parameters: TableParameters,
         request: serde_json::Value,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()>;
 }
 
@@ -29,7 +28,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             post(
                 |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<serde_json::Value>| async {
                     {
                         I::report_metrics(
@@ -42,7 +41,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                             request,
                             api_context,
-                            headers,
+                            metadata,
                         )
                     }
                     .await
@@ -55,7 +54,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             post(
                 |State(api_context): State<ApiContext<S>>,
                  Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<serde_json::Value>| async {
                     {
                         I::report_metrics(
@@ -68,7 +67,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                             request,
                             api_context,
-                            headers,
+                            metadata,
                         )
                     }
                     .await

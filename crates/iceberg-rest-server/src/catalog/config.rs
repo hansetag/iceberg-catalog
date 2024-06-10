@@ -1,9 +1,9 @@
-use http::HeaderMap;
 use http::StatusCode;
 use iceberg_rest_service::v1::config::GetConfigQueryParams;
 use iceberg_rest_service::v1::{
     ApiContext, CatalogConfig, ErrorModel, IcebergErrorResponse, Result,
 };
+use iceberg_rest_service::RequestMetadata;
 use std::marker::PhantomData;
 use std::str::FromStr;
 
@@ -69,10 +69,13 @@ impl<
     async fn get_config(
         query: GetConfigQueryParams,
         api_context: ApiContext<State<A, D, S>>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<CatalogConfig> {
-        let auth_info =
-            T::get_and_validate_user_warehouse(api_context.v1_state.auth.clone(), &headers).await?;
+        let auth_info = T::get_and_validate_user_warehouse(
+            api_context.v1_state.auth.clone(),
+            &request_metadata,
+        )
+        .await?;
 
         let UserWarehouse {
             user_id,
@@ -149,7 +152,7 @@ impl<
         // Give the auth-handler a chance to exchange / enrich the token
         let new_token = T::exchange_token_for_warehouse(
             api_context.v1_state.auth.clone(),
-            &headers,
+            &request_metadata,
             &project_id,
             &warehouse_id,
         );

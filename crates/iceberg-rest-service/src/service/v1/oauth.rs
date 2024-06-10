@@ -1,7 +1,9 @@
 use super::{
-    async_trait, post, ApiContext, Form, HeaderMap, OAuthTokenRequest, OAuthTokenResponse, Result,
-    Router, State,
+    async_trait, post, ApiContext, Form, OAuthTokenRequest, OAuthTokenResponse, Result, Router,
+    State,
 };
+use crate::RequestMetadata;
+use axum::Extension;
 
 #[async_trait]
 pub trait Service<S: crate::service::State>
@@ -10,7 +12,7 @@ where
 {
     async fn get_token(
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
         // application/x-www-form-urlencoded
         request: OAuthTokenRequest,
     ) -> Result<OAuthTokenResponse>;
@@ -21,10 +23,10 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
         "/oauth/tokens",
         post(
             |State(api_context): State<ApiContext<S>>,
-             headers: HeaderMap,
+             Extension(metadata): Extension<RequestMetadata>,
              // application/x-www-form-urlencoded
              Form(request): Form<OAuthTokenRequest>| {
-                I::get_token(api_context, headers, request)
+                I::get_token(api_context, metadata, request)
             },
         ),
     )

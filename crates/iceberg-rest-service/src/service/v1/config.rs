@@ -1,4 +1,6 @@
-use super::{async_trait, get, ApiContext, CatalogConfig, HeaderMap, Query, Result, Router, State};
+use super::{async_trait, get, ApiContext, CatalogConfig, Query, Result, Router, State};
+use crate::RequestMetadata;
+use axum::Extension;
 
 #[async_trait]
 pub trait Service<S: crate::service::State>
@@ -8,7 +10,7 @@ where
     async fn get_config(
         query: GetConfigQueryParams,
         api_context: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<CatalogConfig>;
 }
 
@@ -26,7 +28,9 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
         get(
             |Query(query): Query<GetConfigQueryParams>,
              State(api_context): State<ApiContext<S>>,
-             headers: HeaderMap| I::get_config(query, api_context, headers),
+             Extension(metadata): Extension<RequestMetadata>| {
+                I::get_config(query, api_context, metadata)
+            },
         ),
     )
 }

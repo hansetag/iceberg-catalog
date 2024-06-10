@@ -1,8 +1,7 @@
 use crate::api::ApiServer;
 use crate::service::storage::{StorageCredential, StorageProfile};
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
-use http::HeaderMap;
-use iceberg_rest_service::{ApiContext, Result};
+use iceberg_rest_service::{ApiContext, RequestMetadata, Result};
 use utoipa::ToSchema;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -40,7 +39,7 @@ pub trait WarehouseService<C: Catalog, A: AuthZHandler, S: SecretStore> {
     async fn create_warehouse(
         request: CreateWarehouseRequest,
         context: ApiContext<State<A, C, S>>,
-        _headers: HeaderMap,
+        _request_metadata: RequestMetadata,
     ) -> Result<CreateWarehouseResponse> {
         let CreateWarehouseRequest {
             warehouse_name,

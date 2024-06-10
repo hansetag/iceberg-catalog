@@ -1,10 +1,11 @@
 use super::{
     get, namespace::NamespaceIdentUrl, post, ApiContext, CommitViewRequest, CreateViewRequest,
-    HeaderMap, Json, ListTablesResponse, LoadViewResult, NamespaceIdent, NamespaceParameters,
-    PaginationQuery, Path, Prefix, Query, RenameTableRequest, Result, Router, State, TableIdent,
+    Json, ListTablesResponse, LoadViewResult, NamespaceIdent, NamespaceParameters, PaginationQuery,
+    Path, Prefix, Query, RenameTableRequest, Result, Router, State, TableIdent,
 };
-use axum::async_trait;
+use crate::RequestMetadata;
 use axum::response::IntoResponse;
+use axum::{async_trait, Extension};
 use http::StatusCode;
 
 #[async_trait]
@@ -17,7 +18,7 @@ where
         parameters: NamespaceParameters,
         query: PaginationQuery,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<ListTablesResponse>;
 
     /// Create a view in the given namespace
@@ -25,14 +26,14 @@ where
         parameters: NamespaceParameters,
         request: CreateViewRequest,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<LoadViewResult>;
 
     /// Load a view from the catalog
     async fn load_view(
         parameters: ViewParameters,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<LoadViewResult>;
 
     /// Commit updates to a view.
@@ -40,21 +41,21 @@ where
         parameters: ViewParameters,
         request: CommitViewRequest,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<LoadViewResult>;
 
     /// Remove a view from the catalog
     async fn drop_view(
         parameters: ViewParameters,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()>;
 
     /// Check if a view exists
     async fn view_exists(
         parameters: ViewParameters,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()>;
 
     /// Rename a view from its current name to a new name
@@ -62,7 +63,7 @@ where
         prefix: Option<Prefix>,
         request: RenameTableRequest,
         state: ApiContext<S>,
-        headers: HeaderMap,
+        request_metadata: RequestMetadata,
     ) -> Result<()>;
 }
 
@@ -76,7 +77,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                 |Path((prefix, namespace)): Path<(Prefix, NamespaceIdentUrl)>,
                  Query(query): Query<PaginationQuery>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
+                 Extension(metadata): Extension<RequestMetadata>| {
                     {
                         I::list_views(
                             NamespaceParameters {
@@ -85,7 +86,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                             query,
                             api_context,
-                            headers,
+                            metadata,
                         )
                     }
                 },
@@ -94,7 +95,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .post(
                 |Path((prefix, namespace)): Path<(Prefix, NamespaceIdentUrl)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CreateViewRequest>| {
                     {
                         I::create_view(
@@ -104,7 +105,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                             request,
                             api_context,
-                            headers,
+                            metadata,
                         )
                     }
                 },
@@ -116,7 +117,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                 |Path(namespace): Path<NamespaceIdentUrl>,
                  Query(query): Query<PaginationQuery>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
+                 Extension(metadata): Extension<RequestMetadata>| {
                     {
                         I::list_views(
                             NamespaceParameters {
@@ -125,7 +126,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                             query,
                             api_context,
-                            headers,
+                            metadata,
                         )
                     }
                 },
@@ -133,7 +134,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .post(
                 |Path(namespace): Path<NamespaceIdentUrl>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CreateViewRequest>| {
                     {
                         I::create_view(
@@ -143,7 +144,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                             request,
                             api_context,
-                            headers,
+                            metadata,
                         )
                     }
                 },
@@ -155,7 +156,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             get(
                 |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
+                 Extension(metadata): Extension<RequestMetadata>| {
                     {
                         I::load_view(
                             ViewParameters {
@@ -164,7 +165,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                                 view,
                             },
                             api_context,
-                            headers,
+                            metadata,
                         )
                     }
                 },
@@ -172,7 +173,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .post(
                 |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CommitViewRequest>| {
                     {
                         I::commit_view(
@@ -183,7 +184,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                             request,
                             api_context,
-                            headers,
+                            metadata,
                         )
                     }
                 },
@@ -191,7 +192,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .delete(
                 |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     {
                         I::drop_view(
                             ViewParameters {
@@ -200,7 +201,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                                 view,
                             },
                             api_context,
-                            headers,
+                            metadata,
                         )
                         .await
                         .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -210,7 +211,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .head(
                 |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     {
                         I::view_exists(
                             ViewParameters {
@@ -219,7 +220,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                                 view,
                             },
                             api_context,
-                            headers,
+                            metadata,
                         )
                         .await
                         .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -232,7 +233,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             get(
                 |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| {
+                 Extension(metadata): Extension<RequestMetadata>| {
                     {
                         I::load_view(
                             ViewParameters {
@@ -241,7 +242,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                                 view,
                             },
                             api_context,
-                            headers,
+                            metadata,
                         )
                     }
                 },
@@ -249,7 +250,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .post(
                 |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CommitViewRequest>| {
                     {
                         I::commit_view(
@@ -260,7 +261,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                             },
                             request,
                             api_context,
-                            headers,
+                            metadata,
                         )
                     }
                 },
@@ -268,7 +269,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .delete(
                 |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     {
                         I::drop_view(
                             ViewParameters {
@@ -277,7 +278,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                                 view,
                             },
                             api_context,
-                            headers,
+                            metadata,
                         )
                         .await
                         .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -287,7 +288,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             .head(
                 |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap| async {
+                 Extension(metadata): Extension<RequestMetadata>| async {
                     {
                         I::view_exists(
                             ViewParameters {
@@ -296,7 +297,7 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
                                 view,
                             },
                             api_context,
-                            headers,
+                            metadata,
                         )
                         .await
                         .map(|()| StatusCode::NO_CONTENT.into_response())
@@ -310,10 +311,10 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             post(
                 |Path(prefix): Path<Prefix>,
                  State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<RenameTableRequest>| async {
                     {
-                        I::rename_view(Some(prefix), request, api_context, headers)
+                        I::rename_view(Some(prefix), request, api_context, metadata)
                             .await
                             .map(|()| StatusCode::NO_CONTENT.into_response())
                     }
@@ -324,10 +325,10 @@ pub fn router<I: Service<S>, S: crate::service::State>() -> Router<ApiContext<S>
             "/views/rename",
             post(
                 |State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
+                 Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<RenameTableRequest>| async {
                     {
-                        I::rename_view(None, request, api_context, headers)
+                        I::rename_view(None, request, api_context, metadata)
                             .await
                             .map(|()| StatusCode::NO_CONTENT.into_response())
                     }

@@ -1,6 +1,6 @@
 use super::{ProjectIdent, TableIdentUuid, WarehouseIdent};
-use http::HeaderMap;
 use iceberg_rest_service::v1::{NamespaceIdent, Result};
+use iceberg_rest_service::RequestMetadata;
 
 #[derive(Clone, Debug)]
 pub enum UserID {
@@ -54,21 +54,21 @@ where
     type State: Clone + Send + Sync + 'static;
 
     async fn check_list_namespace(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         parent: Option<&NamespaceIdent>,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_create_namespace(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         parent: Option<&NamespaceIdent>,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_load_namespace_metadata(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
@@ -77,35 +77,35 @@ where
     /// Check if the user is allowed to check if a namespace exists,
     /// not check if the namespace exists.
     async fn check_namespace_exists(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_drop_namespace(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_update_namespace_properties(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_create_table(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_list_tables(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
@@ -123,7 +123,7 @@ where
     /// - `namespace`: The namespace the table is in. (Direct parent)
     ///
     async fn check_load_table(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         namespace: Option<&NamespaceIdent>,
         table: Option<&TableIdentUuid>,
@@ -134,14 +134,14 @@ where
     /// For rename to work, also "check_create_table" must pass
     /// for the destination namespace.
     async fn check_rename_table(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         source: Option<&TableIdentUuid>,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_table_exists(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         namespace: Option<&NamespaceIdent>,
         table: Option<&TableIdentUuid>,
@@ -149,14 +149,14 @@ where
     ) -> Result<()>;
 
     async fn check_drop_table(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         table: Option<&TableIdentUuid>,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_commit_table(
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
         warehouse_id: &WarehouseIdent,
         table: Option<&TableIdentUuid>,
         namespace: Option<&NamespaceIdent>,
@@ -191,7 +191,7 @@ where
     /// `get_config_for_warehouse` permission for a warehouse_id.
     async fn get_and_validate_user_warehouse(
         state: A::State,
-        headers: &HeaderMap,
+        metadata: &RequestMetadata,
     ) -> Result<UserWarehouse>;
 
     /// Enrich / Exchange the token that is used for all further requests
@@ -202,7 +202,7 @@ where
     /// if no change to the original token is required, return Ok(None).
     async fn exchange_token_for_warehouse(
         state: A::State,
-        previous_headers: &HeaderMap,
+        previous_request_metadata: &RequestMetadata,
         project_id: &ProjectIdent,
         warehouse_id: &WarehouseIdent,
     ) -> Result<Option<String>>;
