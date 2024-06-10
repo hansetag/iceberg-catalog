@@ -37,7 +37,7 @@ impl CloudEventsPublisher {
         let event_builder = EventBuilderV10::new()
             .id(id.to_string())
             .source(format!(
-                "uri:iceberg-rest-service:{}",
+                "uri:iceberg-catalog-service:{}",
                 hostname::get()
                     .map(|os| os.to_string_lossy().to_string())
                     .unwrap_or("hostname-unavailable".into())

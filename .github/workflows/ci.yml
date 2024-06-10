@@ -85,11 +85,11 @@ jobs:
       # - name: Build Docker image (arm64)
       #   run: |
       #     DOCKER_BUILDKIT=1 docker build \
-      #       --platform linux/arm64 -t iceberg-rest-local:arm64 \
+      #       --platform linux/arm64 -t iceberg-catalog-local:arm64 \
       #       --add-host=host.docker.internal:host-gateway \
       #       -f docker/full.Dockerfile \
       #       --build-arg DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/postgres .
-      #     docker save -o /tmp/iceberg-catalog-arm64.tar iceberg-rest-local:arm64
+      #     docker save -o /tmp/iceberg-catalog-arm64.tar iceberg-catalog-local:arm64
 
       # ToDo: Use action instead of manual build.
       # The snippet below couldn't resolve the host.docker.internal / host-gateway.
@@ -107,7 +107,7 @@ jobs:
       #     add-hosts: "host.docker.internal:host-gateway"
       #     build-args: |
       #       "DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/postgres"
-      #     tags: iceberg-rest-local:amd64
+      #     tags: iceberg-catalog-local:amd64
 
       - name: Save Docker
         uses: actions/upload-artifact@v4

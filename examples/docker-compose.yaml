@@ -21,10 +21,10 @@ services:
       - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:postgres@db:5432/postgres
       - ICEBERG_REST__DEFAULT_PROJECT_ID=00000000-0000-0000-0000-000000000000
       - RUST_LOG=info
-    entrypoint: [ "bash", "-c", "./iceberg-rest migrate && ./iceberg-rest serve" ]
+    entrypoint: [ "bash", "-c", "./iceberg-catalog migrate && ./iceberg-catalog serve" ]
     healthcheck:
       # Curl / Wget / nc are not installed in the image
-      test: ["CMD", "bash", "-c", "./iceberg-rest healthcheck"]
+      test: [ "CMD", "bash", "-c", "./iceberg-catalog healthcheck" ]
       interval: 1s
       timeout: 10s
       retries: 3
@@ -71,7 +71,7 @@ services:
       - POSTGRES_DB=postgres
       - PGUSER=postgres
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -p 5432 -d postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -p 5432 -d postgres" ]
       interval: 2s
       timeout: 10s
       retries: 2
@@ -89,7 +89,7 @@ services:
       - MINIO_SCHEME=http
       - MINIO_DEFAULT_BUCKETS=examples
     healthcheck:
-      test: ["CMD", "mc", "ls", "local", "|", "grep", "examples"]
+      test: [ "CMD", "mc", "ls", "local", "|", "grep", "examples" ]
       interval: 2s
       timeout: 10s
       retries: 2
