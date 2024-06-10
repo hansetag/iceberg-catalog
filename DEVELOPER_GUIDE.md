@@ -1,18 +1,24 @@
 ## Working with SQLx
-This crate uses sqlx. For development and compilation a Postgres Database is required. You can use Docker to launch one.:
+
+This crate uses sqlx. For development and compilation a Postgres Database is required. You can use Docker to launch
+one.:
+
 ```sh
 docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:15
 ```
+
 The server crate folder that uses SQLx contains a `.env.sample` File.
 Copy this file to `.env` and add your database credentials if they differ.
 
 Run:
+
 ```sh
 sqlx database create
 sqlx migrate run
 ```
 
 ## Running integration test
+
 Please check the [Integration Test Docs](tests/README.md).
 
 ## Running the binary
@@ -25,7 +31,7 @@ export ICEBERG_REST__PG_ENCRYPTION_KEY="abc"
 export ICEBERG_REST__PG_DATABASE_URL_READ="postgresql://postgres:postgres@localhost/demo"
 export ICEBERG_REST__PG_DATABASE_URL_WRITE="postgresql://postgres:postgres@localhost/demo"
 
-cd src/crates/iceberg-rest-bin
+cd src/crates/iceberg-catalog-bin
 
 cargo run migrate
 # Optional - get some logs:
@@ -35,34 +41,37 @@ cargo run serve
 
 Now that the server is running, we need to create a new warehouse including its storage.
 Lets assume we have an AWS S3-bucket, create a file called `create-warehouse-request.json`:
+
 ```json
 {
-    "warehouse-name": "test",
-    "project-id": "00000000-0000-0000-0000-000000000000",
-    "storage-profile": {
-        "type": "s3",
-        "bucket": "demo-catalog-iceberg",
-        "key-prefix": "test_warehouse",
-        "assume-role-arn": null,
-        "endpoint": null,
-        "region": "eu-central-1",
-        "path-style-access": null
-    },
-    "storage-credential": {
-        "type": "s3",
-        "credential-type": "access-key",
-        "aws-access-key-id": "<my-access-key>",
-        "aws-secret-access-key": "<my-secret-access-key>"
-    }
+  "warehouse-name": "test",
+  "project-id": "00000000-0000-0000-0000-000000000000",
+  "storage-profile": {
+    "type": "s3",
+    "bucket": "demo-catalog-iceberg",
+    "key-prefix": "test_warehouse",
+    "assume-role-arn": null,
+    "endpoint": null,
+    "region": "eu-central-1",
+    "path-style-access": null
+  },
+  "storage-credential": {
+    "type": "s3",
+    "credential-type": "access-key",
+    "aws-access-key-id": "<my-access-key>",
+    "aws-secret-access-key": "<my-secret-access-key>"
+  }
 }
 ```
 
 We now create a new Warehouse by POSTing the request to the management API:
+
 ```sh
 curl -X POST http://localhost:8080/management/v1/warehouse -H "Content-Type: application/json" -d @create-warehouse-request.json
 ```
 
 That's it - we can now use the catalog:
+
 ```python
 import pandas as pd
 import pyspark

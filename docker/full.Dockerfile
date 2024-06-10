@@ -21,7 +21,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
-RUN cd crates/iceberg-rest-server && \
+RUN cd crates/iceberg-catalog && \
     echo "DATABASE_URL=$DATABASE_URL" && \
     sqlx database create && \
     sqlx migrate run && \

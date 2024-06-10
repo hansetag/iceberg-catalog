@@ -71,7 +71,7 @@ jobs:
 
       - name: Docker info
         run: docker info
-      
+
       - name: Build Docker image (amd64)
         run: |
           DOCKER_BUILDKIT=1 docker build -t localhost/iceberg-rest-local:amd64 \
@@ -89,7 +89,7 @@ jobs:
       #       --add-host=host.docker.internal:host-gateway \
       #       -f docker/full.Dockerfile \
       #       --build-arg DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/postgres .
-      #     docker save -o /tmp/iceberg-rest-server-arm64.tar iceberg-rest-local:arm64
+      #     docker save -o /tmp/iceberg-catalog-arm64.tar iceberg-rest-local:arm64
 
       # ToDo: Use action instead of manual build.
       # The snippet below couldn't resolve the host.docker.internal / host-gateway.
@@ -101,7 +101,7 @@ jobs:
       #     load: true
       #     platforms: linux/amd64
       #     file: docker/full.Dockerfile
-      #     outputs: type=docker,dest=/tmp/iceberg-rest-server-amd64.tar
+      #     outputs: type=docker,dest=/tmp/iceberg-catalog-amd64.tar
       #     # cache-from: type=gha
       #     # cache-to: type=gha,mode=max
       #     add-hosts: "host.docker.internal:host-gateway"
@@ -112,7 +112,7 @@ jobs:
       - name: Save Docker
         uses: actions/upload-artifact@v4
         with:
-          name: iceberg-rest-server-image
+          name: iceberg-catalog-image
           path: /tmp/*.tar
 
   clippy:
@@ -183,7 +183,7 @@ jobs:
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-      
+
       - name: Doc Test
         run: cargo test --no-fail-fast --doc --all-features --workspace
         env:
@@ -198,12 +198,12 @@ jobs:
       - name: Restore binary
         uses: actions/download-artifact@v4
         with:
-          name: iceberg-rest-server-image
+          name: iceberg-catalog-image
           path: artifacts
 
       - name: Display structure of downloaded files
         run: ls -Rlh artifacts
-    
+
       - name: Restore Docker image
         run: |
           docker load -i artifacts/iceberg-rest-server-amd64.tar
@@ -227,12 +227,12 @@ jobs:
       - name: Restore binary
         uses: actions/download-artifact@v4
         with:
-          name: iceberg-rest-server-image
+          name: iceberg-catalog-image
           path: artifacts
 
       - name: Display structure of downloaded files
         run: ls -Rlh artifacts
-    
+
       - name: Restore Docker image
         run: |
           docker load -i artifacts/iceberg-rest-server-amd64.tar
