@@ -12,9 +12,9 @@ use iceberg_rest_server::{
     service::router::{new_full_router, serve as service_serve},
     CONFIG,
 };
+use std::sync::Arc;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
-use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
