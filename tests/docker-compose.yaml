@@ -25,14 +25,17 @@ services:
       - ICEBERG_REST__PG_ENCRYPTION_KEY=abc
       - ICEBERG_REST__PG_DATABASE_URL_READ=postgresql://postgres:postgres@db:2345/postgres
       - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:postgres@db:2345/postgres
+      - ICEBERG_REST__NATS_ADDRESS=nats://nats:4222
+      - ICEBERG_REST__NATS_TOPIC=changes
       - RUST_LOG=info
     entrypoint: [ "bash", "-c", "./iceberg-rest migrate && ./iceberg-rest serve" ]
     depends_on:
-      db: 
+      db:
         condition: service_healthy
       minio:
         condition: service_healthy
-
+      nats:
+        condition: service_started
   db:
     image: bitnami/postgresql:15
     environment:
@@ -42,7 +45,7 @@ services:
       - PGUSER=postgres
       - POSTGRESQL_PORT_NUMBER=2345
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -p 2345 -d postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -p 2345 -d postgres" ]
       interval: 2s
       timeout: 10s
       retries: 2
@@ -60,7 +63,7 @@ services:
       - MINIO_SCHEME=http
       - MINIO_DEFAULT_BUCKETS=tests
     healthcheck:
-      test: ["CMD", "curl", "-I", "http://localhost:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-I", "http://localhost:9000/minio/health/live" ]
       interval: 2s
       timeout: 10s
       retries: 2
@@ -68,3 +71,8 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
+
+  nats:
+    image: bitnami/nats:latest
+    ports:
+      - "4222:4222"

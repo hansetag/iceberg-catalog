@@ -21,6 +21,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+async-nats.workspace = true
 async-trait = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }

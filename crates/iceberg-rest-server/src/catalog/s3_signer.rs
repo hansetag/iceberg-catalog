@@ -12,7 +12,6 @@ use iceberg_rest_service::{ErrorModel, IcebergErrorResponse, S3SignRequest, S3Si
 
 use super::CatalogServer;
 use crate::catalog::require_warehouse_id;
-use crate::service::event_publisher::EventPublisher;
 use crate::service::secrets::SecretStore;
 use crate::service::storage::{S3Profile, StorageCredential};
 use crate::service::{auth::AuthZHandler, Catalog, State};
@@ -32,15 +31,15 @@ const HEADERS_TO_SIGN: [&str; 6] = [
 ];
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
-    iceberg_rest_service::v1::s3_signer::Service<State<A, C, S, P>> for CatalogServer<C, A, S, P>
+impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+    iceberg_rest_service::v1::s3_signer::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     async fn sign(
         prefix: Option<Prefix>,
         _namespace: Option<String>,
         table: Option<String>,
         request: S3SignRequest,
-        state: ApiContext<State<A, C, S, P>>,
+        state: ApiContext<State<A, C, S>>,
         headers: HeaderMap,
     ) -> Result<S3SignResponse> {
         let warehouse_id = require_warehouse_id(prefix.clone())?;
