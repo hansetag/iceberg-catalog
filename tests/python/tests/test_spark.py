@@ -46,6 +46,41 @@ def test_create_table(spark, warehouse: conftest.Warehouse):
     assert len(loaded_table.schema().fields) == 3
 
 
+def test_create_table_pyspark(spark, warehouse: conftest.Warehouse):
+    spark.sql("CREATE NAMESPACE test_create_table_pyspark")
+    data = pd.DataFrame([[1, "a-string", 2.2]], columns=["id", "strings", "floats"])
+    sdf = spark.createDataFrame(data)
+    sdf.writeTo(f"test_create_table_pyspark.my_table").createOrReplace()
+
+
+def test_replace_table_pyspark(spark, warehouse: conftest.Warehouse):
+    spark.sql("CREATE NAMESPACE test_replace_table_pyspark")
+    data = pd.DataFrame([[1, "a-string", 2.2]], columns=["id", "strings", "floats"])
+    sdf = spark.createDataFrame(data)
+    sdf.writeTo(f"test_replace_table_pyspark.my_table").createOrReplace()
+    sdf.writeTo(f"test_replace_table_pyspark.my_table").createOrReplace()
+
+
+def test_merge_into(spark):
+    spark.sql("CREATE NAMESPACE test_merge_into")
+    spark.sql(
+        "CREATE TABLE test_merge_into.my_table (id INT, strings STRING, floats DOUBLE) USING iceberg"
+    )
+    spark.sql(
+        "INSERT INTO test_merge_into.my_table VALUES (1, 'a-string', 2.2), (2, 'b-string', 3.3)"
+    )
+    spark.sql(
+        "MERGE INTO test_merge_into.my_table USING (SELECT 1 as id, 'c-string' as strings, 4.4 as floats) as new_data ON my_table.id = new_data.id WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *"
+    )
+    pdf = (
+        spark.sql("SELECT * FROM test_merge_into.my_table").toPandas().sort_values("id")
+    )
+    assert len(pdf) == 2
+    assert pdf["id"].tolist() == [1, 2]
+    assert pdf["strings"].tolist() == ["c-string", "b-string"]
+    assert pdf["floats"].tolist() == [4.4, 3.3]
+
+
 def test_drop_table(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_drop_table")
     spark.sql(

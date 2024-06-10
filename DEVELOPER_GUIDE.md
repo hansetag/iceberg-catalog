@@ -3,7 +3,7 @@ This crate uses sqlx. For development and compilation a Postgres Database is req
 ```sh
 docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:15
 ```
-Each crate in the `crates` folder that uses SQLx contains a `.env.sample` File.
+The server crate folder that uses SQLx contains a `.env.sample` File.
 Copy this file to `.env` and add your database credentials if they differ.
 
 Run:
