@@ -111,8 +111,31 @@ All warehouses use isolated namespaces and can be configured in client by specif
 
 If you do not need the hierarchy level of projects, set the `ICEBERG_REST__DEFAULT_PROJECT_ID` environment variable to the project you want to use. For single project deployments we recommend using the NULL UUID ("00000000-0000-0000-0000-000000000000") as project-id. Users then just specify `warehouse` as `<warehouse-name>` when connecting.
 
+# Configuration
+The Catalog is configured via environment variables:
+
+### General
+| Variable                            | Example                                | Description                                                                                                                                                                                                                    |
+|-------------------------------------|----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ICEBERG_REST__BASE_URI`            | `https://example.com:8080/catalog/ `   | Base URL where the catalog is externally reachable. Default: `https://localhost:8080/catalog/`                                                                                                                                 |
+| `ICEBERG_REST__DEFAULT_PROJECT_ID`  | `00000000-0000-0000-0000-000000000000` | The default project ID to use if the user does not specify a project when connecting. We recommend setting the Project-ID only in single Project setups. Each Project can still contain multiple Warehouses. Default: Not set. |
+| `ICEBERG_REST__RESERVED_NAMESPACES` | `system,examples`                      | Reserved Namespaces that cannot be created via the REST interface                                                                                                                                                              |
+
+### Postgres
+Configuration parameters if Postgres is used as a backend:
+
+| Variable                                  | Example                                               | Description                                           |
+|-------------------------------------------|-------------------------------------------------------|-------------------------------------------------------|
+| `ICEBERG_REST__PG_DATABASE_URL_READ`      | `postgres://postgres:password@localhost:5432/iceberg` | Postgres Database connection string used for reading  |
+| `ICEBERG_REST__PG_DATABASE_URL_WRITE`     | `postgres://postgres:password@localhost:5432/iceberg` | Postgres Database connection string used for writing. |
+| `ICEBERG_REST__PG_READ_POOL_CONNECTIONS`  | `10`                                                  | Number of connections in the read pool                |
+| `ICEBERG_REST__PG_WRITE_POOL_CONNECTIONS` | `5`                                                   | Number of connections in the write pool               |
+
+
+
 # Limitations
 * Table Metadata is currently limited to `256Mb` for the `postgres` implementation. If you need more, you should probably vaccum your table ;)
+* Views are not supported yet
 
 ## License
 
