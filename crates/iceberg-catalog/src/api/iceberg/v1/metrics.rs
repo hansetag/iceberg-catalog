@@ -10,7 +10,7 @@ use http::StatusCode;
 use iceberg_ext::TableIdent;
 
 #[async_trait]
-pub trait Service<S: crate::api::State>
+pub trait Service<S: crate::api::ThreadSafe>
 where
     Self: Send + Sync + 'static,
 {
@@ -23,7 +23,7 @@ where
     ) -> Result<()>;
 }
 
-pub fn router<I: Service<S>, S: crate::api::State>() -> Router<ApiContext<S>> {
+pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S>> {
     Router::new()
         // /{prefix}/namespaces/{namespace}/tables/{table}/metrics
         .route(

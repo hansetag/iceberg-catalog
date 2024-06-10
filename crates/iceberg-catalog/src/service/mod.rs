@@ -13,7 +13,7 @@ pub use catalog::{
 };
 
 use crate::api::iceberg::v1::Prefix;
-use crate::api::State as ServiceState;
+use crate::api::ThreadSafe as ServiceState;
 use crate::api::{ErrorModel, IcebergErrorResponse, Result};
 use http::StatusCode;
 use iceberg::NamespaceIdent;

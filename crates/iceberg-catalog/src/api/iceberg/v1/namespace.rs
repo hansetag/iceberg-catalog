@@ -15,7 +15,7 @@ use iceberg_ext::catalog::rest::{
 use serde::{Deserialize, Deserializer, Serialize};
 
 #[async_trait]
-pub trait Service<S: crate::api::State>
+pub trait Service<S: crate::api::ThreadSafe>
 where
     Self: Send + Sync + 'static,
 {
@@ -135,7 +135,7 @@ where
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn router<I: Service<S>, S: crate::api::State>() -> Router<ApiContext<S>> {
+pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S>> {
     Router::new()
         // List Namespaces
         .route(
@@ -393,7 +393,7 @@ mod tests {
         #[derive(Debug, Clone)]
         struct ThisState;
 
-        impl crate::api::State for ThisState {}
+        impl crate::api::ThreadSafe for ThisState {}
 
         // ToDo: Use Mock instead for impl. I couldn't get mockall to work though.
         #[async_trait]
@@ -497,7 +497,7 @@ mod tests {
         #[derive(Debug, Clone)]
         struct ThisState;
 
-        impl crate::api::State for ThisState {}
+        impl crate::api::ThreadSafe for ThisState {}
 
         #[async_trait]
         impl Service<ThisState> for TestService {
@@ -593,7 +593,7 @@ mod tests {
         #[derive(Debug, Clone)]
         struct ThisState;
 
-        impl crate::api::State for ThisState {}
+        impl crate::api::ThreadSafe for ThisState {}
 
         #[async_trait]
         impl Service<ThisState> for TestService {

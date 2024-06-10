@@ -7,7 +7,7 @@ use axum::{Extension, Router};
 use iceberg_ext::catalog::rest::CatalogConfig;
 
 #[async_trait]
-pub trait Service<S: crate::api::State>
+pub trait Service<S: crate::api::ThreadSafe>
 where
     Self: Send + Sync + 'static,
 {
@@ -26,7 +26,7 @@ pub struct GetConfigQueryParams {
     pub warehouse: Option<String>,
 }
 
-pub fn router<I: Service<S>, S: crate::api::State>() -> Router<ApiContext<S>> {
+pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S>> {
     Router::new().route(
         "/config",
         get(

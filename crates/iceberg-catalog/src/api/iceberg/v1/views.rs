@@ -18,7 +18,7 @@ use http::StatusCode;
 use iceberg::{NamespaceIdent, TableIdent};
 
 #[async_trait]
-pub trait Service<S: crate::api::State>
+pub trait Service<S: crate::api::ThreadSafe>
 where
     Self: Send + Sync + 'static,
 {
@@ -77,7 +77,7 @@ where
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn router<I: Service<S>, S: crate::api::State>() -> Router<ApiContext<S>> {
+pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S>> {
     Router::new()
         // /{prefix}/namespaces/{namespace}/views
         .route(

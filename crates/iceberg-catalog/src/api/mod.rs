@@ -5,11 +5,11 @@ pub use iceberg_ext::catalog::rest::*;
 use uuid::Uuid;
 
 // Used only to group required traits for a State
-pub trait State: Clone + Send + Sync + 'static {}
+pub trait ThreadSafe: Clone + Send + Sync + 'static {}
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
-pub struct ApiContext<S: State> {
+pub struct ApiContext<S: ThreadSafe> {
     pub v1_state: S,
 }
 
