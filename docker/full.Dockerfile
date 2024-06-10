@@ -26,7 +26,7 @@ RUN cd crates/iceberg-catalog && \
     sqlx database create && \
     sqlx migrate run && \
     cd -
-RUN cargo build --release --bin iceberg-rest
+RUN cargo build --release --bin iceberg-catalog
 
 # our final base
 FROM debian:bookworm-slim
@@ -51,7 +51,7 @@ USER $USERNAME
 WORKDIR /home/$USERNAME
 
 # copy the build artifact from the build stage
-COPY --from=builder /app/target/release/iceberg-rest .
+COPY --from=builder /app/target/release/iceberg-catalog .
 
 # # set the startup command to run your binary
-CMD ["./iceberg-rest"]
+CMD ["./iceberg-catalog"]

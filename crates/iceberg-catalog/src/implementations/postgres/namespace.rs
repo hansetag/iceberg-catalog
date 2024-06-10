@@ -466,7 +466,7 @@ pub(crate) mod tests {
         let response = Catalog::list_namespaces(
             &warehouse_id,
             &ListNamespacesQuery {
-                page_token: crate::api::v1::PageToken::NotSpecified,
+                page_token: crate::api::iceberg::v1::PageToken::NotSpecified,
                 page_size: None,
                 parent: None,
             },
