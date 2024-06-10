@@ -1,5 +1,5 @@
 use crate::service::event_publisher::CloudEventsPublisher;
-use axum::Router;
+use axum::{routing::get, Router};
 use iceberg_rest_service::{new_v1_full_router, shutdown_signal, ApiContext};
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer,
@@ -35,6 +35,7 @@ pub fn new_full_router<
     Router::new()
         .nest("/catalog/v1", v1_routes)
         .nest("/management/v1", management_routes)
+        .route("/health", get(|| async { "OK" }))
         .layer((
             SetSensitiveHeadersLayer::new([axum::http::header::AUTHORIZATION]),
             CompressionLayer::new(),

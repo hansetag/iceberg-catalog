@@ -104,15 +104,18 @@ impl<
             .await?;
         }
 
-        let project_id = project_from_arg.or(project_from_auth).ok_or_else(|| {
-            let e: IcebergErrorResponse = ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("No project provided".to_string())
-                .r#type("GetConfigNoProjectProvided".to_string())
-                .build()
-                .into();
-            e
-        })?;
+        let project_id = project_from_arg
+            .or(project_from_auth)
+            .or(CONFIG.default_project_id.map(std::convert::Into::into))
+            .ok_or_else(|| {
+                let e: IcebergErrorResponse = ErrorModel::builder()
+                    .code(StatusCode::BAD_REQUEST.into())
+                    .message("No project provided".to_string())
+                    .r#type("GetConfigNoProjectProvided".to_string())
+                    .build()
+                    .into();
+                e
+            })?;
 
         let warehouse_id = if let Some(warehouse_from_arg) = warehouse_from_arg {
             C::get_warehouse_by_name(

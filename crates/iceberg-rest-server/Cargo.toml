@@ -30,6 +30,7 @@ aws-credential-types = { version = "^1.2", optional = true }
 aws-sigv4 = { version = "^1.2", optional = true }
 axum = { workspace = true, optional = true }
 chrono = { workspace = true }
+clap = { workspace = true }
 cloudevents-sdk = { version = "0.7.0" }
 derive_more = { workspace = true }
 flate2 = { workspace = true }
@@ -54,4 +55,3 @@ urlencoding = { workspace = true }
 utoipa = { workspace = true, features = ["uuid"] }
 uuid = { workspace = true }
 veil = { workspace = true }
-clap = { version = "4.5.6", features = ["derive"] }
