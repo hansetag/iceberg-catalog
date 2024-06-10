@@ -1,6 +1,8 @@
-//! Contains Configuration of the SAGA Module
+//! Contains Configuration of the service Module
 use clap::Parser;
 use std::collections::HashSet;
+use url::Url;
+
 use std::convert::Infallible;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -65,7 +67,14 @@ pub struct DynAppConfig {
     pub pg_read_pool_connections: u32,
     #[clap(env = "ICEBERG_REST__PG_WRITE_POOL_CONNECTIONS", default_value = "5")]
     pub pg_write_pool_connections: u32,
+
+    // ------------- NATS CLOUDEVENTS -------------
+    #[clap(env = "ICEBERG_REST__NATS_ADDRESS")]
+    pub nats_address: Option<Url>,
+    #[clap(env = "ICEBERG_REST__NATS_TOPIC")]
+    pub nats_topic: Option<String>,
 }
+
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]
 pub struct ReservedNamespaces(HashSet<String>);
 impl Deref for ReservedNamespaces {
