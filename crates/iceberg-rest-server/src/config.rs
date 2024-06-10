@@ -19,6 +19,11 @@ pub struct DynAppConfig {
         default_value = "https://localhost:8080/catalog/"
     )]
     pub base_uri: url::Url,
+    /// The default Project ID to use. We recommend setting this
+    /// only for singe-project deployments. A single project
+    /// can still contain multiple warehouses.
+    #[clap(env = "ICEBERG_REST__DEFAULT_PROJECT_ID", default_value = None)]
+    pub default_project_id: Option<uuid::Uuid>,
     /// Template to obtain the "prefix" for a warehouse,
     /// may contain `{warehouse_id}` placeholder.
     ///
@@ -82,19 +87,6 @@ impl FromStr for ReservedNamespaces {
 }
 
 impl DynAppConfig {
-    // pub fn s3_signer_uri_for_table(
-    //     &self,
-    //     warehouse_id: &WarehouseIdent,
-    //     namespace_id: &NamespaceIdentUuid,
-    //     table_id: &TableIdentUuid,
-    // ) -> url::Url {
-    //     self.base_uri
-    //         .join(&format!(
-    //             "v1/{warehouse_id}/namespace/{namespace_id}/table/{table_id}"
-    //         ))
-    //         .expect("Valid URL")
-    // }
-
     pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: &WarehouseIdent) -> url::Url {
         self.base_uri
             .join(&format!("v1/{warehouse_id}"))

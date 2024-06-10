@@ -1,7 +1,7 @@
 use crate::service::event_publisher::EventPublisher;
 use crate::tracing::RestMakeSpan;
 
-use axum::Router;
+use axum::{routing::get, Router};
 use iceberg_rest_service::{new_v1_full_router, shutdown_signal, ApiContext};
 use tower::ServiceBuilder;
 use tower_http::request_id::MakeRequestUuid;
@@ -40,6 +40,7 @@ pub fn new_full_router<
     Router::new()
         .nest("/catalog/v1", v1_routes)
         .nest("/management/v1", management_routes)
+        .route("/health", get(|| async { "OK" }))
         .layer(axum::middleware::from_fn(
             crate::request_metadata::set_request_metadata,
         ))

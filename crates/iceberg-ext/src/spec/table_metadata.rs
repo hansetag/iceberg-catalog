@@ -67,17 +67,6 @@ impl PartitionSpecExt for PartitionSpec {
     }
 }
 
-macro_rules! extract {
-    ($field_to_extract:ident, $update_operation:path, $from_update:expr) => {
-        match $from_update {
-            $update_operation {
-                $field_to_extract, ..
-            } => Some($field_to_extract),
-            _ => None,
-        }
-    };
-}
-
 type Result<T> = std::result::Result<T, ErrorModel>;
 
 #[derive(Debug)]
@@ -111,16 +100,17 @@ impl TableMetadataAggregate {
     pub fn new(location: String, schema: Schema) -> Self {
         // ToDo: Assign fresh IDs?
         // https://github.com/apache/iceberg/blob/6a594546b06df9fb75dd7e9713a8dc173e67c870/core/src/main/java/org/apache/iceberg/TableMetadata.java#L119
+        let schema_id = schema.schema_id();
         Self {
             metadata: TableMetadata {
                 format_version: FormatVersion::V2,
                 table_uuid: Uuid::now_v7(),
-                location,
+                location: location.clone(),
                 last_sequence_number: 0,
                 last_updated_ms: chrono::Utc::now().timestamp_millis(),
                 last_column_id: schema.highest_field_id(),
-                current_schema_id: schema.schema_id(),
-                schemas: HashMap::from_iter(vec![(schema.schema_id(), schema.into())]),
+                current_schema_id: schema_id,
+                schemas: HashMap::from_iter(vec![(schema.schema_id(), schema.clone().into())]),
                 partition_specs: HashMap::new(),
                 default_spec_id: DEFAULT_SPEC_ID - 1,
                 last_partition_id: Self::PARTITION_DATA_ID_START - 1,
@@ -133,8 +123,14 @@ impl TableMetadataAggregate {
                 default_sort_order_id: DEFAULT_SORT_ORDER_ID - 1,
                 refs: HashMap::default(),
             },
-            changes: Vec::default(),
-            last_added_schema_id: None,
+            changes: vec![
+                TableUpdate::AddSchema {
+                    schema,
+                    last_column_id: None,
+                },
+                TableUpdate::SetLocation { location },
+            ],
+            last_added_schema_id: Some(schema_id),
             last_added_spec_id: None,
             last_added_order_id: None,
         }
@@ -279,17 +275,7 @@ impl TableMetadataAggregate {
         let schema_found = self.metadata.schemas.contains_key(&new_schema_id);
 
         if schema_found && new_last_column_id == self.metadata.last_column_id {
-            // the new spec and last column id is already current and no change is needed
-            // update lastAddedSchemaId if the schema was added in this set of changes (since it is now
-            // the last)
-            let is_new_schema = self.last_added_schema_id.map_or(false, |id| {
-                self.changes
-                    .iter()
-                    .find_map(|update| extract!(schema, TableUpdate::AddSchema, update))
-                    .is_some_and(|schema| schema.schema_id().eq(&id))
-            });
-
-            self.last_added_schema_id = is_new_schema.then_some(new_schema_id);
+            self.last_added_schema_id = Some(new_schema_id);
 
             return Ok(self);
         }
@@ -458,17 +444,7 @@ impl TableMetadataAggregate {
         let new_spec_id = self.reuse_or_create_new_spec_id(&spec);
 
         if self.metadata.partition_specs.contains_key(&new_spec_id) {
-            // update lastAddedSpecId if the spec was added in this set of changes (since it is now the
-            // last)
-            let is_new_spec = self.last_added_spec_id.map_or(false, |id| {
-                self.changes
-                    .iter()
-                    // spec.spec_id should always be some, because we set the final id in this function before adding the change.
-                    .find_map(|update| extract!(spec, TableUpdate::AddSpec, update))
-                    .is_some_and(|spec| spec.spec_id.eq(&Some(id)))
-            });
-
-            self.last_added_spec_id = is_new_spec.then_some(new_spec_id);
+            self.last_added_spec_id = Some(new_spec_id);
 
             return Ok(self);
         }
@@ -562,16 +538,7 @@ impl TableMetadataAggregate {
     pub fn add_sort_order(&mut self, sort_order: SortOrder) -> Result<&mut Self> {
         let new_order_id = self.reuse_or_create_new_sort_id(&sort_order);
         if self.metadata.sort_orders.contains_key(&new_order_id) {
-            // update lastAddedOrderId if the order was added in this set of changes (since it is now
-            // the last)
-            let is_new_order = self.last_added_order_id.map_or(false, |id| {
-                self.changes
-                    .iter()
-                    .find_map(|update| extract!(sort_order, TableUpdate::AddSortOrder, update))
-                    .is_some_and(|sort_order| sort_order.order_id.eq(&id))
-            });
-
-            self.last_added_order_id = is_new_order.then_some(new_order_id);
+            self.last_added_order_id = Some(new_order_id);
 
             return Ok(self);
         }
@@ -1106,6 +1073,28 @@ mod test {
         assert_eq!(metadata.schemas.len(), 2);
         assert!(metadata.schemas.contains_key(&2));
         assert_eq!(metadata.current_schema_id, 1);
+    }
+
+    #[test]
+    fn readd_schema_and_set_current_schema() {
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(TABLE_METADATA.clone());
+        let new_schema = Schema::builder()
+            .with_schema_id(2)
+            .with_fields(vec![Arc::new(NestedField::required(
+                2,
+                "name",
+                Type::Primitive(PrimitiveType::String),
+            ))])
+            .build()
+            .unwrap();
+        assert!(aggregate.add_schema(new_schema.clone(), None).is_ok());
+        let metadata = aggregate.build().expect("Cannot build metadata.");
+        let mut aggregate = TableMetadataAggregate::new_from_metadata(metadata);
+        assert!(aggregate.add_schema(new_schema.clone(), None).is_ok());
+        assert!(aggregate.set_current_schema(-1).is_ok());
+        let metadata = aggregate.build().expect("Cannot build metadata.");
+        assert_eq!(metadata.current_schema_id, 2);
+        assert_eq!(metadata.current_schema(), &Arc::new(new_schema));
     }
 
     #[test]

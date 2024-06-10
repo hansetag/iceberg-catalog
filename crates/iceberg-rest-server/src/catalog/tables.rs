@@ -472,6 +472,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore, P: EventPublisher>
         })?;
         C::drop_table(&warehouse_id, &table_id, transaction.transaction()).await?;
 
+        // ToDo: Delete metadata files
+
         transaction.commit().await?;
 
         emit_change_event(
