@@ -1,10 +1,10 @@
 use anyhow::Context;
 use async_nats::ServerAddr;
 use clap::{Parser, Subcommand};
-use iceberg_rest_server::service::event_publisher::{
+use iceberg_catalog::service::event_publisher::{
     CloudEventSink, CloudEventsPublisher, NatsPublisher,
 };
-use iceberg_rest_server::{
+use iceberg_catalog::{
     implementations::{
         postgres::{Catalog, CatalogState, SecretsState, SecretsStore},
         AllowAllAuthState, AllowAllAuthZHandler,
@@ -34,8 +34,8 @@ enum Commands {
 }
 
 async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
-    let read_pool = iceberg_rest_server::implementations::postgres::get_reader_pool().await?;
-    let write_pool = iceberg_rest_server::implementations::postgres::get_writer_pool().await?;
+    let read_pool = iceberg_catalog::implementations::postgres::get_reader_pool().await?;
+    let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool().await?;
 
     let catalog_state = CatalogState {
         read_pool: read_pool.clone(),
@@ -108,12 +108,11 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Some(Commands::Migrate {}) => {
             println!("Migrating database...");
-            let write_pool =
-                iceberg_rest_server::implementations::postgres::get_writer_pool().await?;
+            let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool().await?;
 
             // This embeds database migrations in the application binary so we can ensure the database
             // is migrated correctly on startup
-            iceberg_rest_server::implementations::postgres::migrate(&write_pool).await?;
+            iceberg_catalog::implementations::postgres::migrate(&write_pool).await?;
             println!("Database migration complete.");
         }
         Some(Commands::Serve {}) => {

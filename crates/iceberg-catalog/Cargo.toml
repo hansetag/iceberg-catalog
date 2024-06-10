@@ -1,5 +1,5 @@
 [package]
-name = "iceberg-rest-server"
+name = "iceberg-catalog"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }

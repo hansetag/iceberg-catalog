@@ -28,7 +28,7 @@ services:
       - ICEBERG_REST__NATS_ADDRESS=nats://nats:4222
       - ICEBERG_REST__NATS_TOPIC=changes
       - RUST_LOG=info
-    entrypoint: [ "bash", "-c", "./iceberg-rest migrate && ./iceberg-rest serve" ]
+    entrypoint: [ "bash", "-c", "./iceberg-catalog migrate && ./iceberg-rest serve" ]
     depends_on:
       db:
         condition: service_healthy

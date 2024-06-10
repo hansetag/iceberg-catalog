@@ -1,5 +1,5 @@
 [package]
-name = "iceberg-rest-bin"
+name = "iceberg-catalog-bin"
 resolver = "2"
 version = { workspace = true }
 edition = { workspace = true }
@@ -14,7 +14,7 @@ especially incorporating a custom AuthZ Handler.
 """
 
 [[bin]]
-name = "iceberg-rest"
+name = "iceberg-catalog"
 path = "src/main.rs"
 
 [features]
@@ -27,7 +27,7 @@ axum = { workspace = true }
 clap = { version = "^4.5", features = ["derive"] }
 headers = { workspace = true }
 http = { workspace = true }
-iceberg-rest-server = { path = "../iceberg-catalog", features = [
+iceberg-catalog = { path = "../iceberg-catalog", features = [
     "sqlx-postgres",
     "api",
     "s3-signer",
