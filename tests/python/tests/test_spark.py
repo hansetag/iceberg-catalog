@@ -262,3 +262,54 @@ def test_alter_partitioning(spark, namespace):
     pdf = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
     assert len(pdf) == 6
     assert sorted(pdf["strings"].tolist()) == ["bar", "bar", "baz", "foo", "foo", "qux"]
+
+
+# def test_tag_create(spark, namespace):
+#     spark.sql(
+#         f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+#     )
+#     spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+#     spark.sql(f"ALTER TABLE {namespace.spark_name}.my_table CREATE TAG first_insert")
+#     spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+#     pdf=spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table VERSION AS OF 'first_insert'").toPandas()
+#     pdf2=spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
+#     assert len(pdf) == 1
+#     assert len(pdf2) == 2
+
+# def test_tag_create_retain_365_days(spark, namespace):
+#     spark.sql(
+#         f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+#     )
+#     spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+#     spark.sql(f"ALTER TABLE {namespace.spark_name}.my_table CREATE TAG first_insert RETAIN 365 DAYS")
+#     spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+#     pdf=spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table VERSION AS OF 'first_insert'").toPandas()
+#     pdf2=spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
+#     assert len(pdf) == 1
+#     assert len(pdf2) == 2
+
+
+#E no refs
+# def test_branch_create(spark, namespace):
+#     spark.sql(
+#         f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+#     )
+#     spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+#     spark.sql(f"ALTER TABLE {namespace.spark_name}.my_table CREATE BRANCH test_branch RETAIN 7 DAYS")
+#     pdf=spark.sql(f"SELECT * FROM {namespace.spark_name}.refs").toPandas()
+#     assert len(pdf) == 2
+
+
+#E                   : org.apache.iceberg.exceptions.BadRequestException: Malformed request: Namespace exceeds maximum depth of 1
+def test_branch_load_data(spark, namespace):
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+    spark.sql(f"ALTER TABLE {namespace.spark_name}.my_table CREATE BRANCH test_branch RETAIN 7 DAYS")
+    spark.sql(f"INSERT INTO {namespace.spark_name}.my_table.branch_test_branch VALUES (2, 1.2, 'bar')")
+    pdf = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
+    pdf_b = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table VERSION AS OF 'test_branch'").toPandas()
+    assert len(pdf) == 1
+    assert len(pdf_b) == 2
+
