@@ -645,7 +645,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
-        let warehouse_id = require_warehouse_id(prefix)?;
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
+        let body = maybe_body_to_json(&request);
         let RenameTableRequest {
             source,
             destination,
@@ -716,6 +717,23 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .into_result()?;
 
         transaction.commit().await?;
+
+        emit_change_event(
+            EventMetadata {
+                table_id: *source_id.as_uuid(),
+                warehouse_id: *warehouse_id.as_uuid(),
+                name: Cow::Borrowed(&source.name),
+                namespace: Cow::Owned(source.namespace.encode_in_url()),
+                prefix: Cow::Owned(prefix.map(Prefix::into_string).unwrap_or_default()),
+                num_events: 1,
+                sequence_number: 0,
+                trace_id: request_metadata.request_id,
+            },
+            body,
+            "renameTable",
+            state.v1_state.publisher.clone(),
+        )
+        .await;
 
         Ok(())
     }
