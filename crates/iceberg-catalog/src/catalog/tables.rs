@@ -20,7 +20,7 @@ use super::{
     namespace::{uppercase_first_letter, validate_namespace_ident},
     require_warehouse_id, CatalogServer,
 };
-use crate::service::contract_verification::ContractVerification;
+use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::StorageCredential;
 use crate::service::{
@@ -451,7 +451,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state
             .v1_state
             .contract_verifiers
-            .check(&updates, table_id, &result.previous_table_metadata)
+            .check(&updates, &result.previous_table_metadata)
             .await?
             .into_result()?;
         // We don't commit the transaction yet, first we need to write the metadata file.
@@ -842,19 +842,21 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             transaction.transaction(),
         )
         .await?;
-
-        for ((update, (_, table_uuid)), response) in updates
-            .into_iter()
-            .zip(&event_table_ids)
+        let futures = updates
+            .iter()
             .zip(&commit_response)
-        {
-            state
-                .v1_state
-                .contract_verifiers
-                .check(&update, *table_uuid, &response.previous_table_metadata)
-                .await?
-                .into_result()?;
-        }
+            .map(|(update, response)| {
+                state
+                    .v1_state
+                    .contract_verifiers
+                    .check(update, &response.previous_table_metadata)
+            });
+
+        futures::future::try_join_all(futures)
+            .await?
+            .into_iter()
+            .map(ContractVerificationOutcome::into_result)
+            .collect::<Result<Vec<()>, ErrorModel>>()?;
 
         // We don't commit the transaction yet, first we need to write the metadata file.
         // Fetch all secrets concurrently
