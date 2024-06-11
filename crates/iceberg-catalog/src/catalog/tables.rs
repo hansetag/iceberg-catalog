@@ -80,7 +80,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     ) -> Result<LoadTableResult> {
         // ------------------- VALIDATIONS -------------------
         let NamespaceParameters { namespace, prefix } = parameters;
-        let warehouse_id = require_warehouse_id(prefix)?;
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
         let table = TableIdent::new(namespace.clone(), request.name.clone());
         validate_table_ident(&table)?;
 
@@ -127,6 +127,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             let metadata_id = uuid::Uuid::now_v7();
             Some(storage_profile.metadata_location(&table_location, &metadata_id))
         };
+
+        // serialize body before moving it
+        let body = maybe_body_to_json(&request);
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let CreateTableResult { table_metadata } = C::create_table(
@@ -178,6 +181,27 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // Metadata file written, now we can commit the transaction
         transaction.commit().await?;
+
+        emit_change_event(
+            EventMetadata {
+                table_id: *table_id.as_uuid(),
+                warehouse_id: *warehouse_id.as_uuid(),
+                name: Cow::Borrowed(&table.name),
+                namespace: Cow::Owned(table.namespace.encode_in_url()),
+                prefix: Cow::Owned(
+                    prefix
+                        .map(iceberg_rest_service::types::Prefix::into_string)
+                        .unwrap_or_default(),
+                ),
+                num_events: 1,
+                sequence_number: 0,
+                trace_id: request_metadata.request_id,
+            },
+            body,
+            "createTable",
+            state.v1_state.publisher.clone(),
+        )
+        .await;
 
         Ok(load_table_result)
     }
