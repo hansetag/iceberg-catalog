@@ -83,3 +83,22 @@ services:
     image: bitnami/nats:latest
     ports:
       - "4222:4222"
+
+  trino:
+    image: trinodb/trino:latest
+    profiles:
+      - trino
+    environment:
+      - CATALOG_MANAGEMENT=dynamic
+      - ICEBERG_REST_TEST_CATALOG_URL=http://server:8080/catalog
+    healthcheck:
+      test: ["CMD", "curl", "-I", "http://localhost:8080/v1/status"]
+      interval: 2s
+      timeout: 10s
+      retries: 2
+      start_period: 10s
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
