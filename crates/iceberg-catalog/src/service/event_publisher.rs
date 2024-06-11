@@ -69,7 +69,7 @@ impl CloudEventsPublisher {
             // type.
             .extension("num-events", num_events.to_string())
             .extension("sequence-number", sequence_number.to_string())
-            // Implement distributed tracing: https://github.com/hansetag/iceberg-rest-server/issues/63
+            // Implement distributed tracing: https://github.com/hansetag/iceberg-catalog/issues/63
             .extension("trace-id", trace_id.to_string())
             .build()?;
 
