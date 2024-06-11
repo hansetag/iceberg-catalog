@@ -13,7 +13,7 @@ services:
       - "8888:8888"
 
   server:
-    image: iceberg-catalog-local:latest
+    image: hansetag/iceberg-catalog:0.0.1
     environment:
       - ICEBERG_REST__BASE_URI=http://server:8080/catalog/
       - ICEBERG_REST__PG_ENCRYPTION_KEY=This-is-NOT-Secure!
