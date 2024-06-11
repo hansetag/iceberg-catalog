@@ -759,7 +759,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         for commit_table_request in &request.table_changes {
             if let Some(id) = &commit_table_request.identifier {
                 if let Some(uuid) = table_ids.get(id) {
-                    events.push(maybe_body_to_json(&commit_table_request));
+                    events.push(maybe_body_to_json(commit_table_request));
                     event_table_ids.push((id.clone(), *uuid));
                 }
             }
