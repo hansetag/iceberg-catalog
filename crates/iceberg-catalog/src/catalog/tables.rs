@@ -11,7 +11,7 @@ use crate::api::{
     RegisterTableRequest, RenameTableRequest, RequestMetadata,
 };
 use http::StatusCode;
-use iceberg::TableUpdate;
+use iceberg::{NamespaceIdent, TableUpdate};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -229,7 +229,20 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
         let warehouse_id = require_warehouse_id(prefix)?;
-        validate_table_ident(&table)?;
+        // ToDo: Remove workaround when hierarchical namespaces are supported.
+        // It is important for now to throw a 404 if a table cannot be found,
+        // because spark might check if `table`.`branch` exists, which should return 404.
+        // Only then will it treat it as a branch.
+        // 404 is returned by the logic in the remainder of this function. Here, we only
+        // need to make sure that we don't fail prematurely on longer namespaces.
+        match validate_table_ident(&table) {
+            Ok(()) => {}
+            Err(e) => {
+                if e.error.r#type != *"NamespaceDepthExceeded" {
+                    return Err(e);
+                }
+            }
+        }
 
         // ------------------- AUTHZ -------------------
         let include_stage = false;
@@ -304,8 +317,42 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     ) -> Result<CommitTableResponse> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(parameters.prefix.clone())?;
+
+        if let Some(identifier) = &request.identifier {
+            if identifier != &parameters.table {
+                // When querying a branch, spark sends something like:
+                // namespace: (<my>, <namespace>, <table_name>)
+                // table_name: branch_<branch_name>
+                let ns_parts = parameters.table.namespace.clone().inner();
+                let table_name_candidate = if ns_parts.len() >= 2 {
+                    NamespaceIdent::from_vec(
+                        ns_parts.iter().take(ns_parts.len() - 1).cloned().collect(),
+                    )
+                    .ok()
+                    .map(|n| TableIdent::new(n, ns_parts.last().cloned().unwrap_or_default()))
+                } else {
+                    None
+                };
+
+                if table_name_candidate != Some(identifier.clone()) {
+                    return Err(ErrorModel::builder()
+                        .code(StatusCode::BAD_REQUEST.into())
+                        .message(
+                            "Table identifier in path does not match the one in the request body"
+                                .to_string(),
+                        )
+                        .r#type("TableIdentifierMismatch".to_string())
+                        .build()
+                        .into());
+                }
+            }
+        }
+
         if request.identifier.is_none() {
             request.identifier = Some(parameters.table.clone());
+        }
+        if let Some(ref mut identifier) = request.identifier {
+            validate_table_ident(identifier)?;
         }
         // Make it non-mutable again for our sanity
         let request = request;
@@ -756,10 +803,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // serialize request body before moving it here
         let mut events = vec![];
         let mut event_table_ids: Vec<(TableIdent, TableIdentUuid)> = vec![];
-        for req in &request.table_changes {
-            if let Some(id) = &req.identifier {
+        for commit_table_request in &request.table_changes {
+            if let Some(id) = &commit_table_request.identifier {
                 if let Some(uuid) = table_ids.get(id) {
-                    events.push(maybe_body_to_json(&request));
+                    events.push(maybe_body_to_json(commit_table_request));
                     event_table_ids.push((id.clone(), *uuid));
                 }
             }
