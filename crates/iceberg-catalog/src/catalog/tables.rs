@@ -756,10 +756,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // serialize request body before moving it here
         let mut events = vec![];
         let mut event_table_ids: Vec<(TableIdent, TableIdentUuid)> = vec![];
-        for req in &request.table_changes {
-            if let Some(id) = &req.identifier {
+        for commit_table_request in &request.table_changes {
+            if let Some(id) = &commit_table_request.identifier {
                 if let Some(uuid) = table_ids.get(id) {
-                    events.push(maybe_body_to_json(&request));
+                    events.push(maybe_body_to_json(&commit_table_request));
                     event_table_ids.push((id.clone(), *uuid));
                 }
             }
