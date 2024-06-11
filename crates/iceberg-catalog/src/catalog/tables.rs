@@ -236,9 +236,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // 404 is returned by the logic in the remainder of this function. Here, we only
         // need to make sure that we don't fail prematurely on longer namespaces.
         match validate_table_ident(&table) {
-            Ok(_) => {}
+            Ok(()) => {}
             Err(e) => {
-                if e.error.r#type != "NamespaceDepthExceeded".to_string() {
+                if e.error.r#type != *"NamespaceDepthExceeded" {
                     return Err(e);
                 }
             }
