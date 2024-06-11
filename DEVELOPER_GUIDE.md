@@ -6,8 +6,7 @@ one.:
 ```sh
 docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:15
 ```
-
-The server crate folder that uses SQLx contains a `.env.sample` File.
+The `crates/iceberg-catalog` folder contains a `.env.sample` File.
 Copy this file to `.env` and add your database credentials if they differ.
 
 Run:
