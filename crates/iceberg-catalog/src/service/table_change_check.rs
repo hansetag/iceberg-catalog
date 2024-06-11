@@ -122,9 +122,12 @@ impl TableCheckResult {
     /// ```rust
     ///     use iceberg_catalog::service::table_change_check::TableCheckResult;
     ///     use iceberg_ext::catalog::rest::ErrorModel;
-    ///     let result: Result<TableCheckResult, ErrorModel> = Ok(TableCheckResult::Clear {});
-    ///     // no need to match on the result
-    ///     result?.into_result()?;
+    ///
+    ///     fn my_handler() -> Result<(), ErrorModel> {
+    ///         let result: Result<TableCheckResult, ErrorModel> = Ok(TableCheckResult::Clear {});
+    ///         result?.into_result()?;
+    ///         Ok(())
+    ///     }
     /// ```
     ///
     /// # Errors
