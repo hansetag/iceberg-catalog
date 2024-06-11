@@ -371,7 +371,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // serialize body before moving it
         let body = maybe_body_to_json(&request);
 
-        let updates = copy_updates(updates);
+        let updates = clone_updates(updates);
 
         let transaction_request = CommitTransactionRequest {
             table_changes: vec![request],
@@ -783,7 +783,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 if let Some(uuid) = table_ids.get(id) {
                     events.push(maybe_body_to_json(commit_table_request));
                     event_table_ids.push((id.clone(), *uuid));
-                    updates.push(copy_updates(&commit_table_request.updates));
+                    updates.push(clone_updates(&commit_table_request.updates));
                 }
             }
         }
@@ -795,6 +795,19 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             transaction.transaction(),
         )
         .await?;
+
+        for ((update, (_, table_uuid)), response) in updates
+            .into_iter()
+            .zip(&event_table_ids)
+            .zip(&commit_response)
+        {
+            state
+                .v1_state
+                .contract_verifiers
+                .check(&update, *table_uuid, &response.previous_table_metadata)
+                .await?
+                .into_result()?;
+        }
 
         // We don't commit the transaction yet, first we need to write the metadata file.
         // Fetch all secrets concurrently
@@ -840,19 +853,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 &r.commit_response.metadata,
                 io,
             ));
-        }
-
-        for ((update, (_, table_uuid)), response) in updates
-            .into_iter()
-            .zip(&event_table_ids)
-            .zip(&commit_response)
-        {
-            state
-                .v1_state
-                .contract_verifiers
-                .check(&update, *table_uuid, &response.previous_table_metadata)
-                .await?
-                .into_result()?;
         }
 
         futures::future::try_join_all(write_futures).await?;
@@ -967,7 +967,7 @@ fn maybe_body_to_json(request: impl Serialize) -> serde_json::Value {
 }
 
 // TableUpdate is not clone but all containing fields are so we use this function to clone..
-fn copy_updates(updates: &[TableUpdate]) -> Vec<TableUpdate> {
+fn clone_updates(updates: &[TableUpdate]) -> Vec<TableUpdate> {
     updates
         .iter()
         .map(|u| match u {

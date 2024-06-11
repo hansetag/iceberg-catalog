@@ -34,7 +34,6 @@ use std::sync::Arc;
 ///         async fn check(
 ///             &self,
 ///             _table_updates: &[TableUpdate],
-///             _table_ident_uuid: TableIdentUuid,
 ///             _current_metadata: &TableMetadata,
 ///         ) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Clear {})
@@ -63,7 +62,6 @@ use std::sync::Arc;
 ///         async fn check(
 ///             &self,
 ///             _table_updates: &[TableUpdate],
-///             _table_ident_uuid: TableIdentUuid,
 ///             _current_metadata: &TableMetadata,
 ///         ) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Violation {
@@ -109,7 +107,6 @@ pub trait ContractVerification: Debug {
     async fn check(
         &self,
         table_updates: &[TableUpdate],
-        table_ident_uuid: TableIdentUuid,
         current_metadata: &TableMetadata,
     ) -> Result<ContractVerificationOutcome, ErrorModel>;
 
@@ -187,20 +184,16 @@ impl ContractVerification for ContractVerifiers {
     async fn check(
         &self,
         table_updates: &[TableUpdate],
-        table_ident_uuid: TableIdentUuid,
         current_metadata: &TableMetadata,
     ) -> Result<ContractVerificationOutcome, ErrorModel> {
         for checker in &self.checkers {
-            match checker
-                .check(table_updates, table_ident_uuid, current_metadata)
-                .await
-            {
+            match checker.check(table_updates, current_metadata).await {
                 Ok(ContractVerificationOutcome::Clear {}) => {}
                 Ok(block_result @ ContractVerificationOutcome::Violation { error_model: _ }) => {
                     tracing::info!(
-                        "Checker {} blocked change on table '{}'",
+                        "ContractVerifier '{}' blocked change on table '{}'",
                         checker.name(),
-                        table_ident_uuid
+                        current_metadata.table_uuid
                     );
                     return Ok(block_result);
                 }
@@ -222,14 +215,14 @@ impl ContractVerification for ContractVerifiers {
                 Ok(ContractVerificationOutcome::Clear {}) => {}
                 Ok(block_result @ ContractVerificationOutcome::Violation { error_model: _ }) => {
                     tracing::info!(
-                        "Checker {} blocked drop on table '{}'",
+                        "ContractVerifier '{}' blocked drop on table '{}'",
                         checker.name(),
                         table_ident_uuid
                     );
                     return Ok(block_result);
                 }
                 Err(error) => {
-                    tracing::warn!("Checker {} failed", checker.name());
+                    tracing::warn!("ContractVerifier '{}' failed", checker.name());
                     return Err(error);
                 }
             }
@@ -247,7 +240,7 @@ impl ContractVerification for ContractVerifiers {
                 Ok(ContractVerificationOutcome::Clear {}) => {}
                 Ok(block_result @ ContractVerificationOutcome::Violation { error_model: _ }) => {
                     tracing::info!(
-                        "Checker {} blocked rename from '{}' to '{:?}'",
+                        "ContractVerifier '{}' blocked rename from '{}' to '{:?}'",
                         checker.name(),
                         source,
                         destination
@@ -255,7 +248,7 @@ impl ContractVerification for ContractVerifiers {
                     return Ok(block_result);
                 }
                 Err(error) => {
-                    tracing::warn!("Checker {} failed", checker.name());
+                    tracing::warn!("ContractVerifier '{}' failed", checker.name());
                     return Err(error);
                 }
             }
