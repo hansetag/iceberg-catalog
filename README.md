@@ -15,7 +15,8 @@ The Iceberg REST Protocol has become the standard for catalogs in open Lakehouse
 We have started this implementation because we were missing "OPENNESS" such as customizability, support for on-premise deployments and other features that are important for us in existing Iceberg Catalogs. Please find following some of our focuses with this implementation:
 
 - **Customizable**: If you already manage Access to Tables in your company somewhere else or need the catalog to stream change events to a different system, you can do so by implementing a few methods. Please find more details in the [Customization Guide](CUSTOMIZING.md).
-- **Change Events**: Built-in support to emit change events (CloudEvents), which enables you to react to any change that happen to your tables. Changes can also be prohibited by external systems using our request / response handler. This can be used to prohibit changes to tables that would validate Data Contracts, Quality SLOs etc.
+- **Change Events**: Built-in support to emit change events (CloudEvents), which enables you to react to any change that happen to your tables.
+- **Change Approval**: Changes can also be prohibited by external systems. This can be used to prohibit changes to tables that would validate Data Contracts, Quality SLOs etc. Simply integrate with your own change approval via our `TableChangeCheck` trait.
 - **Multi-Tenant capable**: A single deployment of our catalog can serve multiple projects - all with a single entrypoint. All Iceberg and Warehouse configurations are completly separated between Warehouses.
 - **Written in Rust**: Single 18Mb all-in-one binary - no JVM or Python env required.
 - **Storage Access Management**: Built-in S3-Signing that enables support for self-hosted as well as AWS S3 WITHOUT sharing S3 credentials with clients.

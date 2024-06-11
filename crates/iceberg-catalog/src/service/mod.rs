@@ -6,6 +6,7 @@ pub mod event_publisher;
 pub mod router;
 pub mod secrets;
 pub mod storage;
+pub mod table_change_check;
 
 pub use catalog::{
     Catalog, CommitTableResponseExt, CreateTableResult, GetStorageConfigResult,
@@ -20,6 +21,7 @@ use iceberg::NamespaceIdent;
 use std::str::FromStr;
 
 use crate::service::event_publisher::CloudEventsPublisher;
+use crate::service::table_change_check::TableChangeCheckers;
 pub use secrets::{SecretIdent, SecretStore};
 
 use self::auth::AuthZHandler;
@@ -60,6 +62,7 @@ pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
     pub catalog: C::State,
     pub secrets: S::State,
     pub publisher: CloudEventsPublisher,
+    pub table_change_checkers: TableChangeCheckers,
 }
 
 impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}

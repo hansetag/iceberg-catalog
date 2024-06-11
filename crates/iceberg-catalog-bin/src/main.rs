@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use iceberg_catalog::service::event_publisher::{
     CloudEventSink, CloudEventsPublisher, NatsPublisher,
 };
+use iceberg_catalog::service::table_change_check::TableChangeCheckers;
 use iceberg_catalog::{
     implementations::{
         postgres::{Catalog, CatalogState, SecretsState, SecretsStore},
@@ -81,6 +82,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         CloudEventsPublisher {
             sinks: cloud_event_sinks,
         },
+        TableChangeCheckers::new(vec![]),
     );
 
     service_serve(listener, router).await?;

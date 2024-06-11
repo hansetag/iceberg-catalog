@@ -71,6 +71,7 @@ pub struct GetStorageConfigResult {
 pub struct CommitTableResponseExt {
     pub commit_response: CommitTableResponse,
     pub storage_config: GetStorageConfigResult,
+    pub previous_table_metadata: TableMetadata,
 }
 
 #[async_trait::async_trait]

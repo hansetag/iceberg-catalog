@@ -3,6 +3,7 @@ use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
 
 use crate::api::management::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
+use crate::service::table_change_check::TableChangeCheckers;
 use axum::{routing::get, Router};
 use tower::ServiceBuilder;
 use tower_http::{
@@ -29,6 +30,7 @@ pub fn new_full_router<
     catalog_state: C::State,
     secrets_state: S::State,
     publisher: CloudEventsPublisher,
+    table_change_checkers: TableChangeCheckers,
 ) -> Router {
     let v1_routes = new_v1_full_router::<
         crate::catalog::ConfigServer<CP, C, AH, A>,
@@ -66,6 +68,7 @@ pub fn new_full_router<
                 catalog: catalog_state,
                 secrets: secrets_state,
                 publisher,
+                table_change_checkers,
             },
         })
 }
