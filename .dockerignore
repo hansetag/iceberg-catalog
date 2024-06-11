@@ -2,4 +2,4 @@
 target
 Dockerfile
 **/Dockerfile
-!target/release/iceberg-rest
+!target/release/iceberg-catalog

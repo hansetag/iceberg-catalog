@@ -22,7 +22,7 @@ USER $USERNAME
 WORKDIR /home/$USERNAME
 
 # copy the build artifact from the build stage
-COPY ./target/release/iceberg-rest .
+COPY ./target/release/iceberg-catalog .
 
 # # set the startup command to run your binary
-CMD ["./iceberg-rest"]
+CMD ["./iceberg-catalog"]
