@@ -14,7 +14,8 @@ services:
       - ICEBERG_REST_TEST_CATALOG_URL=http://server:8080/catalog
       - ICEBERG_REST_TEST_S3_REGION=local
     depends_on:
-      - server
+      server:
+        condition: service_healthy
     volumes:
       - .:/opt/tests
 
@@ -28,7 +29,13 @@ services:
       - ICEBERG_REST__NATS_ADDRESS=nats://nats:4222
       - ICEBERG_REST__NATS_TOPIC=changes
       - RUST_LOG=info
-    entrypoint: [ "bash", "-c", "./iceberg-rest migrate && ./iceberg-rest serve" ]
+    entrypoint: [ "bash", "-c", "./iceberg-catalog migrate && ./iceberg-catalog serve" ]
+    healthcheck:
+      test: [ "CMD", "bash", "-c", "./iceberg-catalog healthcheck" ]
+      interval: 2s
+      timeout: 10s
+      retries: 2
+      start_period: 10s
     depends_on:
       db:
         condition: service_healthy

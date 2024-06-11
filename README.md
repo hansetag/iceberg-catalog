@@ -3,8 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Build Status][actions-badge]][actions-url]
 
-[actions-badge]: https://github.com/hansetag/iceberg-rest-server/workflows/CI/badge.svg?branch=main
-[actions-url]: https://github.com/hansetag/iceberg-rest-server/actions?query=workflow%3ACI+branch%3Amain
+[actions-badge]: https://github.com/hansetag/iceberg-catalog/workflows/CI/badge.svg?branch=main
 
 This is TIP: A Rust-native implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification based on [apache/iceberg-rust](https://github.com/apache/iceberg-rust).
 
@@ -30,8 +29,8 @@ Please find following an overview of currently supported features. Please also c
 We have prepared a self-contained docker-compose file to demonstrate the usage of `spark` with our catalog:
 
 ```sh
-git clone https://github.com/hansetag/iceberg-rest-server.git
-cd iceberg-rest-server/examples
+git clone https://github.com/hansetag/iceberg-catalog.git
+cd iceberg-catalog/examples
 docker compose up
 ```
 
@@ -110,9 +109,14 @@ The iceberg-rest server can host multiple independent warehouses that are again 
 
 ```
 
-All warehouses use isolated namespaces and can be configured in client by specifying `warehouse` as `'<project-uuid>/<warehouse-name>'`. Warehouse Names inside Projects must be unique. We recommend using human readable names for warehouses.
+All warehouses use isolated namespaces and can be configured in client by specifying `warehouse`
+as `'<project-uuid>/<warehouse-name>'`. Warehouse Names inside Projects must be unique. We recommend using human
+readable names for warehouses.
 
-If you do not need the hierarchy level of projects, set the `ICEBERG_REST__DEFAULT_PROJECT_ID` environment variable to the project you want to use. For single project deployments we recommend using the NULL UUID ("00000000-0000-0000-0000-000000000000") as project-id. Users then just specify `warehouse` as `<warehouse-name>` when connecting.
+If you do not need the hierarchy level of projects, set the `ICEBERG_REST__DEFAULT_PROJECT_ID` environment variable to
+the project you want to use. For single project deployments we recommend using the NULL UUID ("
+00000000-0000-0000-0000-000000000000") as project-id. Users then just specify `warehouse` as `<warehouse-name>` when
+connecting.
 
 # Configuration
 
@@ -147,5 +151,7 @@ Configuration parameters if Postgres is used as a backend:
 Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
 
 [open]: https://cdn.jsdelivr.net/gh/Readme-Workflows/Readme-Icons@main/icons/octicons/IssueNeutral.svg
+
 [semi-done]: https://cdn.jsdelivr.net/gh/Readme-Workflows/Readme-Icons@main/icons/octicons/ApprovedChangesGrey.svg
+
 [done]: https://cdn.jsdelivr.net/gh/Readme-Workflows/Readme-Icons@main/icons/octicons/ApprovedChanges.svg

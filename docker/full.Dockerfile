@@ -1,4 +1,4 @@
-# docker build -f docker/full.Dockerfile -t iceberg-rest-local:latest .
+# docker build -f docker/full.Dockerfile -t iceberg-catalog-local:latest .
 FROM rust:1.78 AS chef
 # We only pay the installation cost once, 
 # it will be cached from the second build onwards
@@ -21,12 +21,12 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
-RUN cd crates/iceberg-rest-server && \
+RUN cd crates/iceberg-catalog && \
     echo "DATABASE_URL=$DATABASE_URL" && \
     sqlx database create && \
     sqlx migrate run && \
     cd -
-RUN cargo build --release --bin iceberg-rest
+RUN cargo build --release --bin iceberg-catalog
 
 # our final base
 FROM debian:bookworm-slim
@@ -51,7 +51,7 @@ USER $USERNAME
 WORKDIR /home/$USERNAME
 
 # copy the build artifact from the build stage
-COPY --from=builder /app/target/release/iceberg-rest .
+COPY --from=builder /app/target/release/iceberg-catalog .
 
 # # set the startup command to run your binary
-CMD ["./iceberg-rest"]
+CMD ["./iceberg-catalog"]

@@ -1,9 +1,8 @@
 [workspace]
 members = [
     "crates/iceberg-ext",
-    "crates/iceberg-rest-bin",
-    "crates/iceberg-rest-server",
-    "crates/iceberg-rest-service",
+    "crates/iceberg-catalog-bin",
+    "crates/iceberg-catalog",
 ]
 resolver = "2"
 
