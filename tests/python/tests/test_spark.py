@@ -36,12 +36,12 @@ def test_drop_namespace(spark, warehouse: conftest.Warehouse):
 
 
 def test_create_table(spark, warehouse: conftest.Warehouse):
-    spark.sql("CREATE NAMESPACE test_create_table")
+    spark.sql("CREATE NAMESPACE test_create_table_spark")
     spark.sql(
-        "CREATE TABLE test_create_table.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+        "CREATE TABLE test_create_table_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
     )
     loaded_table = warehouse.pyiceberg_catalog.load_table(
-        ("test_create_table", "my_table")
+        ("test_create_table_spark", "my_table")
     )
     assert len(loaded_table.schema().fields) == 3
 
@@ -262,3 +262,96 @@ def test_alter_partitioning(spark, namespace):
     pdf = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
     assert len(pdf) == 6
     assert sorted(pdf["strings"].tolist()) == ["bar", "bar", "baz", "foo", "foo", "qux"]
+
+
+def test_tag_create(spark, namespace):
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+    spark.sql(f"ALTER TABLE {namespace.spark_name}.my_table CREATE TAG first_insert")
+    spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+    pdf = spark.sql(
+        f"SELECT * FROM {namespace.spark_name}.my_table VERSION AS OF 'first_insert'"
+    ).toPandas()
+    pdf2 = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
+    assert len(pdf) == 1
+    assert len(pdf2) == 2
+
+
+def test_tag_create_retain_365_days(spark, namespace):
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+    spark.sql(
+        f"ALTER TABLE {namespace.spark_name}.my_table CREATE TAG first_insert RETAIN 365 DAYS"
+    )
+    spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+    pdf = spark.sql(
+        f"SELECT * FROM {namespace.spark_name}.my_table VERSION AS OF 'first_insert'"
+    ).toPandas()
+    pdf2 = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
+    assert len(pdf) == 1
+    assert len(pdf2) == 2
+
+
+def test_branch_create(spark, namespace):
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+    spark.sql(
+        f"ALTER TABLE {namespace.spark_name}.my_table CREATE BRANCH test_branch RETAIN 7 DAYS"
+    )
+    pdf = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table.refs").toPandas()
+    assert len(pdf) == 2
+
+
+def test_branch_load_data(spark, namespace):
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo')")
+    spark.sql(
+        f"ALTER TABLE {namespace.spark_name}.my_table CREATE BRANCH test_branch RETAIN 7 DAYS"
+    )
+    spark.sql(
+        f"INSERT INTO {namespace.spark_name}.my_table.branch_test_branch VALUES (2, 1.2, 'bar')"
+    )
+    pdf = spark.sql(f"SELECT * FROM {namespace.spark_name}.my_table").toPandas()
+    pdf_b = spark.sql(
+        f"SELECT * FROM {namespace.spark_name}.my_table.`branch_test_branch`"
+    ).toPandas()
+    assert len(pdf) == 1
+    assert len(pdf_b) == 2
+
+
+def test_table_maintenance_optimize(spark, namespace, warehouse: conftest.Warehouse):
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(
+        f"INSERT INTO {namespace.spark_name}.my_table VALUES (1, 1.2, 'foo'), (2, 2.2, 'bar')"
+    )
+
+    for i in range(5):
+        spark.sql(
+            f"INSERT INTO {namespace.spark_name}.my_table VALUES ({i}, 5.2, 'foo')"
+        )
+
+    number_files_begin = spark.sql(
+        f"SELECT file_path FROM {namespace.spark_name}.my_table.files"
+    ).toPandas()
+
+    rewrite_result = spark.sql(
+        f"CALL test.system.rewrite_data_files(table=>'{namespace.spark_name}.my_table', options=>map('rewrite-all', 'true'))"
+    ).toPandas()
+    print(rewrite_result)
+
+    number_files_end = spark.sql(
+        f"SELECT file_path FROM {namespace.spark_name}.my_table.files"
+    ).toPandas()
+
+    assert len(number_files_begin) > 1
+    assert len(number_files_end) == 1
