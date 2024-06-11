@@ -1,12 +1,12 @@
 pub mod auth;
 mod catalog;
 pub mod config;
+pub mod contract_verification;
 pub mod event_publisher;
 #[cfg(feature = "router")]
 pub mod router;
 pub mod secrets;
 pub mod storage;
-pub mod table_change_check;
 
 pub use catalog::{
     Catalog, CommitTableResponseExt, CreateTableResult, GetStorageConfigResult,
@@ -20,8 +20,8 @@ use http::StatusCode;
 use iceberg::NamespaceIdent;
 use std::str::FromStr;
 
+use crate::service::contract_verification::ContractVerifiers;
 use crate::service::event_publisher::CloudEventsPublisher;
-use crate::service::table_change_check::TableChangeCheckers;
 pub use secrets::{SecretIdent, SecretStore};
 
 use self::auth::AuthZHandler;
@@ -62,7 +62,7 @@ pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
     pub catalog: C::State,
     pub secrets: S::State,
     pub publisher: CloudEventsPublisher,
-    pub table_change_checkers: TableChangeCheckers,
+    pub contract_verifiers: ContractVerifiers,
 }
 
 impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}

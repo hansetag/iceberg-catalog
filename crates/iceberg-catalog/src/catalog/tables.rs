@@ -20,9 +20,9 @@ use super::{
     namespace::{uppercase_first_letter, validate_namespace_ident},
     require_warehouse_id, CatalogServer,
 };
+use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::StorageCredential;
-use crate::service::table_change_check::TableChangeCheck;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResult,
     LoadTableResult as CatalogLoadTableResult, State, Transaction,
@@ -403,7 +403,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         )?;
         state
             .v1_state
-            .table_change_checkers
+            .contract_verifiers
             .check(&updates, table_id, &result.previous_table_metadata)
             .await?
             .into_result()?;
@@ -503,7 +503,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ToDo: Delete metadata files
         state
             .v1_state
-            .table_change_checkers
+            .contract_verifiers
             .check_drop(table_id)
             .await?
             .into_result()?;
@@ -660,6 +660,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             transaction.transaction(),
         )
         .await?;
+
+        state
+            .v1_state
+            .contract_verifiers
+            .check_rename(source_id, &destination)
+            .await?
+            .into_result()?;
 
         transaction.commit().await?;
 
@@ -842,7 +849,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         {
             state
                 .v1_state
-                .table_change_checkers
+                .contract_verifiers
                 .check(&update, *table_uuid, &response.previous_table_metadata)
                 .await?
                 .into_result()?;
