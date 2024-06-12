@@ -1,0 +1,170 @@
+use anyhow::Context;
+use axum::extract::{Request, State};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
+use http::header::AUTHORIZATION;
+use http::{HeaderMap, StatusCode};
+use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
+use jsonwebtoken::errors::ErrorKind;
+use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
+use jwks_client_rs::source::WebSource;
+use jwks_client_rs::JwksClientError::Error;
+use jwks_client_rs::{JsonWebKey, JwksClient, JwksClientError};
+use serde::de::DeserializeOwned;
+use serde_json::json;
+use std::fmt::{Debug, Display};
+use std::str::FromStr;
+use url::Url;
+
+#[derive(Clone)]
+pub struct Verifier {
+    pub client: JwksClient<WebSource>,
+}
+
+impl Debug for Verifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Verifier").finish()
+    }
+}
+
+impl Verifier {
+    pub fn new(url: Url) -> anyhow::Result<Self> {
+        let source = WebSource::builder()
+            .build(url)
+            .context("Constructing websource for jwks failed")?;
+        let client = JwksClient::builder().build(source);
+        Ok(Self { client })
+    }
+
+    // this function is mostly lifted out of jwks_client_rs which is incompatible with azure jwks.
+    async fn decode<O: DeserializeOwned>(
+        &self,
+        token: &str,
+        audience: &[impl ToString],
+    ) -> Result<O, ErrorModel> {
+        let header: Header = jsonwebtoken::decode_header(token).map_err(|e| {
+            ErrorModel::builder()
+                .message("Failed to decode auth token header.")
+                .code(StatusCode::UNAUTHORIZED.into())
+                .r#type("UnauthorizedError")
+                .stack(Some(vec![e.to_string()]))
+                .build()
+        })?;
+
+        fn internal_error(e: impl Display, message: &str) -> ErrorModel {
+            ErrorModel::builder()
+                .message(message)
+                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                .r#type("InternalServerError")
+                .stack(Some(vec![e.to_string()]))
+                .build()
+        }
+
+        if let Some(kid) = header.kid.as_ref() {
+            let key: JsonWebKey = self
+                .client
+                .get_opt(kid)
+                .await
+                .map_err(|e| internal_error(e, "Failed to fetch key from jwks endpoint."))?
+                .ok_or_else(|| {
+                    ErrorModel::builder()
+                        .message("Unknown kid")
+                        .r#type("UnauthorizedError")
+                        .code(StatusCode::UNAUTHORIZED.into())
+                        .build()
+                })?;
+
+            let mut validation = if let Some(alg) = key.alg() {
+                Validation::new(Algorithm::from_str(alg).map_err(|e| {
+                    internal_error(
+                        e,
+                        "Failed to parse algorithm from key obtained from the jwks endpoint.",
+                    )
+                })?)
+            } else {
+                // We need this fallback since e.g. azure's keys at
+                // https://login.microsoftonline.com/common/discovery/keys don't have the alg field
+                Validation::new(header.alg)
+            };
+
+            if !audience.is_empty() {
+                validation.set_audience(audience);
+            }
+
+            let decoding_key = match key {
+                JsonWebKey::Rsa(jwk) => DecodingKey::from_rsa_components(
+                    jwk.modulus(),
+                    jwk.exponent(),
+                )
+                .map_err(|e| {
+                    internal_error(e, "Failed to create rsa decoding key from key components.")
+                })?,
+                JsonWebKey::Ec(jwk) => {
+                    DecodingKey::from_ec_components(jwk.x(), jwk.y()).map_err(|e| {
+                        internal_error(e, "Failed to create ec decoding key from key components.")
+                    })?
+                }
+            };
+            // Can this block the current thread? (should I spawn_blocking?)
+            Ok(jsonwebtoken::decode(token, &decoding_key, &validation)
+                .map_err(|e| {
+                    tracing::debug!("Failed to decode token: {}", e);
+                    ErrorModel::builder()
+                        .message("Failed to decode token.")
+                        .code(StatusCode::UNAUTHORIZED.into())
+                        .r#type("UnauthorizedError")
+                        .stack(Some(vec![e.to_string()]))
+                        .build()
+                })?
+                .claims)
+        } else {
+            Err(ErrorModel::builder()
+                .message("Token header does not contain a key id.")
+                .code(StatusCode::UNAUTHORIZED.into())
+                .r#type("UnauthorizedError")
+                .build())
+        }
+    }
+}
+
+pub(crate) async fn auth_middleware_fn(
+    State(verifier): State<Option<Verifier>>,
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Response {
+    let tok = get_token(&headers);
+
+    if let Some(verifier) = verifier {
+        let Some(token) = tok else {
+            return IcebergErrorResponse::from(
+                ErrorModel::builder()
+                    .message("Unauthorized token missing.")
+                    .code(StatusCode::UNAUTHORIZED.into())
+                    .r#type("UnauthorizedError")
+                    .build(),
+            )
+            .into_response();
+        };
+
+        if let Err(err) = verifier
+            .decode::<serde_json::Value>(
+                token.to_string().strip_prefix("Bearer ").unwrap(),
+                &["755b0595-aa0e-465b-b3c3-0259f9936569"],
+            )
+            .await
+        {
+            tracing::debug!("Failed to verify token: {:?}", err);
+
+            return IcebergErrorResponse::from(err).into_response();
+        }
+    }
+
+    next.run(request).await
+}
+
+fn get_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+}

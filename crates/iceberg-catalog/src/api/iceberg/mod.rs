@@ -27,17 +27,24 @@ pub mod v1 {
         RegisterTableRequest, RenameTableRequest, RequestMetadata, Result,
         UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
     };
+    use crate::service::token_verification::Verifier;
 
     pub fn new_v1_full_router<
         C: config::Service<S>,
         T: namespace::Service<S> + tables::Service<S> + metrics::Service<S> + s3_signer::Service<S>,
         S: ThreadSafe,
-    >() -> Router<ApiContext<S>> {
+    >(
+        verifier: Option<Verifier>,
+    ) -> Router<ApiContext<S>> {
         Router::new()
             .merge(config::router::<C, S>())
             .merge(namespace::router::<T, S>())
             .merge(tables::router::<T, S>())
             .merge(s3_signer::router::<T, S>())
+            .layer(axum::middleware::from_fn_with_state(
+                verifier,
+                crate::service::token_verification::auth_middleware_fn,
+            ))
             .merge(metrics::router::<T, S>())
     }
 

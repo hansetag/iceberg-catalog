@@ -4,6 +4,7 @@ use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
 use crate::api::management::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
 use crate::service::contract_verification::ContractVerifiers;
+use crate::service::token_verification::Verifier;
 use axum::{routing::get, Router};
 use tower::ServiceBuilder;
 use tower_http::{
@@ -31,12 +32,13 @@ pub fn new_full_router<
     secrets_state: S::State,
     publisher: CloudEventsPublisher,
     table_change_checkers: ContractVerifiers,
+    token_verifier: Option<Verifier>,
 ) -> Router {
     let v1_routes = new_v1_full_router::<
         crate::catalog::ConfigServer<CP, C, AH, A>,
         crate::catalog::CatalogServer<C, A, S>,
         State<A, C, S>,
-    >();
+    >(token_verifier);
     let management_routes = Router::new().merge(ApiServer::new_v1_router());
     Router::new()
         .nest("/catalog/v1", v1_routes)
