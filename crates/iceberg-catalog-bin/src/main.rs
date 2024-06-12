@@ -84,9 +84,20 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             sinks: cloud_event_sinks,
         },
         ContractVerifiers::new(vec![]),
-        Some(Verifier::new(
-            "https://login.microsoftonline.com/common/discovery/keys".parse()?,
-        )?),
+        CONFIG
+            .openid_jwks_uri
+            .clone()
+            .map(|uri| {
+                Verifier::new(
+                    uri,
+                    CONFIG
+                        .client_id
+                        .clone()
+                        .map(|v| vec![v])
+                        .unwrap_or_default(),
+                )
+            })
+            .transpose()?,
     );
 
     service_serve(listener, router).await?;

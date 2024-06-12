@@ -2,6 +2,10 @@ use anyhow::Context;
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use axum_extra::{
+    headers::{authorization::Bearer, Authorization},
+    TypedHeader,
+};
 use http::header::AUTHORIZATION;
 use http::{HeaderMap, StatusCode};
 use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
@@ -18,7 +22,8 @@ use url::Url;
 
 #[derive(Clone)]
 pub struct Verifier {
-    pub client: JwksClient<WebSource>,
+    client: JwksClient<WebSource>,
+    audience: Vec<String>,
 }
 
 impl Debug for Verifier {
@@ -28,20 +33,16 @@ impl Debug for Verifier {
 }
 
 impl Verifier {
-    pub fn new(url: Url) -> anyhow::Result<Self> {
+    pub fn new(url: Url, audience: Vec<String>) -> anyhow::Result<Self> {
         let source = WebSource::builder()
             .build(url)
             .context("Constructing websource for jwks failed")?;
         let client = JwksClient::builder().build(source);
-        Ok(Self { client })
+        Ok(Self { client, audience })
     }
 
     // this function is mostly lifted out of jwks_client_rs which is incompatible with azure jwks.
-    async fn decode<O: DeserializeOwned>(
-        &self,
-        token: &str,
-        audience: &[impl ToString],
-    ) -> Result<O, ErrorModel> {
+    async fn decode<O: DeserializeOwned>(&self, token: &str) -> Result<O, ErrorModel> {
         let header: Header = jsonwebtoken::decode_header(token).map_err(|e| {
             ErrorModel::builder()
                 .message("Failed to decode auth token header.")
@@ -87,8 +88,8 @@ impl Verifier {
                 Validation::new(header.alg)
             };
 
-            if !audience.is_empty() {
-                validation.set_audience(audience);
+            if !self.audience.is_empty() {
+                validation.set_audience(&self.audience);
             }
 
             let decoding_key = match key {
@@ -129,33 +130,17 @@ impl Verifier {
 
 pub(crate) async fn auth_middleware_fn(
     State(verifier): State<Option<Verifier>>,
-    headers: HeaderMap,
+    authorization: TypedHeader<Authorization<Bearer>>,
     request: Request,
     next: Next,
 ) -> Response {
-    let tok = get_token(&headers);
-
     if let Some(verifier) = verifier {
-        let Some(token) = tok else {
-            return IcebergErrorResponse::from(
-                ErrorModel::builder()
-                    .message("Unauthorized token missing.")
-                    .code(StatusCode::UNAUTHORIZED.into())
-                    .r#type("UnauthorizedError")
-                    .build(),
-            )
-            .into_response();
-        };
-
-        if let Err(err) = verifier
-            .decode::<serde_json::Value>(
-                token.to_string().strip_prefix("Bearer ").unwrap(),
-                &["755b0595-aa0e-465b-b3c3-0259f9936569"],
-            )
-            .await
-        {
+        if let Err(err) = dbg!(
+            verifier
+                .decode::<serde_json::Value>(authorization.token())
+                .await
+        ) {
             tracing::debug!("Failed to verify token: {:?}", err);
-
             return IcebergErrorResponse::from(err).into_response();
         }
     }
