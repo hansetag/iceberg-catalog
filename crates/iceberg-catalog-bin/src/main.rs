@@ -95,11 +95,11 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     tracing_subscriber::fmt()
-        // Configure the subscriber to emit logs in JSON format.
         .json()
-        // Configure the subscriber to flatten event fields in the output JSON objects.
         .flatten_event(true)
-        // Set the subscriber as the default, returning an error if this fails.
+        .with_current_span(true)
+        .with_file(true)
+        .with_line_number(true)
         .with_env_filter(
             EnvFilter::builder()
                 .with_default_directive(LevelFilter::INFO.into())
