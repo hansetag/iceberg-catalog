@@ -20,6 +20,7 @@ use super::{
     namespace::{uppercase_first_letter, validate_namespace_ident},
     require_warehouse_id, CatalogServer,
 };
+use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::StorageCredential;
 use crate::service::{
@@ -417,6 +418,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // serialize body before moving it
         let body = maybe_body_to_json(&request);
 
+        let updates = clone_updates(updates);
+
         let transaction_request = CommitTransactionRequest {
             table_changes: vec![request],
         };
@@ -445,7 +448,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .r#type("NoResultFromCommitTableTransaction".to_string())
                 .build(),
         )?;
-
+        state
+            .v1_state
+            .contract_verifiers
+            .check(&updates, &result.previous_table_metadata)
+            .await?
+            .into_result()?;
         // We don't commit the transaction yet, first we need to write the metadata file.
         let storage_secret = if let Some(secret_id) = &result.storage_config.storage_secret_ident {
             Some(
@@ -540,6 +548,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         C::drop_table(&warehouse_id, &table_id, transaction.transaction()).await?;
 
         // ToDo: Delete metadata files
+        state
+            .v1_state
+            .contract_verifiers
+            .check_drop(table_id)
+            .await?
+            .into_result()?;
 
         transaction.commit().await?;
 
@@ -631,7 +645,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
-        let warehouse_id = require_warehouse_id(prefix)?;
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
+        let body = maybe_body_to_json(&request);
         let RenameTableRequest {
             source,
             destination,
@@ -694,7 +709,31 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         )
         .await?;
 
+        state
+            .v1_state
+            .contract_verifiers
+            .check_rename(source_id, &destination)
+            .await?
+            .into_result()?;
+
         transaction.commit().await?;
+
+        emit_change_event(
+            EventMetadata {
+                table_id: *source_id.as_uuid(),
+                warehouse_id: *warehouse_id.as_uuid(),
+                name: Cow::Borrowed(&source.name),
+                namespace: Cow::Owned(source.namespace.encode_in_url()),
+                prefix: Cow::Owned(prefix.map(Prefix::into_string).unwrap_or_default()),
+                num_events: 1,
+                sequence_number: 0,
+                trace_id: request_metadata.request_id,
+            },
+            body,
+            "renameTable",
+            state.v1_state.publisher.clone(),
+        )
+        .await;
 
         Ok(())
     }
@@ -803,11 +842,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // serialize request body before moving it here
         let mut events = vec![];
         let mut event_table_ids: Vec<(TableIdent, TableIdentUuid)> = vec![];
+        let mut updates = vec![];
         for commit_table_request in &request.table_changes {
             if let Some(id) = &commit_table_request.identifier {
                 if let Some(uuid) = table_ids.get(id) {
                     events.push(maybe_body_to_json(commit_table_request));
                     event_table_ids.push((id.clone(), *uuid));
+                    updates.push(clone_updates(&commit_table_request.updates));
                 }
             }
         }
@@ -819,6 +860,21 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             transaction.transaction(),
         )
         .await?;
+        let futures = updates
+            .iter()
+            .zip(&commit_response)
+            .map(|(update, response)| {
+                state
+                    .v1_state
+                    .contract_verifiers
+                    .check(update, &response.previous_table_metadata)
+            });
+
+        futures::future::try_join_all(futures)
+            .await?
+            .into_iter()
+            .map(ContractVerificationOutcome::into_result)
+            .collect::<Result<Vec<()>, ErrorModel>>()?;
 
         // We don't commit the transaction yet, first we need to write the metadata file.
         // Fetch all secrets concurrently
@@ -975,4 +1031,66 @@ fn maybe_body_to_json(request: impl Serialize) -> serde_json::Value {
         tracing::warn!("Serializing the request body to json failed, this is very unexpected. It will not be part of any emitted Event.");
         serde_json::Value::Null
     }
+}
+
+// TableUpdate is not clone but all containing fields are so we use this function to clone..
+fn clone_updates(updates: &[TableUpdate]) -> Vec<TableUpdate> {
+    updates
+        .iter()
+        .map(|u| match u {
+            TableUpdate::AddSnapshot { snapshot } => TableUpdate::AddSnapshot {
+                snapshot: snapshot.clone(),
+            },
+            TableUpdate::AssignUuid { uuid } => TableUpdate::AssignUuid { uuid: *uuid },
+            TableUpdate::AddSortOrder { sort_order } => TableUpdate::AddSortOrder {
+                sort_order: sort_order.clone(),
+            },
+            TableUpdate::AddSpec { spec } => TableUpdate::AddSpec { spec: spec.clone() },
+            TableUpdate::AddSchema {
+                schema,
+                last_column_id,
+            } => TableUpdate::AddSchema {
+                schema: schema.clone(),
+                last_column_id: *last_column_id,
+            },
+            TableUpdate::UpgradeFormatVersion { format_version } => {
+                TableUpdate::UpgradeFormatVersion {
+                    format_version: *format_version,
+                }
+            }
+            TableUpdate::SetCurrentSchema { schema_id } => TableUpdate::SetCurrentSchema {
+                schema_id: *schema_id,
+            },
+            TableUpdate::SetDefaultSortOrder { sort_order_id } => {
+                TableUpdate::SetDefaultSortOrder {
+                    sort_order_id: *sort_order_id,
+                }
+            }
+            TableUpdate::RemoveSnapshotRef { ref_name } => TableUpdate::RemoveSnapshotRef {
+                ref_name: ref_name.clone(),
+            },
+            TableUpdate::SetDefaultSpec { spec_id } => {
+                TableUpdate::SetDefaultSpec { spec_id: *spec_id }
+            }
+            TableUpdate::SetSnapshotRef {
+                ref_name,
+                reference,
+            } => TableUpdate::SetSnapshotRef {
+                ref_name: ref_name.clone(),
+                reference: reference.clone(),
+            },
+            TableUpdate::RemoveSnapshots { snapshot_ids } => TableUpdate::RemoveSnapshots {
+                snapshot_ids: snapshot_ids.clone(),
+            },
+            TableUpdate::SetLocation { location } => TableUpdate::SetLocation {
+                location: location.clone(),
+            },
+            TableUpdate::SetProperties { updates } => TableUpdate::SetProperties {
+                updates: updates.clone(),
+            },
+            TableUpdate::RemoveProperties { removals } => TableUpdate::RemoveProperties {
+                removals: removals.clone(),
+            },
+        })
+        .collect()
 }

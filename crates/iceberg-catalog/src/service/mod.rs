@@ -1,6 +1,7 @@
 pub mod auth;
 mod catalog;
 pub mod config;
+pub mod contract_verification;
 pub mod event_publisher;
 #[cfg(feature = "router")]
 pub mod router;
@@ -19,6 +20,7 @@ use http::StatusCode;
 use iceberg::NamespaceIdent;
 use std::str::FromStr;
 
+use crate::service::contract_verification::ContractVerifiers;
 use crate::service::event_publisher::CloudEventsPublisher;
 pub use secrets::{SecretIdent, SecretStore};
 
@@ -60,6 +62,7 @@ pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
     pub catalog: C::State,
     pub secrets: S::State,
     pub publisher: CloudEventsPublisher,
+    pub contract_verifiers: ContractVerifiers,
 }
 
 impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}

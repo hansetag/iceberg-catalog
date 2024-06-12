@@ -688,6 +688,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
         let metadata_location = context
             .storage_profile
             .metadata_location(&previous_location, &metadata_id);
+        let previous_table_metadata = context.metadata.clone();
         let mut builder = TableMetadataAggregate::new_from_metadata(context.metadata);
         for update in context.updates {
             match &update {
@@ -728,6 +729,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
                 storage_secret_ident: context.storage_secret_ident,
                 namespace_id: context.namespace_id,
             },
+            previous_table_metadata,
         });
     }
 

@@ -4,9 +4,11 @@
 [![Build Status][actions-badge]][actions-url]
 
 [actions-badge]: https://github.com/hansetag/iceberg-catalog/workflows/CI/badge.svg?branch=main
+
 [actions-url]: https://github.com/hansetag/iceberg-catalog/actions?query=workflow%3ACI+branch%3Amain
 
-This is TIP: A Rust-native implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification based on [apache/iceberg-rust](https://github.com/apache/iceberg-rust).
+This is TIP: A Rust-native implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog
+specification based on [apache/iceberg-rust](https://github.com/apache/iceberg-rust).
 
 # Scope and Features
 
@@ -15,7 +17,9 @@ This is TIP: A Rust-native implementation of the [Apache Iceberg](https://iceber
 We have started this implementation because we were missing OPENNESS such as customizability, support for on-premise deployments and other features that are important for us in existing Iceberg Catalogs. Please find following some of our focuses with this implementation:
 
 - **Customizable**: If you already manage Access to Tables in your company somewhere else or need the catalog to stream change events to a different system, you can do so by implementing a few methods. Please find more details in the [Customization Guide](CUSTOMIZING.md).
-- **Change Events**: Built-in support to emit change events (CloudEvents), which enables you to react to any change that happen to your tables. Changes can also be prohibited by external systems using our request / response handler. This can be used to prohibit changes to tables that would validate Data Contracts, Quality SLOs etc.
+
+- **Change Events**: Built-in support to emit change events (CloudEvents), which enables you to react to any change that happen to your tables.
+- **Change Approval**: Changes can also be prohibited by external systems. This can be used to prohibit changes to tables that would invalidate Data Contracts, Quality SLOs etc. Simply integrate with your own change approval via our `ContractVerification` trait.
 - **Multi-Tenant capable**: A single deployment of our catalog can serve multiple projects - all with a single entrypoint. All Iceberg and Warehouse configurations are completly separated between Warehouses.
 - **Written in Rust**: Single 18Mb all-in-one binary - no JVM or Python env required.
 - **Storage Access Management**: Built-in S3-Signing that enables support for self-hosted as well as AWS S3 WITHOUT sharing S3 credentials with clients.
@@ -98,7 +102,8 @@ Then open your browser and head to `localhost:8888`.
 
 # Multiple Projects
 
-The iceberg-rest server can host multiple independent warehouses that are again grouped by projects. The overall structure looks like this:
+The iceberg-rest server can host multiple independent warehouses that are again grouped by projects. The overall
+structure looks like this:
 
 ```
 <project-1-uuid>/
@@ -144,7 +149,8 @@ Configuration parameters if Postgres is used as a backend:
 
 # Limitations
 
-- Table Metadata is currently limited to `256Mb` for the `postgres` implementation. If you need more, you should probably vaccum your table ;)
+- Table Metadata is currently limited to `256Mb` for the `postgres` implementation. If you need more, you should
+  probably vaccum your table ;)
 - Views are not supported yet
 
 ## License
