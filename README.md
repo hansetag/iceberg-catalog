@@ -19,7 +19,7 @@ We have started this implementation because we were missing OPENNESS such as cus
 - **Multi-Tenant capable**: A single deployment of our catalog can serve multiple projects - all with a single entrypoint. All Iceberg and Warehouse configurations are completly separated between Warehouses.
 - **Written in Rust**: Single 18Mb all-in-one binary - no JVM or Python env required.
 - **Storage Access Management**: Built-in S3-Signing that enables support for self-hosted as well as AWS S3 WITHOUT sharing S3 credentials with clients.
-- **Well-Tested**: Integration-tested with `spark`, `trino` and `pyiceberg` (support for S3 with this catalog from pyiceberg 0.7.0)
+- **Well-Tested**: Integration-tested with `spark` and `pyiceberg` (support for S3 with this catalog from pyiceberg 0.7.0)
 - **High Available & Horizontally Scalable**: There is no local state - the catalog can be scaled horizontally and updated without downtimes.
 - **Fine Grained Access (FGA) (Coming soon):** Simple Role-Based access control is not enough for many rapidly evolving Data & Analytics initiatives. We are leveraging [OpenFGA](https://openfga.dev/) based on googles [Zanzibar-Paper](https://research.google/pubs/zanzibar-googles-consistent-global-authorization-system/) to implement authorization. If your company already has a different system in place, you can integrate with it by implementing a handful of methods in the `AuthZHandler` trait.
 
