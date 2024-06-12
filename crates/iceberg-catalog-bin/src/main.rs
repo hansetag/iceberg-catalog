@@ -84,10 +84,8 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             sinks: cloud_event_sinks,
         },
         ContractVerifiers::new(vec![]),
-        CONFIG
-            .openid_jwks_uri
-            .clone()
-            .map(|uri| {
+        if let Some(uri) = CONFIG.openid_provider_uri.clone() {
+            Some(
                 Verifier::new(
                     uri,
                     CONFIG
@@ -96,8 +94,11 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
                         .map(|v| vec![v])
                         .unwrap_or_default(),
                 )
-            })
-            .transpose()?,
+                .await?,
+            )
+        } else {
+            None
+        },
     );
 
     service_serve(listener, router).await?;

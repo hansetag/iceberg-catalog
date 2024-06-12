@@ -75,8 +75,8 @@ pub struct DynAppConfig {
     pub nats_topic: Option<String>,
 
     // ------------- AUTHORIZATION -------------
-    #[clap(env = "ICEBERG_REST__OPENID_JWKS_URI")]
-    pub openid_jwks_uri: Option<Url>,
+    #[clap(env = "ICEBERG_REST__OPENID_PROVIDER_URI")]
+    pub openid_provider_uri: Option<Url>,
     #[clap(env = "ICEBERG_REST__OPENID_CLIENT_ID")]
     pub client_id: Option<String>,
 }

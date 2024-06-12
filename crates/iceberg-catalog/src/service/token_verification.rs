@@ -14,7 +14,9 @@ use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use jwks_client_rs::source::WebSource;
 use jwks_client_rs::JwksClientError::Error;
 use jwks_client_rs::{JsonWebKey, JwksClient, JwksClientError};
+
 use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use serde_json::json;
 use std::fmt::{Debug, Display};
 use std::str::FromStr;
@@ -32,11 +34,23 @@ impl Debug for Verifier {
     }
 }
 
+#[derive(Deserialize, Debug)]
+pub struct WellKnownConfig {
+    #[serde(flatten)]
+    other: serde_json::Value,
+    jwks_uri: Url,
+}
+
 impl Verifier {
-    pub fn new(url: Url, audience: Vec<String>) -> anyhow::Result<Self> {
-        let source = WebSource::builder()
-            .build(url)
-            .context("Constructing websource for jwks failed")?;
+    const WELL_KNOWN_CONFIG: &'static str = ".well-known/openid-configuration";
+    pub async fn new(url: Url, audience: Vec<String>) -> anyhow::Result<Self> {
+        let config = dbg!(reqwest::get(url.join(Self::WELL_KNOWN_CONFIG)?)
+            .await
+            .context("Failed to fetch openid configuration")?
+            .json::<WellKnownConfig>()
+            .await
+            .context("Failed to parse openid configuration")?);
+        let source = WebSource::builder().build(config.jwks_uri)?;
         let client = JwksClient::builder().build(source);
         Ok(Self { client, audience })
     }
@@ -146,10 +160,4 @@ pub(crate) async fn auth_middleware_fn(
     }
 
     next.run(request).await
-}
-
-fn get_token(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
 }
