@@ -85,7 +85,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         },
         ContractVerifiers::new(vec![]),
         if let Some(uri) = CONFIG.openid_provider_uri.clone() {
-            Some(
+            Some(Arc::new(
                 Verifier::new(
                     uri,
                     CONFIG
@@ -95,7 +95,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
                         .unwrap_or_default(),
                 )
                 .await?,
-            )
+            ))
         } else {
             None
         },

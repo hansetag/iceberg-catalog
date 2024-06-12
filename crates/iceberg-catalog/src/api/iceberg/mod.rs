@@ -3,6 +3,7 @@ pub mod types;
 pub mod v1 {
     use crate::api::ThreadSafe;
     use axum::Router;
+    use std::sync::Arc;
     pub mod config;
     pub mod metrics;
     pub mod namespace;
@@ -34,18 +35,18 @@ pub mod v1 {
         T: namespace::Service<S> + tables::Service<S> + metrics::Service<S> + s3_signer::Service<S>,
         S: ThreadSafe,
     >(
-        verifier: Option<Verifier>,
+        verifier: Option<Arc<Verifier>>,
     ) -> Router<ApiContext<S>> {
         Router::new()
             .merge(config::router::<C, S>())
             .merge(namespace::router::<T, S>())
             .merge(tables::router::<T, S>())
             .merge(s3_signer::router::<T, S>())
+            .merge(metrics::router::<T, S>())
             .layer(axum::middleware::from_fn_with_state(
                 verifier,
                 crate::service::token_verification::auth_middleware_fn,
             ))
-            .merge(metrics::router::<T, S>())
     }
 
     pub fn new_v1_config_router<C: config::Service<S>, S: ThreadSafe>() -> Router<ApiContext<S>> {

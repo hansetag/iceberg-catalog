@@ -6,20 +6,17 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
-use http::header::AUTHORIZATION;
-use http::{HeaderMap, StatusCode};
+use http::StatusCode;
 use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
-use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use jwks_client_rs::source::WebSource;
-use jwks_client_rs::JwksClientError::Error;
-use jwks_client_rs::{JsonWebKey, JwksClient, JwksClientError};
+use jwks_client_rs::{JsonWebKey, JwksClient};
 
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use serde_json::json;
 use std::fmt::{Debug, Display};
 use std::str::FromStr;
+use std::sync::Arc;
 use url::Url;
 
 #[derive(Clone)]
@@ -37,12 +34,20 @@ impl Debug for Verifier {
 #[derive(Deserialize, Debug)]
 pub struct WellKnownConfig {
     #[serde(flatten)]
-    other: serde_json::Value,
-    jwks_uri: Url,
+    pub other: serde_json::Value,
+    pub jwks_uri: Url,
 }
 
 impl Verifier {
     const WELL_KNOWN_CONFIG: &'static str = ".well-known/openid-configuration";
+
+    /// Create a new verifier with the given openid configuration url and audience.
+    ///
+    /// # Errors
+    ///
+    /// This function can fail if the openid configuration cannot be fetched or parsed.
+    /// This function can also fail if the `WebSource` cannot be built from the jwks uri in the
+    /// fetched openid configuration
     pub async fn new(url: Url, audience: Vec<String>) -> anyhow::Result<Self> {
         let config = dbg!(reqwest::get(url.join(Self::WELL_KNOWN_CONFIG)?)
             .await
@@ -57,15 +62,6 @@ impl Verifier {
 
     // this function is mostly lifted out of jwks_client_rs which is incompatible with azure jwks.
     async fn decode<O: DeserializeOwned>(&self, token: &str) -> Result<O, ErrorModel> {
-        let header: Header = jsonwebtoken::decode_header(token).map_err(|e| {
-            ErrorModel::builder()
-                .message("Failed to decode auth token header.")
-                .code(StatusCode::UNAUTHORIZED.into())
-                .r#type("UnauthorizedError")
-                .stack(Some(vec![e.to_string()]))
-                .build()
-        })?;
-
         fn internal_error(e: impl Display, message: &str) -> ErrorModel {
             ErrorModel::builder()
                 .message(message)
@@ -74,6 +70,15 @@ impl Verifier {
                 .stack(Some(vec![e.to_string()]))
                 .build()
         }
+
+        let header: Header = jsonwebtoken::decode_header(token).map_err(|e| {
+            ErrorModel::builder()
+                .message("Failed to decode auth token header.")
+                .code(StatusCode::UNAUTHORIZED.into())
+                .r#type("UnauthorizedError")
+                .stack(Some(vec![e.to_string()]))
+                .build()
+        })?;
 
         if let Some(kid) = header.kid.as_ref() {
             let key: JsonWebKey = self
@@ -143,7 +148,7 @@ impl Verifier {
 }
 
 pub(crate) async fn auth_middleware_fn(
-    State(verifier): State<Option<Verifier>>,
+    State(verifier): State<Option<Arc<Verifier>>>,
     authorization: TypedHeader<Authorization<Bearer>>,
     request: Request,
     next: Next,

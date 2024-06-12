@@ -1,5 +1,6 @@
 use crate::service::event_publisher::CloudEventsPublisher;
 use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
+use std::sync::Arc;
 
 use crate::api::management::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
@@ -32,14 +33,14 @@ pub fn new_full_router<
     secrets_state: S::State,
     publisher: CloudEventsPublisher,
     table_change_checkers: ContractVerifiers,
-    token_verifier: Option<Verifier>,
+    token_verifier: Option<Arc<Verifier>>,
 ) -> Router {
     let v1_routes = new_v1_full_router::<
         crate::catalog::ConfigServer<CP, C, AH, A>,
         crate::catalog::CatalogServer<C, A, S>,
         State<A, C, S>,
-    >(token_verifier);
-    let management_routes = Router::new().merge(ApiServer::new_v1_router());
+    >(token_verifier.clone());
+    let management_routes = Router::new().merge(ApiServer::new_v1_router(token_verifier));
     Router::new()
         .nest("/catalog/v1", v1_routes)
         .nest("/management/v1", management_routes)
