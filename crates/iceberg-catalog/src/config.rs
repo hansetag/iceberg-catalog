@@ -5,11 +5,13 @@ use url::Url;
 
 use std::convert::Infallible;
 use std::ops::Deref;
+use std::path::PathBuf;
 use std::str::FromStr;
+use veil::Redact;
 
 use crate::WarehouseIdent;
 
-#[derive(Debug, Clone, serde::Deserialize, PartialEq, Parser)]
+#[derive(Clone, serde::Deserialize, PartialEq, Parser, Redact)]
 #[allow(clippy::module_name_repetitions)]
 /// Configuration of this Module
 pub struct DynAppConfig {
@@ -73,6 +75,13 @@ pub struct DynAppConfig {
     pub nats_address: Option<Url>,
     #[clap(env = "ICEBERG_REST__NATS_TOPIC")]
     pub nats_topic: Option<String>,
+    #[clap(env = "ICEBERG_REST__NATS_CREDS_FILE")]
+    pub nats_creds_file: Option<PathBuf>,
+    #[clap(env = "ICEBERG_REST__NATS_USER")]
+    pub nats_user: Option<String>,
+    #[clap(env = "ICEBERG_REST__NATS_PASSWORD")]
+    #[redact]
+    pub nats_password: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]

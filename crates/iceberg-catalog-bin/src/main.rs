@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{Context, Error};
 use async_nats::ServerAddr;
 use clap::{Parser, Subcommand};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
@@ -13,6 +13,7 @@ use iceberg_catalog::{
     service::router::{new_full_router, serve as service_serve},
     CONFIG,
 };
+use reqwest::Url;
 use std::sync::Arc;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
@@ -32,62 +33,6 @@ enum Commands {
     Serve {},
     /// Check the health of the server
     Healthcheck {},
-}
-
-async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
-    let read_pool = iceberg_catalog::implementations::postgres::get_reader_pool().await?;
-    let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool().await?;
-
-    let catalog_state = CatalogState {
-        read_pool: read_pool.clone(),
-        write_pool: write_pool.clone(),
-    };
-    let secrets_state = SecretsState {
-        read_pool,
-        write_pool,
-    };
-
-    let mut cloud_event_sinks = vec![];
-
-    if let Some(nat_addr) = &CONFIG.nats_address {
-        tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
-        let nats_publisher = NatsPublisher {
-            client: async_nats::connect(
-                ServerAddr::from_url(nat_addr.clone())
-                    .context("Converting nats URL to ServerAddr failed.")?,
-            )
-            .await
-            .context("Connecting to nats server failed.")?,
-            topic: CONFIG
-                .nats_topic
-                .clone()
-                .ok_or(anyhow::anyhow!("Missing nats topic."))?,
-        };
-        cloud_event_sinks.push(Arc::new(nats_publisher) as Arc<dyn CloudEventSink + Sync + Send>);
-    } else {
-        tracing::info!("Running without publisher.");
-    };
-
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    let router = new_full_router::<
-        Catalog,
-        Catalog,
-        AllowAllAuthZHandler,
-        AllowAllAuthZHandler,
-        SecretsStore,
-    >(
-        AllowAllAuthState,
-        catalog_state,
-        secrets_state,
-        CloudEventsPublisher {
-            sinks: cloud_event_sinks,
-        },
-        ContractVerifiers::new(vec![]),
-    );
-
-    service_serve(listener, router).await?;
-
-    Ok(())
 }
 
 #[tokio::main]
@@ -142,4 +87,74 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
+    let read_pool = iceberg_catalog::implementations::postgres::get_reader_pool().await?;
+    let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool().await?;
+
+    let catalog_state = CatalogState {
+        read_pool: read_pool.clone(),
+        write_pool: write_pool.clone(),
+    };
+    let secrets_state = SecretsState {
+        read_pool,
+        write_pool,
+    };
+
+    let mut cloud_event_sinks = vec![];
+
+    if let Some(nat_addr) = &CONFIG.nats_address {
+        let nats_publisher = build_nats_client(nat_addr).await?;
+        cloud_event_sinks.push(Arc::new(nats_publisher) as Arc<dyn CloudEventSink + Sync + Send>);
+    } else {
+        tracing::info!("Running without publisher.");
+    };
+
+    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+    let router = new_full_router::<
+        Catalog,
+        Catalog,
+        AllowAllAuthZHandler,
+        AllowAllAuthZHandler,
+        SecretsStore,
+    >(
+        AllowAllAuthState,
+        catalog_state,
+        secrets_state,
+        CloudEventsPublisher {
+            sinks: cloud_event_sinks,
+        },
+        ContractVerifiers::new(vec![]),
+    );
+
+    service_serve(listener, router).await?;
+
+    Ok(())
+}
+
+async fn build_nats_client(nat_addr: &Url) -> Result<NatsPublisher, Error> {
+    tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
+    let mut nats_builder = async_nats::ConnectOptions::new();
+
+    let builder = if let Some(file) = &CONFIG.nats_creds_file {
+        nats_builder.credentials_file(file).await?
+    } else {
+        nats_builder
+    };
+
+    let builder = if let (Some(user), Some(pw)) = (&CONFIG.nats_user, &CONFIG.nats_password) {
+        builder.user_and_password(user.clone(), pw.clone())
+    } else {
+        builder
+    };
+
+    let nats_publisher = NatsPublisher {
+        client: builder.connect(nat_addr.to_string()).await?,
+        topic: CONFIG
+            .nats_topic
+            .clone()
+            .ok_or(anyhow::anyhow!("Missing nats topic."))?,
+    };
+    Ok(nats_publisher)
 }
