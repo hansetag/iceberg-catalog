@@ -12,50 +12,50 @@ use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use jwks_client_rs::source::WebSource;
 use jwks_client_rs::{JsonWebKey, JwksClient};
 
+use crate::request_metadata::RequestMetadata;
+use axum::Extension;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use std::fmt::{Debug, Display, Formatter};
-use std::ops::Deref;
+use std::fmt::{Debug, Display};
 use std::str::FromStr;
 use std::sync::Arc;
 use url::Url;
 
-#[derive(Clone)]
-pub struct JWT<O>(pub O)
-where
-    O: Clone;
-
-impl<O> Debug for JWT<O>
-where
-    O: Clone,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("JWT").finish()
-    }
+#[derive(Debug, Clone)]
+pub enum AuthDetails {
+    JWT(Claims),
 }
 
-impl<O> Deref for JWT<O>
-where
-    O: Clone,
-{
-    type Target = O;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+#[derive(Debug, Clone, Deserialize)]
+pub struct Claims {
+    pub sub: String,
+    pub iss: String,
+    pub aud: Aud,
+    pub exp: usize,
+    pub iat: usize,
+    #[serde(flatten)]
+    pub other: serde_json::Value,
 }
 
-pub(crate) async fn auth_middleware_fn<O: DeserializeOwned + Clone + Sync + Send + 'static>(
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum Aud {
+    String(String),
+    Vec(Vec<String>),
+}
+
+pub(crate) async fn auth_middleware_fn(
     State(verifier): State<Option<Arc<Verifier>>>,
     authorization: Option<TypedHeader<Authorization<Bearer>>>,
-    mut request: Request,
+    Extension(mut metadata): Extension<RequestMetadata>,
+    request: Request,
     next: Next,
 ) -> Response {
     if let Some(verifier) = verifier {
         if let Some(authorization) = authorization {
-            match verifier.decode::<O>(authorization.token()).await {
+            match verifier.decode::<Claims>(authorization.token()).await {
                 Ok(val) => {
-                    request.extensions_mut().insert(JWT(val));
+                    metadata.auth_details = Some(AuthDetails::JWT(val));
                 }
                 Err(err) => {
                     tracing::debug!("Failed to verify token: {:?}", err);
@@ -223,24 +223,6 @@ pub struct WellKnownConfig {
     #[serde(flatten)]
     pub other: serde_json::Value,
     pub jwks_uri: Url,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Claims {
-    pub sub: String,
-    pub iss: String,
-    pub aud: Aud,
-    pub exp: usize,
-    pub iat: usize,
-    #[serde(flatten)]
-    pub other: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum Aud {
-    String(String),
-    Vec(Vec<String>),
 }
 
 #[cfg(test)]

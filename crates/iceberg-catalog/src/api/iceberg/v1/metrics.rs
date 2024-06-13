@@ -1,7 +1,8 @@
 use super::namespace::NamespaceIdentUrl;
 use crate::api::iceberg::types::Prefix;
 use crate::api::iceberg::v1::tables::TableParameters;
-use crate::api::{ApiContext, RequestMetadata, Result};
+use crate::api::{ApiContext, Result};
+use crate::request_metadata::RequestMetadata;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::routing::post;

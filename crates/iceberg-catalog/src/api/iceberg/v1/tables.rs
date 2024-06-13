@@ -1,11 +1,11 @@
 use crate::api::iceberg::types::Prefix;
 use crate::api::iceberg::v1::namespace::{NamespaceIdentUrl, NamespaceParameters, PaginationQuery};
-use crate::api::RequestMetadata;
 use crate::api::{
     ApiContext, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
     CreateTableRequest, ListTablesResponse, LoadTableResult, RegisterTableRequest,
     RenameTableRequest, Result,
 };
+use crate::request_metadata::RequestMetadata;
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};

@@ -46,7 +46,7 @@ pub fn new_full_router<
         .nest("/management/v1", management_routes)
         .route("/health", get(|| async { "OK" }))
         .layer(axum::middleware::from_fn(
-            crate::request_metadata::set_request_metadata,
+            crate::request_metadata::create_request_metadata_with_trace_id_fn,
         ))
         .layer(
             ServiceBuilder::new()

@@ -1,7 +1,8 @@
 use std::ops::Deref;
 
 use crate::api::iceberg::types::{PageToken, Prefix};
-use crate::api::{ApiContext, RequestMetadata, Result};
+use crate::api::{ApiContext, Result};
+use crate::request_metadata::RequestMetadata;
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -378,7 +379,7 @@ pub struct NamespaceParameters {
 mod tests {
     use super::super::*;
     use super::*;
-    use crate::api::RequestMetadata;
+    use crate::request_metadata::RequestMetadata;
     use axum::async_trait;
     use http_body_util::BodyExt;
     use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
