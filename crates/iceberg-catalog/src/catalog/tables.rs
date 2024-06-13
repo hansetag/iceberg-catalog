@@ -420,7 +420,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // serialize body before moving it
         let body = maybe_body_to_json(&request);
 
-        let updates = clone_updates(updates);
+        let updates = updates.clone();
 
         let transaction_request = CommitTransactionRequest {
             table_changes: vec![request],
@@ -853,7 +853,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 if let Some(uuid) = table_ids.get(id) {
                     events.push(maybe_body_to_json(commit_table_request));
                     event_table_ids.push((id.clone(), *uuid));
-                    updates.push(clone_updates(&commit_table_request.updates));
+                    updates.push(commit_table_request.updates.clone());
                 }
             }
         }
@@ -1043,66 +1043,4 @@ pub(crate) fn maybe_body_to_json(request: impl Serialize) -> serde_json::Value {
         tracing::warn!("Serializing the request body to json failed, this is very unexpected. It will not be part of any emitted Event.");
         serde_json::Value::Null
     }
-}
-
-// TableUpdate is not clone but all containing fields are so we use this function to clone..
-fn clone_updates(updates: &[TableUpdate]) -> Vec<TableUpdate> {
-    updates
-        .iter()
-        .map(|u| match u {
-            TableUpdate::AddSnapshot { snapshot } => TableUpdate::AddSnapshot {
-                snapshot: snapshot.clone(),
-            },
-            TableUpdate::AssignUuid { uuid } => TableUpdate::AssignUuid { uuid: *uuid },
-            TableUpdate::AddSortOrder { sort_order } => TableUpdate::AddSortOrder {
-                sort_order: sort_order.clone(),
-            },
-            TableUpdate::AddSpec { spec } => TableUpdate::AddSpec { spec: spec.clone() },
-            TableUpdate::AddSchema {
-                schema,
-                last_column_id,
-            } => TableUpdate::AddSchema {
-                schema: schema.clone(),
-                last_column_id: *last_column_id,
-            },
-            TableUpdate::UpgradeFormatVersion { format_version } => {
-                TableUpdate::UpgradeFormatVersion {
-                    format_version: *format_version,
-                }
-            }
-            TableUpdate::SetCurrentSchema { schema_id } => TableUpdate::SetCurrentSchema {
-                schema_id: *schema_id,
-            },
-            TableUpdate::SetDefaultSortOrder { sort_order_id } => {
-                TableUpdate::SetDefaultSortOrder {
-                    sort_order_id: *sort_order_id,
-                }
-            }
-            TableUpdate::RemoveSnapshotRef { ref_name } => TableUpdate::RemoveSnapshotRef {
-                ref_name: ref_name.clone(),
-            },
-            TableUpdate::SetDefaultSpec { spec_id } => {
-                TableUpdate::SetDefaultSpec { spec_id: *spec_id }
-            }
-            TableUpdate::SetSnapshotRef {
-                ref_name,
-                reference,
-            } => TableUpdate::SetSnapshotRef {
-                ref_name: ref_name.clone(),
-                reference: reference.clone(),
-            },
-            TableUpdate::RemoveSnapshots { snapshot_ids } => TableUpdate::RemoveSnapshots {
-                snapshot_ids: snapshot_ids.clone(),
-            },
-            TableUpdate::SetLocation { location } => TableUpdate::SetLocation {
-                location: location.clone(),
-            },
-            TableUpdate::SetProperties { updates } => TableUpdate::SetProperties {
-                updates: updates.clone(),
-            },
-            TableUpdate::RemoveProperties { removals } => TableUpdate::RemoveProperties {
-                removals: removals.clone(),
-            },
-        })
-        .collect()
 }
