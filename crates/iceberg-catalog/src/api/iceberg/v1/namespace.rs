@@ -160,23 +160,6 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             ),
         )
-        .route(
-            "/namespaces",
-            get(
-                |Query(query): Query<ListNamespacesQuery>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| {
-                    I::list_namespaces(None, query, api_context, metadata)
-                },
-            ) // Create Namespace
-            .post(
-                |State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<CreateNamespaceRequest>| {
-                    I::create_namespace(None, request, api_context, metadata)
-                },
-            ),
-        )
         // Load the metadata properties for a namespace
         .route(
             "/:prefix/namespaces/:namespace",
@@ -230,58 +213,6 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             ),
         )
-        .route(
-            "/namespaces/:namespace",
-            // Load the metadata properties for a namespace
-            get(
-                |Path(namespace): Path<NamespaceIdentUrl>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| {
-                    I::load_namespace_metadata(
-                        NamespaceParameters {
-                            prefix: None,
-                            namespace: namespace.into(),
-                        },
-                        api_context,
-                        metadata,
-                    )
-                },
-            )
-            // Check if a namespace exists
-            .head(
-                |Path(namespace): Path<NamespaceIdentUrl>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| async {
-                    I::namespace_exists(
-                        NamespaceParameters {
-                            prefix: None,
-                            namespace: namespace.into(),
-                        },
-                        api_context,
-                        metadata,
-                    )
-                    .await
-                    .map(|()| StatusCode::NO_CONTENT.into_response())
-                },
-            )
-            // Drop a namespace from the catalog. Namespace must be empty.
-            .delete(
-                |Path(namespace): Path<NamespaceIdentUrl>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| async {
-                    I::drop_namespace(
-                        NamespaceParameters {
-                            prefix: None,
-                            namespace: namespace.into(),
-                        },
-                        api_context,
-                        metadata,
-                    )
-                    .await
-                    .map(|()| StatusCode::NO_CONTENT.into_response())
-                },
-            ),
-        )
         // UpdateNamespacePropertiesResponse
         .route(
             "/:prefix/namespaces/:namespace/properties",
@@ -294,26 +225,6 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                     I::update_namespace_properties(
                         NamespaceParameters {
                             prefix: Some(prefix),
-                            namespace: namespace.into(),
-                        },
-                        request,
-                        api_context,
-                        metadata,
-                    )
-                },
-            ),
-        )
-        .route(
-            "/namespaces/:namespace/properties",
-            // Set or remove properties on a namespace
-            post(
-                |Path(namespace): Path<NamespaceIdentUrl>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<UpdateNamespacePropertiesRequest>| {
-                    I::update_namespace_properties(
-                        NamespaceParameters {
-                            prefix: None,
                             namespace: namespace.into(),
                         },
                         request,
@@ -484,102 +395,6 @@ mod tests {
         // let bytes = r.collect().await.unwrap().to_bytes();
         // let r = String::from_utf8(bytes.to_vec()).unwrap();
 
-        assert_eq!(r.status().as_u16(), 406);
-    }
-
-    #[tokio::test]
-    async fn test_namespace_optional_prefix() {
-        use super::*;
-        use tower::ServiceExt;
-
-        #[derive(Debug, Clone)]
-        struct TestService;
-
-        #[derive(Debug, Clone)]
-        struct ThisState;
-
-        impl crate::api::ThreadSafe for ThisState {}
-
-        #[async_trait]
-        impl Service<ThisState> for TestService {
-            async fn list_namespaces(
-                prefix: Option<Prefix>,
-                query: ListNamespacesQuery,
-                _state: ApiContext<ThisState>,
-                _request_metadata: RequestMetadata,
-            ) -> Result<ListNamespacesResponse> {
-                assert_eq!(prefix, None);
-                assert_eq!(query.page_size, Some(10));
-                assert_eq!(query.page_token, PageToken::Empty);
-
-                Err(ErrorModel::builder()
-                    .message("The server does not support this operation".to_string())
-                    .r#type("UnsupportedOperationException".to_string())
-                    .code(406)
-                    .build()
-                    .into())
-            }
-
-            /// Return all stored metadata properties for a given namespace
-            async fn load_namespace_metadata(
-                _parameters: NamespaceParameters,
-                _state: ApiContext<ThisState>,
-                _request_metadata: RequestMetadata,
-            ) -> Result<GetNamespaceResponse> {
-                panic!("Should not be called");
-            }
-
-            async fn create_namespace(
-                _prefix: Option<Prefix>,
-                _request: CreateNamespaceRequest,
-                _state: ApiContext<ThisState>,
-                _request_metadata: RequestMetadata,
-            ) -> Result<CreateNamespaceResponse> {
-                panic!("Should not be called");
-            }
-
-            /// Check if a namespace exists
-            async fn namespace_exists(
-                _parameters: NamespaceParameters,
-                _state: ApiContext<ThisState>,
-                _request_metadata: RequestMetadata,
-            ) -> Result<()> {
-                panic!("Should not be called");
-            }
-
-            /// Drop a namespace from the catalog. Namespace must be empty.
-            async fn drop_namespace(
-                _parameters: NamespaceParameters,
-                _state: ApiContext<ThisState>,
-                _request_metadata: RequestMetadata,
-            ) -> Result<()> {
-                panic!("Should not be called");
-            }
-
-            /// Set or remove properties on a namespace
-            async fn update_namespace_properties(
-                _parameters: NamespaceParameters,
-                _request: UpdateNamespacePropertiesRequest,
-                _state: ApiContext<ThisState>,
-                _request_metadata: RequestMetadata,
-            ) -> Result<UpdateNamespacePropertiesResponse> {
-                panic!("Should not be called");
-            }
-        }
-
-        let api_context = ApiContext {
-            v1_state: ThisState,
-        };
-
-        let app = router::<TestService, ThisState>();
-        let router = axum::Router::new().merge(app).with_state(api_context);
-
-        let mut req = http::Request::builder()
-            .uri("/namespaces?pageToken&pageSize=10")
-            .body(axum::body::Body::empty())
-            .unwrap();
-        req.extensions_mut().insert(RequestMetadata::new_random());
-        let r = router.oneshot(req).await.unwrap();
         assert_eq!(r.status().as_u16(), 406);
     }
 

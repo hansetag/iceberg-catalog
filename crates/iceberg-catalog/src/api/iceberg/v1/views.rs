@@ -15,7 +15,7 @@ use axum::{
     Extension, Json, Router,
 };
 use http::StatusCode;
-use iceberg::{NamespaceIdent, TableIdent};
+use iceberg::TableIdent;
 
 #[async_trait]
 pub trait Service<S: crate::api::ThreadSafe>
@@ -120,58 +120,21 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             ),
         )
-        .route(
-            "/namespaces/:namespace/views",
-            get(
-                |Path(namespace): Path<NamespaceIdentUrl>,
-                 Query(query): Query<PaginationQuery>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| {
-                    {
-                        I::list_views(
-                            NamespaceParameters {
-                                prefix: None,
-                                namespace: namespace.into(),
-                            },
-                            query,
-                            api_context,
-                            metadata,
-                        )
-                    }
-                },
-            )
-            .post(
-                |Path(namespace): Path<NamespaceIdentUrl>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<CreateViewRequest>| {
-                    {
-                        I::create_view(
-                            NamespaceParameters {
-                                prefix: None,
-                                namespace: namespace.into(),
-                            },
-                            request,
-                            api_context,
-                            metadata,
-                        )
-                    }
-                },
-            ),
-        )
         // /{prefix}/namespaces/{namespace}/views/{view}
         .route(
             "/:prefix/namespaces/:namespace/views/:view",
             get(
-                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
+                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  Extension(metadata): Extension<RequestMetadata>| {
                     {
                         I::load_view(
                             ViewParameters {
                                 prefix: Some(prefix),
-                                namespace: namespace.into(),
-                                view,
+                                view: TableIdent {
+                                    namespace: namespace.into(),
+                                    name: view,
+                                },
                             },
                             api_context,
                             metadata,
@@ -180,7 +143,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             )
             .post(
-                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
+                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CommitViewRequest>| {
@@ -188,8 +151,10 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                         I::commit_view(
                             ViewParameters {
                                 prefix: Some(prefix),
-                                namespace: namespace.into(),
-                                view,
+                                view: TableIdent {
+                                    namespace: namespace.into(),
+                                    name: view,
+                                },
                             },
                             request,
                             api_context,
@@ -199,15 +164,17 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             )
             .delete(
-                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
+                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  Extension(metadata): Extension<RequestMetadata>| async {
                     {
                         I::drop_view(
                             ViewParameters {
                                 prefix: Some(prefix),
-                                namespace: namespace.into(),
-                                view,
+                                view: TableIdent {
+                                    namespace: namespace.into(),
+                                    name: view,
+                                },
                             },
                             api_context,
                             metadata,
@@ -218,92 +185,17 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             )
             .head(
-                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, TableIdent)>,
+                |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
                  Extension(metadata): Extension<RequestMetadata>| async {
                     {
                         I::view_exists(
                             ViewParameters {
                                 prefix: Some(prefix),
-                                namespace: namespace.into(),
-                                view,
-                            },
-                            api_context,
-                            metadata,
-                        )
-                        .await
-                        .map(|()| StatusCode::NO_CONTENT.into_response())
-                    }
-                },
-            ),
-        )
-        .route(
-            "/namespaces/:namespace/views/:view",
-            get(
-                |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| {
-                    {
-                        I::load_view(
-                            ViewParameters {
-                                prefix: None,
-                                namespace: namespace.into(),
-                                view,
-                            },
-                            api_context,
-                            metadata,
-                        )
-                    }
-                },
-            )
-            .post(
-                |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<CommitViewRequest>| {
-                    {
-                        I::commit_view(
-                            ViewParameters {
-                                prefix: None,
-                                namespace: namespace.into(),
-                                view,
-                            },
-                            request,
-                            api_context,
-                            metadata,
-                        )
-                    }
-                },
-            )
-            .delete(
-                |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| async {
-                    {
-                        I::drop_view(
-                            ViewParameters {
-                                prefix: None,
-                                namespace: namespace.into(),
-                                view,
-                            },
-                            api_context,
-                            metadata,
-                        )
-                        .await
-                        .map(|()| StatusCode::NO_CONTENT.into_response())
-                    }
-                },
-            )
-            .head(
-                |Path((namespace, view)): Path<(NamespaceIdentUrl, TableIdent)>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| async {
-                    {
-                        I::view_exists(
-                            ViewParameters {
-                                prefix: None,
-                                namespace: namespace.into(),
-                                view,
+                                view: TableIdent {
+                                    namespace: namespace.into(),
+                                    name: view,
+                                },
                             },
                             api_context,
                             metadata,
@@ -330,20 +222,6 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             ),
         )
-        .route(
-            "/views/rename",
-            post(
-                |State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<RenameTableRequest>| async {
-                    {
-                        I::rename_view(None, request, api_context, metadata)
-                            .await
-                            .map(|()| StatusCode::NO_CONTENT.into_response())
-                    }
-                },
-            ),
-        )
 }
 
 // Deliberately not ser / de so that it can't be used in the router directly
@@ -351,8 +229,6 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
 pub struct ViewParameters {
     /// The prefix of the namespace
     pub prefix: Option<Prefix>,
-    /// The namespace to load metadata for
-    pub namespace: NamespaceIdent,
     /// The table to load metadata for
     pub view: TableIdent,
 }

@@ -42,7 +42,7 @@ iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
 jsonwebtoken = "9.3.0"
 jwks_client_rs.workspace = true
 lazy_static = { workspace = true }
-reqwest.workspace = true
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
 sqlx = { workspace = true, optional = true }

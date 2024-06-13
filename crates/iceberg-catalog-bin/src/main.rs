@@ -3,7 +3,8 @@ use async_nats::ServerAddr;
 use clap::{Parser, Subcommand};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
-    CloudEventSink, CloudEventsPublisher, NatsPublisher,
+    CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
+    NatsBackend,
 };
 use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{
@@ -52,7 +53,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
 
     if let Some(nat_addr) = &CONFIG.nats_address {
         tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
-        let nats_publisher = NatsPublisher {
+        let nats_publisher = NatsBackend {
             client: async_nats::connect(
                 ServerAddr::from_url(nat_addr.clone())
                     .context("Converting nats URL to ServerAddr failed.")?,
@@ -64,11 +65,19 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
                 .clone()
                 .ok_or(anyhow::anyhow!("Missing nats topic."))?,
         };
-        cloud_event_sinks.push(Arc::new(nats_publisher) as Arc<dyn CloudEventSink + Sync + Send>);
+        cloud_event_sinks
+            .push(Arc::new(nats_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
     } else {
         tracing::info!("Running without publisher.");
     };
 
+    // TODO: what about this magic number
+    let (tx, rx) = tokio::sync::mpsc::channel(1000);
+
+    let x = CloudEventsPublisherBackgroundTask {
+        source: rx,
+        sinks: cloud_event_sinks,
+    };
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     let router = new_full_router::<
         Catalog,
@@ -80,9 +89,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         AllowAllAuthState,
         catalog_state,
         secrets_state,
-        CloudEventsPublisher {
-            sinks: cloud_event_sinks,
-        },
+        CloudEventsPublisher::new(tx.clone()),
         ContractVerifiers::new(vec![]),
         if let Some(uri) = CONFIG.openid_provider_uri.clone() {
             Some(Arc::new(
@@ -93,7 +100,18 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         },
     );
 
+    let publisher_handle = tokio::task::spawn(async move {
+        match x.publish().await {
+            Ok(_) => tracing::info!("Exiting publisher task"),
+            Err(e) => tracing::error!("Publisher task failed: {e}"),
+        };
+    });
+
     service_serve(listener, router).await?;
+
+    tracing::debug!("Sending shutdown signal to event publisher.");
+    tx.send(Message::Shutdown).await?;
+    publisher_handle.await?;
 
     Ok(())
 }

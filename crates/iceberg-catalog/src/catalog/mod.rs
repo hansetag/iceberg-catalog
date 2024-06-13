@@ -5,6 +5,7 @@ pub(crate) mod namespace;
 #[cfg(feature = "s3-signer")]
 mod s3_signer;
 mod tables;
+mod views;
 
 pub use config::Server as ConfigServer;
 pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};

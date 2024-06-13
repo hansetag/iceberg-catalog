@@ -133,45 +133,6 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             ),
         )
-        .route(
-            "/namespaces/:namespace/tables",
-            // Create a table in the given namespace
-            get(
-                |Path(namespace): Path<NamespaceIdentUrl>,
-                 Query(query): Query<PaginationQuery>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| {
-                    I::list_tables(
-                        NamespaceParameters {
-                            prefix: None,
-                            namespace: namespace.into(),
-                        },
-                        query,
-                        api_context,
-                        metadata,
-                    )
-                },
-            )
-            // Create a table in the given namespace
-            .post(
-                |Path(namespace): Path<NamespaceIdentUrl>,
-                 State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<CreateTableRequest>| {
-                    I::create_table(
-                        NamespaceParameters {
-                            prefix: None,
-                            namespace: namespace.into(),
-                        },
-                        request,
-                        parse_data_access(&headers),
-                        api_context,
-                        metadata,
-                    )
-                },
-            ),
-        )
         // /{prefix}/namespaces/{namespace}/register
         .route(
             "/:prefix/namespaces/:namespace/register",
@@ -184,26 +145,6 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                     I::register_table(
                         NamespaceParameters {
                             prefix: Some(prefix),
-                            namespace: namespace.into(),
-                        },
-                        request,
-                        api_context,
-                        metadata,
-                    )
-                },
-            ),
-        )
-        .route(
-            "/namespaces/:namespace/register",
-            // Register a table in the given namespace using given metadata file location
-            post(
-                |Path(namespace): Path<NamespaceIdentUrl>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<RegisterTableRequest>| {
-                    I::register_table(
-                        NamespaceParameters {
-                            prefix: None,
                             namespace: namespace.into(),
                         },
                         request,
@@ -297,89 +238,6 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             ),
         )
-        .route(
-            "/namespaces/:namespace/tables/:table",
-            // Load a table from the catalog
-            get(
-                |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
-                 State(api_context): State<ApiContext<S>>,
-                 headers: HeaderMap,
-                 Extension(metadata): Extension<RequestMetadata>| {
-                    I::load_table(
-                        TableParameters {
-                            prefix: None,
-                            table: TableIdent {
-                                namespace: namespace.into(),
-                                name: table,
-                            },
-                        },
-                        parse_data_access(&headers),
-                        api_context,
-                        metadata,
-                    )
-                },
-            )
-            // Commit updates to a table
-            .post(
-                |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<CommitTableRequest>| {
-                    I::commit_table(
-                        TableParameters {
-                            prefix: None,
-                            table: TableIdent {
-                                namespace: namespace.into(),
-                                name: table,
-                            },
-                        },
-                        request,
-                        api_context,
-                        metadata,
-                    )
-                },
-            )
-            // Drop a table from the catalog
-            .delete(
-                |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| async {
-                    I::drop_table(
-                        TableParameters {
-                            prefix: None,
-                            table: TableIdent {
-                                namespace: namespace.into(),
-                                name: table,
-                            },
-                        },
-                        api_context,
-                        metadata,
-                    )
-                    .await
-                    .map(|()| StatusCode::NO_CONTENT.into_response())
-                },
-            )
-            // Check if a table exists
-            .head(
-                |Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
-                 State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>| async {
-                    I::table_exists(
-                        TableParameters {
-                            prefix: None,
-                            table: TableIdent {
-                                namespace: namespace.into(),
-                                name: table,
-                            },
-                        },
-                        api_context,
-                        metadata,
-                    )
-                    .await
-                    .map(|()| StatusCode::NO_CONTENT.into_response())
-                },
-            ),
-        )
         // /{prefix}/tables/rename
         .route(
             "/:prefix/tables/rename",
@@ -397,21 +255,6 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             ),
         )
-        .route(
-            "/tables/rename",
-            // Rename a table in the given namespace
-            post(
-                |State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<RenameTableRequest>| {
-                    async {
-                        I::rename_table(None, request, api_context, metadata)
-                            .await
-                            .map(|()| StatusCode::NO_CONTENT)
-                    }
-                },
-            ),
-        )
         // /{prefix}/transactions/commit
         .route(
             "/:prefix/transactions/commit",
@@ -422,17 +265,6 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                  Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CommitTransactionRequest>| {
                     I::commit_transaction(Some(prefix), request, api_context, metadata)
-                },
-            ),
-        )
-        .route(
-            "/transactions/commit",
-            // Commit updates to multiple tables in an atomic operation
-            post(
-                |State(api_context): State<ApiContext<S>>,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<CommitTransactionRequest>| {
-                    I::commit_transaction(None, request, api_context, metadata)
                 },
             ),
         )
