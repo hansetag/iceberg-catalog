@@ -10,7 +10,8 @@ pub struct CloudEventsPublisher {
 }
 
 impl CloudEventsPublisher {
-    #[must_use] pub fn new(tx: tokio::sync::mpsc::Sender<Message>) -> Self {
+    #[must_use]
+    pub fn new(tx: tokio::sync::mpsc::Sender<Message>) -> Self {
         Self { tx }
     }
 
