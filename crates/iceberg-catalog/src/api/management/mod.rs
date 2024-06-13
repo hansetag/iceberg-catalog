@@ -15,7 +15,7 @@ pub mod v1 {
     pub mod warehouse;
     use crate::api::{ApiContext, RequestMetadata};
     use crate::service::auth::AuthZHandler;
-    use crate::service::token_verification::Verifier;
+    use crate::service::token_verification::{Claims, Verifier};
     use crate::service::{Catalog, SecretStore, State};
     use axum::extract::State as AxumState;
     use axum::routing::post;
@@ -40,7 +40,7 @@ pub mod v1 {
                 )
                 .layer(axum::middleware::from_fn_with_state(
                     verifier,
-                    crate::service::token_verification::auth_middleware_fn::<serde_json::Value>,
+                    crate::service::token_verification::auth_middleware_fn::<Claims>,
                 ))
         }
     }

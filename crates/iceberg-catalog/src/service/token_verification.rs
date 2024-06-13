@@ -224,3 +224,50 @@ pub struct WellKnownConfig {
     pub other: serde_json::Value,
     pub jwks_uri: Url,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Claims {
+    pub sub: String,
+    pub iss: String,
+    pub aud: Aud,
+    pub exp: usize,
+    pub iat: usize,
+    #[serde(flatten)]
+    pub other: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum Aud {
+    String(String),
+    Vec(Vec<String>),
+}
+
+#[cfg(test)]
+mod test {
+    use crate::service::token_verification::Claims;
+
+    #[test]
+    fn test_aud_with_array() {
+        let _: Claims = serde_json::from_value(serde_json::json!({
+            "sub": "1234567890",
+            "iat": 22,
+            "aud": ["aud1", "aud2"],
+            "iss": "https://example.com",
+            "exp": 9022
+        }))
+        .unwrap();
+    }
+
+    #[test]
+    fn test_aud_with_string() {
+        let _: Claims = serde_json::from_value(serde_json::json!({
+            "sub": "1234567890",
+            "iat": 22,
+            "aud": "aud1",
+            "iss": "https://example.com",
+            "exp": 9022
+        }))
+        .unwrap();
+    }
+}
