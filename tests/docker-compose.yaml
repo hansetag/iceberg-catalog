@@ -1,20 +1,22 @@
 services:
   keycloak:
-    image: jboss/keycloak:15.0.2
+    image: quay.io/keycloak/keycloak:latest
     environment:
       - KEYCLOAK_USER=admin
       - KEYCLOAK_PASSWORD=admin
       - KEYCLOAK_IMPORT=/tmp/realm.json
+      - KC_HEALTH_ENABLED=true
     volumes:
       - ./keycloak/realm.json:/tmp/realm.json
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/auth/realms/test" ]
+      test: [ "CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e \"GET /health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n\" >&3;grep \"HTTP/1.1 200 OK\" <&3" ]
       interval: 2s
-      timeout: 10s
+      timeout: 20s
       retries: 2
-      start_period: 10s
+      start_period: 15s
     ports:
       - "8080:8080"
+    command: "start-dev"
   spark:
     image: ${ICEBERG_REST_TEST_SPARK_IMAGE}
     profiles:
