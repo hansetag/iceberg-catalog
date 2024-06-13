@@ -122,7 +122,7 @@ impl Verifier {
                         .build()
                 })?;
 
-            let validation = self.setup_validation(header, &key)?;
+            let validation = self.setup_validation(&header, &key)?;
             let decoding_key = Self::setup_decoding_key(key)?;
 
             // Can this block the current thread? (should I spawn_blocking?)
@@ -164,7 +164,11 @@ impl Verifier {
         Ok(decoding_key)
     }
 
-    fn setup_validation(&self, header: Header, key: &JsonWebKey) -> Result<Validation, ErrorModel> {
+    fn setup_validation(
+        &self,
+        header: &Header,
+        key: &JsonWebKey,
+    ) -> Result<Validation, ErrorModel> {
         let mut validation = if let Some(alg) = key.alg() {
             Validation::new(Algorithm::from_str(alg).map_err(|e| {
                 Self::internal_error(
