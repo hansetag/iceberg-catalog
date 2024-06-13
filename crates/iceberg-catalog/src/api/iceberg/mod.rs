@@ -29,7 +29,7 @@ pub mod v1 {
         UpdateNamespacePropertiesResponse,
     };
     pub use crate::request_metadata::RequestMetadata;
-    use crate::service::token_verification::{Verifier};
+    use crate::service::token_verification::Verifier;
 
     pub fn new_v1_full_router<
         C: config::Service<S>,

@@ -16,7 +16,7 @@ pub mod v1 {
     use crate::api::ApiContext;
     use crate::request_metadata::RequestMetadata;
     use crate::service::auth::AuthZHandler;
-    use crate::service::token_verification::{Verifier};
+    use crate::service::token_verification::Verifier;
     use crate::service::{Catalog, SecretStore, State};
     use axum::extract::State as AxumState;
     use axum::routing::post;
