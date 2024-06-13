@@ -40,7 +40,7 @@ pub mod v1 {
                 )
                 .layer(axum::middleware::from_fn_with_state(
                     verifier,
-                    crate::service::token_verification::auth_middleware_fn,
+                    crate::service::token_verification::auth_middleware_fn::<serde_json::Value>,
                 ))
         }
     }
