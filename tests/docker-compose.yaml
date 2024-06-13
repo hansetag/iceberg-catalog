@@ -81,7 +81,7 @@ services:
 
   nats:
     image: bitnami/nats:latest
-    cmd: [ "-m=8222" ]
+    command: [ "nats-server",  "-m=8222" ]
     ports:
       - "4222:4222"
     healthcheck:
