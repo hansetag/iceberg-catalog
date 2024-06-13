@@ -47,19 +47,30 @@ where
 
 pub(crate) async fn auth_middleware_fn<O: DeserializeOwned + Clone + Sync + Send + 'static>(
     State(verifier): State<Option<Arc<Verifier>>>,
-    authorization: TypedHeader<Authorization<Bearer>>,
+    authorization: Option<TypedHeader<Authorization<Bearer>>>,
     mut request: Request,
     next: Next,
 ) -> Response {
     if let Some(verifier) = verifier {
-        match verifier.decode::<O>(authorization.token()).await {
-            Ok(val) => {
-                request.extensions_mut().insert(JWT(val));
+        if let Some(authorization) = authorization {
+            match verifier.decode::<O>(authorization.token()).await {
+                Ok(val) => {
+                    request.extensions_mut().insert(JWT(val));
+                }
+                Err(err) => {
+                    tracing::debug!("Failed to verify token: {:?}", err);
+                    return IcebergErrorResponse::from(err).into_response();
+                }
             }
-            Err(err) => {
-                tracing::debug!("Failed to verify token: {:?}", err);
-                return IcebergErrorResponse::from(err).into_response();
-            }
+        } else {
+            return IcebergErrorResponse::from(
+                ErrorModel::builder()
+                    .message("Missing authorization header")
+                    .code(StatusCode::UNAUTHORIZED.into())
+                    .r#type("UnauthorizedError")
+                    .build(),
+            )
+            .into_response();
         }
     }
 
