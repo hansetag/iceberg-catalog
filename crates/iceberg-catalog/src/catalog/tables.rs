@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
@@ -186,9 +185,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             EventMetadata {
                 table_id: *table_id.as_uuid(),
                 warehouse_id: *warehouse_id.as_uuid(),
-                name: Cow::Borrowed(&table.name),
-                namespace: Cow::Owned(table.namespace.encode_in_url()),
-                prefix: Cow::Owned(prefix.map(Prefix::into_string).unwrap_or_default()),
+                name: table.name.clone(),
+                namespace: table.namespace.encode_in_url(),
+                prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
                 num_events: 1,
                 sequence_number: 0,
                 trace_id: request_metadata.request_id,
@@ -484,14 +483,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             EventMetadata {
                 table_id: *table_id.as_uuid(),
                 warehouse_id: *warehouse_id.as_uuid(),
-                name: Cow::Borrowed(&parameters.table.name),
-                namespace: Cow::Owned(parameters.table.namespace.encode_in_url()),
-                prefix: Cow::Owned(
-                    parameters
-                        .prefix
-                        .map(crate::api::iceberg::types::Prefix::into_string)
-                        .unwrap_or_default(),
-                ),
+                name: parameters.table.name,
+                namespace: parameters.table.namespace.encode_in_url(),
+                prefix: parameters
+                    .prefix
+                    .map(crate::api::iceberg::types::Prefix::into_string)
+                    .unwrap_or_default(),
+
                 num_events: 1,
                 sequence_number: 0,
                 trace_id: request_metadata.request_id,
@@ -563,13 +561,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             EventMetadata {
                 table_id: *table_id.as_uuid(),
                 warehouse_id: *warehouse_id.as_uuid(),
-                name: Cow::Borrowed(&table.name),
-                namespace: Cow::Owned(table.namespace.encode_in_url()),
-                prefix: Cow::Owned(
-                    prefix
-                        .map(crate::api::iceberg::types::Prefix::into_string)
-                        .unwrap_or_default(),
-                ),
+                name: table.name,
+                namespace: table.namespace.encode_in_url(),
+                prefix: prefix
+                    .map(crate::api::iceberg::types::Prefix::into_string)
+                    .unwrap_or_default(),
                 num_events: 1,
                 sequence_number: 0,
                 trace_id: request_metadata.request_id,
@@ -724,9 +720,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             EventMetadata {
                 table_id: *source_id.as_uuid(),
                 warehouse_id: *warehouse_id.as_uuid(),
-                name: Cow::Borrowed(&source.name),
-                namespace: Cow::Owned(source.namespace.encode_in_url()),
-                prefix: Cow::Owned(prefix.map(Prefix::into_string).unwrap_or_default()),
+                name: source.name,
+                namespace: source.namespace.encode_in_url(),
+                prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
                 num_events: 1,
                 sequence_number: 0,
                 trace_id: request_metadata.request_id,
@@ -939,14 +935,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 EventMetadata {
                     table_id: *table_id.as_uuid(),
                     warehouse_id: *warehouse_id.as_uuid(),
-                    name: table_ident.name.into(),
-                    namespace: Cow::Owned(table_ident.namespace.encode_in_url()),
-                    prefix: Cow::Owned(
-                        prefix
-                            .clone()
-                            .map(|p| p.as_str().to_string())
-                            .unwrap_or_default(),
-                    ),
+                    name: table_ident.name,
+                    namespace: table_ident.namespace.encode_in_url(),
+                    prefix: prefix
+                        .clone()
+                        .map(|p| p.as_str().to_string())
+                        .unwrap_or_default(),
                     num_events: number_of_events,
                     sequence_number: event_sequence_number,
                     trace_id: request_metadata.request_id,
@@ -962,16 +956,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     }
 }
 
-async fn emit_change_event<'c>(
-    parameters: EventMetadata<'c>,
+async fn emit_change_event(
+    parameters: EventMetadata,
     body: serde_json::Value,
     operation_id: &str,
     publisher: CloudEventsPublisher,
 ) {
     let _ = publisher
         .publish(Uuid::now_v7(), operation_id, body, parameters)
-        .await
-        .map_err(|err| tracing::warn!("Emitting an event failed due to: {}", err));
+        .await;
 }
 
 fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
