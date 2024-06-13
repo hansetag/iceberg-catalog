@@ -7,31 +7,49 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct CloudEventsPublisher {
     tx: tokio::sync::mpsc::Sender<Message>,
+    timeout: tokio::time::Duration,
 }
 
 impl CloudEventsPublisher {
     #[must_use]
     pub fn new(tx: tokio::sync::mpsc::Sender<Message>) -> Self {
-        Self { tx }
+        Self::new_with_timeout(tx, tokio::time::Duration::from_millis(50))
     }
 
+    #[must_use]
+    pub fn new_with_timeout(
+        tx: tokio::sync::mpsc::Sender<Message>,
+        timeout: tokio::time::Duration,
+    ) -> Self {
+        Self { tx, timeout }
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error if the event cannot be sent to the channel due to capacity / timeout.
     pub async fn publish(
         &self,
         id: Uuid,
         typ: &str,
         data: serde_json::Value,
         metadata: EventMetadata,
-    ) {
-        let _ = self
-            .tx
-            .send(Message::Event(Payload {
-                id,
-                typ: typ.to_string(),
-                data,
-                metadata,
-            }))
+    ) -> anyhow::Result<()> {
+        self.tx
+            .send_timeout(
+                Message::Event(Payload {
+                    id,
+                    typ: typ.to_string(),
+                    data,
+                    metadata,
+                }),
+                self.timeout,
+            )
             .await
-            .map_err(|e| tracing::warn!("Failed to emit event with id: '{}' due to: '{}'.", id, e));
+            .map_err(|e| {
+                tracing::warn!("Failed to emit event with id: '{}' due to: '{}'.", id, e);
+                e
+            })?;
+        Ok(())
     }
 }
 

@@ -957,7 +957,7 @@ async fn emit_change_event(
     operation_id: &str,
     publisher: CloudEventsPublisher,
 ) {
-    let () = publisher
+    let _ = publisher
         .publish(Uuid::now_v7(), operation_id, body, parameters)
         .await;
 }
