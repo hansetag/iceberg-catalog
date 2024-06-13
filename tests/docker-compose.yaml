@@ -29,7 +29,7 @@ services:
       - ICEBERG_REST_TEST_MANAGEMENT_URL=http://server:8080/management
       - ICEBERG_REST_TEST_CATALOG_URL=http://server:8080/catalog
       - ICEBERG_REST_TEST_S3_REGION=local
-      - OAUTH_PROVIDER_URI=http://keycloak:8080/auth/realms/test
+      - OAUTH_PROVIDER_URI=http://keycloak:8080/realms/test
       - OAUTH_CLIENT_ID=iceberg-rest-test
       - OAUTH_CLIENT_SECRET=very-secret
     depends_on:
@@ -47,7 +47,7 @@ services:
       - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:postgres@db:2345/postgres
       - ICEBERG_REST__NATS_ADDRESS=nats://nats:4222
       - ICEBERG_REST__NATS_TOPIC=changes
-      - ICEBERG_REST__OAUTH_PROVIDER_URI=http://keycloak:8080/auth/realms/test
+      - ICEBERG_REST__OAUTH_PROVIDER_URI=http://keycloak:8080/realms/test/
       - RUST_LOG=trace,axum=trace,reqwest=trace
     entrypoint: [ "bash", "-c", "./iceberg-catalog migrate && ./iceberg-catalog serve" ]
     healthcheck:
