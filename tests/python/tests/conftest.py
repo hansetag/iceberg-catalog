@@ -22,9 +22,9 @@ ICEBERG_REST_TEST_S3_PATH_STYLE_ACCESS = os.environ.get(
 ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION = os.environ.get(
     "ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION", "1.5.2"
 )
-OAUTH_PROVIDER_URI = os.environ.get("OAUTH_PROVIDER_URI")
-OAUTH_CLIENT_ID = os.environ.get("OAUTH_CLIENT_ID")
-OAUTH_CLIENT_SECRET = os.environ.get("OAUTH_CLIENT_SECRET")
+OAUTH_PROVIDER_URI = os.environ.get("ICEBERG_REST_TEST_OAUTH_PROVIDER_URI")
+OAUTH_CLIENT_ID = os.environ.get("ICEBERG_REST_TEST_OAUTH_CLIENT_ID")
+OAUTH_CLIENT_SECRET = os.environ.get("ICEBERG_REST_TEST_OAUTH_CLIENT_SECRET")
 
 
 def string_to_bool(s: str) -> bool:
@@ -136,9 +136,8 @@ def access_token() -> str:
         "token_endpoint"]
     response = requests.post(
         token_endpoint,
-        json={"grant_type": "client_credentials",
-              "client_id": OAUTH_CLIENT_ID,
-              "client_secret": OAUTH_CLIENT_SECRET}
+        data={"grant_type": "client_credentials"},
+        auth=(OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET),
     )
     response.raise_for_status()
     return response.json()["access_token"]
@@ -166,6 +165,7 @@ def warehouse(server: Server):
     warehouse_id = server.create_warehouse(warehouse_name, project_id=project_id)
     print(f"SERVER CREATED: {warehouse_id}")
     return Warehouse(
+        access_token=server.access_token,
         server=server,
         project_id=project_id,
         warehouse_id=warehouse_id,
@@ -209,7 +209,7 @@ def spark(warehouse: Warehouse):
         f"spark.sql.catalog.test": "org.apache.iceberg.spark.SparkCatalog",
         f"spark.sql.catalog.test.catalog-impl": "org.apache.iceberg.rest.RESTCatalog",
         f"spark.sql.catalog.test.uri": warehouse.server.catalog_url,
-        f"spark.sql.catalog.test.token": "dummy",
+        f"spark.sql.catalog.test.token": warehouse.access_token,
         f"spark.sql.catalog.test.warehouse": f"{warehouse.project_id}/{warehouse.warehouse_name}",
     }
 
