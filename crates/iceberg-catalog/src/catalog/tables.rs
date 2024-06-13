@@ -16,9 +16,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::{
-    io::write_metadata_file,
-    namespace::{uppercase_first_letter, validate_namespace_ident},
-    require_warehouse_id, CatalogServer,
+    io::write_metadata_file, namespace::validate_namespace_ident, require_warehouse_id,
+    CatalogServer,
 };
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
@@ -83,7 +82,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let NamespaceParameters { namespace, prefix } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
         let table = TableIdent::new(namespace.clone(), request.name.clone());
-        validate_table_ident(&table)?;
+        validate_table_or_view_ident(&table)?;
 
         if request.location.is_some() {
             return Err(ErrorModel::builder()
@@ -236,7 +235,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // Only then will it treat it as a branch.
         // 404 is returned by the logic in the remainder of this function. Here, we only
         // need to make sure that we don't fail prematurely on longer namespaces.
-        match validate_table_ident(&table) {
+        match validate_table_or_view_ident(&table) {
             Ok(()) => {}
             Err(e) => {
                 if e.error.r#type != *"NamespaceDepthExceeded" {
@@ -353,7 +352,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             request.identifier = Some(parameters.table.clone());
         }
         if let Some(ref mut identifier) = request.identifier {
-            validate_table_ident(identifier)?;
+            validate_table_or_view_ident(identifier)?;
         }
         // Make it non-mutable again for our sanity
         let request = request;
@@ -367,7 +366,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } = &request;
 
         validate_table_updates(updates)?;
-        identifier.as_ref().map(validate_table_ident).transpose()?;
+        identifier
+            .as_ref()
+            .map(validate_table_or_view_ident)
+            .transpose()?;
 
         if let Some(identifier) = identifier {
             if identifier != &parameters.table {
@@ -512,7 +514,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
-        validate_table_ident(&table)?;
+        validate_table_or_view_ident(&table)?;
 
         // ------------------- AUTHZ -------------------
         let include_staged = true;
@@ -590,7 +592,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
-        validate_table_ident(&table)?;
+        validate_table_or_view_ident(&table)?;
 
         // ------------------- AUTHZ -------------------
         let include_staged = false;
@@ -651,8 +653,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             source,
             destination,
         } = request;
-        validate_table_ident(&source)?;
-        validate_table_ident(&destination)?;
+        validate_table_or_view_ident(&source)?;
+        validate_table_or_view_ident(&destination)?;
 
         // ------------------- AUTHZ -------------------
         let include_staged = false;
@@ -760,7 +762,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             } = change;
 
             validate_table_updates(updates)?;
-            identifier.as_ref().map(validate_table_ident).transpose()?;
+            identifier
+                .as_ref()
+                .map(validate_table_or_view_ident)
+                .transpose()?;
 
             if identifier.is_none() {
                 return Err(ErrorModel::builder()
@@ -984,24 +989,31 @@ fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn validate_lowercase_property(prop: &str) -> Result<()> {
+    if prop != prop.to_lowercase() {
+        return Err(ErrorModel::builder()
+            .code(StatusCode::BAD_REQUEST.into())
+            .message(format!("The property '{prop}' is not all lowercase."))
+            .r#type("PropertyNotLowercase")
+            .build()
+            .into());
+    }
+    Ok(())
+}
+
 fn validate_table_properties<'a, I>(properties: I) -> Result<()>
 where
     I: IntoIterator<Item = &'a String>,
 {
     for prop in properties {
         if prop != &prop.to_lowercase() {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(format!("The Table property '{prop}' is not all lowercase."))
-                .r#type(format!("{}NotLowercase", uppercase_first_letter(prop)))
-                .build()
-                .into());
+            validate_lowercase_property(prop)?;
         }
     }
     Ok(())
 }
 
-fn validate_table_ident(table: &TableIdent) -> Result<()> {
+pub(crate) fn validate_table_or_view_ident(table: &TableIdent) -> Result<()> {
     let TableIdent {
         ref namespace,
         ref name,
@@ -1011,20 +1023,20 @@ fn validate_table_ident(table: &TableIdent) -> Result<()> {
     if name.is_empty() {
         return Err(ErrorModel::builder()
             .code(StatusCode::BAD_REQUEST.into())
-            .message("Table name cannot be empty".to_string())
-            .r#type("TableNameEmpty".to_string())
+            .message("name of the identifier cannot be empty".to_string())
+            .r#type("IdentifierNameEmpty".to_string())
             .build()
             .into());
     }
     Ok(())
 }
 
-// This function does not return a result but serde_json::Value::Null if serialization of tab.table
+// This function does not return a result but serde_json::Value::Null if serialization
 // fails. This follows the rationale that we'll likely end up ignoring the error in the API handler
 // anyway since we already effected the change and only the event emission about the change failed.
 // Given that we are serializing stuff we've received as a json body and also successfully
 // processed, it's unlikely to cause issues.
-fn maybe_body_to_json(request: impl Serialize) -> serde_json::Value {
+pub(crate) fn maybe_body_to_json(request: impl Serialize) -> serde_json::Value {
     if let Ok(body) = serde_json::to_value(&request) {
         body
     } else {
