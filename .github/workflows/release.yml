@@ -190,6 +190,7 @@ jobs:
         run: |
           cd iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
           tar xzvf iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
+          ls -lh
           mv iceberg-catalog ../iceberg-catalog-amd64
           cd -
           cd iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
@@ -239,13 +240,3 @@ jobs:
           name: iceberg-catalog-image
           path: /tmp/*.tar
 
-# This is currently very slow. Switch to ARM workers once they are finally available
-# in gh actions!
-# - name: Build Docker image (arm64)
-#   run: |
-#     DOCKER_BUILDKIT=1 docker build \
-#       --platform linux/arm64 -t iceberg-catalog-local:arm64 \
-#       --add-host=host.docker.internal:host-gateway \
-#       -f docker/full.Dockerfile \
-#       --build-arg DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/postgres .
-#     docker save -o /tmp/iceberg-catalog-arm64.tar iceberg-catalog-local:arm64
