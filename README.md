@@ -152,6 +152,10 @@ Configuration parameters if Postgres is used as a backend:
 
 If you want to limit access to the API, set `ICEBERG_REST__OPENID_PROVIDER_URI` to the URI of your OpenID Connect Provider. The catalog will then verify access tokens against this provider. The provider must have the `.well-known/openid-configuration` endpoint under `${ICEBERG_REST__OPENID_PROVIDER_URI}/.well-known/openid-configuration` and the openid-configuration needs to have the `jwks_uri` defined.
 
+If `ICEBERG_REST__OPENID_AUDIENCE` is set, every request needs have an authorization header, e.g. 
+```sh
+curl {your-catalog-url}/catalog/v1/transactions/commit -X POST -H "authorization: Bearer {your-token-here}" -H "content-type: application/json" -d ...
+``` 
 
 
 | Variable                            | Example                             | Description                                                                                                                                                                                                                                                  |
