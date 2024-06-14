@@ -183,6 +183,9 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v4
 
+      - name: List artifacts
+        run: ls -lh
+
       - name: Restore binaries
         run: |
           tar xzvf iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
