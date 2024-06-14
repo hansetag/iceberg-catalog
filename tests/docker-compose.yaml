@@ -81,5 +81,12 @@ services:
 
   nats:
     image: bitnami/nats:latest
+    command: [ "nats-server",  "-m=8222" ]
     ports:
       - "4222:4222"
+    healthcheck:
+      test: [ "CMD-SHELL", 'exec 3<>/dev/tcp/127.0.0.1/8222;echo -e "HEAD / HTTP/1.1\r\nhost: localhost:8222\r\nConnection: close\r\n\r\n" >&3;grep "HTTP/1.1 200 OK"  <&3' ]
+      interval: 2s
+      timeout: 10s
+      retries: 2
+      start_period: 10s
