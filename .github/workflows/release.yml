@@ -191,6 +191,7 @@ jobs:
           cd iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
           tar xzvf iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
           ls -lh
+          mv iceberg-catalog iceberg-catalog-amd64
           mv iceberg-catalog ../iceberg-catalog-amd64
           cd -
           cd iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
