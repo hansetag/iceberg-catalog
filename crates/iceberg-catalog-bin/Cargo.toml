@@ -31,6 +31,7 @@ iceberg-catalog = { path = "../iceberg-catalog", features = [
     "sqlx-postgres",
     "s3-signer",
     "router",
+    "nats",
 ] }
 
 reqwest = { workspace = true }

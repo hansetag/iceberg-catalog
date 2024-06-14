@@ -34,7 +34,6 @@ impl RequestMetadata {
 
 pub type Result<T, E = IcebergErrorResponse> = std::result::Result<T, E>;
 
-#[cfg(feature = "tokio")]
 /// This function will wait for a signal to shutdown the service.
 /// It will wait for either a Ctrl+C signal or a SIGTERM signal.
 ///
