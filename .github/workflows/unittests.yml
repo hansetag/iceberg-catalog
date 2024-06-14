@@ -60,7 +60,13 @@ jobs:
           - 5432:5432
     steps:
       - run: sudo snap install --edge --classic just
+
       - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain and cache
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        env:
+          RUST_CACHE_KEY_OS: rust-cache-ubuntu-latest
 
       - name: Migrate database
         run: |
@@ -95,6 +101,11 @@ jobs:
           - 5432:5432
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain and cache
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        env:
+          RUST_CACHE_KEY_OS: rust-cache-ubuntu-latest
 
       - name: Migrate database
         run: |
