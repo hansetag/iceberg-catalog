@@ -3,7 +3,7 @@ use crate::api::iceberg::v1::{
     ListNamespacesQuery, ListNamespacesResponse, NamespaceParameters, Prefix, Result,
     UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
-use crate::api::RequestMetadata;
+use crate::request_metadata::RequestMetadata;
 use crate::CONFIG;
 use http::StatusCode;
 use iceberg::NamespaceIdent;

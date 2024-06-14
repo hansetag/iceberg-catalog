@@ -2,7 +2,7 @@ use crate::api::iceberg::v1::config::GetConfigQueryParams;
 use crate::api::iceberg::v1::{
     ApiContext, CatalogConfig, ErrorModel, IcebergErrorResponse, Result,
 };
-use crate::api::RequestMetadata;
+use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use std::marker::PhantomData;
 use std::str::FromStr;

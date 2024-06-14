@@ -1,5 +1,6 @@
 use crate::api::management::ApiServer;
-use crate::api::{ApiContext, RequestMetadata, Result};
+use crate::api::{ApiContext, Result};
+use crate::request_metadata::RequestMetadata;
 use crate::service::storage::{StorageCredential, StorageProfile};
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
 use utoipa::ToSchema;

@@ -73,6 +73,10 @@ pub struct DynAppConfig {
     pub nats_address: Option<Url>,
     #[clap(env = "ICEBERG_REST__NATS_TOPIC")]
     pub nats_topic: Option<String>,
+
+    // ------------- AUTHORIZATION -------------
+    #[clap(env = "ICEBERG_REST__OPENID_PROVIDER_URI")]
+    pub openid_provider_uri: Option<Url>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]

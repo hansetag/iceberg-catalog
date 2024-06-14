@@ -1,5 +1,5 @@
 use super::{ApiContext, Prefix, Result};
-use crate::api::RequestMetadata;
+use crate::request_metadata::RequestMetadata;
 use axum::extract::State;
 use axum::routing::post;
 use axum::{async_trait, extract::Path, Extension, Json, Router};

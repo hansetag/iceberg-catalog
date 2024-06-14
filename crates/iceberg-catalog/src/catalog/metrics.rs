@@ -1,5 +1,5 @@
 use crate::api::iceberg::v1::{ApiContext, Result, TableParameters};
-use crate::api::RequestMetadata;
+use crate::request_metadata::RequestMetadata;
 
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
 

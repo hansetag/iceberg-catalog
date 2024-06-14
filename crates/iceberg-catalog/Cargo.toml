@@ -12,6 +12,7 @@ Implementation of the Iceberg REST Catalog server.
 """
 
 [features]
+default = ["all"]
 all = ["sqlx-postgres", "api", "s3-signer", "router"]
 sqlx-postgres = ["sqlx"]
 sqlx-postgres-secrets = ["sqlx"]
@@ -27,6 +28,7 @@ async-trait = { workspace = true }
 aws-credential-types = { version = "^1.2", optional = true }
 aws-sigv4 = { version = "^1.2", optional = true }
 axum = { workspace = true, optional = true }
+axum-extra = { version = "0.9.3", features = ["typed-header"] }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 cloudevents-sdk = { version = "0.7.0" }
@@ -37,7 +39,10 @@ hostname = { workspace = true }
 http = { workspace = true }
 iceberg = { workspace = true }
 iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
+jsonwebtoken = "9.3.0"
+jwks_client_rs.workspace = true
 lazy_static = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
 sqlx = { workspace = true, optional = true }

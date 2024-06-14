@@ -7,6 +7,7 @@ pub mod event_publisher;
 pub mod router;
 pub mod secrets;
 pub mod storage;
+pub mod token_verification;
 
 pub use catalog::{
     Catalog, CommitTableResponseExt, CreateTableResult, GetStorageConfigResult,
