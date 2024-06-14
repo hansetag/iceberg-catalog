@@ -1,5 +1,4 @@
-use anyhow::{Context, Error};
-use async_nats::ServerAddr;
+use anyhow::Error;
 use clap::{Parser, Subcommand};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
@@ -153,16 +152,22 @@ async fn main() -> anyhow::Result<()> {
 
 async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
     tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
-    let nats_builder = async_nats::ConnectOptions::new();
+    let builder = async_nats::ConnectOptions::new();
 
     let builder = if let Some(file) = &CONFIG.nats_creds_file {
-        nats_builder.credentials_file(file).await?
+        builder.credentials_file(file).await?
     } else {
-        nats_builder
+        builder
     };
 
     let builder = if let (Some(user), Some(pw)) = (&CONFIG.nats_user, &CONFIG.nats_password) {
         builder.user_and_password(user.clone(), pw.clone())
+    } else {
+        builder
+    };
+
+    let builder = if let Some(token) = &CONFIG.nats_token {
+        builder.token(token.clone())
     } else {
         builder
     };

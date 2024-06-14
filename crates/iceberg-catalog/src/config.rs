@@ -82,6 +82,9 @@ pub struct DynAppConfig {
     #[clap(env = "ICEBERG_REST__NATS_PASSWORD")]
     #[redact]
     pub nats_password: Option<String>,
+    #[clap(env = "ICEBERG_REST__NATS_PASSWORD")]
+    #[redact]
+    pub nats_token: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]
