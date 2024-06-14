@@ -1,17 +1,32 @@
 //! Contains Configuration of the service Module
 use std::collections::HashSet;
 use std::convert::Infallible;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::str::FromStr;
 use url::Url;
 
-use figment::value::{Dict, Map};
-use figment::{Error, Metadata, Profile, Provider};
+use itertools::Itertools;
 use serde::{Deserialize, Deserializer, Serialize};
 use veil::Redact;
 
 use crate::WarehouseIdent;
+
+const DEFAULT_RESERVED_NAMESPACES: [&str; 2] = ["system", "examples"];
+
+lazy_static::lazy_static! {
+    /// Configuration of the service module.
+    pub static ref CONFIG: DynAppConfig = {
+        let defaults = figment::providers::Serialized::defaults(DynAppConfig::default());
+        let mut config = figment::Figment::from(defaults)
+            .merge(figment::providers::Env::prefixed("ICEBERG_REST__"))
+            .extract::<DynAppConfig>()
+            .expect("Valid Configuration");
+        config.reserved_namespaces.extend(DEFAULT_RESERVED_NAMESPACES.into_iter().map(str::to_string));
+
+        config
+    };
+}
 
 #[derive(Clone, Deserialize, Serialize, PartialEq, Redact)]
 #[allow(clippy::module_name_repetitions)]
@@ -37,7 +52,10 @@ pub struct DynAppConfig {
     /// This is used to prevent users to create certain
     /// (sub)-namespaces. By default, `system` and `examples` are
     /// reserved. More namespaces can be added here.
-    #[serde(deserialize_with = "deserialize_reserved_namespaces")]
+    #[serde(
+        deserialize_with = "deserialize_reserved_namespaces",
+        serialize_with = "serialize_reserved_namespaces"
+    )]
     pub reserved_namespaces: ReservedNamespaces,
     // ------------- POSTGRES IMPLEMENTATION -------------
     #[redact]
@@ -90,6 +108,19 @@ impl Default for DynAppConfig {
     }
 }
 
+impl DynAppConfig {
+    pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: &WarehouseIdent) -> url::Url {
+        self.base_uri
+            .join(&format!("v1/{warehouse_id}"))
+            .expect("Valid URL")
+    }
+
+    pub fn warehouse_prefix(&self, warehouse_id: &WarehouseIdent) -> String {
+        self.prefix_template
+            .replace("{warehouse_id}", warehouse_id.to_string().as_str())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReservedNamespaces(HashSet<String>);
 impl Deref for ReservedNamespaces {
@@ -97,6 +128,12 @@ impl Deref for ReservedNamespaces {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for ReservedNamespaces {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -114,41 +151,19 @@ fn deserialize_reserved_namespaces<'de, D>(deserializer: D) -> Result<ReservedNa
 where
     D: Deserializer<'de>,
 {
-    let buf = String::deserialize(deserializer)?;
+    let buf = dbg!(String::deserialize(deserializer))?;
 
     ReservedNamespaces::from_str(&buf).map_err(serde::de::Error::custom)
 }
-impl Provider for DynAppConfig {
-    fn metadata(&self) -> Metadata {
-        Metadata::named("iceberg-catalog Config")
-    }
 
-    fn data(&self) -> Result<Map<Profile, Dict>, Error> {
-        figment::providers::Serialized::defaults(DynAppConfig::default()).data()
-    }
-}
-
-impl DynAppConfig {
-    pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: &WarehouseIdent) -> url::Url {
-        self.base_uri
-            .join(&format!("v1/{warehouse_id}"))
-            .expect("Valid URL")
-    }
-
-    pub fn warehouse_prefix(&self, warehouse_id: &WarehouseIdent) -> String {
-        self.prefix_template
-            .replace("{warehouse_id}", warehouse_id.to_string().as_str())
-    }
-}
-
-lazy_static::lazy_static! {
-    #[derive(Debug)]
-    /// Configuration of the service module.
-    pub static ref CONFIG: DynAppConfig = {
-        figment::Figment::from(DynAppConfig::default()).merge(figment::providers::Env::prefixed("ICEBERG_REST__"))
-            .extract::<DynAppConfig>()
-            .expect("Valid Configuration")
-    };
+fn serialize_reserved_namespaces<S>(
+    value: &ReservedNamespaces,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    value.0.iter().join(",").serialize(serializer)
 }
 
 #[cfg(test)]
@@ -163,7 +178,7 @@ mod test {
 
     #[test]
     fn reserved_namespaces_should_contains_default_values() {
-        assert!(CONFIG.reserved_namespaces.contains("system"));
+        assert!(dbg!(&CONFIG.reserved_namespaces).contains("system"));
         assert!(CONFIG.reserved_namespaces.contains("examples"));
     }
 }

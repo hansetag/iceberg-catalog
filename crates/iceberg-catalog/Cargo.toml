@@ -39,6 +39,7 @@ hostname = { workspace = true }
 http = { workspace = true }
 iceberg = { workspace = true }
 iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
+itertools = { workspace = true }
 jsonwebtoken = "9.3.0"
 jwks_client_rs.workspace = true
 lazy_static = { workspace = true }
