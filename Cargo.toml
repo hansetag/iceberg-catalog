@@ -9,8 +9,8 @@ resolver = "2"
 [workspace.package]
 version = "0.0.1"
 edition = "2021"
-homepage = "https://github.com/hansetag/iceberg-rest-rs.git"
-repository = "https://github.com/hansetag/iceberg-rest-rs.git"
+homepage = "https://github.com/hansetag/iceberg-catalog"
+repository = "https://github.com/hansetag/iceberg-catalog.git"
 rust-version = "1.75.0"
 license = "Apache-2.0"
 

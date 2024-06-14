@@ -1,0 +1,22 @@
+changelog:
+  exclude:
+    authors:
+      - renovate[bot]
+    labels:
+      - ignore for release
+  categories:
+    - title: 🎉 New Features
+      labels:
+        - kind/feature
+    - title: 💥 Breaking Changes
+      labels:
+        - breaking change
+    - title: 🐛 Bug Fixes
+      labels:
+        - bug
+    - title: 📖 Documentation improvements
+      labels:
+        - documentation
+    - title: Other Changes
+      labels:
+        - "*"

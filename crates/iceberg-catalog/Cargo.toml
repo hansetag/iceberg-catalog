@@ -12,11 +12,9 @@ Implementation of the Iceberg REST Catalog server.
 """
 
 [features]
-all = ["sqlx-postgres", "api", "s3-signer", "router"]
+all = ["sqlx-postgres", "s3-signer", "router"]
 sqlx-postgres = ["sqlx"]
-sqlx-postgres-secrets = ["sqlx"]
 sqlx = ["dep:sqlx"]
-api = ["dep:axum"]
 s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]
 router = ["dep:tower-http", "tokio"]
 
@@ -26,7 +24,7 @@ async-nats = { workspace = true }
 async-trait = { workspace = true }
 aws-credential-types = { version = "^1.2", optional = true }
 aws-sigv4 = { version = "^1.2", optional = true }
-axum = { workspace = true, optional = true }
+axum = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 cloudevents-sdk = { version = "0.7.0" }

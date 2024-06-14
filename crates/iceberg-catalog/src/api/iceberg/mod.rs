@@ -30,20 +30,20 @@ pub mod v1 {
 
     pub fn new_v1_full_router<
         C: config::Service<S>,
-        T: namespace::Service<S>
-            + tables::Service<S>
-            + metrics::Service<S>
-            + s3_signer::Service<S>
-            + views::Service<S>,
+        #[cfg(feature = "s3-signer")] T: namespace::Service<S> + tables::Service<S> + metrics::Service<S> + s3_signer::Service<S>,
+        #[cfg(not(feature = "s3-signer"))] T: namespace::Service<S> + tables::Service<S> + metrics::Service<S>,
         S: ThreadSafe,
     >() -> Router<ApiContext<S>> {
-        Router::new()
+        let router = Router::new()
             .merge(config::router::<C, S>())
             .merge(namespace::router::<T, S>())
             .merge(tables::router::<T, S>())
-            .merge(views::router::<T, S>())
-            .merge(s3_signer::router::<T, S>())
-            .merge(metrics::router::<T, S>())
+            .merge(metrics::router::<T, S>());
+
+        #[cfg(feature = "s3-signer")]
+        let router = router.merge(s3_signer::router::<T, S>());
+
+        router
     }
 
     pub fn new_v1_config_router<C: config::Service<S>, S: ThreadSafe>() -> Router<ApiContext<S>> {

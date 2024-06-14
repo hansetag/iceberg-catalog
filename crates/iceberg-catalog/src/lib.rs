@@ -6,7 +6,6 @@
 )]
 #![forbid(unsafe_code)]
 
-#[cfg(feature = "api")]
 pub mod api;
 
 pub mod catalog;
@@ -18,4 +17,5 @@ pub use config::CONFIG;
 
 pub mod implementations;
 mod request_metadata;
+#[cfg(feature = "router")]
 pub(crate) mod tracing;

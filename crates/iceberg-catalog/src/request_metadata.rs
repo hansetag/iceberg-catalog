@@ -5,6 +5,7 @@ use http::HeaderMap;
 use std::str::FromStr;
 use uuid::Uuid;
 
+#[cfg(feature = "router")]
 pub(crate) async fn set_request_metadata(
     headers: HeaderMap,
     mut request: axum::extract::Request,
