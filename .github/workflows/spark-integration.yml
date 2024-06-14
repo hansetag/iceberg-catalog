@@ -77,7 +77,7 @@ jobs:
       - name: Test Pyspark
         run: |
           cd tests &&
-          docker compose run spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_spark.sh"
+          docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_spark.sh"
 
         env:
           ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
