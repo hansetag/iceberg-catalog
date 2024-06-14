@@ -184,14 +184,14 @@ jobs:
         uses: actions/download-artifact@v4
 
       - name: List artifacts
-        run: ls -lh
+        run: ls -lh iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
 
       - name: Restore binaries
         run: |
-          tar xzvf iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
-          mv iceberg-catalog iceberg-catalog-amd64
-          tar xzvf iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
-          mv iceberg-catalog iceberg-catalog-arm64
+          # tar xzvf iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
+          mv iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz/iceberg-catalog iceberg-catalog-amd64
+          # tar xzvf iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
+          mv xzvf iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog iceberg-catalog-arm64
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
