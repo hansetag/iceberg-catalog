@@ -53,7 +53,8 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
 
     if let Some(nat_addr) = &CONFIG.nats_address {
         let nats_publisher = build_nats_client(nat_addr).await?;
-        cloud_event_sinks.push(Arc::new(nats_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
+        cloud_event_sinks
+            .push(Arc::new(nats_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
     } else {
         tracing::info!("Running without publisher.");
     };
@@ -150,10 +151,9 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-
 async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
     tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
-    let mut nats_builder = async_nats::ConnectOptions::new();
+    let nats_builder = async_nats::ConnectOptions::new();
 
     let builder = if let Some(file) = &CONFIG.nats_creds_file {
         nats_builder.credentials_file(file).await?
