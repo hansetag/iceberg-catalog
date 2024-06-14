@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO secret (secret)\n            VALUES (pgp_sym_encrypt($1, $2, 'cipher-algo=aes256'))\n            RETURNING secret_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "secret_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4ecd137d2abeaf58285165aeec7a0374b34baf029d7c572b5247dfb29463a949"
+}

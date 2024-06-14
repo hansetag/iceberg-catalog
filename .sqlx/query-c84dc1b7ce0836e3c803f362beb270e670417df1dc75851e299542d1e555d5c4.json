@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                n.namespace_id,\n                w.storage_profile as \"storage_profile: Json<StorageProfile>\",\n                w.\"storage_secret_id\"\n            FROM namespace n\n            inner join warehouse w on n.warehouse_id = w.warehouse_id\n            WHERE w.warehouse_id = $1 AND n.\"name\" = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "namespace_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "storage_profile: Json<StorageProfile>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "storage_secret_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "c84dc1b7ce0836e3c803f362beb270e670417df1dc75851e299542d1e555d5c4"
+}

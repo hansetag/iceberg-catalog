@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            t.\"table_id\", \n            t.\"metadata\" as \"metadata: Json<TableMetadata>\", \n            t.\"metadata_location\",\n            w.storage_profile as \"storage_profile: Json<StorageProfile>\",\n            w.\"storage_secret_id\",\n            n.namespace_id\n        FROM \"table\" t\n        INNER JOIN namespace n ON t.namespace_id = n.namespace_id\n        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n        WHERE \"table_id\" = ANY($1)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "metadata: Json<TableMetadata>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "metadata_location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "storage_profile: Json<StorageProfile>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "storage_secret_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "namespace_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "fd56ee5352808f1496adfe04fcab42b96788e3fd207dbaea159cb8db37503fce"
+}

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                \"name\"[$2 + 1:] as \"name: Vec<String>\"\n            FROM namespace\n            WHERE warehouse_id = $1\n            AND array_length(\"name\", 1) = $2 + 1\n            AND \"name\"[1:$2] = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name: Vec<String>",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e717044628c287524983e483452e6b26a925a5a088c9b001083b876a1b901576"
+}
