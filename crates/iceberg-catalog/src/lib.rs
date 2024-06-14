@@ -6,7 +6,6 @@
 )]
 #![forbid(unsafe_code)]
 
-#[cfg(feature = "api")]
 pub mod api;
 
 pub mod catalog;

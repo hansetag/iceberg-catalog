@@ -1,5 +1,6 @@
+use crate::api::ApiContext;
 use crate::api::Result;
-use crate::api::{ApiContext, RequestMetadata};
+use crate::request_metadata::RequestMetadata;
 use async_trait::async_trait;
 use axum::extract::{Query, State};
 use axum::routing::get;

@@ -39,22 +39,11 @@ futures = "^0.3"
 anyhow = "^1.0"
 chrono = "^0.4"
 clap = { version = "^4.5", features = ["derive", "env"] }
-tower = "^0.4"
 headers = { version = "^0.4" }
-tower-http = { version = "^0.5", features = [
-    "catch-panic",
-    "compression-full",
-    "sensitive-headers",
-    "timeout",
-    "trace",
-] }
 hostname = "0.4.0"
 http-body-util = "^0.1"
+jwks_client_rs = "0.5.1"
 strum = "^0.26"
-urlencoding = "^2.1"
-utoipa = "^4.2"
-tracing = { version = "^0.1", features = ["attributes"] }
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 sqlx = { version = "^0.7", features = [
     "runtime-tokio",
     "tls-rustls",
@@ -69,4 +58,16 @@ tokio = { version = "1", default-features = false, features = [
     "signal",
     "rt-multi-thread",
 ] }
+tower = "^0.4"
+tower-http = { version = "^0.5", features = [
+    "catch-panic",
+    "compression-full",
+    "sensitive-headers",
+    "timeout",
+    "trace",
+] }
+tracing = { version = "^0.1", features = ["attributes"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
+urlencoding = "^2.1"
+utoipa = "^4.2"
 veil = "0.1.7"

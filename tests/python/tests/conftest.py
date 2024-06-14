@@ -22,6 +22,9 @@ ICEBERG_REST_TEST_S3_PATH_STYLE_ACCESS = os.environ.get(
 ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION = os.environ.get(
     "ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION", "1.5.2"
 )
+OPENID_PROVIDER_URI = os.environ.get("ICEBERG_REST_TEST_OPENID_PROVIDER_URI")
+OPENID_CLIENT_ID = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_ID")
+OPENID_CLIENT_SECRET = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_SECRET")
 
 
 def string_to_bool(s: str) -> bool:
@@ -63,6 +66,7 @@ def get_storage_config() -> dict:
 class Server:
     catalog_url: str
     management_url: str
+    access_token: str
 
     def create_warehouse(self, name: str, project_id: uuid.UUID) -> uuid.UUID:
         """Create a warehouse in this server"""
@@ -75,7 +79,9 @@ class Server:
         }
 
         warehouse_url = self.warehouse_url
-        response = requests.post(warehouse_url, json=create_payload)
+        response = requests.post(warehouse_url, json=create_payload, headers={
+            "Authorization": f"Bearer {self.access_token}"
+        })
         if response.status_code != 200:
             raise ValueError(
                 f"Failed to create warehouse ({response.status_code}): {response.text}"
@@ -95,6 +101,7 @@ class Warehouse:
     project_id: uuid.UUID
     warehouse_id: uuid.UUID
     warehouse_name: str
+    access_token: str
 
     @property
     def pyiceberg_catalog(self) -> pyiceberg.catalog.rest.RestCatalog:
@@ -102,7 +109,7 @@ class Warehouse:
             name="my_catalog_name",
             uri=self.server.catalog_url,
             warehouse=f"{self.project_id}/{self.warehouse_name}",
-            token="dummy",
+            token=self.access_token,
         )
 
 
@@ -121,7 +128,23 @@ class Namespace:
 
 
 @pytest.fixture(scope="session")
-def server() -> Server:
+def access_token() -> str:
+    if OPENID_PROVIDER_URI is None:
+        pytest.skip("OAUTH_PROVIDER_URI is not set")
+
+    token_endpoint = requests.get(OPENID_PROVIDER_URI.strip("/") + "/.well-known/openid-configuration").json()[
+        "token_endpoint"]
+    response = requests.post(
+        token_endpoint,
+        data={"grant_type": "client_credentials"},
+        auth=(OPENID_CLIENT_ID, OPENID_CLIENT_SECRET),
+    )
+    response.raise_for_status()
+    return response.json()["access_token"]
+
+
+@pytest.fixture(scope="session")
+def server(access_token) -> Server:
     if ICEBERG_REST_TEST_MANAGEMENT_URL is None:
         pytest.skip("ICEBERG_REST_TEST_MANAGEMENT_URL is not set")
     if ICEBERG_REST_TEST_CATALOG_URL is None:
@@ -130,6 +153,7 @@ def server() -> Server:
     return Server(
         catalog_url=ICEBERG_REST_TEST_CATALOG_URL.rstrip("/") + "/",
         management_url=ICEBERG_REST_TEST_MANAGEMENT_URL.rstrip("/") + "/",
+        access_token=access_token,
     )
 
 
@@ -141,6 +165,7 @@ def warehouse(server: Server):
     warehouse_id = server.create_warehouse(warehouse_name, project_id=project_id)
     print(f"SERVER CREATED: {warehouse_id}")
     return Warehouse(
+        access_token=server.access_token,
         server=server,
         project_id=project_id,
         warehouse_id=warehouse_id,
@@ -184,7 +209,7 @@ def spark(warehouse: Warehouse):
         f"spark.sql.catalog.test": "org.apache.iceberg.spark.SparkCatalog",
         f"spark.sql.catalog.test.catalog-impl": "org.apache.iceberg.rest.RESTCatalog",
         f"spark.sql.catalog.test.uri": warehouse.server.catalog_url,
-        f"spark.sql.catalog.test.token": "dummy",
+        f"spark.sql.catalog.test.token": warehouse.access_token,
         f"spark.sql.catalog.test.warehouse": f"{warehouse.project_id}/{warehouse.warehouse_name}",
     }
 

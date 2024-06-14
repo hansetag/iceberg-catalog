@@ -5,15 +5,14 @@ use std::vec;
 
 use crate::api::iceberg::types::Prefix;
 use crate::api::{ApiContext, Result};
-use crate::api::{
-    ErrorModel, IcebergErrorResponse, RequestMetadata, S3SignRequest, S3SignResponse,
-};
+use crate::api::{ErrorModel, IcebergErrorResponse, S3SignRequest, S3SignResponse};
 use aws_sigv4::http_request::{sign as aws_sign, SignableBody, SignableRequest, SigningSettings};
 use aws_sigv4::sign::v4;
 use aws_sigv4::{self};
 
 use super::CatalogServer;
 use crate::catalog::require_warehouse_id;
+use crate::request_metadata::RequestMetadata;
 use crate::service::secrets::SecretStore;
 use crate::service::storage::{S3Profile, StorageCredential};
 use crate::service::{auth::AuthZHandler, Catalog, State};

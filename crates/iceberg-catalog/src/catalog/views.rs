@@ -3,7 +3,7 @@ use crate::api::iceberg::v1::{
     LoadViewResult, NamespaceParameters, PaginationQuery, Prefix, RenameTableRequest, Result,
     TableIdent, ViewParameters,
 };
-use crate::api::RequestMetadata;
+use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use std::vec;
 

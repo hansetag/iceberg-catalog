@@ -5,6 +5,7 @@ use iceberg_catalog::service::event_publisher::{
     CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
     NatsBackend,
 };
+use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{
     implementations::{
         postgres::{Catalog, CatalogState, SecretsState, SecretsStore},
@@ -78,6 +79,11 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         secrets_state,
         CloudEventsPublisher::new(tx.clone()),
         ContractVerifiers::new(vec![]),
+        if let Some(uri) = CONFIG.openid_provider_uri.clone() {
+            Some(Verifier::new(uri).await?)
+        } else {
+            None
+        },
     );
 
     let publisher_handle = tokio::task::spawn(async move {

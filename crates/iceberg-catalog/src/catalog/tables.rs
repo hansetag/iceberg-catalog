@@ -7,8 +7,9 @@ use crate::api::iceberg::v1::{
 };
 use crate::api::{
     CommitTableResponse, CommitTransactionRequest, ErrorModel, ListTablesResponse, LoadTableResult,
-    RegisterTableRequest, RenameTableRequest, RequestMetadata,
+    RegisterTableRequest, RenameTableRequest,
 };
+use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
 use serde::Serialize;

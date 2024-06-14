@@ -10,11 +10,13 @@ pub struct ApiServer<C: Catalog, A: AuthZHandler, S: SecretStore> {
 }
 
 pub mod v1 {
-
     use axum::{Extension, Json, Router};
+
     pub mod warehouse;
-    use crate::api::{ApiContext, RequestMetadata};
+    use crate::api::ApiContext;
+    use crate::request_metadata::RequestMetadata;
     use crate::service::auth::AuthZHandler;
+
     use crate::service::{Catalog, SecretStore, State};
     use axum::extract::State as AxumState;
     use axum::routing::post;

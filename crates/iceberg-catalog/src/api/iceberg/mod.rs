@@ -3,6 +3,7 @@ pub mod types;
 pub mod v1 {
     use crate::api::ThreadSafe;
     use axum::Router;
+
     pub mod config;
     pub mod metrics;
     pub mod namespace;
@@ -24,9 +25,10 @@ pub mod v1 {
         CreateNamespaceResponse, CreateTableRequest, CreateViewRequest, ErrorModel,
         GetNamespaceResponse, IcebergErrorResponse, ListNamespacesResponse, ListTablesResponse,
         LoadTableResult, LoadViewResult, OAuthTokenRequest, OAuthTokenResponse,
-        RegisterTableRequest, RenameTableRequest, RequestMetadata, Result,
-        UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
+        RegisterTableRequest, RenameTableRequest, Result, UpdateNamespacePropertiesRequest,
+        UpdateNamespacePropertiesResponse,
     };
+    pub use crate::request_metadata::RequestMetadata;
 
     pub fn new_v1_full_router<
         C: config::Service<S>,

@@ -1,6 +1,6 @@
 use super::{ProjectIdent, TableIdentUuid, WarehouseIdent};
 use crate::api::iceberg::v1::{NamespaceIdent, Result};
-use crate::api::RequestMetadata;
+use crate::request_metadata::RequestMetadata;
 
 #[derive(Clone, Debug)]
 pub enum UserID {

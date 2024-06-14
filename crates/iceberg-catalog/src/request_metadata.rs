@@ -1,11 +1,32 @@
-use crate::api::RequestMetadata;
+use crate::service::token_verification::AuthDetails;
 use axum::middleware::Next;
 use axum::response::Response;
 use http::HeaderMap;
 use std::str::FromStr;
 use uuid::Uuid;
 
-pub(crate) async fn set_request_metadata(
+/// A struct to hold metadata about a request.
+///
+/// Currently, it only holds the `request_id`, later it can be expanded to hold more metadata for
+/// Authz etc.
+#[derive(Debug, Clone)]
+pub struct RequestMetadata {
+    pub request_id: Uuid,
+    pub auth_details: Option<AuthDetails>,
+}
+
+impl RequestMetadata {
+    #[cfg(test)]
+    #[must_use]
+    pub fn new_random() -> Self {
+        Self {
+            request_id: Uuid::new_v4(),
+            auth_details: None,
+        }
+    }
+}
+
+pub(crate) async fn create_request_metadata_with_trace_id_fn(
     headers: HeaderMap,
     mut request: axum::extract::Request,
     next: Next,
@@ -21,8 +42,9 @@ pub(crate) async fn set_request_metadata(
                 .flatten()
         })
         .unwrap_or(Uuid::now_v7());
-    request
-        .extensions_mut()
-        .insert(RequestMetadata { request_id });
+    request.extensions_mut().insert(RequestMetadata {
+        request_id,
+        auth_details: None,
+    });
     next.run(request).await
 }
