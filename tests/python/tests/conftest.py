@@ -22,9 +22,9 @@ ICEBERG_REST_TEST_S3_PATH_STYLE_ACCESS = os.environ.get(
 ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION = os.environ.get(
     "ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION", "1.5.2"
 )
-OAUTH_PROVIDER_URI = os.environ.get("ICEBERG_REST_TEST_OAUTH_PROVIDER_URI")
-OAUTH_CLIENT_ID = os.environ.get("ICEBERG_REST_TEST_OAUTH_CLIENT_ID")
-OAUTH_CLIENT_SECRET = os.environ.get("ICEBERG_REST_TEST_OAUTH_CLIENT_SECRET")
+OPENID_PROVIDER_URI = os.environ.get("ICEBERG_REST_TEST_OPENID_PROVIDER_URI")
+OPENID_CLIENT_ID = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_ID")
+OPENID_CLIENT_SECRET = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_SECRET")
 
 
 def string_to_bool(s: str) -> bool:
@@ -129,15 +129,15 @@ class Namespace:
 
 @pytest.fixture(scope="session")
 def access_token() -> str:
-    if OAUTH_PROVIDER_URI is None:
+    if OPENID_PROVIDER_URI is None:
         pytest.skip("OAUTH_PROVIDER_URI is not set")
 
-    token_endpoint = requests.get(OAUTH_PROVIDER_URI.strip("/") + "/.well-known/openid-configuration").json()[
+    token_endpoint = requests.get(OPENID_PROVIDER_URI.strip("/") + "/.well-known/openid-configuration").json()[
         "token_endpoint"]
     response = requests.post(
         token_endpoint,
         data={"grant_type": "client_credentials"},
-        auth=(OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET),
+        auth=(OPENID_CLIENT_ID, OPENID_CLIENT_SECRET),
     )
     response.raise_for_status()
     return response.json()["access_token"]
