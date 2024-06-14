@@ -45,8 +45,10 @@ services:
       - ICEBERG_REST__PG_ENCRYPTION_KEY=abc
       - ICEBERG_REST__PG_DATABASE_URL_READ=postgresql://postgres:postgres@db:2345/postgres
       - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:postgres@db:2345/postgres
-      - ICEBERG_REST__NATS_ADDRESS=nats://nats:4222
+      - ICEBERG_REST__NATS_URI=nats://nats:4222
       - ICEBERG_REST__NATS_TOPIC=changes
+      - ICEBERG_REST__NATS_USER=test
+      - ICEBERG_REST__NATS_PASSWORD=test
       - ICEBERG_REST__OPENID_PROVIDER_URI=http://keycloak:8080/realms/test/
       - RUST_LOG=trace,axum=trace,reqwest=trace
     entrypoint: [ "bash", "-c", "./iceberg-catalog migrate && ./iceberg-catalog serve" ]
@@ -103,7 +105,7 @@ services:
 
   nats:
     image: bitnami/nats:latest
-    command: [ "nats-server",  "-m=8222" ]
+    command: [ "nats-server",  "-m=8222", "--user=test", "--pass=test" ]
     ports:
       - "4222:4222"
     healthcheck:

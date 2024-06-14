@@ -148,6 +148,20 @@ Configuration parameters if Postgres is used as a backend:
 | `ICEBERG_REST__PG_READ_POOL_CONNECTIONS`  | `10`                                                  | Number of connections in the read pool                |
 | `ICEBERG_REST__PG_WRITE_POOL_CONNECTIONS` | `5`                                                   | Number of connections in the write pool               |
 
+
+### Nats
+
+If you want the server to publish events to a NATS server, set the following environment variables:
+
+| Variable                        | Example                 | Description                                                            |
+|---------------------------------|-------------------------|------------------------------------------------------------------------|
+| `ICEBERG_REST__NATS_URI`        | `nats://localhost:4222` | The URL of the NATS server to connect to                               |
+| `ICEBERG_REST__NATS_TOPIC`      | `iceberg`               | The subject to publish events to                                       |
+| `ICEBERG_REST__NATS_USER`       | `test-user`             | User to authenticate against nats, needs `ICEBERG_REST__NATS_PASSWORD` |
+| `ICEBERG_REST__NATS_PASSWORD`   | `test-password`         | Password to authenticate against nats, needs `ICEBERG_REST__NATS_USER` |
+| `ICEBERG_REST__NATS_CREDS_FILE` | `/path/to/file.creds`   | Path to a file containing nats credentials                             |
+| `ICEBERG_REST__NATS_TOKEN`      | `xyz`                   | Nats token to authenticate against server                              | 
+
 ### OpenID Connect
 
 If you want to limit access to the API, set `ICEBERG_REST__OPENID_PROVIDER_URI` to the URI of your OpenID Connect Provider. The catalog will then verify access tokens against this provider. The provider must have the `.well-known/openid-configuration` endpoint under `${ICEBERG_REST__OPENID_PROVIDER_URI}/.well-known/openid-configuration` and the openid-configuration needs to have the `jwks_uri` and `issuer` defined.

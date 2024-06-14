@@ -1,5 +1,4 @@
-use anyhow::Context;
-use async_nats::ServerAddr;
+use anyhow::Error;
 use clap::{Parser, Subcommand};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
@@ -15,6 +14,7 @@ use iceberg_catalog::{
     service::router::{new_full_router, serve as service_serve},
     CONFIG,
 };
+use reqwest::Url;
 use std::sync::Arc;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
@@ -52,19 +52,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
     let mut cloud_event_sinks = vec![];
 
     if let Some(nat_addr) = &CONFIG.nats_address {
-        tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
-        let nats_publisher = NatsBackend {
-            client: async_nats::connect(
-                ServerAddr::from_url(nat_addr.clone())
-                    .context("Converting nats URL to ServerAddr failed.")?,
-            )
-            .await
-            .context("Connecting to nats server failed.")?,
-            topic: CONFIG
-                .nats_topic
-                .clone()
-                .ok_or(anyhow::anyhow!("Missing nats topic."))?,
-        };
+        let nats_publisher = build_nats_client(nat_addr).await?;
         cloud_event_sinks
             .push(Arc::new(nats_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
     } else {
@@ -166,4 +154,36 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
+    tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
+    let builder = async_nats::ConnectOptions::new();
+
+    let builder = if let Some(file) = &CONFIG.nats_creds_file {
+        builder.credentials_file(file).await?
+    } else {
+        builder
+    };
+
+    let builder = if let (Some(user), Some(pw)) = (&CONFIG.nats_user, &CONFIG.nats_password) {
+        builder.user_and_password(user.clone(), pw.clone())
+    } else {
+        builder
+    };
+
+    let builder = if let Some(token) = &CONFIG.nats_token {
+        builder.token(token.clone())
+    } else {
+        builder
+    };
+
+    let nats_publisher = NatsBackend {
+        client: builder.connect(nat_addr.to_string()).await?,
+        topic: CONFIG
+            .nats_topic
+            .clone()
+            .ok_or(anyhow::anyhow!("Missing nats topic."))?,
+    };
+    Ok(nats_publisher)
 }
