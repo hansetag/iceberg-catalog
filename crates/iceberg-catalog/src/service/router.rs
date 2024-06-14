@@ -82,15 +82,14 @@ fn maybe_add_auth<C: Catalog, A: AuthZHandler, S: SecretStore>(
     token_verifier: Option<Verifier>,
     router: Router<ApiContext<State<A, C, S>>>,
 ) -> Router<ApiContext<State<A, C, S>>> {
-    let router = if let Some(token_verifier) = token_verifier {
+    if let Some(token_verifier) = token_verifier {
         router.layer(axum::middleware::from_fn_with_state(
             token_verifier,
             crate::service::token_verification::auth_middleware_fn,
         ))
     } else {
         router
-    };
-    router
+    }
 }
 
 /// Serve the given router on the given listener
