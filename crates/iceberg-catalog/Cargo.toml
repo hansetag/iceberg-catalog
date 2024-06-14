@@ -30,15 +30,16 @@ aws-sigv4 = { version = "^1.2", optional = true }
 axum = { workspace = true, optional = true }
 axum-extra = { version = "0.9.3", features = ["typed-header"] }
 chrono = { workspace = true }
-clap = { workspace = true, features = ["derive", "env"] }
 cloudevents-sdk = { version = "0.7.0" }
 derive_more = { workspace = true }
+figment = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
 hostname = { workspace = true }
 http = { workspace = true }
 iceberg = { workspace = true }
 iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
+itertools = { workspace = true }
 jsonwebtoken = "9.3.0"
 jwks_client_rs.workspace = true
 lazy_static = { workspace = true }
