@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
@@ -16,9 +15,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::{
-    io::write_metadata_file,
-    namespace::{uppercase_first_letter, validate_namespace_ident},
-    require_warehouse_id, CatalogServer,
+    io::write_metadata_file, namespace::validate_namespace_ident, require_warehouse_id,
+    CatalogServer,
 };
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
@@ -83,7 +81,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let NamespaceParameters { namespace, prefix } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
         let table = TableIdent::new(namespace.clone(), request.name.clone());
-        validate_table_ident(&table)?;
+        validate_table_or_view_ident(&table)?;
 
         if request.location.is_some() {
             return Err(ErrorModel::builder()
@@ -187,9 +185,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             EventMetadata {
                 table_id: *table_id.as_uuid(),
                 warehouse_id: *warehouse_id.as_uuid(),
-                name: Cow::Borrowed(&table.name),
-                namespace: Cow::Owned(table.namespace.encode_in_url()),
-                prefix: Cow::Owned(prefix.map(Prefix::into_string).unwrap_or_default()),
+                name: table.name.clone(),
+                namespace: table.namespace.encode_in_url(),
+                prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
                 num_events: 1,
                 sequence_number: 0,
                 trace_id: request_metadata.request_id,
@@ -236,7 +234,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // Only then will it treat it as a branch.
         // 404 is returned by the logic in the remainder of this function. Here, we only
         // need to make sure that we don't fail prematurely on longer namespaces.
-        match validate_table_ident(&table) {
+        match validate_table_or_view_ident(&table) {
             Ok(()) => {}
             Err(e) => {
                 if e.error.r#type != *"NamespaceDepthExceeded" {
@@ -353,7 +351,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             request.identifier = Some(parameters.table.clone());
         }
         if let Some(ref mut identifier) = request.identifier {
-            validate_table_ident(identifier)?;
+            validate_table_or_view_ident(identifier)?;
         }
         // Make it non-mutable again for our sanity
         let request = request;
@@ -367,7 +365,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } = &request;
 
         validate_table_updates(updates)?;
-        identifier.as_ref().map(validate_table_ident).transpose()?;
+        identifier
+            .as_ref()
+            .map(validate_table_or_view_ident)
+            .transpose()?;
 
         if let Some(identifier) = identifier {
             if identifier != &parameters.table {
@@ -418,7 +419,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // serialize body before moving it
         let body = maybe_body_to_json(&request);
 
-        let updates = clone_updates(updates);
+        let updates = updates.clone();
 
         let transaction_request = CommitTransactionRequest {
             table_changes: vec![request],
@@ -482,14 +483,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             EventMetadata {
                 table_id: *table_id.as_uuid(),
                 warehouse_id: *warehouse_id.as_uuid(),
-                name: Cow::Borrowed(&parameters.table.name),
-                namespace: Cow::Owned(parameters.table.namespace.encode_in_url()),
-                prefix: Cow::Owned(
-                    parameters
-                        .prefix
-                        .map(crate::api::iceberg::types::Prefix::into_string)
-                        .unwrap_or_default(),
-                ),
+                name: parameters.table.name,
+                namespace: parameters.table.namespace.encode_in_url(),
+                prefix: parameters
+                    .prefix
+                    .map(crate::api::iceberg::types::Prefix::into_string)
+                    .unwrap_or_default(),
+
                 num_events: 1,
                 sequence_number: 0,
                 trace_id: request_metadata.request_id,
@@ -512,7 +512,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
-        validate_table_ident(&table)?;
+        validate_table_or_view_ident(&table)?;
 
         // ------------------- AUTHZ -------------------
         let include_staged = true;
@@ -561,13 +561,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             EventMetadata {
                 table_id: *table_id.as_uuid(),
                 warehouse_id: *warehouse_id.as_uuid(),
-                name: Cow::Borrowed(&table.name),
-                namespace: Cow::Owned(table.namespace.encode_in_url()),
-                prefix: Cow::Owned(
-                    prefix
-                        .map(crate::api::iceberg::types::Prefix::into_string)
-                        .unwrap_or_default(),
-                ),
+                name: table.name,
+                namespace: table.namespace.encode_in_url(),
+                prefix: prefix
+                    .map(crate::api::iceberg::types::Prefix::into_string)
+                    .unwrap_or_default(),
                 num_events: 1,
                 sequence_number: 0,
                 trace_id: request_metadata.request_id,
@@ -590,7 +588,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
-        validate_table_ident(&table)?;
+        validate_table_or_view_ident(&table)?;
 
         // ------------------- AUTHZ -------------------
         let include_staged = false;
@@ -651,8 +649,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             source,
             destination,
         } = request;
-        validate_table_ident(&source)?;
-        validate_table_ident(&destination)?;
+        validate_table_or_view_ident(&source)?;
+        validate_table_or_view_ident(&destination)?;
 
         // ------------------- AUTHZ -------------------
         let include_staged = false;
@@ -722,9 +720,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             EventMetadata {
                 table_id: *source_id.as_uuid(),
                 warehouse_id: *warehouse_id.as_uuid(),
-                name: Cow::Borrowed(&source.name),
-                namespace: Cow::Owned(source.namespace.encode_in_url()),
-                prefix: Cow::Owned(prefix.map(Prefix::into_string).unwrap_or_default()),
+                name: source.name,
+                namespace: source.namespace.encode_in_url(),
+                prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
                 num_events: 1,
                 sequence_number: 0,
                 trace_id: request_metadata.request_id,
@@ -760,7 +758,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             } = change;
 
             validate_table_updates(updates)?;
-            identifier.as_ref().map(validate_table_ident).transpose()?;
+            identifier
+                .as_ref()
+                .map(validate_table_or_view_ident)
+                .transpose()?;
 
             if identifier.is_none() {
                 return Err(ErrorModel::builder()
@@ -848,7 +849,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 if let Some(uuid) = table_ids.get(id) {
                     events.push(maybe_body_to_json(commit_table_request));
                     event_table_ids.push((id.clone(), *uuid));
-                    updates.push(clone_updates(&commit_table_request.updates));
+                    updates.push(commit_table_request.updates.clone());
                 }
             }
         }
@@ -934,14 +935,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 EventMetadata {
                     table_id: *table_id.as_uuid(),
                     warehouse_id: *warehouse_id.as_uuid(),
-                    name: table_ident.name.into(),
-                    namespace: Cow::Owned(table_ident.namespace.encode_in_url()),
-                    prefix: Cow::Owned(
-                        prefix
-                            .clone()
-                            .map(|p| p.as_str().to_string())
-                            .unwrap_or_default(),
-                    ),
+                    name: table_ident.name,
+                    namespace: table_ident.namespace.encode_in_url(),
+                    prefix: prefix
+                        .clone()
+                        .map(|p| p.as_str().to_string())
+                        .unwrap_or_default(),
                     num_events: number_of_events,
                     sequence_number: event_sequence_number,
                     trace_id: request_metadata.request_id,
@@ -957,16 +956,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     }
 }
 
-async fn emit_change_event<'c>(
-    parameters: EventMetadata<'c>,
+async fn emit_change_event(
+    parameters: EventMetadata,
     body: serde_json::Value,
     operation_id: &str,
     publisher: CloudEventsPublisher,
 ) {
     let _ = publisher
         .publish(Uuid::now_v7(), operation_id, body, parameters)
-        .await
-        .map_err(|err| tracing::warn!("Emitting an event failed due to: {}", err));
+        .await;
 }
 
 fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
@@ -984,24 +982,31 @@ fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn validate_lowercase_property(prop: &str) -> Result<()> {
+    if prop != prop.to_lowercase() {
+        return Err(ErrorModel::builder()
+            .code(StatusCode::BAD_REQUEST.into())
+            .message(format!("The property '{prop}' is not all lowercase."))
+            .r#type("PropertyNotLowercase")
+            .build()
+            .into());
+    }
+    Ok(())
+}
+
 fn validate_table_properties<'a, I>(properties: I) -> Result<()>
 where
     I: IntoIterator<Item = &'a String>,
 {
     for prop in properties {
         if prop != &prop.to_lowercase() {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(format!("The Table property '{prop}' is not all lowercase."))
-                .r#type(format!("{}NotLowercase", uppercase_first_letter(prop)))
-                .build()
-                .into());
+            validate_lowercase_property(prop)?;
         }
     }
     Ok(())
 }
 
-fn validate_table_ident(table: &TableIdent) -> Result<()> {
+pub(crate) fn validate_table_or_view_ident(table: &TableIdent) -> Result<()> {
     let TableIdent {
         ref namespace,
         ref name,
@@ -1011,86 +1016,24 @@ fn validate_table_ident(table: &TableIdent) -> Result<()> {
     if name.is_empty() {
         return Err(ErrorModel::builder()
             .code(StatusCode::BAD_REQUEST.into())
-            .message("Table name cannot be empty".to_string())
-            .r#type("TableNameEmpty".to_string())
+            .message("name of the identifier cannot be empty".to_string())
+            .r#type("IdentifierNameEmpty".to_string())
             .build()
             .into());
     }
     Ok(())
 }
 
-// This function does not return a result but serde_json::Value::Null if serialization of tab.table
+// This function does not return a result but serde_json::Value::Null if serialization
 // fails. This follows the rationale that we'll likely end up ignoring the error in the API handler
 // anyway since we already effected the change and only the event emission about the change failed.
 // Given that we are serializing stuff we've received as a json body and also successfully
 // processed, it's unlikely to cause issues.
-fn maybe_body_to_json(request: impl Serialize) -> serde_json::Value {
+pub(crate) fn maybe_body_to_json(request: impl Serialize) -> serde_json::Value {
     if let Ok(body) = serde_json::to_value(&request) {
         body
     } else {
         tracing::warn!("Serializing the request body to json failed, this is very unexpected. It will not be part of any emitted Event.");
         serde_json::Value::Null
     }
-}
-
-// TableUpdate is not clone but all containing fields are so we use this function to clone..
-fn clone_updates(updates: &[TableUpdate]) -> Vec<TableUpdate> {
-    updates
-        .iter()
-        .map(|u| match u {
-            TableUpdate::AddSnapshot { snapshot } => TableUpdate::AddSnapshot {
-                snapshot: snapshot.clone(),
-            },
-            TableUpdate::AssignUuid { uuid } => TableUpdate::AssignUuid { uuid: *uuid },
-            TableUpdate::AddSortOrder { sort_order } => TableUpdate::AddSortOrder {
-                sort_order: sort_order.clone(),
-            },
-            TableUpdate::AddSpec { spec } => TableUpdate::AddSpec { spec: spec.clone() },
-            TableUpdate::AddSchema {
-                schema,
-                last_column_id,
-            } => TableUpdate::AddSchema {
-                schema: schema.clone(),
-                last_column_id: *last_column_id,
-            },
-            TableUpdate::UpgradeFormatVersion { format_version } => {
-                TableUpdate::UpgradeFormatVersion {
-                    format_version: *format_version,
-                }
-            }
-            TableUpdate::SetCurrentSchema { schema_id } => TableUpdate::SetCurrentSchema {
-                schema_id: *schema_id,
-            },
-            TableUpdate::SetDefaultSortOrder { sort_order_id } => {
-                TableUpdate::SetDefaultSortOrder {
-                    sort_order_id: *sort_order_id,
-                }
-            }
-            TableUpdate::RemoveSnapshotRef { ref_name } => TableUpdate::RemoveSnapshotRef {
-                ref_name: ref_name.clone(),
-            },
-            TableUpdate::SetDefaultSpec { spec_id } => {
-                TableUpdate::SetDefaultSpec { spec_id: *spec_id }
-            }
-            TableUpdate::SetSnapshotRef {
-                ref_name,
-                reference,
-            } => TableUpdate::SetSnapshotRef {
-                ref_name: ref_name.clone(),
-                reference: reference.clone(),
-            },
-            TableUpdate::RemoveSnapshots { snapshot_ids } => TableUpdate::RemoveSnapshots {
-                snapshot_ids: snapshot_ids.clone(),
-            },
-            TableUpdate::SetLocation { location } => TableUpdate::SetLocation {
-                location: location.clone(),
-            },
-            TableUpdate::SetProperties { updates } => TableUpdate::SetProperties {
-                updates: updates.clone(),
-            },
-            TableUpdate::RemoveProperties { removals } => TableUpdate::RemoveProperties {
-                removals: removals.clone(),
-            },
-        })
-        .collect()
 }

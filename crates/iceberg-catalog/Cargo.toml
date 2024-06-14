@@ -22,6 +22,7 @@ router = ["dep:tower-http", "tokio"]
 
 [dependencies]
 anyhow = { workspace = true }
+async-nats = { workspace = true }
 async-trait = { workspace = true }
 aws-credential-types = { version = "^1.2", optional = true }
 aws-sigv4 = { version = "^1.2", optional = true }
@@ -37,15 +38,14 @@ http = { workspace = true }
 iceberg = { workspace = true }
 iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
 lazy_static = { workspace = true }
-async-nats = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
 sqlx = { workspace = true, optional = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 tokio = { workspace = true, optional = true }
-tower-http = { workspace = true, optional = true, features = ["default", "request-id", "util"] }
 tower = { workspace = true }
+tower-http = { workspace = true, optional = true, features = ["default", "request-id", "util"] }
 tracing = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }

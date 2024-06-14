@@ -3,7 +3,8 @@ use async_nats::ServerAddr;
 use clap::{Parser, Subcommand};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
-    CloudEventSink, CloudEventsPublisher, NatsPublisher,
+    CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
+    NatsBackend,
 };
 use iceberg_catalog::{
     implementations::{
@@ -33,6 +34,66 @@ enum Commands {
     Serve {},
     /// Check the health of the server
     Healthcheck {},
+}
+
+async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
+    let read_pool = iceberg_catalog::implementations::postgres::get_reader_pool().await?;
+    let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool().await?;
+
+    let catalog_state = CatalogState {
+        read_pool: read_pool.clone(),
+        write_pool: write_pool.clone(),
+    };
+    let secrets_state = SecretsState {
+        read_pool,
+        write_pool,
+    };
+
+    let mut cloud_event_sinks = vec![];
+
+    if let Some(nat_addr) = &CONFIG.nats_address {
+        let nats_publisher = build_nats_client(nat_addr).await?;
+        cloud_event_sinks.push(Arc::new(nats_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
+    } else {
+        tracing::info!("Running without publisher.");
+    };
+
+    // TODO: what about this magic number
+    let (tx, rx) = tokio::sync::mpsc::channel(1000);
+
+    let x = CloudEventsPublisherBackgroundTask {
+        source: rx,
+        sinks: cloud_event_sinks,
+    };
+    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+    let router = new_full_router::<
+        Catalog,
+        Catalog,
+        AllowAllAuthZHandler,
+        AllowAllAuthZHandler,
+        SecretsStore,
+    >(
+        AllowAllAuthState,
+        catalog_state,
+        secrets_state,
+        CloudEventsPublisher::new(tx.clone()),
+        ContractVerifiers::new(vec![]),
+    );
+
+    let publisher_handle = tokio::task::spawn(async move {
+        match x.publish().await {
+            Ok(_) => tracing::info!("Exiting publisher task"),
+            Err(e) => tracing::error!("Publisher task failed: {e}"),
+        };
+    });
+
+    service_serve(listener, router).await?;
+
+    tracing::debug!("Sending shutdown signal to event publisher.");
+    tx.send(Message::Shutdown).await?;
+    publisher_handle.await?;
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -89,51 +150,8 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
-    let read_pool = iceberg_catalog::implementations::postgres::get_reader_pool().await?;
-    let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool().await?;
 
-    let catalog_state = CatalogState {
-        read_pool: read_pool.clone(),
-        write_pool: write_pool.clone(),
-    };
-    let secrets_state = SecretsState {
-        read_pool,
-        write_pool,
-    };
-
-    let mut cloud_event_sinks = vec![];
-
-    if let Some(nat_addr) = &CONFIG.nats_address {
-        let nats_publisher = build_nats_client(nat_addr).await?;
-        cloud_event_sinks.push(Arc::new(nats_publisher) as Arc<dyn CloudEventSink + Sync + Send>);
-    } else {
-        tracing::info!("Running without publisher.");
-    };
-
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    let router = new_full_router::<
-        Catalog,
-        Catalog,
-        AllowAllAuthZHandler,
-        AllowAllAuthZHandler,
-        SecretsStore,
-    >(
-        AllowAllAuthState,
-        catalog_state,
-        secrets_state,
-        CloudEventsPublisher {
-            sinks: cloud_event_sinks,
-        },
-        ContractVerifiers::new(vec![]),
-    );
-
-    service_serve(listener, router).await?;
-
-    Ok(())
-}
-
-async fn build_nats_client(nat_addr: &Url) -> Result<NatsPublisher, Error> {
+async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
     tracing::info!("Running with nats publisher, connecting to: {nat_addr}");
     let mut nats_builder = async_nats::ConnectOptions::new();
 
@@ -149,7 +167,7 @@ async fn build_nats_client(nat_addr: &Url) -> Result<NatsPublisher, Error> {
         builder
     };
 
-    let nats_publisher = NatsPublisher {
+    let nats_publisher = NatsBackend {
         client: builder.connect(nat_addr.to_string()).await?,
         topic: CONFIG
             .nats_topic

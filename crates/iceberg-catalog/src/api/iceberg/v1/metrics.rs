@@ -52,30 +52,4 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                 },
             ),
         )
-        .route(
-            "/namespaces/:namespace/tables/:table/metrics",
-            post(
-                |State(api_context): State<ApiContext<S>>,
-                 Path((namespace, table)): Path<(NamespaceIdentUrl, String)>,
-                 Extension(metadata): Extension<RequestMetadata>,
-                 Json(request): Json<serde_json::Value>| async {
-                    {
-                        I::report_metrics(
-                            TableParameters {
-                                prefix: None,
-                                table: TableIdent {
-                                    namespace: namespace.into(),
-                                    name: table,
-                                },
-                            },
-                            request,
-                            api_context,
-                            metadata,
-                        )
-                    }
-                    .await
-                    .map(|()| StatusCode::NO_CONTENT.into_response())
-                },
-            ),
-        )
 }
