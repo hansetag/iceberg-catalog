@@ -77,7 +77,7 @@ pub(crate) async fn auth_middleware_fn(
 #[derive(Clone)]
 pub struct Verifier {
     client: JwksClient<WebSource>,
-    audience: Option<String>,
+    issuer: String,
 }
 
 impl Verifier {
@@ -90,7 +90,7 @@ impl Verifier {
     /// This function can fail if the openid configuration cannot be fetched or parsed.
     /// This function can also fail if the `WebSource` cannot be built from the jwks uri in the
     /// fetched openid configuration
-    pub async fn new(mut url: Url, audience: Option<&str>) -> anyhow::Result<Self> {
+    pub async fn new(mut url: Url) -> anyhow::Result<Self> {
         if !url.path().ends_with('/') {
             url.set_path(&format!("{}/", url.path()));
         }
@@ -104,7 +104,7 @@ impl Verifier {
         let client = JwksClient::builder().build(source);
         Ok(Self {
             client,
-            audience: audience.map(ToOwned::to_owned),
+            issuer: config.issuer,
         })
     }
 
@@ -136,7 +136,6 @@ impl Verifier {
             let validation = self.setup_validation(&header, &key)?;
             let decoding_key = Self::setup_decoding_key(key)?;
 
-            // Can this block the current thread? (should I spawn_blocking?)
             return Ok(jsonwebtoken::decode(token, &decoding_key, &validation)
                 .map_err(|e| {
                     tracing::debug!("Failed to decode token: {}", e);
@@ -193,12 +192,11 @@ impl Verifier {
             Validation::new(header.alg)
         };
 
-        if let Some(audience) = self.audience.as_ref() {
-            validation.set_audience(&[audience]);
-            validation.validate_aud = true;
-        } else {
-            validation.validate_aud = false;
-        }
+        // TODO: aud validation in multi-tenant setups
+        validation.validate_aud = false;
+
+        validation.set_issuer(&[&self.issuer]);
+
         Ok(validation)
     }
 
@@ -223,6 +221,7 @@ pub struct WellKnownConfig {
     #[serde(flatten)]
     pub other: serde_json::Value,
     pub jwks_uri: Url,
+    pub issuer: String,
 }
 
 #[cfg(test)]

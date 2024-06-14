@@ -150,18 +150,17 @@ Configuration parameters if Postgres is used as a backend:
 
 ### OpenID Connect
 
-If you want to limit access to the API, set `ICEBERG_REST__OPENID_PROVIDER_URI` to the URI of your OpenID Connect Provider. The catalog will then verify access tokens against this provider. The provider must have the `.well-known/openid-configuration` endpoint under `${ICEBERG_REST__OPENID_PROVIDER_URI}/.well-known/openid-configuration` and the openid-configuration needs to have the `jwks_uri` defined.
+If you want to limit access to the API, set `ICEBERG_REST__OPENID_PROVIDER_URI` to the URI of your OpenID Connect Provider. The catalog will then verify access tokens against this provider. The provider must have the `.well-known/openid-configuration` endpoint under `${ICEBERG_REST__OPENID_PROVIDER_URI}/.well-known/openid-configuration` and the openid-configuration needs to have the `jwks_uri` and `issuer` defined.
 
-If `ICEBERG_REST__OPENID_AUDIENCE` is set, every request needs have an authorization header, e.g. 
+If `ICEBERG_REST__OPENID_PROVIDER_URI` is set, every request needs have an authorization header, e.g. 
 ```sh
 curl {your-catalog-url}/catalog/v1/transactions/commit -X POST -H "authorization: Bearer {your-token-here}" -H "content-type: application/json" -d ...
 ``` 
 
 
-| Variable                            | Example                             | Description                                                                                                                                                                                                                                                  |
-|-------------------------------------|-------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ICEBERG_REST__OPENID_PROVIDER_URI` | `https://keycloak.local/realms/test | OpenID Provider URL, with keycloak this is the url pointing to your realm, for Azure App Registration it would be something like `https://login.microsoftonline.com/{your_app_id_here}/v2.0/`. If this variable is not set, endpoints are **not** secured    |
-| `ICEBERG_REST__OPENID_AUDIENCE`     | `my-app-id`                         | Setting this env checks that the JWT is meant for the current server, i.e. the server validates that the `aud` field of the jwt contains `${ICEBERG_REST__OPENID_AUDIENCE}`. This has to be the *Application (client) ID* when using Azure App Registration. |
+| Variable                            | Example                              | Description                                                                                                                                                                                                                                                  |
+|-------------------------------------|--------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ICEBERG_REST__OPENID_PROVIDER_URI` | `https://keycloak.local/realms/test` | OpenID Provider URL, with keycloak this is the url pointing to your realm, for Azure App Registration it would be something like `https://login.microsoftonline.com/{your_app_id_here}/v2.0/`. If this variable is not set, endpoints are **not** secured    |
 
 
 # Limitations

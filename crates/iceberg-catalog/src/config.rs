@@ -77,8 +77,6 @@ pub struct DynAppConfig {
     // ------------- AUTHORIZATION -------------
     #[clap(env = "ICEBERG_REST__OPENID_PROVIDER_URI")]
     pub openid_provider_uri: Option<Url>,
-    #[clap(env = "ICEBERG_REST__OPENID_AUDIENCE")]
-    pub audience: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]
