@@ -18,7 +18,6 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::fmt::{Debug, Display};
 use std::str::FromStr;
-use std::sync::Arc;
 use url::Url;
 
 #[derive(Debug, Clone)]
@@ -45,33 +44,31 @@ pub enum Aud {
 }
 
 pub(crate) async fn auth_middleware_fn(
-    State(verifier): State<Option<Arc<Verifier>>>,
+    State(verifier): State<Verifier>,
     authorization: Option<TypedHeader<Authorization<Bearer>>>,
     Extension(mut metadata): Extension<RequestMetadata>,
     request: Request,
     next: Next,
 ) -> Response {
-    if let Some(verifier) = verifier {
-        if let Some(authorization) = authorization {
-            match verifier.decode::<Claims>(authorization.token()).await {
-                Ok(val) => {
-                    metadata.auth_details = Some(AuthDetails::JWT(val));
-                }
-                Err(err) => {
-                    tracing::debug!("Failed to verify token: {:?}", err);
-                    return IcebergErrorResponse::from(err).into_response();
-                }
+    if let Some(authorization) = authorization {
+        match verifier.decode::<Claims>(authorization.token()).await {
+            Ok(val) => {
+                metadata.auth_details = Some(AuthDetails::JWT(val));
             }
-        } else {
-            return IcebergErrorResponse::from(
-                ErrorModel::builder()
-                    .message("Missing authorization header")
-                    .code(StatusCode::UNAUTHORIZED.into())
-                    .r#type("UnauthorizedError")
-                    .build(),
-            )
-            .into_response();
+            Err(err) => {
+                tracing::debug!("Failed to verify token: {:?}", err);
+                return IcebergErrorResponse::from(err).into_response();
+            }
         }
+    } else {
+        return IcebergErrorResponse::from(
+            ErrorModel::builder()
+                .message("Missing authorization header")
+                .code(StatusCode::UNAUTHORIZED.into())
+                .r#type("UnauthorizedError")
+                .build(),
+        )
+        .into_response();
     }
 
     next.run(request).await
@@ -93,7 +90,10 @@ impl Verifier {
     /// This function can fail if the openid configuration cannot be fetched or parsed.
     /// This function can also fail if the `WebSource` cannot be built from the jwks uri in the
     /// fetched openid configuration
-    pub async fn new(url: Url, audience: Option<&str>) -> anyhow::Result<Self> {
+    pub async fn new(mut url: Url, audience: Option<&str>) -> anyhow::Result<Self> {
+        if !url.path().ends_with('/') {
+            url.set_path(&format!("{}/", url.path()));
+        }
         let config = reqwest::get(url.join(Self::WELL_KNOWN_CONFIG)?)
             .await
             .context("Failed to fetch openid configuration")?

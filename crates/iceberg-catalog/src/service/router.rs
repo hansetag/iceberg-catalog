@@ -1,6 +1,5 @@
 use crate::service::event_publisher::CloudEventsPublisher;
 use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
-use std::sync::Arc;
 
 use crate::api::management::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
@@ -33,47 +32,65 @@ pub fn new_full_router<
     secrets_state: S::State,
     publisher: CloudEventsPublisher,
     table_change_checkers: ContractVerifiers,
-    token_verifier: Option<Arc<Verifier>>,
+    token_verifier: Option<Verifier>,
 ) -> Router {
     let v1_routes = new_v1_full_router::<
         crate::catalog::ConfigServer<CP, C, AH, A>,
         crate::catalog::CatalogServer<C, A, S>,
         State<A, C, S>,
-    >(token_verifier.clone());
-    let management_routes = Router::new().merge(ApiServer::new_v1_router(token_verifier));
-    Router::new()
-        .nest("/catalog/v1", v1_routes)
-        .nest("/management/v1", management_routes)
-        .route("/health", get(|| async { "OK" }))
-        .layer(axum::middleware::from_fn(
-            crate::request_metadata::create_request_metadata_with_trace_id_fn,
+    >();
+    let management_routes = Router::new().merge(ApiServer::new_v1_router());
+    maybe_add_auth(
+        token_verifier,
+        Router::new()
+            .nest("/catalog/v1", v1_routes)
+            .nest("/management/v1", management_routes),
+    )
+    .route("/health", get(|| async { "OK" }))
+    .layer(axum::middleware::from_fn(
+        crate::request_metadata::create_request_metadata_with_trace_id_fn,
+    ))
+    .layer(
+        ServiceBuilder::new()
+            .set_x_request_id(MakeRequestUuid7)
+            .layer(SetSensitiveHeadersLayer::new([
+                axum::http::header::AUTHORIZATION,
+            ]))
+            .layer(CompressionLayer::new())
+            .layer(
+                TraceLayer::new_for_http()
+                    .on_failure(())
+                    .make_span_with(RestMakeSpan::new(tracing::Level::INFO))
+                    .on_response(trace::DefaultOnResponse::new().level(tracing::Level::DEBUG)),
+            )
+            .layer(TimeoutLayer::new(std::time::Duration::from_secs(30)))
+            .layer(CatchPanicLayer::new())
+            .propagate_x_request_id(),
+    )
+    .with_state(ApiContext {
+        v1_state: State {
+            auth: auth_state,
+            catalog: catalog_state,
+            secrets: secrets_state,
+            publisher,
+            contract_verifiers: table_change_checkers,
+        },
+    })
+}
+
+fn maybe_add_auth<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    token_verifier: Option<Verifier>,
+    router: Router<ApiContext<State<A, C, S>>>,
+) -> Router<ApiContext<State<A, C, S>>> {
+    let router = if let Some(token_verifier) = token_verifier {
+        router.layer(axum::middleware::from_fn_with_state(
+            token_verifier,
+            crate::service::token_verification::auth_middleware_fn,
         ))
-        .layer(
-            ServiceBuilder::new()
-                .set_x_request_id(MakeRequestUuid7)
-                .layer(SetSensitiveHeadersLayer::new([
-                    axum::http::header::AUTHORIZATION,
-                ]))
-                .layer(CompressionLayer::new())
-                .layer(
-                    TraceLayer::new_for_http()
-                        .on_failure(())
-                        .make_span_with(RestMakeSpan::new(tracing::Level::INFO))
-                        .on_response(trace::DefaultOnResponse::new().level(tracing::Level::DEBUG)),
-                )
-                .layer(TimeoutLayer::new(std::time::Duration::from_secs(30)))
-                .layer(CatchPanicLayer::new())
-                .propagate_x_request_id(),
-        )
-        .with_state(ApiContext {
-            v1_state: State {
-                auth: auth_state,
-                catalog: catalog_state,
-                secrets: secrets_state,
-                publisher,
-                contract_verifiers: table_change_checkers,
-            },
-        })
+    } else {
+        router
+    };
+    router
 }
 
 /// Serve the given router on the given listener

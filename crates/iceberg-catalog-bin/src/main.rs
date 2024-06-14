@@ -92,9 +92,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         CloudEventsPublisher::new(tx.clone()),
         ContractVerifiers::new(vec![]),
         if let Some(uri) = CONFIG.openid_provider_uri.clone() {
-            Some(Arc::new(
-                Verifier::new(uri, CONFIG.audience.as_deref()).await?,
-            ))
+            Some(Verifier::new(uri, CONFIG.audience.as_deref()).await?)
         } else {
             None
         },

@@ -11,21 +11,19 @@ pub struct ApiServer<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
 pub mod v1 {
     use axum::{Extension, Json, Router};
-    use std::sync::Arc;
+
     pub mod warehouse;
     use crate::api::ApiContext;
     use crate::request_metadata::RequestMetadata;
     use crate::service::auth::AuthZHandler;
-    use crate::service::token_verification::Verifier;
+
     use crate::service::{Catalog, SecretStore, State};
     use axum::extract::State as AxumState;
     use axum::routing::post;
     use warehouse::WarehouseService;
 
     impl<C: Catalog, A: AuthZHandler, S: SecretStore> super::ApiServer<C, A, S> {
-        pub fn new_v1_router(
-            verifier: Option<Arc<Verifier>>,
-        ) -> Router<ApiContext<State<A, C, S>>> {
+        pub fn new_v1_router() -> Router<ApiContext<State<A, C, S>>> {
             Router::new()
                 // List Namespaces
                 .route(
@@ -39,10 +37,6 @@ pub mod v1 {
                         },
                     ),
                 )
-                .layer(axum::middleware::from_fn_with_state(
-                    verifier,
-                    crate::service::token_verification::auth_middleware_fn,
-                ))
         }
     }
 }
