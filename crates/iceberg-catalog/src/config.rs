@@ -71,7 +71,7 @@ pub struct DynAppConfig {
     pub pg_write_pool_connections: u32,
 
     // ------------- NATS CLOUDEVENTS -------------
-    #[clap(env = "ICEBERG_REST__NATS_ADDRESS")]
+    #[clap(env = "ICEBERG_REST__NATS_URI")]
     pub nats_address: Option<Url>,
     #[clap(env = "ICEBERG_REST__NATS_TOPIC")]
     pub nats_topic: Option<String>,
@@ -82,7 +82,7 @@ pub struct DynAppConfig {
     #[clap(env = "ICEBERG_REST__NATS_PASSWORD")]
     #[redact]
     pub nats_password: Option<String>,
-    #[clap(env = "ICEBERG_REST__NATS_PASSWORD")]
+    #[clap(env = "ICEBERG_REST__NATS_TOKEN")]
     #[redact]
     pub nats_token: Option<String>,
 
