@@ -115,6 +115,7 @@ jobs:
           cd crates/iceberg-catalog
           sqlx database create
           sqlx migrate run
+          cd -
           cargo sqlx prepare --workspace
 
       # - name: Migrate database [Windows]

@@ -27,13 +27,7 @@ axum = { workspace = true }
 clap = { version = "^4.5", features = ["derive"] }
 headers = { workspace = true }
 http = { workspace = true }
-iceberg-catalog = { path = "../iceberg-catalog", features = [
-    "sqlx-postgres",
-    "s3-signer",
-    "router",
-    "nats",
-] }
-
+iceberg-catalog = { path = "../iceberg-catalog", features = ["all"] }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

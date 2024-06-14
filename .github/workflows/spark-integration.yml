@@ -55,7 +55,6 @@ jobs:
           name: iceberg-catalog-image
           path: /tmp/*.tar
 
-
   test-pyspark:
     needs: docker
     runs-on: ubuntu-latest
