@@ -1,5 +1,6 @@
 //! Contains Configuration of the service Module
 use std::collections::HashSet;
+use std::convert::Infallible;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -100,7 +101,7 @@ impl Deref for ReservedNamespaces {
 }
 
 impl FromStr for ReservedNamespaces {
-    type Err = serde_json::Error;
+    type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(ReservedNamespaces(
