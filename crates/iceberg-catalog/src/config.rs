@@ -1,11 +1,16 @@
 //! Contains Configuration of the service Module
 use std::collections::HashSet;
+use std::convert::Infallible;
+use std::ops::Deref;
 use url::Url;
 
+use figment::providers::Format;
 use figment::value::{Dict, Map};
 use figment::{Error, Metadata, Profile, Provider};
-use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::path::PathBuf;
+use std::str::FromStr;
 use veil::Redact;
 
 use crate::WarehouseIdent;
@@ -34,8 +39,10 @@ pub struct DynAppConfig {
     /// This is used to prevent users to create certain
     /// (sub)-namespaces. By default, `system` and `examples` are
     /// reserved. More namespaces can be added here.
-    pub reserved_namespaces: HashSet<String>,
+    #[serde(deserialize_with = "deserialize_reserved_namespaces")]
+    pub reserved_namespaces: ReservedNamespaces,
     // ------------- POSTGRES IMPLEMENTATION -------------
+    #[redact]
     pub(crate) pg_encryption_key: String,
     pub(crate) pg_database_url_read: String,
     pub(crate) pg_database_url_write: String,
@@ -64,7 +71,10 @@ impl Default for DynAppConfig {
                 .expect("Valid URL"),
             default_project_id: None,
             prefix_template: "{warehouse_id}".to_string(),
-            reserved_namespaces: HashSet::from(["system".to_string(), "examples".to_string()]),
+            reserved_namespaces: ReservedNamespaces(HashSet::from([
+                "system".to_string(),
+                "examples".to_string(),
+            ])),
             pg_encryption_key: "<This is unsafe, please set a proper key>".to_string(),
             pg_database_url_read: "postgres://postgres:password@localhost:5432/iceberg".to_string(),
             pg_database_url_write: "postgres://postgres:password@localhost:5432/iceberg"
@@ -82,6 +92,34 @@ impl Default for DynAppConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReservedNamespaces(HashSet<String>);
+impl Deref for ReservedNamespaces {
+    type Target = HashSet<String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl FromStr for ReservedNamespaces {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(ReservedNamespaces(
+            s.split(',').map(str::to_string).collect(),
+        ))
+    }
+}
+
+fn deserialize_reserved_namespaces<'de, D>(deserializer: D) -> Result<ReservedNamespaces, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let buf = String::deserialize(deserializer)?;
+
+    ReservedNamespaces::from_str(&buf).map_err(serde::de::Error::custom)
+}
 impl Provider for DynAppConfig {
     fn metadata(&self) -> Metadata {
         Metadata::named("iceberg-catalog Config")
