@@ -1,16 +1,13 @@
 //! Contains Configuration of the service Module
 use std::collections::HashSet;
-use std::convert::Infallible;
 use std::ops::Deref;
-use url::Url;
-
-use figment::providers::Format;
-use figment::value::{Dict, Map};
-use figment::{Error, Metadata, Profile, Provider};
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Deserializer, Serialize};
 use std::path::PathBuf;
 use std::str::FromStr;
+use url::Url;
+
+use figment::value::{Dict, Map};
+use figment::{Error, Metadata, Profile, Provider};
+use serde::{Deserialize, Deserializer, Serialize};
 use veil::Redact;
 
 use crate::WarehouseIdent;

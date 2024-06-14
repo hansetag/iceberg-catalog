@@ -30,7 +30,6 @@ aws-sigv4 = { version = "^1.2", optional = true }
 axum = { workspace = true, optional = true }
 axum-extra = { version = "0.9.3", features = ["typed-header"] }
 chrono = { workspace = true }
-clap = { workspace = true, features = ["derive", "env"] }
 cloudevents-sdk = { version = "0.7.0" }
 derive_more = { workspace = true }
 figment = { workspace = true }
