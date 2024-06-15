@@ -117,10 +117,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let r = C::get_namespace_metadata(&warehouse_id, &parameters.namespace, t.transaction())
-            .await?;
+        let r = C::get_namespace(&warehouse_id, &parameters.namespace, t.transaction()).await?;
         t.commit().await?;
-        Ok(r)
+        Ok(GetNamespaceResponse {
+            properties: r.properties,
+            namespace: r.namespace,
+        })
     }
 
     /// Check if a namespace exists

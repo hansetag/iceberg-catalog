@@ -25,6 +25,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
                 warehouse_id
             FROM warehouse
             WHERE warehouse_name = $1 AND project_id = $2
+            AND status = 'active'
             "#,
             warehouse_name.to_string(),
             project_id.as_uuid()
@@ -58,6 +59,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
                 storage_profile as "storage_profile: Json<StorageProfile>"
             FROM warehouse
             WHERE warehouse_id = $1
+            AND status = 'active'
             "#,
             warehouse_id.as_uuid()
         )
@@ -81,7 +83,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
     }
 }
 
-pub(crate) async fn create_warehouse_profile<'a>(
+pub(crate) async fn create_warehouse<'a>(
     warehouse_name: String,
     project_id: ProjectIdent,
     storage_profile: StorageProfile,
@@ -134,10 +136,12 @@ pub(crate) async fn create_warehouse_profile<'a>(
 
 pub(crate) async fn list_warehouses(
     project_id: &ProjectIdent,
-    include_inactive: bool,
+    include_status: Option<Vec<WarehouseStatus>>,
     warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
     catalog_state: CatalogState,
 ) -> Result<Vec<GetWarehouseResponse>> {
+    let include_status = include_status.unwrap_or_else(|| vec![WarehouseStatus::Active]);
+
     #[derive(sqlx::FromRow, Debug, PartialEq)]
     struct WarehouseRecord {
         warehouse_id: uuid::Uuid,
@@ -163,11 +167,11 @@ pub(crate) async fn list_warehouses(
                 status AS "status: WarehouseStatus"
             FROM warehouse
             WHERE project_id = $1 AND warehouse_id = ANY($2)
-            AND ($3 OR status = 'active')
+            AND status = ANY($3)
             "#,
             project_id.as_uuid(),
             &warehouse_ids,
-            include_inactive
+            include_status as Vec<WarehouseStatus>
         )
         .fetch_all(&catalog_state.read_pool)
         .await
@@ -184,10 +188,10 @@ pub(crate) async fn list_warehouses(
                 status AS "status: WarehouseStatus"
             FROM warehouse
             WHERE project_id = $1
-            AND ($2 OR status = 'active')
+            AND status = ANY($2)
             "#,
             project_id.as_uuid(),
-            include_inactive
+            include_status as Vec<WarehouseStatus>
         )
         .fetch_all(&catalog_state.read_pool)
         .await
@@ -321,6 +325,7 @@ pub(crate) async fn rename_warehouse<'a>(
             UPDATE warehouse
             SET warehouse_name = $1
             WHERE warehouse_id = $2
+            AND status = 'active'
             RETURNING *
         )
 
@@ -401,6 +406,7 @@ pub(crate) async fn update_storage_profile<'a>(
             UPDATE warehouse
             SET storage_profile = $1, storage_secret_id = $2
             WHERE warehouse_id = $3
+            AND status = 'active'
             RETURNING *
         )
 
@@ -467,7 +473,7 @@ pub(crate) mod test {
             key_prefix: None,
         }));
 
-        let warehouse_id = Catalog::create_warehouse_profile(
+        let warehouse_id = Catalog::create_warehouse(
             "test_warehouse".to_string(),
             ProjectIdent::from(project_id),
             storage_profile,
@@ -531,7 +537,7 @@ pub(crate) mod test {
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
         let warehouse_id_1 = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
 
-        let warehouses = Catalog::list_warehouses(&project_id, false, None, state.clone())
+        let warehouses = Catalog::list_warehouses(&project_id, None, None, state.clone())
             .await
             .unwrap();
         assert_eq!(warehouses.len(), 1);
@@ -568,15 +574,20 @@ pub(crate) mod test {
         let warehouse_id_2 = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
 
         // Assert active whs
-        let warehouses = Catalog::list_warehouses(&project_id, true, None, state.clone())
-            .await
-            .unwrap();
+        let warehouses = Catalog::list_warehouses(
+            &project_id,
+            Some(vec![WarehouseStatus::Active, WarehouseStatus::Inactive]),
+            None,
+            state.clone(),
+        )
+        .await
+        .unwrap();
         assert_eq!(warehouses.len(), 2);
         assert!(warehouses.iter().any(|w| w.id == warehouse_id_1));
         assert!(warehouses.iter().any(|w| w.id == warehouse_id_2));
 
         // Assert only active whs
-        let warehouses = Catalog::list_warehouses(&project_id, false, None, state.clone())
+        let warehouses = Catalog::list_warehouses(&project_id, None, None, state.clone())
             .await
             .unwrap();
         assert_eq!(warehouses.len(), 1);

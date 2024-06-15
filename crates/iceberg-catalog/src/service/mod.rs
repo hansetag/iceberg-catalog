@@ -8,15 +8,17 @@ pub mod storage;
 pub mod token_verification;
 
 pub use catalog::{
-    Catalog, CommitTableResponseExt, CreateTableResult, GetStorageConfigResult,
-    GetTableMetadataResult, GetWarehouseResponse, LoadTableResult, Transaction,
+    Catalog, CommitTableResponse, CommitTableResponseExt, CommitTransactionRequest,
+    CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, CreateTableResult,
+    GetNamespaceResponse, GetStorageConfigResult, GetTableMetadataResult, GetWarehouseResponse,
+    ListNamespacesQuery, ListNamespacesResponse, LoadTableResult, NamespaceIdent, Result,
+    TableIdent, Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 
 use crate::api::iceberg::v1::Prefix;
 use crate::api::ThreadSafe as ServiceState;
-use crate::api::{ErrorModel, IcebergErrorResponse, Result};
+pub use crate::api::{ErrorModel, IcebergErrorResponse};
 use http::StatusCode;
-use iceberg::NamespaceIdent;
 use std::str::FromStr;
 
 use crate::service::contract_verification::ContractVerifiers;
@@ -159,6 +161,7 @@ impl FromStr for TableIdentUuid {
 // Is UUID here too strict?
 pub struct ProjectIdent(uuid::Uuid);
 
+/// Status of a warehouse
 #[derive(
     Debug,
     Clone,
@@ -181,8 +184,16 @@ pub struct ProjectIdent(uuid::Uuid);
     sqlx(type_name = "warehouse_status", rename_all = "kebab-case")
 )]
 pub enum WarehouseStatus {
+    /// The warehouse is active and can be used
     Active,
+    /// The warehouse is inactive and cannot be used.
     Inactive,
+}
+
+impl sqlx::postgres::PgHasArrayType for WarehouseStatus {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_warehouse_status")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

@@ -48,13 +48,13 @@ pub fn new_full_router<
         token_verifier,
         Router::new()
             .nest("/catalog/v1", v1_routes)
-            .nest("/management/v1", management_routes)
-            .merge(utoipa_swagger_ui::SwaggerUi::new("/swagger-ui").url(
-                "/api-docs/management/v1/openapi.json",
-                ManagementApiDoc::openapi(),
-            )),
+            .nest("/management/v1", management_routes),
     )
     .route("/health", get(|| async { "OK" }))
+    .merge(utoipa_swagger_ui::SwaggerUi::new("/swagger-ui").url(
+        "/api-docs/management/v1/openapi.json",
+        ManagementApiDoc::openapi(),
+    ))
     .layer(axum::middleware::from_fn(
         crate::request_metadata::create_request_metadata_with_trace_id_fn,
     ))

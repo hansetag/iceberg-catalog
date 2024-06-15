@@ -1,5 +1,5 @@
 use iceberg::spec::TableMetadata;
-use iceberg_ext::catalog::rest::{
+pub use iceberg_ext::catalog::rest::{
     CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
 };
 use std::collections::{HashMap, HashSet};
@@ -10,9 +10,9 @@ use super::{
     storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent,
     WarehouseStatus,
 };
-use crate::api::iceberg::v1::{
-    CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse, ListNamespacesQuery,
-    ListNamespacesResponse, NamespaceIdent, Result, TableIdent, UpdateNamespacePropertiesRequest,
+pub use crate::api::iceberg::v1::{
+    CreateNamespaceRequest, CreateNamespaceResponse, ListNamespacesQuery, ListNamespacesResponse,
+    NamespaceIdent, Result, TableIdent, UpdateNamespacePropertiesRequest,
     UpdateNamespacePropertiesResponse,
 };
 
@@ -34,6 +34,15 @@ where
     async fn rollback(self) -> Result<()>;
 
     fn transaction(&mut self) -> Self::Transaction<'_>;
+}
+
+#[derive(Debug)]
+pub struct GetNamespaceResponse {
+    /// Reference to one or more levels of a namespace
+    pub namespace: NamespaceIdent,
+    pub namespace_id: NamespaceIdentUuid,
+    pub warehouse_id: WarehouseIdent,
+    pub properties: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug)]
@@ -101,19 +110,12 @@ where
     type Transaction: Transaction<Self::State>;
     type State: Clone + Send + Sync + 'static;
 
+    // Should only return namespaces if the warehouse is active.
     async fn list_namespaces(
         warehouse_id: &WarehouseIdent,
         query: &ListNamespacesQuery,
         catalog_state: Self::State,
     ) -> Result<ListNamespacesResponse>;
-
-    async fn create_warehouse_profile<'a>(
-        warehouse_name: String,
-        project_id: ProjectIdent,
-        storage_profile: StorageProfile,
-        storage_secret_id: Option<SecretIdent>,
-        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<WarehouseIdent>;
 
     async fn create_namespace<'a>(
         warehouse_id: &WarehouseIdent,
@@ -121,7 +123,8 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateNamespaceResponse>;
 
-    async fn get_namespace_metadata<'a>(
+    // Should only return a namespace if the warehouse is active.
+    async fn get_namespace<'a>(
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
@@ -131,6 +134,7 @@ where
     /// If the namespace does not exist, return Ok(false).
     ///
     /// We use this function also to handle the `namespace_exists` endpoint.
+    /// Also return Ok(false) if the warehouse is not active.
     async fn namespace_ident_to_id(
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
@@ -172,6 +176,7 @@ where
     /// If the table does not exist, return Ok(None).
     ///
     /// We use this function also to handle the `table_exists` endpoint.
+    /// Also return Ok(None) if the warehouse is not active.
     async fn table_ident_to_id(
         warehouse_id: &WarehouseIdent,
         table: &TableIdent,
@@ -239,20 +244,33 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Vec<CommitTableResponseExt>>;
 
+    // ---------------- Warehouse Management API ----------------
+
+    /// Create a warehouse.
+    async fn create_warehouse<'a>(
+        warehouse_name: String,
+        project_id: ProjectIdent,
+        storage_profile: StorageProfile,
+        storage_secret_id: Option<SecretIdent>,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<WarehouseIdent>;
+
     /// Return a list of all project ids in the catalog
     async fn list_projects(catalog_state: Self::State) -> Result<HashSet<ProjectIdent>>;
 
     /// Return a list of all warehouse in a project
     async fn list_warehouses(
         project_id: &ProjectIdent,
-        include_inactive: bool,
+        // If None, return only active warehouses
+        // If Some, return only warehouses with any of the statuses in the set
+        include_inactive: Option<Vec<WarehouseStatus>>,
         // If None, return all warehouses in the project
         // If Some, return only the warehouses in the set
         warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
         catalog_state: Self::State,
     ) -> Result<Vec<GetWarehouseResponse>>;
 
-    /// Get the warehouse metadata.
+    /// Get the warehouse metadata - should only return active warehouses.
     async fn get_warehouse<'a>(
         warehouse_id: &WarehouseIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,

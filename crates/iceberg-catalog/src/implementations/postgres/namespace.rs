@@ -1,8 +1,7 @@
-use crate::api::{
-    iceberg::v1::{ListNamespacesQuery, NamespaceIdent},
+use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, ErrorModel, GetNamespaceResponse,
-    ListNamespacesResponse, Result, UpdateNamespacePropertiesRequest,
-    UpdateNamespacePropertiesResponse,
+    ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
+    UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 use http::StatusCode;
 use sqlx::types::Json;
@@ -12,17 +11,21 @@ use crate::{catalog::namespace::MAX_NAMESPACE_DEPTH, service::NamespaceIdentUuid
 
 use super::{dbutils::DBErrorHandler, CatalogState};
 
-pub(crate) async fn get_namespace_metadata(
+pub(crate) async fn get_namespace(
     warehouse_id: &WarehouseIdent,
     namespace: &NamespaceIdent,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<GetNamespaceResponse> {
-    let properties = sqlx::query_scalar!(
+    let row = sqlx::query!(
         r#"
         SELECT 
-            properties as "properties: Json<HashMap<String, String>>"
+            namespace_id,
+            n.warehouse_id,
+            namespace_properties as "properties: Json<HashMap<String, String>>"
         FROM namespace n
-        WHERE n.warehouse_id = $1 AND n."name" = $2
+        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+        WHERE n.warehouse_id = $1 AND n.namespace_name = $2
+        AND w.status = 'active'
         "#,
         warehouse_id.as_uuid(),
         &**namespace
@@ -40,7 +43,9 @@ pub(crate) async fn get_namespace_metadata(
 
     Ok(GetNamespaceResponse {
         namespace: namespace.to_owned(),
-        properties: Some(properties.deref().clone()),
+        properties: Some(row.properties.deref().clone()),
+        namespace_id: row.namespace_id.into(),
+        warehouse_id: row.warehouse_id.into(),
     })
 }
 
@@ -72,11 +77,13 @@ pub(crate) async fn list_namespaces(
         sqlx::query_scalar!(
             r#"
             SELECT
-                "name"[$2 + 1:] as "name: Vec<String>"
-            FROM namespace
-            WHERE warehouse_id = $1
-            AND array_length("name", 1) = $2 + 1
-            AND "name"[1:$2] = $3
+                "namespace_name"[$2 + 1:] as "namespace_name: Vec<String>"
+            FROM namespace n
+            INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+            WHERE n.warehouse_id = $1
+            AND w.status = 'active'
+            AND array_length("namespace_name", 1) = $2 + 1
+            AND "namespace_name"[1:$2] = $3
             "#,
             warehouse_id.as_uuid(),
             parent_len,
@@ -92,9 +99,11 @@ pub(crate) async fn list_namespaces(
         sqlx::query_scalar!(
             r#"
             SELECT
-                "name" as "name: Vec<String>"
-            FROM namespace
-            WHERE warehouse_id = $1
+                "namespace_name" as "namespace_name: Vec<String>"
+            FROM namespace n
+            INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+            WHERE n.warehouse_id = $1
+            AND w.status = 'active'
             "#,
             warehouse_id.as_uuid()
         )
@@ -137,8 +146,15 @@ pub(crate) async fn create_namespace(
 
     let _namespace_id = sqlx::query_scalar!(
         r#"
-        INSERT INTO namespace (warehouse_id, "name", properties)
-        VALUES ($1, $2, $3)
+        INSERT INTO namespace (warehouse_id, namespace_name, namespace_properties)
+        (
+            SELECT $1, $2, $3
+            WHERE EXISTS (
+                SELECT 1
+                FROM warehouse
+                WHERE warehouse_id = $1
+                AND status = 'active'
+        ))
         RETURNING namespace_id
         "#,
         warehouse_id.as_uuid(),
@@ -177,6 +193,11 @@ pub(crate) async fn create_namespace(
                     .build()
             }
         }
+        sqlx::Error::RowNotFound => ErrorModel::builder()
+            .code(StatusCode::NOT_FOUND.into())
+            .message("Warehouse not found".to_string())
+            .r#type("WarehouseNotFound".to_string())
+            .build(),
         _ => e.into_error_model("Error creating Namespace".into()),
     })?;
 
@@ -196,9 +217,11 @@ pub(crate) async fn namespace_ident_to_id(
 ) -> Result<Option<NamespaceIdentUuid>> {
     let namespace_id = sqlx::query_scalar!(
         r#"
-        SELECT "namespace_id"
-        FROM namespace
-        WHERE warehouse_id = $1 AND "name" = $2
+        SELECT namespace_id
+        FROM namespace n
+        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+        WHERE n.warehouse_id = $1 AND namespace_name = $2
+        AND w.status = 'active'
         "#,
         warehouse_id.as_uuid(),
         &**namespace
@@ -227,7 +250,11 @@ pub(crate) async fn drop_namespace(
         r#"
         WITH deleted AS (
             DELETE FROM namespace
-            WHERE warehouse_id = $1 AND "name" = $2
+            WHERE warehouse_id = $1 
+            AND namespace_name = $2
+            AND warehouse_id IN (
+                SELECT warehouse_id FROM warehouse WHERE status = 'active'
+            )
             RETURNING *
         )
         SELECT count(*) FROM deleted
@@ -277,7 +304,7 @@ pub(crate) async fn update_namespace_properties(
 ) -> Result<UpdateNamespacePropertiesResponse> {
     let UpdateNamespacePropertiesRequest { removals, updates } = request;
 
-    let mut properties = get_namespace_metadata(warehouse_id, namespace, &mut *transaction)
+    let mut properties = get_namespace(warehouse_id, namespace, &mut *transaction)
         .await?
         .properties
         .unwrap_or_default();
@@ -318,8 +345,11 @@ pub(crate) async fn update_namespace_properties(
     sqlx::query!(
         r#"
         UPDATE namespace
-        SET properties = $1
-        WHERE warehouse_id = $2 AND "name" = $3
+        SET namespace_properties = $1
+        WHERE warehouse_id = $2 AND namespace_name = $3
+        AND warehouse_id IN (
+            SELECT warehouse_id FROM warehouse WHERE status = 'active'
+        )
         "#,
         properties,
         warehouse_id.as_uuid(),
@@ -402,10 +432,9 @@ pub(crate) mod tests {
         assert_eq!(response.namespace, namespace);
         assert_eq!(response.properties, properties);
 
-        let response =
-            Catalog::get_namespace_metadata(&warehouse_id, &namespace, transaction.transaction())
-                .await
-                .unwrap();
+        let response = Catalog::get_namespace(&warehouse_id, &namespace, transaction.transaction())
+            .await
+            .unwrap();
 
         drop(transaction);
 

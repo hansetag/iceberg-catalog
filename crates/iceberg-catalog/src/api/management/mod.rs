@@ -13,9 +13,10 @@ pub mod v1 {
     use axum::routing::{get, post};
     use warehouse::{
         CreateWarehouseRequest, CreateWarehouseResponse, GetWarehouseResponse,
-        ListProjectsResponse, ListWarehouseRequest, ListWarehouseResponse, RenameWarehouseRequest,
-        S3Credential, S3Profile, Service, StorageCredential, StorageProfile,
-        UpdateWarehouseCredentialRequest, UpdateWarehouseStorageRequest, WarehouseStatus,
+        ListProjectsResponse, ListWarehousesRequest, ListWarehousesResponse, ProjectResponse,
+        RenameWarehouseRequest, S3Credential, S3Profile, Service, StorageCredential,
+        StorageProfile, UpdateWarehouseCredentialRequest, UpdateWarehouseStorageRequest,
+        WarehouseStatus,
     };
 
     #[derive(Debug, OpenApi)]
@@ -40,8 +41,9 @@ pub mod v1 {
             CreateWarehouseResponse,
             GetWarehouseResponse,
             ListProjectsResponse,
-            ListWarehouseRequest,
-            ListWarehouseResponse,
+            ListWarehousesRequest,
+            ListWarehousesResponse,
+            ProjectResponse,
             RenameWarehouseRequest,
             S3Credential,
             S3Profile,
@@ -70,11 +72,11 @@ pub mod v1 {
     /// The storage configuration is validated by this method.
     #[utoipa::path(
         post,
-        tags = ["management"],
+        tag = "management",
         path = "management/v1/warehouse",
         request_body = CreateWarehouseRequest,
         responses(
-            (status = 200, description = "Warehouse created successfully", body = [CreateWarehouseResponse]),
+            (status = 201, description = "Warehouse created successfully", body = [CreateWarehouseResponse]),
         )
     )]
     async fn create_warehouse<C: Catalog, A: AuthZHandler, S: SecretStore>(
@@ -88,7 +90,7 @@ pub mod v1 {
     /// List all existing projects
     #[utoipa::path(
         get,
-        tags = ["management"],
+        tag = "management",
         path = "management/v1/project",
         responses(
             (status = 200, description = "List of projects", body = [ListProjectsResponse])
@@ -107,25 +109,25 @@ pub mod v1 {
     /// To include deactivated warehouses, set the `include_deactivated` query parameter to `true`.
     #[utoipa::path(
         get,
-        tags = ["management"],
+        tag = "management",
         path = "management/v1/warehouse",
-        params(ListWarehouseRequest),
+        params(ListWarehousesRequest),
         responses(
-            (status = 200, description = "List of warehouses", body = [ListWarehouseResponse])
+            (status = 200, description = "List of warehouses", body = [ListWarehousesResponse])
         )
     )]
     async fn list_warehouses<C: Catalog, A: AuthZHandler, S: SecretStore>(
-        Query(request): Query<ListWarehouseRequest>,
+        Query(request): Query<ListWarehousesRequest>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
-    ) -> Result<ListWarehouseResponse> {
+    ) -> Result<ListWarehousesResponse> {
         ApiServer::<C, A, S>::list_warehouses(request, api_context, metadata).await
     }
 
     /// Get a warehouse by ID
     #[utoipa::path(
         get,
-        tags = ["management"],
+        tag = "management",
         path = "management/v1/warehouse/{warehouse_id}",
         responses(
             (status = 200, description = "Warehouse details", body = [GetWarehouseResponse])
@@ -142,7 +144,7 @@ pub mod v1 {
     /// Delete a warehouse by ID
     #[utoipa::path(
         delete,
-        tags = ["management"],
+        tag = "management",
         path = "management/v1/warehouse/{warehouse_id}",
         responses(
             (status = 200, description = "Warehouse deleted successfully")
@@ -159,7 +161,7 @@ pub mod v1 {
     /// Rename a warehouse
     #[utoipa::path(
         post,
-        tags = ["management"],
+        tag = "management",
         path = "management/v1/warehouse/{warehouse_id}/rename",
         request_body = RenameWarehouseRequest,
         responses(
@@ -179,7 +181,7 @@ pub mod v1 {
     /// Deactivate a warehouse
     #[utoipa::path(
         post,
-        tags = ["management"],
+        tag = "management",
         path = "management/v1/warehouse/{warehouse_id}/deactivate",
         responses(
             (status = 200, description = "Warehouse deactivated successfully")
@@ -196,7 +198,7 @@ pub mod v1 {
     /// Activate a warehouse
     #[utoipa::path(
         post,
-        tags = ["management"],
+        tag = "management",
         path = "management/v1/warehouse/{warehouse_id}/activate",
         responses(
             (status = 200, description = "Warehouse activated successfully")
@@ -213,7 +215,7 @@ pub mod v1 {
     /// Update the storage profile of a warehouse
     #[utoipa::path(
         post,
-        tags = ["management"],
+        tag = "management",
         path = "management/v1/warehouse/{warehouse_id}/storage",
         request_body = UpdateWarehouseStorageRequest,
         responses(
@@ -233,7 +235,7 @@ pub mod v1 {
     /// Update the storage credential of a warehouse
     #[utoipa::path(
         post,
-        tags = ["management"],
+        tag = "management",
         path = "management/v1/warehouse/{warehouse_id}/storage-credential",
         request_body = UpdateWarehouseCredentialRequest,
         responses(

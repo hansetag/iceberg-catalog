@@ -172,9 +172,9 @@ curl {your-catalog-url}/catalog/v1/transactions/commit -X POST -H "authorization
 ``` 
 
 
-| Variable                            | Example                              | Description                                                                                                                                                                                                                                                  |
-|-------------------------------------|--------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ICEBERG_REST__OPENID_PROVIDER_URI` | `https://keycloak.local/realms/test` | OpenID Provider URL, with keycloak this is the url pointing to your realm, for Azure App Registration it would be something like `https://login.microsoftonline.com/{your_app_id_here}/v2.0/`. If this variable is not set, endpoints are **not** secured    |
+| Variable                            | Example                              | Description                                                                                                                                                                                                                                               |
+|-------------------------------------|--------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ICEBERG_REST__OPENID_PROVIDER_URI` | `https://keycloak.local/realms/test` | OpenID Provider URL, with keycloak this is the url pointing to your realm, for Azure App Registration it would be something like `https://login.microsoftonline.com/{your_app_id_here}/v2.0/`. If this variable is not set, endpoints are **not** secured |
 
 
 # Limitations

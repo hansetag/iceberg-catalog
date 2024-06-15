@@ -43,10 +43,12 @@ pub struct UpdateWarehouseStorageRequest {
 
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 #[serde(rename_all = "kebab-case")]
-pub struct ListWarehouseRequest {
-    /// Optional filter to include inactive warehouses.
+pub struct ListWarehousesRequest {
+    /// Optional filter to return only warehouses
+    /// with the specified status.
+    /// If not provided, only active warehouses are returned.
     #[serde(default)]
-    pub include_inactive: Option<bool>,
+    pub warehouse_status: Option<Vec<WarehouseStatus>>,
     /// The project ID to list warehouses for.
     /// Setting a warehouse is required.
     #[serde(default)]
@@ -61,10 +63,16 @@ pub struct RenameWarehouseRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+pub struct ProjectResponse {
+    /// ID of the project.
+    pub project_id: uuid::Uuid,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct ListProjectsResponse {
-    /// List of project IDs.
-    pub project_ids: Vec<uuid::Uuid>,
+    /// List of projects
+    pub projects: Vec<ProjectResponse>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -84,7 +92,7 @@ pub struct GetWarehouseResponse {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
-pub struct ListWarehouseResponse {
+pub struct ListWarehousesResponse {
     /// List of warehouses in the project.
     pub warehouses: Vec<GetWarehouseResponse>,
 }
@@ -99,7 +107,7 @@ pub struct UpdateWarehouseCredentialRequest {
 
 impl axum::response::IntoResponse for CreateWarehouseResponse {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
-        axum::Json(self).into_response()
+        (http::StatusCode::CREATED, axum::Json(self)).into_response()
     }
 }
 
@@ -136,7 +144,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             None
         };
 
-        let warehouse_id = C::create_warehouse_profile(
+        let warehouse_id = C::create_warehouse(
             warehouse_name,
             project_id.into(),
             storage_profile,
@@ -162,21 +170,31 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         // ------------------- Business Logic -------------------
         if let Some(projects) = projects {
             return Ok(ListProjectsResponse {
-                project_ids: projects.into_iter().map(|id| id.into_uuid()).collect(),
+                projects: projects
+                    .into_iter()
+                    .map(|project_id| ProjectResponse {
+                        project_id: project_id.into_uuid(),
+                    })
+                    .collect(),
             });
         }
 
         let projects = C::list_projects(context.v1_state.catalog).await?;
         Ok(ListProjectsResponse {
-            project_ids: projects.into_iter().map(|id| id.into_uuid()).collect(),
+            projects: projects
+                .into_iter()
+                .map(|project_id| ProjectResponse {
+                    project_id: project_id.into_uuid(),
+                })
+                .collect(),
         })
     }
 
     async fn list_warehouses(
-        request: ListWarehouseRequest,
+        request: ListWarehousesRequest,
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
-    ) -> Result<ListWarehouseResponse> {
+    ) -> Result<ListWarehousesResponse> {
         // ------------------- AuthZ -------------------
         let project_id = ProjectIdent::from(
             request.project_id.ok_or(
@@ -197,13 +215,13 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         // ------------------- Business Logic -------------------
         let warehouses = C::list_warehouses(
             &project_id,
-            request.include_inactive.unwrap_or(false),
+            request.warehouse_status,
             warehouses.as_ref(),
             context.v1_state.catalog,
         )
         .await?;
 
-        Ok(ListWarehouseResponse {
+        Ok(ListWarehousesResponse {
             warehouses: warehouses
                 .into_iter()
                 .map(|warehouse| warehouse.into())
@@ -428,7 +446,7 @@ impl axum::response::IntoResponse for ListProjectsResponse {
     }
 }
 
-impl axum::response::IntoResponse for ListWarehouseResponse {
+impl axum::response::IntoResponse for ListWarehousesResponse {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
         axum::Json(self).into_response()
     }

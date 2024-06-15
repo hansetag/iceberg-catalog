@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use super::{
     namespace::{
-        create_namespace, drop_namespace, get_namespace_metadata, list_namespaces,
-        namespace_ident_to_id, update_namespace_properties,
+        create_namespace, drop_namespace, get_namespace, list_namespaces, namespace_ident_to_id,
+        update_namespace_properties,
     },
     table::{
         commit_table_transaction, create_table, drop_table, get_table_metadata_by_id,
@@ -11,27 +11,22 @@ use super::{
         table_ident_to_id, table_idents_to_ids,
     },
     warehouse::{
-        create_warehouse_profile, delete_warehouse, get_warehouse, list_projects, list_warehouses,
+        create_warehouse, delete_warehouse, get_warehouse, list_projects, list_warehouses,
         rename_warehouse, set_warehouse_status, update_storage_profile,
     },
     CatalogState, PostgresTransaction,
 };
-use crate::{
-    api::{
-        iceberg::v1::{
-            CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse,
-            ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result, TableIdent,
-            UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
-        },
-        CommitTransactionRequest, CreateTableRequest,
-    },
-    service::{GetWarehouseResponse, WarehouseStatus},
+use crate::service::{
+    CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
+    GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
+    TableIdent, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
+    WarehouseStatus,
 };
 use crate::{
     service::{
         storage::StorageProfile, Catalog, CommitTableResponseExt, CreateTableResult,
-        GetTableMetadataResult, LoadTableResult, NamespaceIdentUuid, ProjectIdent, TableIdentUuid,
-        Transaction, WarehouseIdent,
+        GetNamespaceResponse, GetTableMetadataResult, LoadTableResult, NamespaceIdentUuid,
+        ProjectIdent, TableIdentUuid, Transaction, WarehouseIdent,
     },
     SecretIdent,
 };
@@ -41,14 +36,14 @@ impl Catalog for super::Catalog {
     type Transaction = PostgresTransaction;
     type State = CatalogState;
 
-    async fn create_warehouse_profile<'a>(
+    async fn create_warehouse<'a>(
         warehouse_name: String,
         project_id: ProjectIdent,
         storage_profile: StorageProfile,
         storage_secret_id: Option<SecretIdent>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<WarehouseIdent> {
-        create_warehouse_profile(
+        create_warehouse(
             warehouse_name,
             project_id,
             storage_profile,
@@ -65,12 +60,12 @@ impl Catalog for super::Catalog {
         get_warehouse(warehouse_id, transaction).await
     }
 
-    async fn get_namespace_metadata<'a>(
+    async fn get_namespace<'a>(
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<GetNamespaceResponse> {
-        get_namespace_metadata(warehouse_id, namespace, transaction).await
+        get_namespace(warehouse_id, namespace, transaction).await
     }
 
     async fn list_namespaces(
@@ -234,7 +229,7 @@ impl Catalog for super::Catalog {
 
     async fn list_warehouses(
         project_id: &ProjectIdent,
-        include_inactive: bool,
+        include_inactive: Option<Vec<WarehouseStatus>>,
         warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
         catalog_state: Self::State,
     ) -> Result<Vec<GetWarehouseResponse>> {
