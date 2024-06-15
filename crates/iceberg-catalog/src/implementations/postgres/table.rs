@@ -859,6 +859,7 @@ pub(crate) mod tests {
     // - Stage-Create => Next stage-create works & overwrites
     // - Stage-Create => Next regular create works & overwrites
 
+    use crate::api::management::v1::warehouse::WarehouseStatus;
     use crate::api::CommitTableRequest;
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
@@ -1463,5 +1464,30 @@ pub(crate) mod tests {
         )
         .await
         .unwrap_err();
+    }
+
+    #[sqlx::test]
+    async fn test_cannot_get_table_of_inactive_warehouse(pool: sqlx::PgPool) {
+        let state = CatalogState {
+            read_pool: pool.clone(),
+            write_pool: pool.clone(),
+        };
+
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let table = initialize_table(&warehouse_id, state.clone(), false).await;
+        let mut transaction = pool.begin().await.unwrap();
+        super::super::warehouse::set_warehouse_status(
+            &warehouse_id,
+            WarehouseStatus::Inactive,
+            &mut transaction,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+
+        let err = get_table_metadata_by_id(&warehouse_id, &table.table_id, false, state.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(err.error.code, StatusCode::NOT_FOUND);
     }
 }
