@@ -6,6 +6,7 @@ FROM debian:bookworm-slim
 ARG USERNAME=iceberg
 ARG USER_UID=5001
 ARG USER_GID=$USER_UID
+ARG BIN=./target/release/iceberg-catalog
 
 # Install OS deps
 RUN apt-get update -q && \
@@ -22,7 +23,7 @@ USER $USERNAME
 WORKDIR /home/$USERNAME
 
 # copy the build artifact from the build stage
-COPY ./target/release/iceberg-catalog .
+COPY ${BIN} ./iceberg-catalog
 
 # # set the startup command to run your binary
 CMD ["./iceberg-catalog"]
