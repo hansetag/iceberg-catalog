@@ -29,7 +29,6 @@ headers = { workspace = true }
 http = { workspace = true }
 iceberg-catalog = { path = "../iceberg-catalog", features = [
     "sqlx-postgres",
-    "api",
     "s3-signer",
     "router",
 ] }
