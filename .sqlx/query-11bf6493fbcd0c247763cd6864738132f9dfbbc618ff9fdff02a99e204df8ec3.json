@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            properties as \"properties: Json<HashMap<String, String>>\"\n        FROM namespace\n        WHERE warehouse_id = $1 AND \"name\" = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "properties: Json<HashMap<String, String>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "11bf6493fbcd0c247763cd6864738132f9dfbbc618ff9fdff02a99e204df8ec3"
+}

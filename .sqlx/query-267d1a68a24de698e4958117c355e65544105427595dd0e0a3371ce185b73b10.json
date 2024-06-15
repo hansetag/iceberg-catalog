@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM \"table\"\n        WHERE \"table_id\" = $1\n        RETURNING \"table_id\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "267d1a68a24de698e4958117c355e65544105427595dd0e0a3371ce185b73b10"
+}

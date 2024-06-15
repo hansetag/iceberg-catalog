@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.\"table_id\", t.\"metadata_location\"\n        FROM \"table\" t\n        INNER JOIN namespace n ON t.namespace_id = n.namespace_id\n        WHERE n.\"name\" = $1 AND t.\"name\" = $2\n        AND n.warehouse_id = $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "metadata_location",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "a9ee4ab9c4704f5c4605b47dede7314bfe8511eae72ad446db9aa576d7e7c02d"
+}

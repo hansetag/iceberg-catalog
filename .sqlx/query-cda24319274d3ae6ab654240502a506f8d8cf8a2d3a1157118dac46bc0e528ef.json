@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE \"table\"\n            SET \"name\" = $1, \"namespace_id\" = (\n                SELECT namespace_id\n                FROM namespace\n                WHERE warehouse_id = $2 AND \"name\" = $3\n            )\n            WHERE \"table_id\" = $4\n            AND \"name\" = $5\n            RETURNING \"table_id\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "TextArray",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cda24319274d3ae6ab654240502a506f8d8cf8a2d3a1157118dac46bc0e528ef"
+}

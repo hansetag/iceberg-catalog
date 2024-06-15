@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO warehouse (warehouse_name, project_id, storage_profile, storage_secret_id)\n        VALUES ($1, $2, $3, $4)\n        RETURNING warehouse_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "warehouse_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "30837c9472406602030d855eca43cc37ab05795eaa793d58dbd2999293ca1fe3"
+}

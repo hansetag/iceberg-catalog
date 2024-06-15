@@ -59,25 +59,23 @@ jobs:
         #   name: iceberg-catalog-aarch64-apple-darwin.tar.gz
         #   cross: false
 
-        # ToDo: Figure out a good way to run postgres on windows
-        # and enable the following targets
-        # - target: x86_64-pc-windows-msvc
-        #   os: windows-latest
-        #   name: iceberg-catalog-x86_64-pc-windows-msvc.zip
-        #   rustflags: -C target-feature=+crt-static
-        #   cross: false
+        - target: x86_64-pc-windows-msvc
+          os: windows-latest
+          name: iceberg-catalog-x86_64-pc-windows-msvc.zip
+          rustflags: -C target-feature=+crt-static
+          cross: false
 
-        # - target: aarch64-pc-windows-msvc
-        #   os: windows-latest
-        #   name: iceberg-catalog-aarch64-pc-windows-msvc.zip
-        #   rustflags: -C target-feature=+crt-static
-        #   cross: false
+        - target: aarch64-pc-windows-msvc
+          os: windows-latest
+          name: iceberg-catalog-aarch64-pc-windows-msvc.zip
+          rustflags: -C target-feature=+crt-static
+          cross: false
 
     runs-on: ${{ matrix.os }}
     continue-on-error: true
     env:
       RUSTFLAGS: ${{ matrix.rustflags || '' }}
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -97,6 +95,7 @@ jobs:
       #     colima start
 
       - name: Run postgres
+        if: matrix.os == 'ubuntu-latest'
         run: |
           docker run -d --name postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres -p 5432:5432 postgres:16
           docker ps -a
@@ -108,7 +107,7 @@ jobs:
           tool: cross
 
       - name: Migrate database [-nix]
-        if: matrix.os != 'windows-latest'
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
           sudo apt-get install libpq-dev -y
           cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
@@ -117,18 +116,14 @@ jobs:
           sqlx migrate run
           cd -
           cargo sqlx prepare --workspace
-
-      # - name: Migrate database [Windows]
-      #   if: matrix.os == 'windows-latest'
-      #   run: |
-      #     cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
-      #     cd crates/iceberg-catalog
-      #     sqlx database create
-      #     sqlx migrate run
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
       - name: Test [Cargo]
-        if: matrix.cross == false
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: cargo test --all-features --release --locked --target ${{ matrix.target }} --workspace
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
       - name: Build [Cargo]
         if: matrix.cross == false
@@ -190,13 +185,10 @@ jobs:
         run: |
           cd iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
           tar xzvf iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
-          ls -lh
-          mv iceberg-catalog iceberg-catalog-amd64
-          mv iceberg-catalog ../iceberg-catalog-amd64
           cd -
           cd iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
           tar xzvf iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
-          mv xzvf iceberg-catalog ../iceberg-catalog-arm64
+          ls -Rlh
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -208,7 +200,7 @@ jobs:
         run: |
           DOCKER_BUILDKIT=1 docker build -t localhost/iceberg-catalog-local:amd64 \
             -f docker/bin.Dockerfile \
-            --build-arg BIN=iceberg-catalog-amd64 .
+            --build-arg "BIN=iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz/iceberg-catalog" .
           docker save -o /tmp/iceberg-catalog-amd64.tar localhost/iceberg-catalog-local:amd64
 
       - name: Build Docker image (arm64)
@@ -216,7 +208,7 @@ jobs:
           DOCKER_BUILDKIT=1 docker build \
             --platform linux/arm64 -t iceberg-catalog-local:arm64 \
             -f docker/bin.Dockerfile \
-            --build-arg BIN=iceberg-catalog-arm64 .
+            --build-arg "BIN=iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
           docker save -o /tmp/iceberg-catalog-arm64.tar iceberg-catalog-local:arm64
 
       - name: Test Docker image (amd64)
