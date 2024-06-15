@@ -206,12 +206,12 @@ jobs:
       - name: Build Docker image (arm64)
         run: |
           DOCKER_BUILDKIT=1 docker build \
-            --platform linux/arm64 -t iceberg-catalog-local:arm64 \
+            --platform linux/arm64 -t localhost/iceberg-catalog-local:arm64 \
             -f docker/bin.Dockerfile \
             --build-arg "BIN=iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
-          docker save -o /tmp/iceberg-catalog-arm64.tar iceberg-catalog-local:arm64
+          docker save -o /tmp/iceberg-catalog-arm64.tar localhost/iceberg-catalog-local:arm64
 
-      - name: Test Docker image (amd64)
+      - name: Test Docker (amd64)
         run: |
           cd tests
           docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_pyiceberg_and_spark.sh"
