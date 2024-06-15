@@ -40,7 +40,7 @@ iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
 itertools = { workspace = true }
 jsonwebtoken = "9.3.0"
 jwks_client_rs = { workspace = true }
-lazy_static = { workspace = true }
+openssl = { version = '0.10', features = ["vendored"] }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
@@ -61,7 +61,6 @@ utoipa = { workspace = true, features = ["uuid"] }
 utoipa-swagger-ui = { workspace = true }
 uuid = { workspace = true }
 veil = { workspace = true }
-openssl = { version = '0.10', features = ["vendored"] }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
