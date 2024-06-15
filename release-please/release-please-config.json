@@ -1,0 +1,11 @@
+{
+    "packages": {
+        ".": {}
+    },
+    "plugins": [
+        "cargo-workspace"
+    ],
+    "release-type": "rust",
+    "bump-minor-pre-major": true,
+    "bump-patch-for-minor-pre-major": true
+}

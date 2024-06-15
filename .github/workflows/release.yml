@@ -36,7 +36,8 @@ jobs:
         id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          release-type: rust
+          config-file: release-please/release-please-config.json
+          manifest-file: release-please/.release-please-manifest.json
 
   build-binary:
     name: Build Binary
