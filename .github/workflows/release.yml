@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'hansetag/iceberg-catalog'
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
+      releases_created: ${{ steps.release.outputs.releases_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       major: ${{ steps.release.outputs.major }}
       minor: ${{ steps.release.outputs.minor }}
@@ -43,7 +43,7 @@ jobs:
     name: Build Binary
     needs:
       - release_please
-    if: ${{ needs.release_please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' }}
+    if: ${{ needs.release_please.outputs.releases_created == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' }}
     # not supported by windows nor macos
     # services:
     #   postgres:
@@ -289,7 +289,7 @@ jobs:
       - build-binary
       - build-docker
       - release_please
-    if: ${{ needs.release_please.outputs.release_created == 'true' }}
+    if: ${{ needs.release_please.outputs.releases_created == 'true' }}
     steps:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
@@ -312,7 +312,7 @@ jobs:
       - build-docker
       - build-binary
       - release_please
-    if: ${{ needs.release_please.outputs.release_created == 'true' }}
+    if: ${{ needs.release_please.outputs.releases_created == 'true' }}
     steps:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
