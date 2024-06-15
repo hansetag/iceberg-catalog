@@ -15,6 +15,10 @@ env:
   # Publish the build output as CI artifact to inspect
   preview: ${{ !startsWith(github.ref, 'refs/tags/') || github.repository != 'hansetag/iceberg-catalog' }}
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   # Update release PR
   release_please:
