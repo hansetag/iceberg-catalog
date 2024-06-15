@@ -24,8 +24,8 @@ use crate::service::{
 };
 use crate::{
     service::{
-        storage::StorageProfile, Catalog, CommitTableResponseExt, CreateTableResult,
-        GetNamespaceResponse, GetTableMetadataResult, LoadTableResult, NamespaceIdentUuid,
+        storage::StorageProfile, Catalog, CommitTableResponseExt, CreateTableResponse,
+        GetNamespaceResponse, GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid,
         ProjectIdent, TableIdentUuid, Transaction, WarehouseIdent,
     },
     SecretIdent,
@@ -117,7 +117,7 @@ impl Catalog for super::Catalog {
         // Metadata location may be none if stage-create is true
         metadata_location: Option<&String>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
-    ) -> Result<CreateTableResult> {
+    ) -> Result<CreateTableResponse> {
         create_table(
             namespace_id,
             table,
@@ -142,7 +142,7 @@ impl Catalog for super::Catalog {
         warehouse_id: &WarehouseIdent,
         table: &TableIdent,
         catalog_state: CatalogState,
-    ) -> Result<LoadTableResult> {
+    ) -> Result<LoadTableResponse> {
         load_table(warehouse_id, table, catalog_state).await
     }
 
@@ -151,7 +151,7 @@ impl Catalog for super::Catalog {
         table: &TableIdentUuid,
         include_staged: bool,
         catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResult> {
+    ) -> Result<GetTableMetadataResponse> {
         get_table_metadata_by_id(warehouse_id, table, include_staged, catalog_state).await
     }
 
@@ -160,7 +160,7 @@ impl Catalog for super::Catalog {
         location: &str,
         include_staged: bool,
         catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResult> {
+    ) -> Result<GetTableMetadataResponse> {
         get_table_metadata_by_s3_location(warehouse_id, location, include_staged, catalog_state)
             .await
     }

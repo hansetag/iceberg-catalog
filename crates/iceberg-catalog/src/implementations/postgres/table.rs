@@ -2,8 +2,8 @@ use super::{dbutils::DBErrorHandler as _, CatalogState};
 use crate::{
     service::{
         storage::StorageProfile, CommitTableResponse, CommitTableResponseExt,
-        CommitTransactionRequest, CreateTableRequest, CreateTableResult, ErrorModel,
-        GetStorageConfigResult, GetTableMetadataResult, LoadTableResult, NamespaceIdentUuid,
+        CommitTransactionRequest, CreateTableRequest, CreateTableResponse, ErrorModel,
+        GetStorageConfigResponse, GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid,
         Result, TableIdent, TableIdentUuid,
     },
     SecretIdent, WarehouseIdent,
@@ -176,7 +176,7 @@ pub(crate) async fn create_table(
     // Metadata location may be none if stage-create is true
     metadata_location: Option<&String>,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<CreateTableResult> {
+) -> Result<CreateTableResponse> {
     let TableIdent { namespace: _, name } = table;
     let CreateTableRequest {
         name: _,
@@ -258,14 +258,14 @@ pub(crate) async fn create_table(
         _ => e.as_error_model("Error creating table".to_string()),
     }})?;
 
-    Ok(CreateTableResult { table_metadata })
+    Ok(CreateTableResponse { table_metadata })
 }
 
 pub(crate) async fn load_table(
     warehouse_id: &WarehouseIdent,
     table: &TableIdent,
     catalog_state: CatalogState,
-) -> Result<LoadTableResult> {
+) -> Result<LoadTableResponse> {
     let TableIdent { namespace, name } = table;
 
     let table = sqlx::query!(
@@ -299,7 +299,7 @@ pub(crate) async fn load_table(
         _ => e.into_error_model("Error fetching table".to_string()),
     })?;
 
-    Ok(LoadTableResult {
+    Ok(LoadTableResponse {
         table_id: table.table_id.into(),
         namespace_id: table.namespace_id.into(),
         table_metadata: table.metadata.deref().clone(),
@@ -363,7 +363,7 @@ pub(crate) async fn get_table_metadata_by_id(
     table: &TableIdentUuid,
     include_staged: bool,
     catalog_state: CatalogState,
-) -> Result<GetTableMetadataResult> {
+) -> Result<GetTableMetadataResponse> {
     let table = sqlx::query!(
         r#"
         SELECT
@@ -413,7 +413,7 @@ pub(crate) async fn get_table_metadata_by_id(
             .build()
     })?;
 
-    Ok(GetTableMetadataResult {
+    Ok(GetTableMetadataResponse {
         table: TableIdent {
             namespace,
             name: table.table_name,
@@ -432,7 +432,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
     location: &str,
     include_staged: bool,
     catalog_state: CatalogState,
-) -> Result<GetTableMetadataResult> {
+) -> Result<GetTableMetadataResponse> {
     // Location might also be a subpath of the table location.
     // We need to make sure that the location starts with the table location.
     let table = sqlx::query!(
@@ -491,7 +491,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
             .build()
     })?;
 
-    Ok(GetTableMetadataResult {
+    Ok(GetTableMetadataResponse {
         table: TableIdent {
             namespace,
             name: table.table_name,
@@ -757,7 +757,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
                 metadata: new_metadata.clone(),
                 config: None,
             },
-            storage_config: GetStorageConfigResult {
+            storage_config: GetStorageConfigResponse {
                 storage_profile: context.storage_profile,
                 storage_secret_ident: context.storage_secret_ident,
             },

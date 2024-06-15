@@ -46,12 +46,12 @@ pub struct GetNamespaceResponse {
 }
 
 #[derive(Debug)]
-pub struct CreateTableResult {
+pub struct CreateTableResponse {
     pub table_metadata: TableMetadata,
 }
 
 #[derive(Debug)]
-pub struct LoadTableResult {
+pub struct LoadTableResponse {
     pub table_id: TableIdentUuid,
     pub namespace_id: NamespaceIdentUuid,
     pub table_metadata: TableMetadata,
@@ -61,7 +61,7 @@ pub struct LoadTableResult {
 }
 
 #[derive(Debug)]
-pub struct GetTableMetadataResult {
+pub struct GetTableMetadataResponse {
     pub table: TableIdent,
     pub table_id: TableIdentUuid,
     pub warehouse_id: WarehouseIdent,
@@ -72,7 +72,7 @@ pub struct GetTableMetadataResult {
 }
 
 #[derive(Debug)]
-pub struct GetStorageConfigResult {
+pub struct GetStorageConfigResponse {
     pub storage_profile: StorageProfile,
     pub storage_secret_ident: Option<SecretIdent>,
 }
@@ -81,7 +81,7 @@ pub struct GetStorageConfigResult {
 #[derive(Debug)]
 pub struct CommitTableResponseExt {
     pub commit_response: CommitTableResponse,
-    pub storage_config: GetStorageConfigResult,
+    pub storage_config: GetStorageConfigResponse,
     pub previous_table_metadata: TableMetadata,
 }
 
@@ -162,7 +162,7 @@ where
         // Metadata location may be none if stage-create is true
         metadata_location: Option<&String>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<CreateTableResult>;
+    ) -> Result<CreateTableResponse>;
 
     async fn list_tables(
         warehouse_id: &WarehouseIdent,
@@ -196,7 +196,7 @@ where
         warehouse_id: &WarehouseIdent,
         table: &TableIdent,
         catalog_state: Self::State,
-    ) -> Result<LoadTableResult>;
+    ) -> Result<LoadTableResponse>;
 
     /// Get table metadata by table id.
     /// If include_staged is true, also return staged tables,
@@ -206,7 +206,7 @@ where
         table: &TableIdentUuid,
         include_staged: bool,
         catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResult>;
+    ) -> Result<GetTableMetadataResponse>;
 
     /// Get table metadata by location.
     async fn get_table_metadata_by_s3_location(
@@ -214,7 +214,7 @@ where
         location: &str,
         include_staged: bool,
         catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResult>;
+    ) -> Result<GetTableMetadataResponse>;
 
     /// Rename a table. Tables may be moved across namespaces.
     async fn rename_table<'a>(
