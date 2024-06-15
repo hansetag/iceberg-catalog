@@ -16,6 +16,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sqlx-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cargo sqlx-check
+        run: cargo sqlx prepare --check -- --all-features --workspace
+
   check-format:
     runs-on: ubuntu-latest
     steps:
