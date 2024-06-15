@@ -8,9 +8,9 @@
             "release-type": "rust",
             "component": "catalog-bin"
         },
-        "crates/iceberg-catalog-ext": {
+        "crates/iceberg-ext": {
             "release-type": "rust",
-            "component": "catalog-ext"
+            "component": "iceberg-ext"
         }
     },
     "plugins": [
@@ -24,7 +24,7 @@
             "components": [
                 "catalog",
                 "catalog-bin",
-                "catalog-ext"
+                "iceberg-ext"
             ]
         }
     ],
