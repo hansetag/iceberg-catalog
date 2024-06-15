@@ -220,14 +220,18 @@ jobs:
         run: |
           DOCKER_BUILDKIT=1 docker build -t localhost/iceberg-catalog-local:amd64 \
             -f docker/bin.Dockerfile \
+            --build-arg "ARCH=amd64/" \
             --build-arg "BIN=iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz/iceberg-catalog" .
+          docker save -o /tmp/iceberg-catalog-amd64.tar localhost/iceberg-catalog-local:amd64
 
       - name: Build Docker image (arm64)
         run: |
           DOCKER_BUILDKIT=1 docker build \
-            --platform linux/arm64 -t localhost/iceberg-catalog-local:arm64 \
+            --platform linux/arm64 -t localhost/iceberg-catalog-local:arm64v8 \
             -f docker/bin.Dockerfile \
+            --build-arg "ARCH=arm64v8/" \
             --build-arg "BIN=iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
+          docker save -o /tmp/iceberg-catalog-arm64v8.tar localhost/iceberg-catalog-local:arm64v8
 
       - name: Test Docker (amd64)
         run: |
@@ -243,21 +247,21 @@ jobs:
           cd tests
           docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_pyiceberg_and_spark.sh"
         env:
-          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:arm64
+          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:arm64v8
           ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
-
-      - name: Combine Architectures
-        run: |
-          docker manifest create localhost/iceberg-catalog-local:latest \
-            --amend localhost/iceberg-catalog-local:amd64 \
-            --amend localhost/iceberg-catalog-local:arm64
-          docker save localhost/iceberg-catalog-local:latest -o /tmp/iceberg-catalog-docker.tar
 
       - name: Save Docker
         uses: actions/upload-artifact@v4
         with:
           name: iceberg-catalog-image
-          path: /tmp/iceberg-catalog-docker.tar
+          path: /tmp/iceberg-catalog-docker-*.tar
+
+      - name: Test Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: hansetag+githubicebergcatalog
+          password: ${{ secrets.QUAY_PASSWORD }}
 
   list-artifacts:
     name: List Artifacts
@@ -308,20 +312,38 @@ jobs:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
 
-      - name: Tag Images
-        run: |
-          docker load -i /tmp/iceberg-catalog-docker.tar
-          docker tag localhost/iceberg-catalog-local:latest quay.io/hansetag/iceberg-catalog:latest
-          docker tag localhost/iceberg-catalog-local:latest ghcr.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}
-          docker tag localhost/iceberg-catalog-local:latest ghcr.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}
-          docker tag localhost/iceberg-catalog-local:latest ghcr.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}
-
-      - name: Push To quay.io
-        id: push-to-quay
-        uses: redhat-actions/push-to-registry@v2
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
         with:
-          image: iceberg-catalog
-          tags: latest v${{ needs.release_please.outputs.major }} v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }} v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}
-          registry: quay.io/hansetag
+          registry: quay.io
           username: hansetag+githubicebergcatalog
           password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Push To quay.io
+        run: |
+          docker load -i /tmp/iceberg-catalog-docker-amd64.tar
+          docker load -i /tmp/iceberg-catalog-docker-arm64v8.tar
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:latest-amd64
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-amd64
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-amd64
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-amd64
+          docker tag localhost/iceberg-catalog-local:arm64v8 quay.io/hansetag/iceberg-catalog:latest-arm64v8
+          docker tag localhost/iceberg-catalog-local:arm64v8 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-arm64v8
+          docker tag localhost/iceberg-catalog-local:arm64v8 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-arm64v8
+          docker tag localhost/iceberg-catalog-local:arm64v8 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-arm64v8
+          docker push quay.io/hansetag/iceberg-catalog:latest-amd64
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-amd64
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-amd64
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-amd64
+          docker push quay.io/hansetag/iceberg-catalog:latest-arm64v8
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-arm64v8
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-arm64v8
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-arm64v8
+          docker manifest create quay.io/hansetag/iceberg-catalog:latest quay.io/hansetag/iceberg-catalog:latest-amd64 quay.io/hansetag/iceberg-catalog:latest-arm64v8
+          docker manifest create quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }} quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-arm64v8
+          docker manifest create quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }} quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-arm64v8
+          docker manifest create quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }} quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-arm64v8
+          docker manifest push quay.io/hansetag/iceberg-catalog:latest
+          docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}
+          docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}
+          docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}
