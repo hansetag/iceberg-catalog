@@ -23,7 +23,6 @@ nats = ["dep:async-nats"]
 anyhow = { workspace = true }
 async-nats = { workspace = true, optional = true }
 async-trait = { workspace = true }
-lazy_static = { workspace = true }
 aws-credential-types = { version = "^1.2", optional = true }
 aws-sigv4 = { version = "^1.2", optional = true }
 axum = { workspace = true }
@@ -41,6 +40,7 @@ iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
 itertools = { workspace = true }
 jsonwebtoken = "9.3.0"
 jwks_client_rs = { workspace = true }
+lazy_static = { workspace = true }
 openssl = { version = '0.10', features = ["vendored"] }
 reqwest = { workspace = true }
 serde = { workspace = true }
