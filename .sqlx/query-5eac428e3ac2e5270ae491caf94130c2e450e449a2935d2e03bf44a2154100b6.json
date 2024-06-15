@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            warehouse_name,\n            project_id,\n            storage_profile as \"storage_profile: Json<StorageProfile>\",\n            storage_secret_id,\n            status AS \"status: WarehouseStatus\"\n        FROM warehouse\n        WHERE warehouse_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "warehouse_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "project_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "storage_profile: Json<StorageProfile>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "storage_secret_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "status: WarehouseStatus",
+        "type_info": {
+          "Custom": {
+            "name": "warehouse_status",
+            "kind": {
+              "Enum": [
+                "active",
+                "inactive"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "5eac428e3ac2e5270ae491caf94130c2e450e449a2935d2e03bf44a2154100b6"
+}
