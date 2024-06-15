@@ -41,7 +41,7 @@ iceberg = { workspace = true }
 iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
 itertools = { workspace = true }
 jsonwebtoken = "9.3.0"
-jwks_client_rs.workspace = true
+jwks_client_rs = { workspace = true }
 lazy_static = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
@@ -51,11 +51,16 @@ strum = { workspace = true }
 strum_macros = { workspace = true }
 tokio = { workspace = true, optional = true }
 tower = { workspace = true }
-tower-http = { workspace = true, optional = true, features = ["default", "request-id", "util"] }
+tower-http = { workspace = true, optional = true, features = [
+    "default",
+    "request-id",
+    "util",
+] }
 tracing = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
 utoipa = { workspace = true, features = ["uuid"] }
+utoipa-swagger-ui = { workspace = true }
 uuid = { workspace = true }
 veil = { workspace = true }
 

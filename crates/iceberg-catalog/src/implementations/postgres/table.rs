@@ -1,8 +1,10 @@
 use super::{dbutils::DBErrorHandler as _, CatalogState};
 use crate::{
     service::{
-        storage::StorageProfile, CommitTableResponseExt, CreateTableResult, GetStorageConfigResult,
-        GetTableMetadataResult, LoadTableResult, NamespaceIdentUuid, TableIdentUuid,
+        storage::StorageProfile, CommitTableResponse, CommitTableResponseExt,
+        CommitTransactionRequest, CreateTableRequest, CreateTableResult, ErrorModel,
+        GetStorageConfigResult, GetTableMetadataResult, LoadTableResult, NamespaceIdentUuid,
+        Result, TableIdent, TableIdentUuid,
     },
     SecretIdent, WarehouseIdent,
 };
@@ -13,10 +15,7 @@ use iceberg_ext::{
     NamespaceIdent, TableRequirement, TableUpdate,
 };
 
-use crate::api::{
-    iceberg::v1::TableIdent, CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
-    ErrorModel, Result, TableRequirementExt as _, TableUpdateExt,
-};
+use crate::api::{TableRequirementExt as _, TableUpdateExt};
 use sqlx::{types::Json, Row};
 use std::default::Default;
 use std::{
@@ -42,8 +41,10 @@ where
         SELECT t."table_id", t."metadata_location"
         FROM "table" t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
-        WHERE n."name" = $1 AND t."name" = $2
+        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+        WHERE n.namespace_name = $1 AND t.table_name = $2
         AND n.warehouse_id = $3
+        AND w.status = 'active'
         "#,
         &**namespace,
         &**name,
@@ -102,13 +103,14 @@ where
 
     let mut query_builder = sqlx::QueryBuilder::new(
         r#"
-        SELECT t."table_id", n."name" as "namespace", t."name" as "table_name", t."metadata_location"
+        SELECT t."table_id", n.namespace_name as "namespace", t.table_name, t."metadata_location"
         FROM "table" t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
-        WHERE n."warehouse_id" = "#,
+        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+        WHERE w.status = 'active' and n."warehouse_id" = "#,
     );
     query_builder.push_bind(warehouse_id.as_uuid());
-    query_builder.push(r#" AND (n."name", t."name") IN "#);
+    query_builder.push(r" AND (n.namespace_name, t.table_name) IN ");
     query_builder.push("(");
 
     for (i, table) in batch_tables.iter().enumerate() {
@@ -223,8 +225,15 @@ pub(crate) async fn create_table(
     // ToDo: Should we keep the old table_id?
     let _update_result = sqlx::query!(
         r#"
-        INSERT INTO "table" (table_id, namespace_id, "name", "metadata", "metadata_location", "table_location")
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO "table" (table_id, namespace_id, "table_name", "metadata", "metadata_location", "table_location")
+        (
+            SELECT $1, $2, $3, $4, $5, $6
+            WHERE EXISTS (
+                SELECT 1
+                FROM warehouse w
+                INNER JOIN namespace n ON w.warehouse_id = n.warehouse_id
+                WHERE n.namespace_id = $2 AND w.status = 'active'
+        ))
         ON CONFLICT ON CONSTRAINT unique_table_name_per_namespace
         DO UPDATE SET table_id= $1, "metadata" = $4, "metadata_location" = $5, "table_location" = $6
         WHERE "table"."metadata_location" IS NULL
@@ -271,7 +280,8 @@ pub(crate) async fn load_table(
         FROM "table" t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE w.warehouse_id = $1 AND n."name" = $2 AND t."name" = $3
+        WHERE w.warehouse_id = $1 AND namespace_name = $2 AND table_name = $3
+        AND w.status = 'active'
         AND "metadata_location" IS NOT NULL
         "#,
         warehouse_id.as_uuid(),
@@ -309,12 +319,15 @@ pub(crate) async fn list_tables(
         r#"
         SELECT
             t."table_id",
-            t."name" as "table_name",
-            n."name" as "namespace"
+            table_name,
+            namespace_name
         FROM "table" t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
-        WHERE n.warehouse_id = $1 AND n."name" = $2
-        AND (t."metadata_location" IS NOT NULL OR $3)
+        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+        WHERE n.warehouse_id = $1 
+            AND namespace_name = $2
+            AND w.status = 'active'
+            AND (t."metadata_location" IS NOT NULL OR $3)
         "#,
         warehouse_id.as_uuid(),
         &**namespace,
@@ -329,7 +342,7 @@ pub(crate) async fn list_tables(
         table_map.insert(
             table.table_id.into(),
             TableIdent {
-                namespace: NamespaceIdent::from_vec(table.namespace).map_err(|e| {
+                namespace: NamespaceIdent::from_vec(table.namespace_name).map_err(|e| {
                     ErrorModel::builder()
                         .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                         .message("Error parsing namespace".to_string())
@@ -355,9 +368,9 @@ pub(crate) async fn get_table_metadata_by_id(
         r#"
         SELECT
             t."table_id",
-            t."name" as "table_name",
+            table_name,
             t."table_location",
-            n."name" as "namespace",
+            namespace_name,
             t."metadata" as "metadata: Json<TableMetadata>",
             t."metadata_location",
             w.storage_profile as "storage_profile: Json<StorageProfile>",
@@ -366,6 +379,7 @@ pub(crate) async fn get_table_metadata_by_id(
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1 AND t."table_id" = $2
+        AND w.status = 'active'
         "#,
         warehouse_id.as_uuid(),
         table.as_uuid()
@@ -390,7 +404,7 @@ pub(crate) async fn get_table_metadata_by_id(
             .into());
     }
 
-    let namespace = NamespaceIdent::from_vec(table.namespace).map_err(|e| {
+    let namespace = NamespaceIdent::from_vec(table.namespace_name).map_err(|e| {
         ErrorModel::builder()
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error parsing namespace".to_string())
@@ -425,9 +439,9 @@ pub(crate) async fn get_table_metadata_by_s3_location(
         r#"
         SELECT
             t."table_id",
-            t."name" as "table_name",
+            table_name,
             t."table_location",
-            n."name" as "namespace",
+            namespace_name,
             t."metadata" as "metadata: Json<TableMetadata>",
             t."metadata_location",
             w.storage_profile as "storage_profile: Json<StorageProfile>",
@@ -436,8 +450,9 @@ pub(crate) async fn get_table_metadata_by_s3_location(
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1
-        AND $2 like t."table_location" || '%'
-        AND LENGTH(t."table_location") <= $3
+            AND $2 like t."table_location" || '%'
+            AND LENGTH(t."table_location") <= $3
+            AND w.status = 'active'
         "#,
         warehouse_id.as_uuid(),
         location,
@@ -467,7 +482,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
             .into());
     }
 
-    let namespace = NamespaceIdent::from_vec(table.namespace).map_err(|e| {
+    let namespace = NamespaceIdent::from_vec(table.namespace_name).map_err(|e| {
         ErrorModel::builder()
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error parsing namespace".to_string())
@@ -511,12 +526,16 @@ pub(crate) async fn rename_table(
         let _ = sqlx::query_scalar!(
             r#"
             UPDATE "table"
-            SET "name" = $1
-            WHERE "table_id" = $2
-            RETURNING "table_id"
+            SET table_name = $1
+            WHERE table_id = $2
+            AND $3 IN (
+                SELECT warehouse_id FROM warehouse WHERE status = 'active'
+            )
+            RETURNING table_id
             "#,
             &**dest_name,
-            source_id.as_uuid()
+            source_id.as_uuid(),
+            warehouse_id.as_uuid(),
         )
         .fetch_one(&mut **transaction)
         .await
@@ -532,13 +551,16 @@ pub(crate) async fn rename_table(
         let _ = sqlx::query_scalar!(
             r#"
             UPDATE "table"
-            SET "name" = $1, "namespace_id" = (
+            SET table_name = $1, "namespace_id" = (
                 SELECT namespace_id
                 FROM namespace
-                WHERE warehouse_id = $2 AND "name" = $3
+                WHERE warehouse_id = $2 AND namespace_name = $3
             )
             WHERE "table_id" = $4
-            AND "name" = $5
+            AND table_name = $5
+            AND $2 IN (
+                SELECT warehouse_id FROM warehouse WHERE status = 'active'
+            )
             RETURNING "table_id"
             "#,
             &**dest_name,
@@ -575,6 +597,15 @@ pub(crate) async fn drop_table<'a>(
         r#"
         DELETE FROM "table"
         WHERE "table_id" = $1
+        AND "namespace_id" IN (
+            SELECT "namespace_id"
+            FROM namespace
+            WHERE "warehouse_id" IN (
+                SELECT "warehouse_id"
+                FROM warehouse
+                WHERE status = 'active'
+            )
+        )
         RETURNING "table_id"
         "#,
         table_id.as_uuid()
@@ -599,6 +630,7 @@ struct CommitContext {
     updates: Vec<TableUpdate>,
     storage_profile: StorageProfile,
     storage_secret_ident: Option<SecretIdent>,
+    #[allow(dead_code)]
     namespace_id: NamespaceIdentUuid,
     metadata: TableMetadata,
     metadata_location: Option<String>,
@@ -624,6 +656,7 @@ async fn get_commit_context<'a>(
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE "table_id" = ANY($1)
+        AND w.status = 'active'
         "#,
         &table_ids
             .values()
@@ -727,7 +760,6 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
             storage_config: GetStorageConfigResult {
                 storage_profile: context.storage_profile,
                 storage_secret_ident: context.storage_secret_ident,
-                namespace_id: context.namespace_id,
             },
             previous_table_metadata,
         });
@@ -736,9 +768,8 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
     Ok(responses)
 }
 
-// ToDo: Test
 pub(crate) async fn commit_table_transaction<'a>(
-    // We don't need warehouse_id as table_ids are unique across warehouses
+    // We do not need the warehouse_id here, because table_ids are unique across warehouses
     _: &WarehouseIdent,
     request: CommitTransactionRequest,
     table_ids: &HashMap<TableIdent, TableIdentUuid>,
@@ -828,6 +859,7 @@ pub(crate) mod tests {
     // - Stage-Create => Next stage-create works & overwrites
     // - Stage-Create => Next regular create works & overwrites
 
+    use crate::api::management::v1::warehouse::WarehouseStatus;
     use crate::api::CommitTableRequest;
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
@@ -889,7 +921,7 @@ pub(crate) mod tests {
             r#"
             SELECT namespace_id
             FROM namespace
-            WHERE warehouse_id = $1 AND "name" = $2
+            WHERE warehouse_id = $1 AND namespace_name = $2
             "#,
             warehouse_id.as_uuid(),
             &**namespace
@@ -956,7 +988,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
         let namespace_id = get_namespace_id(state.clone(), &warehouse_id, &namespace).await;
@@ -1010,7 +1042,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
         let namespace_id = get_namespace_id(state.clone(), &warehouse_id, &namespace).await;
@@ -1086,7 +1118,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
 
@@ -1122,7 +1154,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
 
@@ -1197,7 +1229,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(&warehouse_id, state.clone(), false).await;
 
         let new_table_ident = TableIdent {
@@ -1236,7 +1268,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(&warehouse_id, state.clone(), false).await;
 
         let new_namespace = NamespaceIdent::from_vec(vec!["new_namespace".to_string()]).unwrap();
@@ -1277,7 +1309,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
         let tables = list_tables(&warehouse_id, &namespace, false, state.clone())
@@ -1312,7 +1344,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table1 = initialize_table(&warehouse_id, state.clone(), true).await;
         let table2 = initialize_table(&warehouse_id, state.clone(), false).await;
 
@@ -1392,7 +1424,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(&warehouse_id, state.clone(), false).await;
 
         let metadata =
@@ -1432,5 +1464,30 @@ pub(crate) mod tests {
         )
         .await
         .unwrap_err();
+    }
+
+    #[sqlx::test]
+    async fn test_cannot_get_table_of_inactive_warehouse(pool: sqlx::PgPool) {
+        let state = CatalogState {
+            read_pool: pool.clone(),
+            write_pool: pool.clone(),
+        };
+
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let table = initialize_table(&warehouse_id, state.clone(), false).await;
+        let mut transaction = pool.begin().await.unwrap();
+        super::super::warehouse::set_warehouse_status(
+            &warehouse_id,
+            WarehouseStatus::Inactive,
+            &mut transaction,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+
+        let err = get_table_metadata_by_id(&warehouse_id, &table.table_id, false, state.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(err.error.code, StatusCode::NOT_FOUND);
     }
 }

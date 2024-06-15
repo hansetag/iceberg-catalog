@@ -2,29 +2,30 @@ use std::collections::{HashMap, HashSet};
 
 use super::{
     namespace::{
-        create_namespace, drop_namespace, get_namespace_metadata, get_storage_config,
-        list_namespaces, namespace_ident_to_id, update_namespace_properties,
+        create_namespace, drop_namespace, get_namespace, list_namespaces, namespace_ident_to_id,
+        update_namespace_properties,
     },
     table::{
         commit_table_transaction, create_table, drop_table, get_table_metadata_by_id,
         get_table_metadata_by_s3_location, list_tables, load_table, rename_table,
         table_ident_to_id, table_idents_to_ids,
     },
-    warehouse::create_warehouse_profile,
+    warehouse::{
+        create_warehouse, delete_warehouse, get_warehouse, list_projects, list_warehouses,
+        rename_warehouse, set_warehouse_status, update_storage_profile,
+    },
     CatalogState, PostgresTransaction,
 };
-use crate::api::{
-    iceberg::v1::{
-        CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse, ListNamespacesQuery,
-        ListNamespacesResponse, NamespaceIdent, Result, TableIdent,
-        UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
-    },
-    CommitTransactionRequest, CreateTableRequest,
+use crate::service::{
+    CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
+    GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
+    TableIdent, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
+    WarehouseStatus,
 };
 use crate::{
     service::{
         storage::StorageProfile, Catalog, CommitTableResponseExt, CreateTableResult,
-        GetStorageConfigResult, GetTableMetadataResult, LoadTableResult, NamespaceIdentUuid,
+        GetNamespaceResponse, GetTableMetadataResult, LoadTableResult, NamespaceIdentUuid,
         ProjectIdent, TableIdentUuid, Transaction, WarehouseIdent,
     },
     SecretIdent,
@@ -35,14 +36,14 @@ impl Catalog for super::Catalog {
     type Transaction = PostgresTransaction;
     type State = CatalogState;
 
-    async fn create_warehouse_profile<'a>(
+    async fn create_warehouse<'a>(
         warehouse_name: String,
         project_id: ProjectIdent,
         storage_profile: StorageProfile,
         storage_secret_id: Option<SecretIdent>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<WarehouseIdent> {
-        create_warehouse_profile(
+        create_warehouse(
             warehouse_name,
             project_id,
             storage_profile,
@@ -52,20 +53,19 @@ impl Catalog for super::Catalog {
         .await
     }
 
-    async fn get_storage_config(
+    async fn get_warehouse<'a>(
         warehouse_id: &WarehouseIdent,
-        namespace: &NamespaceIdent,
-        catalog_state: CatalogState,
-    ) -> Result<GetStorageConfigResult> {
-        get_storage_config(warehouse_id, namespace, catalog_state).await
+        transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
+    ) -> Result<GetWarehouseResponse> {
+        get_warehouse(warehouse_id, transaction).await
     }
 
-    async fn get_namespace_metadata<'a>(
+    async fn get_namespace<'a>(
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<GetNamespaceResponse> {
-        get_namespace_metadata(warehouse_id, namespace, transaction).await
+        get_namespace(warehouse_id, namespace, transaction).await
     }
 
     async fn list_namespaces(
@@ -220,5 +220,63 @@ impl Catalog for super::Catalog {
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<Vec<CommitTableResponseExt>> {
         commit_table_transaction(warehouse_id, request, table_ids, transaction).await
+    }
+
+    // ---------------- Management API ----------------
+    async fn list_projects(catalog_state: Self::State) -> Result<HashSet<ProjectIdent>> {
+        list_projects(catalog_state).await
+    }
+
+    async fn list_warehouses(
+        project_id: &ProjectIdent,
+        include_inactive: Option<Vec<WarehouseStatus>>,
+        warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
+        catalog_state: Self::State,
+    ) -> Result<Vec<GetWarehouseResponse>> {
+        list_warehouses(
+            project_id,
+            include_inactive,
+            warehouse_id_filter,
+            catalog_state,
+        )
+        .await
+    }
+
+    async fn delete_warehouse<'a>(
+        warehouse_id: &WarehouseIdent,
+        transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
+    ) -> Result<()> {
+        delete_warehouse(warehouse_id, transaction).await
+    }
+
+    async fn rename_warehouse<'a>(
+        warehouse_id: &WarehouseIdent,
+        new_name: &str,
+        transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
+    ) -> Result<()> {
+        rename_warehouse(warehouse_id, new_name, transaction).await
+    }
+
+    async fn set_warehouse_status<'a>(
+        warehouse_id: &WarehouseIdent,
+        status: WarehouseStatus,
+        transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
+    ) -> Result<()> {
+        set_warehouse_status(warehouse_id, status, transaction).await
+    }
+
+    async fn update_storage_profile<'a>(
+        warehouse_id: &WarehouseIdent,
+        storage_profile: StorageProfile,
+        storage_secret_id: Option<SecretIdent>,
+        transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
+    ) -> Result<()> {
+        update_storage_profile(
+            warehouse_id,
+            storage_profile,
+            storage_secret_id,
+            transaction,
+        )
+        .await
     }
 }

@@ -44,7 +44,6 @@ impl<
         .await?;
 
         let UserWarehouse {
-            user_id,
             project_id: project_from_auth,
             warehouse_id: warehouse_from_auth,
         } = auth_info;
@@ -65,10 +64,10 @@ impl<
 
         if let Some(project_from_arg) = &project_from_arg {
             // This is a user-provided project-id, so we need to check if the user is allowed to access it
-            T::check_user_list_warehouse_in_project(
+            T::check_list_warehouse_in_project(
                 api_context.v1_state.auth.clone(),
-                &user_id,
                 project_from_arg,
+                &request_metadata,
             )
             .await?;
         }
@@ -107,8 +106,8 @@ impl<
 
         T::check_user_get_config_for_warehouse(
             api_context.v1_state.auth.clone(),
-            &user_id,
             &warehouse_id,
+            &request_metadata,
         )
         .await?;
 

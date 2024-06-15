@@ -79,10 +79,12 @@ class Server:
         }
 
         warehouse_url = self.warehouse_url
-        response = requests.post(warehouse_url, json=create_payload, headers={
-            "Authorization": f"Bearer {self.access_token}"
-        })
-        if response.status_code != 200:
+        response = requests.post(
+            warehouse_url,
+            json=create_payload,
+            headers={"Authorization": f"Bearer {self.access_token}"},
+        )
+        if not response.ok:
             raise ValueError(
                 f"Failed to create warehouse ({response.status_code}): {response.text}"
             )
@@ -132,8 +134,9 @@ def access_token() -> str:
     if OPENID_PROVIDER_URI is None:
         pytest.skip("OAUTH_PROVIDER_URI is not set")
 
-    token_endpoint = requests.get(OPENID_PROVIDER_URI.strip("/") + "/.well-known/openid-configuration").json()[
-        "token_endpoint"]
+    token_endpoint = requests.get(
+        OPENID_PROVIDER_URI.strip("/") + "/.well-known/openid-configuration"
+    ).json()["token_endpoint"]
     response = requests.post(
         token_endpoint,
         data={"grant_type": "client_credentials"},

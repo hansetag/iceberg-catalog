@@ -68,6 +68,16 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
         Ok(Self { transaction })
     }
 
+    async fn begin_read(db_state: CatalogState) -> Result<Self> {
+        let transaction = db_state
+            .read_pool
+            .begin()
+            .await
+            .map_err(|e| e.into_error_model("Error starting transaction".to_string()))?;
+
+        Ok(Self { transaction })
+    }
+
     async fn commit(self) -> Result<()> {
         self.transaction
             .commit()

@@ -20,7 +20,7 @@ We have started this implementation because we were missing OPENNESS such as cus
 
 - **Change Events**: Built-in support to emit change events (CloudEvents), which enables you to react to any change that happen to your tables.
 - **Change Approval**: Changes can also be prohibited by external systems. This can be used to prohibit changes to tables that would invalidate Data Contracts, Quality SLOs etc. Simply integrate with your own change approval via our `ContractVerification` trait.
-- **Multi-Tenant capable**: A single deployment of our catalog can serve multiple projects - all with a single entrypoint. All Iceberg and Warehouse configurations are completly separated between Warehouses.
+- **Multi-Tenant capable**: A single deployment of our catalog can serve multiple projects - all with a single entrypoint. All Iceberg and Warehouse configurations are completely separated between Warehouses.
 - **Written in Rust**: Single 18Mb all-in-one binary - no JVM or Python env required.
 - **Storage Access Management**: Built-in S3-Signing that enables support for self-hosted as well as AWS S3 WITHOUT sharing S3 credentials with clients.
 - **Well-Tested**: Integration-tested with `spark` and `pyiceberg` (support for S3 with this catalog from pyiceberg 0.7.0)
@@ -127,7 +127,9 @@ connecting.
 
 # Configuration
 
-The Catalog is configured via environment variables:
+The basic setup of the Catalog is configured via environment variables. As this catalog supports a multi-tenant setup, each catalog ("warehouse") also comes with its own configuration options including its Storage Configuration. The documentation of the Management-API for warehouses is hosted at the unprotected `/swagger-ui` endpoint.
+
+Following options are global and apply to all warehouses:
 
 ### General
 
@@ -160,7 +162,7 @@ If you want the server to publish events to a NATS server, set the following env
 | `ICEBERG_REST__NATS_USER`       | `test-user`             | User to authenticate against nats, needs `ICEBERG_REST__NATS_PASSWORD` |
 | `ICEBERG_REST__NATS_PASSWORD`   | `test-password`         | Password to authenticate against nats, needs `ICEBERG_REST__NATS_USER` |
 | `ICEBERG_REST__NATS_CREDS_FILE` | `/path/to/file.creds`   | Path to a file containing nats credentials                             |
-| `ICEBERG_REST__NATS_TOKEN`      | `xyz`                   | Nats token to authenticate against server                              | 
+| `ICEBERG_REST__NATS_TOKEN`      | `xyz`                   | Nats token to authenticate against server                              |
 
 ### OpenID Connect
 
@@ -172,9 +174,9 @@ curl {your-catalog-url}/catalog/v1/transactions/commit -X POST -H "authorization
 ``` 
 
 
-| Variable                            | Example                              | Description                                                                                                                                                                                                                                                  |
-|-------------------------------------|--------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ICEBERG_REST__OPENID_PROVIDER_URI` | `https://keycloak.local/realms/test` | OpenID Provider URL, with keycloak this is the url pointing to your realm, for Azure App Registration it would be something like `https://login.microsoftonline.com/{your_app_id_here}/v2.0/`. If this variable is not set, endpoints are **not** secured    |
+| Variable                            | Example                              | Description                                                                                                                                                                                                                                               |
+|-------------------------------------|--------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ICEBERG_REST__OPENID_PROVIDER_URI` | `https://keycloak.local/realms/test` | OpenID Provider URL, with keycloak this is the url pointing to your realm, for Azure App Registration it would be something like `https://login.microsoftonline.com/{your_app_id_here}/v2.0/`. If this variable is not set, endpoints are **not** secured |
 
 
 # Limitations

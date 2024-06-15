@@ -173,6 +173,52 @@ impl S3Profile {
         Ok(())
     }
 
+    /// Check if the profile can be updated with the other profile.
+    /// `key_prefix`, `region` and `bucket` must be the same.
+    /// We enforce this to avoid issues by accidentally changing the bucket or region
+    /// of a warehouse, after which all tables would not be accessible anymore.
+    /// Changing an endpoint might still result in an invalid profile, but we allow it.
+    ///
+    /// # Errors
+    /// Fails if the `bucket`, `region` or `key_prefix` is different.
+    pub fn can_be_updated_with(&self, other: &Self) -> Result<()> {
+        if self.bucket != other.bucket {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message(
+                    "Storage Profile `bucket` cannot be updated to prevent data loss.".to_string(),
+                )
+                .r#type("InvalidBucket".to_string())
+                .build()
+                .into());
+        }
+
+        if self.region != other.region {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message(
+                    "Storage Profile `region` cannot be updated to prevent data loss.".to_string(),
+                )
+                .r#type("InvalidRegion".to_string())
+                .build()
+                .into());
+        }
+
+        if self.key_prefix != other.key_prefix {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message(
+                    "Storage Profile `key_prefix` cannot be updated to prevent data loss."
+                        .to_string(),
+                )
+                .r#type("InvalidKeyPrefix".to_string())
+                .build()
+                .into());
+        }
+
+        Ok(())
+    }
+
     #[cfg(feature = "s3-signer")]
     /// Get the AWS SDK credentials for the S3 profile.
     ///

@@ -3,22 +3,22 @@ mod catalog;
 pub mod config;
 pub mod contract_verification;
 pub mod event_publisher;
-#[cfg(feature = "router")]
-pub mod router;
 pub mod secrets;
 pub mod storage;
 pub mod token_verification;
 
 pub use catalog::{
-    Catalog, CommitTableResponseExt, CreateTableResult, GetStorageConfigResult,
-    GetTableMetadataResult, LoadTableResult, Transaction,
+    Catalog, CommitTableResponse, CommitTableResponseExt, CommitTransactionRequest,
+    CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, CreateTableResult,
+    GetNamespaceResponse, GetStorageConfigResult, GetTableMetadataResult, GetWarehouseResponse,
+    ListNamespacesQuery, ListNamespacesResponse, LoadTableResult, NamespaceIdent, Result,
+    TableIdent, Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 
 use crate::api::iceberg::v1::Prefix;
 use crate::api::ThreadSafe as ServiceState;
-use crate::api::{ErrorModel, IcebergErrorResponse, Result};
+pub use crate::api::{ErrorModel, IcebergErrorResponse};
 use http::StatusCode;
-use iceberg::NamespaceIdent;
 use std::str::FromStr;
 
 use crate::service::contract_verification::ContractVerifiers;
@@ -160,6 +160,41 @@ impl FromStr for TableIdentUuid {
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
 // Is UUID here too strict?
 pub struct ProjectIdent(uuid::Uuid);
+
+/// Status of a warehouse
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    strum_macros::Display,
+    serde::Serialize,
+    serde::Deserialize,
+    utoipa::ToSchema,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(
+    feature = "sqlx",
+    sqlx(type_name = "warehouse_status", rename_all = "kebab-case")
+)]
+pub enum WarehouseStatus {
+    /// The warehouse is active and can be used
+    Active,
+    /// The warehouse is inactive and cannot be used.
+    Inactive,
+}
+
+impl sqlx::postgres::PgHasArrayType for WarehouseStatus {
+    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("_warehouse_status")
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]

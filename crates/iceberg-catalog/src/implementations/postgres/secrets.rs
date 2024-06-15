@@ -115,6 +115,32 @@ impl SecretStore for Server {
 
         Ok(secret_id.into())
     }
+
+    /// Delete a secret
+    async fn delete_secret(secret_id: &SecretIdent, state: SecretsState) -> Result<()> {
+        sqlx::query!(
+            r#"
+            DELETE FROM secret
+            WHERE secret_id = $1
+            "#,
+            secret_id.as_uuid()
+        )
+        .execute(&state.write_pool)
+        .await
+        .map_err(|e| {
+            ErrorModel::builder()
+                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                .message("Error deleting secret".to_string())
+                .r#type("SecretDeleteError".to_string())
+                .stack(Some(vec![
+                    format!("secret_id: {}", secret_id),
+                    e.to_string(),
+                ]))
+                .build()
+        })?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -145,5 +171,32 @@ mod tests {
             .unwrap();
 
         assert_eq!(read_secret.secret, secret);
+    }
+
+    #[sqlx::test]
+    async fn test_delete_secret(pool: sqlx::PgPool) {
+        let state = SecretsState {
+            read_pool: pool.clone(),
+            write_pool: pool,
+        };
+
+        let secret: StorageCredential = S3Credential::AccessKey {
+            aws_access_key_id: "my access key".to_string(),
+            aws_secret_access_key: "my secret key".to_string(),
+        }
+        .into();
+
+        let secret_id = Server::create_secret(secret.clone(), state.clone())
+            .await
+            .unwrap();
+
+        Server::delete_secret(&secret_id, state.clone())
+            .await
+            .unwrap();
+
+        let read_secret =
+            Server::get_secret_by_id::<StorageCredential>(&secret_id, state.clone()).await;
+
+        assert!(read_secret.is_err());
     }
 }

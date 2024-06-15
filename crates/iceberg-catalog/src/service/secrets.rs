@@ -39,12 +39,6 @@ impl std::fmt::Display for SecretIdent {
     }
 }
 
-// #[derive(Debug, Clone, PartialEq, strum_macros::Display)]
-// #[strum(serialize_all = "snake_case")]
-// pub enum SecretType {
-//     Storage,
-// }
-
 #[derive(Debug, Clone)]
 pub struct Secret<T> {
     pub secret_id: SecretIdent,
@@ -76,4 +70,7 @@ where
         secret: S,
         state: Self::State,
     ) -> Result<SecretIdent>;
+
+    /// Delete a secret
+    async fn delete_secret(secret_id: &SecretIdent, state: Self::State) -> Result<()>;
 }
