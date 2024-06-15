@@ -1,11 +1,18 @@
 {
     "packages": {
-        ".": {}
+        "crates/iceberg-catalog": {
+            "release-type": "rust"
+        },
+        "crates/iceberg-catalog-bin": {
+            "release-type": "rust"
+        },
+        "crates/iceberg-catalog-ext": {
+            "release-type": "rust"
+        }
     },
     "plugins": [
         "cargo-workspace"
     ],
-    "release-type": "rust",
     "bump-minor-pre-major": true,
     "bump-patch-for-minor-pre-major": true
 }
