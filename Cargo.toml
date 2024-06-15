@@ -71,5 +71,6 @@ tower-http = { version = "^0.5", features = [
 tracing = { version = "^0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 urlencoding = "^2.1"
-utoipa = "^4.2"
+utoipa = { vesion = "4.2.3", features = ["axum_extras"] }
+utoipa-swagger-ui = { vesion = "7.1.0", features = ["axum"] }
 veil = "0.1.7"

@@ -10,7 +10,10 @@ use super::{
         get_table_metadata_by_s3_location, list_tables, load_table, rename_table,
         table_ident_to_id, table_idents_to_ids,
     },
-    warehouse::{create_warehouse_profile, get_warehouse},
+    warehouse::{
+        create_warehouse_profile, delete_warehouse, get_warehouse, list_projects, list_warehouses,
+        rename_warehouse, set_warehouse_status, update_storage_profile,
+    },
     CatalogState, PostgresTransaction,
 };
 use crate::{
@@ -226,7 +229,7 @@ impl Catalog for super::Catalog {
 
     // ---------------- Management API ----------------
     async fn list_projects(catalog_state: Self::State) -> Result<HashSet<ProjectIdent>> {
-        todo!()
+        list_projects(catalog_state).await
     }
 
     async fn list_warehouses(
@@ -234,15 +237,21 @@ impl Catalog for super::Catalog {
         include_inactive: bool,
         warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
         catalog_state: Self::State,
-    ) -> Result<HashSet<GetWarehouseResponse>> {
-        todo!()
+    ) -> Result<Vec<GetWarehouseResponse>> {
+        list_warehouses(
+            project_id,
+            include_inactive,
+            warehouse_id_filter,
+            catalog_state,
+        )
+        .await
     }
 
     async fn delete_warehouse<'a>(
         warehouse_id: &WarehouseIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
-        todo!()
+        delete_warehouse(warehouse_id, transaction).await
     }
 
     async fn rename_warehouse<'a>(
@@ -250,7 +259,7 @@ impl Catalog for super::Catalog {
         new_name: &str,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
-        todo!()
+        rename_warehouse(warehouse_id, new_name, transaction).await
     }
 
     async fn set_warehouse_status<'a>(
@@ -258,7 +267,7 @@ impl Catalog for super::Catalog {
         status: WarehouseStatus,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
-        todo!()
+        set_warehouse_status(warehouse_id, status, transaction).await
     }
 
     async fn update_storage_profile<'a>(
@@ -267,6 +276,12 @@ impl Catalog for super::Catalog {
         storage_secret_id: Option<SecretIdent>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
-        todo!()
+        update_storage_profile(
+            warehouse_id,
+            storage_profile,
+            storage_secret_id,
+            transaction,
+        )
+        .await
     }
 }

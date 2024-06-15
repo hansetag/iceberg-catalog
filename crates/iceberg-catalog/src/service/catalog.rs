@@ -3,7 +3,6 @@ use iceberg_ext::catalog::rest::{
     CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
 };
 use std::collections::{HashMap, HashSet};
-use utoipa::ToSchema;
 
 use crate::SecretIdent;
 
@@ -251,7 +250,7 @@ where
         // If Some, return only the warehouses in the set
         warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
         catalog_state: Self::State,
-    ) -> Result<HashSet<GetWarehouseResponse>>;
+    ) -> Result<Vec<GetWarehouseResponse>>;
 
     /// Get the warehouse metadata.
     async fn get_warehouse<'a>(

@@ -599,6 +599,7 @@ struct CommitContext {
     updates: Vec<TableUpdate>,
     storage_profile: StorageProfile,
     storage_secret_ident: Option<SecretIdent>,
+    #[allow(dead_code)]
     namespace_id: NamespaceIdentUuid,
     metadata: TableMetadata,
     metadata_location: Option<String>,
@@ -955,7 +956,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
         let namespace_id = get_namespace_id(state.clone(), &warehouse_id, &namespace).await;
@@ -1009,7 +1010,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
         let namespace_id = get_namespace_id(state.clone(), &warehouse_id, &namespace).await;
@@ -1085,7 +1086,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
 
@@ -1121,7 +1122,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
 
@@ -1196,7 +1197,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(&warehouse_id, state.clone(), false).await;
 
         let new_table_ident = TableIdent {
@@ -1235,7 +1236,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(&warehouse_id, state.clone(), false).await;
 
         let new_namespace = NamespaceIdent::from_vec(vec!["new_namespace".to_string()]).unwrap();
@@ -1276,7 +1277,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
         let tables = list_tables(&warehouse_id, &namespace, false, state.clone())
@@ -1311,7 +1312,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table1 = initialize_table(&warehouse_id, state.clone(), true).await;
         let table2 = initialize_table(&warehouse_id, state.clone(), false).await;
 
@@ -1391,7 +1392,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(&warehouse_id, state.clone(), false).await;
 
         let metadata =

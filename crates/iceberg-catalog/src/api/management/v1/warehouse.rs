@@ -1,12 +1,11 @@
-use crate::api::management::ApiServer;
+use crate::api::management::v1::ApiServer;
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
-use crate::service::storage::{StorageCredential, StorageProfile};
-use crate::service::WarehouseStatus;
+pub use crate::service::storage::{S3Credential, S3Profile, StorageCredential, StorageProfile};
+pub use crate::service::WarehouseStatus;
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
-use crate::{request_metadata, ProjectIdent, WarehouseIdent};
-use http::request;
-use iceberg::transaction;
+use crate::{ProjectIdent, WarehouseIdent};
+use iceberg_ext::catalog::rest::ErrorModel;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
@@ -42,12 +41,16 @@ pub struct UpdateWarehouseStorageRequest {
     pub storage_credential: Option<StorageCredential>,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 #[serde(rename_all = "kebab-case")]
 pub struct ListWarehouseRequest {
     /// Optional filter to include inactive warehouses.
     #[serde(default)]
     pub include_inactive: Option<bool>,
+    /// The project ID to list warehouses for.
+    /// Setting a warehouse is required.
+    #[serde(default)]
+    pub project_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -59,14 +62,14 @@ pub struct RenameWarehouseRequest {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
-pub struct ListProjectResponse {
+pub struct ListProjectsResponse {
     /// List of project IDs.
     pub project_ids: Vec<uuid::Uuid>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
-pub struct WarehouseResponse {
+pub struct GetWarehouseResponse {
     /// ID of the warehouse.
     pub id: uuid::Uuid,
     /// Name of the warehouse.
@@ -76,14 +79,14 @@ pub struct WarehouseResponse {
     /// Storage profile used for the warehouse.
     pub storage_profile: StorageProfile,
     /// Whether the warehouse is active.
-    pub status: String,
+    pub status: WarehouseStatus,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct ListWarehouseResponse {
     /// List of warehouses in the project.
-    pub warehouses: Vec<WarehouseResponse>,
+    pub warehouses: Vec<GetWarehouseResponse>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -152,30 +155,38 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
     async fn list_projects(
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
-    ) -> Result<ListProjectResponse> {
+    ) -> Result<ListProjectsResponse> {
         // ------------------- AuthZ -------------------
         let projects = A::check_list_projects(&request_metadata, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
         if let Some(projects) = projects {
-            return Ok(ListProjectResponse {
+            return Ok(ListProjectsResponse {
                 project_ids: projects.into_iter().map(|id| id.into_uuid()).collect(),
             });
         }
 
         let projects = C::list_projects(context.v1_state.catalog).await?;
-        Ok(ListProjectResponse {
+        Ok(ListProjectsResponse {
             project_ids: projects.into_iter().map(|id| id.into_uuid()).collect(),
         })
     }
 
     async fn list_warehouses(
-        project_id: ProjectIdent,
         request: ListWarehouseRequest,
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<ListWarehouseResponse> {
         // ------------------- AuthZ -------------------
+        let project_id = ProjectIdent::from(
+            request.project_id.ok_or(
+                ErrorModel::builder()
+                    .code(http::StatusCode::BAD_REQUEST.into())
+                    .message("project-id is required".to_string())
+                    .r#type("MissingProjectId".to_string())
+                    .build(),
+            )?,
+        );
         let warehouses = A::check_list_warehouse_in_project(
             &request_metadata,
             &project_id,
@@ -185,7 +196,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         // ------------------- Business Logic -------------------
         let warehouses = C::list_warehouses(
-            &project_id.into(),
+            &project_id,
             request.include_inactive.unwrap_or(false),
             warehouses.as_ref(),
             context.v1_state.catalog,
@@ -204,7 +215,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         warehouse_id: WarehouseIdent,
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
-    ) -> Result<WarehouseResponse> {
+    ) -> Result<GetWarehouseResponse> {
         // ------------------- AuthZ -------------------
         A::check_get_warehouse(&request_metadata, &warehouse_id, context.v1_state.auth).await?;
 
@@ -237,7 +248,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request: RenameWarehouseRequest,
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
-    ) -> Result<http::StatusCode> {
+    ) -> Result<()> {
         // ------------------- AuthZ -------------------
         A::check_rename_warehouse(&request_metadata, &warehouse_id, context.v1_state.auth).await?;
 
@@ -253,7 +264,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         transaction.commit().await?;
 
-        Ok(http::StatusCode::OK)
+        Ok(())
     }
 
     async fn deactivate_warehouse(
@@ -411,7 +422,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
     }
 }
 
-impl axum::response::IntoResponse for ListProjectResponse {
+impl axum::response::IntoResponse for ListProjectsResponse {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
         axum::Json(self).into_response()
     }
@@ -423,20 +434,20 @@ impl axum::response::IntoResponse for ListWarehouseResponse {
     }
 }
 
-impl axum::response::IntoResponse for WarehouseResponse {
+impl axum::response::IntoResponse for GetWarehouseResponse {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
         axum::Json(self).into_response()
     }
 }
 
-impl From<crate::service::GetWarehouseResponse> for WarehouseResponse {
+impl From<crate::service::GetWarehouseResponse> for GetWarehouseResponse {
     fn from(warehouse: crate::service::GetWarehouseResponse) -> Self {
         Self {
             id: warehouse.id.into_uuid(),
             name: warehouse.name,
             project_id: warehouse.project_id.into_uuid(),
             storage_profile: warehouse.storage_profile,
-            status: warehouse.status.to_string(),
+            status: warehouse.status,
         }
     }
 }

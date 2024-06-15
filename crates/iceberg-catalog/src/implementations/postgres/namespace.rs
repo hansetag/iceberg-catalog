@@ -383,7 +383,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
 
         let namespace = NamespaceIdent::from_vec(vec!["test".to_string()]).unwrap();
         let properties = Some(HashMap::from_iter(vec![
@@ -479,7 +479,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let staged = false;
         let table = initialize_table(&warehouse_id, state.clone(), staged).await;
 
@@ -500,7 +500,7 @@ pub(crate) mod tests {
             write_pool: pool.clone(),
         };
 
-        let warehouse_id = initialize_warehouse(state.clone(), None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace_1 = NamespaceIdent::from_vec(vec!["Test".to_string()]).unwrap();
         let namespace_2 = NamespaceIdent::from_vec(vec!["test".to_string()]).unwrap();
 

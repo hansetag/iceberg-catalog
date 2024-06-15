@@ -3,8 +3,6 @@ mod catalog;
 pub mod config;
 pub mod contract_verification;
 pub mod event_publisher;
-#[cfg(feature = "router")]
-pub mod router;
 pub mod secrets;
 pub mod storage;
 pub mod token_verification;
@@ -161,7 +159,21 @@ impl FromStr for TableIdentUuid {
 // Is UUID here too strict?
 pub struct ProjectIdent(uuid::Uuid);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, strum_macros::Display)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    strum_macros::Display,
+    serde::Serialize,
+    serde::Deserialize,
+    utoipa::ToSchema,
+)]
+#[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(

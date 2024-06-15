@@ -1,7 +1,7 @@
 use crate::service::event_publisher::CloudEventsPublisher;
 use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
 
-use crate::api::management::ApiServer;
+use crate::api::management::v1::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
 use crate::service::contract_verification::ContractVerifiers;
 use crate::service::token_verification::Verifier;
@@ -12,12 +12,15 @@ use tower_http::{
     sensitive_headers::SetSensitiveHeadersLayer, timeout::TimeoutLayer, trace, trace::TraceLayer,
     ServiceBuilderExt,
 };
+use utoipa::OpenApi;
 
-use super::{
+use crate::service::{
     auth::{AuthConfigHandler, AuthZHandler},
     config::ConfigProvider,
     Catalog, SecretStore, State,
 };
+
+use super::management::v1::ManagementApiDoc;
 
 #[allow(clippy::module_name_repetitions)]
 pub fn new_full_router<
@@ -40,11 +43,16 @@ pub fn new_full_router<
         State<A, C, S>,
     >();
     let management_routes = Router::new().merge(ApiServer::new_v1_router());
+
     maybe_add_auth(
         token_verifier,
         Router::new()
             .nest("/catalog/v1", v1_routes)
-            .nest("/management/v1", management_routes),
+            .nest("/management/v1", management_routes)
+            .merge(utoipa_swagger_ui::SwaggerUi::new("/swagger-ui").url(
+                "/api-docs/management/v1/openapi.json",
+                ManagementApiDoc::openapi(),
+            )),
     )
     .route("/health", get(|| async { "OK" }))
     .layer(axum::middleware::from_fn(

@@ -26,9 +26,7 @@ use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResult,
     LoadTableResult as CatalogLoadTableResult, State, Transaction,
 };
-use crate::service::{
-    GetStorageConfigResult, GetWarehouseResponse, TableIdentUuid, WarehouseStatus,
-};
+use crate::service::{GetWarehouseResponse, TableIdentUuid, WarehouseStatus};
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>

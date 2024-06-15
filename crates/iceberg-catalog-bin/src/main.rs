@@ -7,11 +7,11 @@ use iceberg_catalog::service::event_publisher::{
 };
 use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{
+    api::router::{new_full_router, serve as service_serve},
     implementations::{
         postgres::{Catalog, CatalogState, SecretsState, SecretsStore},
         AllowAllAuthState, AllowAllAuthZHandler,
     },
-    service::router::{new_full_router, serve as service_serve},
     CONFIG,
 };
 use reqwest::Url;

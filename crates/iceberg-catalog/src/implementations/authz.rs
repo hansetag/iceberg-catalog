@@ -225,7 +225,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     async fn check_get_warehouse(
         _: &RequestMetadata,
         _: &WarehouseIdent,
-        st_ate: Self::State,
+        _: Self::State,
     ) -> Result<()> {
         Ok(())
     }
