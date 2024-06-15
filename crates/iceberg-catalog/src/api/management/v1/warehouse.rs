@@ -2,6 +2,8 @@ use crate::api::management::v1::ApiServer;
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
 pub use crate::service::storage::{S3Credential, S3Profile, StorageCredential, StorageProfile};
+
+#[allow(clippy::module_name_repetitions)]
 pub use crate::service::WarehouseStatus;
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
 use crate::{ProjectIdent, WarehouseIdent};
@@ -130,7 +132,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             mut storage_profile,
             storage_credential,
         } = request;
-        let project_ident = ProjectIdent::from(project_id.clone());
+        let project_ident = ProjectIdent::from(project_id);
 
         // ------------------- AuthZ -------------------
         A::check_create_warehouse(&request_metadata, &project_ident, context.v1_state.auth).await?;
@@ -227,7 +229,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         Ok(ListWarehousesResponse {
             warehouses: warehouses
                 .into_iter()
-                .map(|warehouse| warehouse.into())
+                .map(std::convert::Into::into)
                 .collect(),
         })
     }
@@ -242,7 +244,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_read(context.v1_state.catalog).await?;
-        let warehouses = C::get_warehouse(&warehouse_id.into(), transaction.transaction()).await?;
+        let warehouses = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
 
         Ok(warehouses.into())
     }
@@ -258,7 +260,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
 
-        C::delete_warehouse(&warehouse_id.into(), transaction.transaction()).await?;
+        C::delete_warehouse(&warehouse_id, transaction.transaction()).await?;
 
         transaction.commit().await?;
 
@@ -276,12 +278,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
 
-        C::rename_warehouse(
-            &warehouse_id.into(),
-            &request.new_name,
-            transaction.transaction(),
-        )
-        .await?;
+        C::rename_warehouse(&warehouse_id, &request.new_name, transaction.transaction()).await?;
 
         transaction.commit().await?;
 
@@ -356,8 +353,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             .await?;
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
-        let warehouse =
-            C::get_warehouse(&warehouse_id.clone().into(), transaction.transaction()).await?;
+        let warehouse = C::get_warehouse(&warehouse_id.clone(), transaction.transaction()).await?;
         warehouse
             .storage_profile
             .can_be_updated_with(&storage_profile)?;
@@ -370,7 +366,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         };
 
         C::update_storage_profile(
-            &warehouse_id.into(),
+            &warehouse_id,
             storage_profile,
             secret_id,
             transaction.transaction(),
@@ -407,8 +403,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         } = request;
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
-        let warehouse =
-            C::get_warehouse(&warehouse_id.clone().into(), transaction.transaction()).await?;
+        let warehouse = C::get_warehouse(&warehouse_id.clone(), transaction.transaction()).await?;
         let mut storage_profile = warehouse.storage_profile;
         let old_secret_id = warehouse.storage_secret_id;
 
@@ -423,7 +418,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         };
 
         C::update_storage_profile(
-            &warehouse_id.into(),
+            &warehouse_id,
             storage_profile,
             secret_id,
             transaction.transaction(),

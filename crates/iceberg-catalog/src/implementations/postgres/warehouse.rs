@@ -140,8 +140,6 @@ pub(crate) async fn list_warehouses(
     warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
     catalog_state: CatalogState,
 ) -> Result<Vec<GetWarehouseResponse>> {
-    let include_status = include_status.unwrap_or_else(|| vec![WarehouseStatus::Active]);
-
     #[derive(sqlx::FromRow, Debug, PartialEq)]
     struct WarehouseRecord {
         warehouse_id: uuid::Uuid,
@@ -151,10 +149,11 @@ pub(crate) async fn list_warehouses(
         status: WarehouseStatus,
     }
 
+    let include_status = include_status.unwrap_or_else(|| vec![WarehouseStatus::Active]);
     let warehouses = if let Some(warehouse_id_filter) = warehouse_id_filter {
         let warehouse_ids: Vec<uuid::Uuid> = warehouse_id_filter
             .iter()
-            .map(|id| id.into_uuid())
+            .map(WarehouseIdent::into_uuid)
             .collect();
         sqlx::query_as!(
             WarehouseRecord,
@@ -205,7 +204,7 @@ pub(crate) async fn list_warehouses(
             name: warehouse.warehouse_name,
             project_id: project_id.clone(),
             storage_profile: warehouse.storage_profile.deref().clone(),
-            storage_secret_id: warehouse.storage_secret_id.map(|id| id.into()),
+            storage_secret_id: warehouse.storage_secret_id.map(std::convert::Into::into),
             status: warehouse.status,
         })
         .collect())
@@ -244,7 +243,7 @@ pub(crate) async fn get_warehouse<'a>(
         name: warehouse.warehouse_name,
         project_id: ProjectIdent::from(warehouse.project_id),
         storage_profile: warehouse.storage_profile.deref().clone(),
-        storage_secret_id: warehouse.storage_secret_id.map(|id| id.into()),
+        storage_secret_id: warehouse.storage_secret_id.map(std::convert::Into::into),
         status: warehouse.status,
     })
 }
@@ -317,7 +316,7 @@ pub(crate) async fn rename_warehouse<'a>(
     new_name: &str,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
-    validate_warehouse_name(&new_name)?;
+    validate_warehouse_name(new_name)?;
 
     let row_count = sqlx::query_scalar!(
         r#"
@@ -457,9 +456,10 @@ pub(crate) mod test {
         storage_profile: Option<StorageProfile>,
         project_id: Option<&ProjectIdent>,
     ) -> crate::WarehouseIdent {
-        let project_id = project_id
-            .map(|u| u.to_owned())
-            .unwrap_or(ProjectIdent::from(uuid::Uuid::nil()));
+        let project_id = project_id.map_or(
+            ProjectIdent::from(uuid::Uuid::nil()),
+            std::borrow::ToOwned::to_owned,
+        );
         let mut transaction = PostgresTransaction::begin_write(state.clone())
             .await
             .unwrap();
@@ -475,7 +475,7 @@ pub(crate) mod test {
 
         let warehouse_id = Catalog::create_warehouse(
             "test_warehouse".to_string(),
-            ProjectIdent::from(project_id),
+            project_id,
             storage_profile,
             None,
             transaction.transaction(),

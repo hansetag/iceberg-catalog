@@ -37,10 +37,12 @@ impl StorageProfile {
         }
     }
 
-    #[must_use]
     /// Check if the profile can be updated with the other profile.
     /// This function should fail if the new profile might point to a different location
     /// and thus existing data might be lost.
+    ///
+    /// # Errors
+    /// Fails if the profiles are not compatible, typically because the location changed
     pub fn can_be_updated_with(&self, other: &Self) -> Result<()> {
         match (self, other) {
             (StorageProfile::S3(this_profile), StorageProfile::S3(other_profile)) => {

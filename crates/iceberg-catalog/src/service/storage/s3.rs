@@ -173,12 +173,14 @@ impl S3Profile {
         Ok(())
     }
 
-    #[must_use]
     /// Check if the profile can be updated with the other profile.
-    /// key_prefix, region and bucket must be the same.
+    /// `key_prefix`, `region` and `bucket` must be the same.
     /// We enforce this to avoid issues by accidentally changing the bucket or region
     /// of a warehouse, after which all tables would not be accessible anymore.
     /// Changing an endpoint might still result in an invalid profile, but we allow it.
+    ///
+    /// # Errors
+    /// Fails if the `bucket`, `region` or `key_prefix` is different.
     pub fn can_be_updated_with(&self, other: &Self) -> Result<()> {
         if self.bucket != other.bucket {
             return Err(ErrorModel::builder()

@@ -2,12 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::vec;
 
 use crate::api::iceberg::v1::{
-    ApiContext, CommitTableRequest, CreateTableRequest, DataAccess, NamespaceParameters,
-    PaginationQuery, Prefix, Result, TableIdent, TableParameters,
-};
-use crate::api::{
-    CommitTableResponse, CommitTransactionRequest, ErrorModel, ListTablesResponse, LoadTableResult,
-    RegisterTableRequest, RenameTableRequest,
+    ApiContext, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
+    CreateTableRequest, DataAccess, ErrorModel, ListTablesResponse, LoadTableResult,
+    NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
+    TableIdent, TableParameters,
 };
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
@@ -83,15 +81,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let warehouse_id = require_warehouse_id(prefix.clone())?;
         let table = TableIdent::new(namespace.clone(), request.name.clone());
         validate_table_or_view_ident(&table)?;
-
-        if request.location.is_some() {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Specifying a Table `location` is not supported. Location is managed by the Catalog.".to_string())
-                .r#type("LocationNotSupported".to_string())
-                .build()
-                .into());
-        }
+        require_no_location_specified(&request.location)?;
 
         if let Some(properties) = &request.properties {
             validate_table_properties(properties.keys())?;
@@ -127,14 +117,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             storage_secret_id,
             status,
         } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
-        if status != WarehouseStatus::Active {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::NOT_FOUND.into())
-                .message("Warehouse is not active".to_string())
-                .r#type("WarehouseNotActive".to_string())
-                .build()
-                .into());
-        }
+        require_active_warehouse(status)?;
 
         let table_id: TableIdentUuid = uuid::Uuid::now_v7().into();
         let table_location = storage_profile.table_location(&namespace_id, &table_id);
@@ -977,6 +960,30 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         Ok(())
     }
+}
+
+fn require_no_location_specified(location: &Option<String>) -> Result<()> {
+    if location.is_some() {
+        return Err(ErrorModel::builder()
+            .code(StatusCode::BAD_REQUEST.into())
+            .message("Specifying a Table `location` is not supported. Location is managed by the Catalog.".to_string())
+            .r#type("LocationNotSupported".to_string())
+            .build()
+            .into());
+    }
+    Ok(())
+}
+
+fn require_active_warehouse(status: WarehouseStatus) -> Result<()> {
+    if status != WarehouseStatus::Active {
+        return Err(ErrorModel::builder()
+            .code(StatusCode::NOT_FOUND.into())
+            .message("Warehouse is not active".to_string())
+            .r#type("WarehouseNotActive".to_string())
+            .build()
+            .into());
+    }
+    Ok(())
 }
 
 async fn emit_change_event(

@@ -110,7 +110,7 @@ where
         WHERE w.status = 'active' and n."warehouse_id" = "#,
     );
     query_builder.push_bind(warehouse_id.as_uuid());
-    query_builder.push(r#" AND (n.namespace_name, t.table_name) IN "#);
+    query_builder.push(r" AND (n.namespace_name, t.table_name) IN ");
     query_builder.push("(");
 
     for (i, table) in batch_tables.iter().enumerate() {
