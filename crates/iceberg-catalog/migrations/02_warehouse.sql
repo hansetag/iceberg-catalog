@@ -15,7 +15,7 @@ create table "warehouse" (
     storage_secret_id uuid,
     created_at timestamptz not null default now(),
     updated_at timestamptz,
-    status warehouse_status not null,
+    "status" warehouse_status not null,
     CONSTRAINT unique_warehouse_name_in_project UNIQUE (project_id, warehouse_name)
 );
 -- And applying our `updated_at` trigger is as easy as this.

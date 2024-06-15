@@ -727,7 +727,6 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
             storage_config: GetStorageConfigResult {
                 storage_profile: context.storage_profile,
                 storage_secret_ident: context.storage_secret_ident,
-                namespace_id: context.namespace_id,
             },
             previous_table_metadata,
         });

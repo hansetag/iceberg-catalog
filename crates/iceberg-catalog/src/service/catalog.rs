@@ -28,6 +28,8 @@ where
 
     async fn begin_write(db_state: D) -> Result<Self>;
 
+    async fn begin_read(db_state: D) -> Result<Self>;
+
     async fn commit(self) -> Result<()>;
 
     async fn rollback(self) -> Result<()>;
@@ -65,7 +67,6 @@ pub struct GetTableMetadataResult {
 pub struct GetStorageConfigResult {
     pub storage_profile: StorageProfile,
     pub storage_secret_ident: Option<SecretIdent>,
-    pub namespace_id: NamespaceIdentUuid,
 }
 
 /// Extends the `CommitTableResponse` with the storage config.
@@ -77,7 +78,7 @@ pub struct CommitTableResponseExt {
 }
 
 #[derive(Debug, Clone)]
-pub struct WarehouseResponse {
+pub struct GetWarehouseResponse {
     /// ID of the warehouse.
     pub id: WarehouseIdent,
     /// Name of the warehouse.
@@ -86,6 +87,8 @@ pub struct WarehouseResponse {
     pub project_id: ProjectIdent,
     /// Storage profile used for the warehouse.
     pub storage_profile: StorageProfile,
+    /// Storage secret ID used for the warehouse.
+    pub storage_secret_id: Option<SecretIdent>,
     /// Whether the warehouse is active.
     pub status: WarehouseStatus,
 }
@@ -112,12 +115,6 @@ where
         storage_secret_id: Option<SecretIdent>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<WarehouseIdent>;
-
-    async fn get_storage_config(
-        warehouse_id: &WarehouseIdent,
-        namespace: &NamespaceIdent,
-        catalog_state: Self::State,
-    ) -> Result<GetStorageConfigResult>;
 
     async fn create_namespace<'a>(
         warehouse_id: &WarehouseIdent,
@@ -254,13 +251,13 @@ where
         // If Some, return only the warehouses in the set
         warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
         catalog_state: Self::State,
-    ) -> Result<HashSet<WarehouseResponse>>;
+    ) -> Result<HashSet<GetWarehouseResponse>>;
 
     /// Get the warehouse metadata.
-    async fn get_warehouse_metadata(
+    async fn get_warehouse<'a>(
         warehouse_id: &WarehouseIdent,
-        catalog_state: Self::State,
-    ) -> Result<WarehouseResponse>;
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<GetWarehouseResponse>;
 
     /// Delete a warehouse.
     async fn delete_warehouse<'a>(
@@ -272,6 +269,20 @@ where
     async fn rename_warehouse<'a>(
         warehouse_id: &WarehouseIdent,
         new_name: &str,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
+
+    /// Set the status of a warehouse.
+    async fn set_warehouse_status<'a>(
+        warehouse_id: &WarehouseIdent,
+        status: WarehouseStatus,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
+
+    async fn update_storage_profile<'a>(
+        warehouse_id: &WarehouseIdent,
+        storage_profile: StorageProfile,
+        storage_secret_id: Option<SecretIdent>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 }

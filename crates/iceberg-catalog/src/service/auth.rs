@@ -4,47 +4,10 @@ use super::{ProjectIdent, TableIdentUuid, WarehouseIdent};
 use crate::api::iceberg::v1::{NamespaceIdent, Result};
 use crate::request_metadata::RequestMetadata;
 
-#[derive(Clone, Debug)]
-pub enum UserID {
-    Anonymous,
-    User(String),
-}
-
-impl UserID {
-    #[must_use]
-    pub fn new(user_id: String) -> Self {
-        Self::User(user_id)
-    }
-
-    #[must_use]
-    pub fn new_anonymous() -> Self {
-        Self::Anonymous
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn is_anonymous(&self) -> bool {
-        matches!(self, Self::Anonymous)
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn is_user(&self) -> bool {
-        matches!(self, Self::User(_))
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct UserWarehouse {
-    pub user_id: UserID,
     pub project_id: Option<ProjectIdent>,
     pub warehouse_id: Option<WarehouseIdent>,
-}
-
-#[derive(Debug, Clone)]
-pub enum NamespacePermission {
-    Read,
-    Write,
 }
 
 #[async_trait::async_trait]
@@ -198,6 +161,30 @@ where
         warehouse_id: &WarehouseIdent,
         state: Self::State,
     ) -> Result<()>;
+
+    async fn check_rename_warehouse(
+        metadata: &RequestMetadata,
+        warehouse_id: &WarehouseIdent,
+        state: Self::State,
+    ) -> Result<()>;
+
+    async fn check_deactivate_warehouse(
+        metadata: &RequestMetadata,
+        warehouse_id: &WarehouseIdent,
+        state: Self::State,
+    ) -> Result<()>;
+
+    async fn check_activate_warehouse(
+        metadata: &RequestMetadata,
+        warehouse_id: &WarehouseIdent,
+        state: Self::State,
+    ) -> Result<()>;
+
+    async fn check_update_storage(
+        metadata: &RequestMetadata,
+        warehouse_id: &WarehouseIdent,
+        state: Self::State,
+    ) -> Result<()>;
 }
 
 /// Interface to provide Auth-related functions to the config gateway.
@@ -247,16 +234,16 @@ where
     // fn get_warehouse(state: T, headers: &HeaderMap) -> Result<WarehouseIdent>;
 
     /// Check if the user is allowed to list all warehouses in a project.
-    async fn check_user_list_warehouse_in_project(
+    async fn check_list_warehouse_in_project(
         state: A::State,
-        user_id: &UserID,
         project_id: &ProjectIdent,
+        metadata: &RequestMetadata,
     ) -> Result<()>;
 
     /// Check if the user is allowed to get the config for a warehouse.
     async fn check_user_get_config_for_warehouse(
         state: A::State,
-        user_id: &UserID,
         warehouse_id: &WarehouseIdent,
+        metadata: &RequestMetadata,
     ) -> Result<()>;
 }

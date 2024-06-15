@@ -1,9 +1,11 @@
+use std::collections::HashSet;
+
 use crate::api::{iceberg::v1::NamespaceIdent, Result};
 use crate::request_metadata::RequestMetadata;
 use crate::{
     implementations::DEFAULT_PROJECT_ID,
     service::{
-        auth::{AuthConfigHandler, AuthZHandler, UserID, UserWarehouse},
+        auth::{AuthConfigHandler, AuthZHandler, UserWarehouse},
         TableIdentUuid,
     },
     ProjectIdent, WarehouseIdent,
@@ -27,7 +29,6 @@ impl AuthConfigHandler<AllowAllAuthZHandler> for AllowAllAuthZHandler {
         // This requires the user to specify the project as part of the "warehouse" provided to the GET /config
         // endpoint.
         Ok(UserWarehouse {
-            user_id: UserID::new_anonymous(),
             project_id: Some(ProjectIdent::from(DEFAULT_PROJECT_ID)),
             warehouse_id: None,
         })
@@ -42,18 +43,18 @@ impl AuthConfigHandler<AllowAllAuthZHandler> for AllowAllAuthZHandler {
         Ok(None)
     }
 
-    async fn check_user_list_warehouse_in_project(
+    async fn check_list_warehouse_in_project(
         _: AllowAllAuthState,
-        _: &UserID,
         _: &ProjectIdent,
+        _: &RequestMetadata,
     ) -> Result<()> {
         Ok(())
     }
 
     async fn check_user_get_config_for_warehouse(
         _: AllowAllAuthState,
-        _: &UserID,
         _: &WarehouseIdent,
+        _: &RequestMetadata,
     ) -> Result<()> {
         Ok(())
     }
@@ -180,6 +181,82 @@ impl AuthZHandler for AllowAllAuthZHandler {
         _: &WarehouseIdent,
         _: Option<&TableIdentUuid>,
         _: Option<&NamespaceIdent>,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    // ---------------- Management API ----------------
+    async fn check_create_warehouse(
+        _: &RequestMetadata,
+        _: &ProjectIdent,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    // Return an error if the user is not authorized.
+    // Return Ok(None) if the user is authorized to list all existing projects.
+    // Return Ok(Some(projects)) if the user is authorized to list only the
+    // specified projects.
+    async fn check_list_projects(
+        _: &RequestMetadata,
+        _: Self::State,
+    ) -> Result<Option<HashSet<ProjectIdent>>> {
+        Ok(None)
+    }
+
+    async fn check_list_warehouse_in_project(
+        _: &RequestMetadata,
+        _: &ProjectIdent,
+        _: Self::State,
+    ) -> Result<Option<HashSet<WarehouseIdent>>> {
+        Ok(None)
+    }
+
+    async fn check_delete_warehouse(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_get_warehouse(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        st_ate: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_rename_warehouse(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_deactivate_warehouse(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_activate_warehouse(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_update_storage(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
         _: Self::State,
     ) -> Result<()> {
         Ok(())

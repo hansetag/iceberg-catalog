@@ -26,7 +26,9 @@ use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResult,
     LoadTableResult as CatalogLoadTableResult, State, Transaction,
 };
-use crate::service::{GetStorageConfigResult, TableIdentUuid};
+use crate::service::{
+    GetStorageConfigResult, GetWarehouseResponse, TableIdentUuid, WarehouseStatus,
+};
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -107,12 +109,35 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let GetStorageConfigResult {
+        let namespace_id =
+            C::namespace_ident_to_id(&warehouse_id, &namespace, state.v1_state.catalog.clone())
+                .await?
+                .ok_or(
+                    ErrorModel::builder()
+                        .code(StatusCode::NOT_FOUND.into())
+                        .message("Namespace does not exist".to_string())
+                        .r#type("NamespaceNotFound".to_string())
+                        .build(),
+                )?;
+
+        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let GetWarehouseResponse {
+            id: _,
+            name: _,
+            project_id: _,
             storage_profile,
-            storage_secret_ident,
-            namespace_id,
-        } = C::get_storage_config(&warehouse_id, &namespace, state.v1_state.catalog.clone())
-            .await?;
+            storage_secret_id,
+            status,
+        } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
+        if status != WarehouseStatus::Active {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::NOT_FOUND.into())
+                .message("Warehouse is not active".to_string())
+                .r#type("WarehouseNotActive".to_string())
+                .build()
+                .into());
+        }
+
         let table_id: TableIdentUuid = uuid::Uuid::now_v7().into();
         let table_location = storage_profile.table_location(&namespace_id, &table_id);
 
@@ -131,7 +156,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // serialize body before moving it
         let body = maybe_body_to_json(&request);
 
-        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let CreateTableResult { table_metadata } = C::create_table(
             &namespace_id,
             &table,
@@ -143,7 +167,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // We don't commit the transaction yet, first we need to write the metadata file.
-        let storage_secret = if let Some(secret_id) = &storage_secret_ident {
+        let storage_secret = if let Some(secret_id) = &storage_secret_id {
             Some(
                 S::get_secret_by_id(secret_id, state.v1_state.secrets)
                     .await?

@@ -11,7 +11,7 @@ pub mod token_verification;
 
 pub use catalog::{
     Catalog, CommitTableResponseExt, CreateTableResult, GetStorageConfigResult,
-    GetTableMetadataResult, LoadTableResult, Transaction, WarehouseResponse,
+    GetTableMetadataResult, GetWarehouseResponse, LoadTableResult, Transaction,
 };
 
 use crate::api::iceberg::v1::Prefix;

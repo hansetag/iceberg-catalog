@@ -2,8 +2,11 @@ use crate::api::management::ApiServer;
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
 use crate::service::storage::{StorageCredential, StorageProfile};
+use crate::service::WarehouseStatus;
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
 use crate::{request_metadata, ProjectIdent, WarehouseIdent};
+use http::request;
+use iceberg::transaction;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
@@ -32,7 +35,7 @@ pub struct CreateWarehouseResponse {
 #[serde(rename_all = "kebab-case")]
 pub struct UpdateWarehouseStorageRequest {
     /// Storage profile to use for the warehouse.
-    pub storage_profile: Option<StorageProfile>,
+    pub storage_profile: StorageProfile,
     /// Optional storage credential to use for the warehouse.
     /// The existing credential is not re-used. If no credential is
     /// provided, we assume that this storage does not require credentials.
@@ -45,6 +48,13 @@ pub struct ListWarehouseRequest {
     /// Optional filter to include inactive warehouses.
     #[serde(default)]
     pub include_inactive: Option<bool>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub struct RenameWarehouseRequest {
+    /// New name for the warehouse.
+    pub new_name: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -199,9 +209,8 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         A::check_get_warehouse(&request_metadata, &warehouse_id, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
-
-        let warehouses =
-            C::get_warehouse_metadata(&warehouse_id.into(), context.v1_state.catalog).await?;
+        let mut transaction = C::Transaction::begin_read(context.v1_state.catalog).await?;
+        let warehouses = C::get_warehouse(&warehouse_id.into(), transaction.transaction()).await?;
 
         Ok(warehouses.into())
     }
@@ -225,6 +234,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
     }
     async fn rename_warehouse(
         warehouse_id: WarehouseIdent,
+        request: RenameWarehouseRequest,
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<http::StatusCode> {
@@ -234,7 +244,12 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
 
-        C::rename_warehouse(&warehouse_id.into(), transaction.transaction()).await?;
+        C::rename_warehouse(
+            &warehouse_id.into(),
+            &request.new_name,
+            transaction.transaction(),
+        )
+        .await?;
 
         transaction.commit().await?;
 
@@ -244,35 +259,155 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
     async fn deactivate_warehouse(
         warehouse_id: WarehouseIdent,
         context: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
-        todo!()
+        // ------------------- AuthZ -------------------
+        A::check_deactivate_warehouse(&request_metadata, &warehouse_id, context.v1_state.auth)
+            .await?;
+
+        // ------------------- Business Logic -------------------
+        let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
+
+        C::set_warehouse_status(
+            &warehouse_id,
+            WarehouseStatus::Inactive,
+            transaction.transaction(),
+        )
+        .await?;
+
+        transaction.commit().await?;
+
+        Ok(())
     }
 
     async fn activate_warehouse(
         warehouse_id: WarehouseIdent,
         context: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
-        todo!()
+        // ------------------- AuthZ -------------------
+        A::check_activate_warehouse(&request_metadata, &warehouse_id, context.v1_state.auth)
+            .await?;
+
+        // ------------------- Business Logic -------------------
+        let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
+
+        C::set_warehouse_status(
+            &warehouse_id,
+            WarehouseStatus::Active,
+            transaction.transaction(),
+        )
+        .await?;
+
+        transaction.commit().await?;
+
+        Ok(())
     }
 
     async fn update_storage(
         warehouse_id: WarehouseIdent,
         request: UpdateWarehouseStorageRequest,
         context: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
-        todo!()
+        // ------------------- AuthZ -------------------
+        A::check_update_storage(&request_metadata, &warehouse_id, context.v1_state.auth).await?;
+
+        // ------------------- Business Logic -------------------
+        let UpdateWarehouseStorageRequest {
+            mut storage_profile,
+            storage_credential,
+        } = request;
+
+        storage_profile
+            .validate(storage_credential.as_ref())
+            .await?;
+
+        let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
+        let warehouse =
+            C::get_warehouse(&warehouse_id.clone().into(), transaction.transaction()).await?;
+        let old_secret_id = warehouse.storage_secret_id;
+
+        let secret_id = if let Some(storage_credential) = storage_credential {
+            Some(S::create_secret(storage_credential, context.v1_state.secrets.clone()).await?)
+        } else {
+            None
+        };
+
+        C::update_storage_profile(
+            &warehouse_id.into(),
+            storage_profile,
+            secret_id,
+            transaction.transaction(),
+        )
+        .await?;
+
+        transaction.commit().await?;
+
+        // Delete the old secret if it exists - never fail the request if the deletion fails
+        if let Some(old_secret_id) = old_secret_id {
+            S::delete_secret(&old_secret_id, context.v1_state.secrets)
+                .await
+                .map_err(|e| {
+                    tracing::warn!("Failed to delete old secret: {:?}", e.error);
+                })
+                .ok();
+        }
+
+        Ok(())
     }
 
     async fn update_credential(
         warehouse_id: WarehouseIdent,
         request: UpdateWarehouseCredentialRequest,
         context: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
-        todo!()
+        // ------------------- AuthZ -------------------
+        A::check_update_storage(&request_metadata, &warehouse_id, context.v1_state.auth).await?;
+
+        // ------------------- Business Logic -------------------
+        let UpdateWarehouseCredentialRequest {
+            new_storage_credential,
+        } = request;
+
+        let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
+        let warehouse =
+            C::get_warehouse(&warehouse_id.clone().into(), transaction.transaction()).await?;
+        let mut storage_profile = warehouse.storage_profile;
+        let old_secret_id = warehouse.storage_secret_id;
+
+        storage_profile
+            .validate(new_storage_credential.as_ref())
+            .await?;
+
+        let secret_id = if let Some(new_storage_credential) = new_storage_credential {
+            Some(S::create_secret(new_storage_credential, context.v1_state.secrets.clone()).await?)
+        } else {
+            None
+        };
+
+        C::update_storage_profile(
+            &warehouse_id.into(),
+            storage_profile,
+            secret_id,
+            transaction.transaction(),
+        )
+        .await?;
+
+        transaction.commit().await?;
+
+        // Delete the old secret if it exists - never fail the request if the deletion fails
+        if let Some(old_secret_id) = old_secret_id {
+            S::delete_secret(&old_secret_id, context.v1_state.secrets)
+                .await
+                .map_err(|e| {
+                    tracing::warn!("Failed to delete old secret: {:?}", e.error);
+                })
+                .ok();
+        }
+
+        Ok(())
     }
 }
 
@@ -294,8 +429,8 @@ impl axum::response::IntoResponse for WarehouseResponse {
     }
 }
 
-impl From<crate::service::WarehouseResponse> for WarehouseResponse {
-    fn from(warehouse: crate::service::WarehouseResponse) -> Self {
+impl From<crate::service::GetWarehouseResponse> for WarehouseResponse {
+    fn from(warehouse: crate::service::GetWarehouseResponse) -> Self {
         Self {
             id: warehouse.id.into_uuid(),
             name: warehouse.name,

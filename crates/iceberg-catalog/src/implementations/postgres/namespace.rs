@@ -8,11 +8,7 @@ use http::StatusCode;
 use sqlx::types::Json;
 use std::{collections::HashMap, ops::Deref};
 
-use crate::{
-    catalog::namespace::MAX_NAMESPACE_DEPTH,
-    service::{storage::StorageProfile, GetStorageConfigResult, NamespaceIdentUuid},
-    SecretIdent, WarehouseIdent,
-};
+use crate::{catalog::namespace::MAX_NAMESPACE_DEPTH, service::NamespaceIdentUuid, WarehouseIdent};
 
 use super::{dbutils::DBErrorHandler, CatalogState};
 
@@ -25,8 +21,8 @@ pub(crate) async fn get_namespace_metadata(
         r#"
         SELECT 
             properties as "properties: Json<HashMap<String, String>>"
-        FROM namespace
-        WHERE warehouse_id = $1 AND "name" = $2
+        FROM namespace n
+        WHERE n.warehouse_id = $1 AND n."name" = $2
         "#,
         warehouse_id.as_uuid(),
         &**namespace
@@ -341,46 +337,6 @@ pub(crate) async fn update_namespace_properties(
         } else {
             Some(missing)
         },
-    })
-}
-
-pub(crate) async fn get_storage_config(
-    warehouse_id: &WarehouseIdent,
-    namespace: &NamespaceIdent,
-    catalog_state: CatalogState,
-) -> Result<GetStorageConfigResult> {
-    let storage = sqlx::query!(
-        r#"
-            SELECT
-                n.namespace_id,
-                w.storage_profile as "storage_profile: Json<StorageProfile>",
-                w."storage_secret_id"
-            FROM namespace n
-            inner join warehouse w on n.warehouse_id = w.warehouse_id
-            WHERE w.warehouse_id = $1 AND n."name" = $2
-            "#,
-        warehouse_id.as_uuid(),
-        &**namespace
-    )
-    .fetch_one(&catalog_state.read_pool)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message(format!("Namespace not found: {:?}", namespace.as_ref()))
-            .r#type("NamespaceNotFound".to_string())
-            .build(),
-        _ => e.into_error_model("Error fetching namespace".to_string()),
-    })?;
-
-    let storage_profile = storage.storage_profile.deref().clone();
-    let storage_secret_ident = storage.storage_secret_id.map(SecretIdent::from);
-    let namespace_id = storage.namespace_id;
-
-    Ok(GetStorageConfigResult {
-        storage_profile,
-        storage_secret_ident,
-        namespace_id: namespace_id.into(),
     })
 }
 

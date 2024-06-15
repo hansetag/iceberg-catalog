@@ -17,9 +17,9 @@ pub mod v1 {
     use crate::service::auth::AuthZHandler;
 
     use crate::service::{Catalog, SecretStore, State};
-    use axum::extract::State as AxumState;
-    use axum::routing::post;
-    use warehouse::WarehouseService;
+    use axum::extract::{Path, State as AxumState, Query};
+    use axum::routing::{get, post, put};
+    use warehouse::Service;
 
     impl<C: Catalog, A: AuthZHandler, S: SecretStore> super::ApiServer<C, A, S> {
         pub fn new_v1_router() -> Router<ApiContext<State<A, C, S>>> {
@@ -81,8 +81,9 @@ pub mod v1 {
                         |
                         Path(warehouse_id): Path<uuid::Uuid>,
                         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
-                         Extension(metadata): Extension<RequestMetadata>| {
-                            Self::rename_warehouse(warehouse_id.into(), api_context, metadata)
+                         Extension(metadata): Extension<RequestMetadata>,
+                         Json(request): Json<warehouse::RenameWarehouseRequest>| {
+                            Self::rename_warehouse(warehouse_id.into(), request, api_context, metadata)
                         },
                     ),
                 )
@@ -114,7 +115,7 @@ pub mod v1 {
                 // we assume that this endpoint does not require a secret.
                 .route(
                     "/warehouse/:warehouse_id/storage",
-                    put(
+                    post(
                         |
                         Path(warehouse_id): Path<uuid::Uuid>,
                         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
@@ -127,7 +128,7 @@ pub mod v1 {
                 // Update only the storage credential - keep the storage profile as is
                 .route(
                     "/warehouse/:warehouse_id/storage-credential",
-                    put(
+                    post(
                         |
                         Path(warehouse_id): Path<uuid::Uuid>,
                         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,

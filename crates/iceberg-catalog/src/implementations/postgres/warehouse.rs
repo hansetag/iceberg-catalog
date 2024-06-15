@@ -1,5 +1,8 @@
+use std::ops::Deref as _;
+
 use crate::api::{CatalogConfig, ErrorModel, Result};
 use crate::service::config::ConfigProvider;
+use crate::service::{GetWarehouseResponse, WarehouseStatus};
 use crate::{service::storage::StorageProfile, ProjectIdent, SecretIdent, WarehouseIdent};
 use http::StatusCode;
 
@@ -126,6 +129,44 @@ pub(crate) async fn create_warehouse_profile<'a>(
     })?;
 
     Ok(warehouse_id.into())
+}
+
+pub(crate) async fn get_warehouse<'a>(
+    warehouse_id: &WarehouseIdent,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<GetWarehouseResponse> {
+    let warehouse = sqlx::query!(
+        r#"
+        SELECT 
+            warehouse_name,
+            project_id,
+            storage_profile as "storage_profile: Json<StorageProfile>",
+            storage_secret_id,
+            status AS "status: WarehouseStatus"
+        FROM warehouse
+        WHERE warehouse_id = $1
+        "#,
+        warehouse_id.as_uuid()
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => ErrorModel::builder()
+            .code(StatusCode::NOT_FOUND.into())
+            .message("Warehouse not found".to_string())
+            .r#type("WarehouseNotFound".to_string())
+            .build(),
+        _ => e.into_error_model("Error fetching warehouse".into()),
+    })?;
+
+    Ok(GetWarehouseResponse {
+        id: warehouse_id.clone(),
+        name: warehouse.warehouse_name,
+        project_id: ProjectIdent::from(warehouse.project_id),
+        storage_profile: warehouse.storage_profile.deref().clone(),
+        storage_secret_id: warehouse.storage_secret_id.map(|id| id.into()),
+        status: warehouse.status,
+    })
 }
 
 fn validate_warehouse_name(warehouse_name: &str) -> Result<()> {
