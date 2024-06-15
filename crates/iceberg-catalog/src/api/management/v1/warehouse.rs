@@ -34,6 +34,9 @@ pub struct CreateWarehouseResponse {
 #[serde(rename_all = "kebab-case")]
 pub struct UpdateWarehouseStorageRequest {
     /// Storage profile to use for the warehouse.
+    /// The new profile must point to the same location as the existing profile
+    /// to avoid data loss. For S3 this means that you may not change the
+    /// bucket, key prefix, or region.
     pub storage_profile: StorageProfile,
     /// Optional storage credential to use for the warehouse.
     /// The existing credential is not re-used. If no credential is
@@ -355,6 +358,9 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
         let warehouse =
             C::get_warehouse(&warehouse_id.clone().into(), transaction.transaction()).await?;
+        warehouse
+            .storage_profile
+            .can_be_updated_with(&storage_profile)?;
         let old_secret_id = warehouse.storage_secret_id;
 
         let secret_id = if let Some(storage_credential) = storage_credential {
