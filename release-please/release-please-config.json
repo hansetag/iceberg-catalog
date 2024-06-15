@@ -1,12 +1,6 @@
 {
     "packages": {
-        "crates/iceberg-catalog": {
-            "release-type": "rust"
-        },
-        "crates/iceberg-catalog-bin": {
-            "release-type": "rust"
-        },
-        "crates/iceberg-catalog-ext": {
+        ".": {
             "release-type": "rust"
         }
     },
