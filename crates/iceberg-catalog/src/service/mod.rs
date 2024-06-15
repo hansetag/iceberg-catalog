@@ -11,7 +11,7 @@ pub mod token_verification;
 
 pub use catalog::{
     Catalog, CommitTableResponseExt, CreateTableResult, GetStorageConfigResult,
-    GetTableMetadataResult, LoadTableResult, Transaction,
+    GetTableMetadataResult, LoadTableResult, Transaction, WarehouseResponse,
 };
 
 use crate::api::iceberg::v1::Prefix;
@@ -160,6 +160,18 @@ impl FromStr for TableIdentUuid {
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
 // Is UUID here too strict?
 pub struct ProjectIdent(uuid::Uuid);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, strum_macros::Display)]
+#[strum(serialize_all = "kebab-case")]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(
+    feature = "sqlx",
+    sqlx(type_name = "warehouse_status", rename_all = "kebab-case")
+)]
+pub enum WarehouseStatus {
+    Active,
+    Inactive,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]

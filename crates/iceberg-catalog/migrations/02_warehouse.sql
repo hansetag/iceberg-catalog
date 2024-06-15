@@ -1,3 +1,4 @@
+create type warehouse_status as enum ('active', 'inactive');
 create table "warehouse" (
     -- Table name should be part of PK for easier joins.
     warehouse_id uuid primary key default uuid_generate_v1mc(),
@@ -14,6 +15,7 @@ create table "warehouse" (
     storage_secret_id uuid,
     created_at timestamptz not null default now(),
     updated_at timestamptz,
+    status warehouse_status not null,
     CONSTRAINT unique_warehouse_name_in_project UNIQUE (project_id, warehouse_name)
 );
 -- And applying our `updated_at` trigger is as easy as this.

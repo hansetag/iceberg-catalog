@@ -3,11 +3,13 @@ use iceberg_ext::catalog::rest::{
     CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
 };
 use std::collections::{HashMap, HashSet};
+use utoipa::ToSchema;
 
 use crate::SecretIdent;
 
 use super::{
     storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent,
+    WarehouseStatus,
 };
 use crate::api::iceberg::v1::{
     CreateNamespaceRequest, CreateNamespaceResponse, GetNamespaceResponse, ListNamespacesQuery,
@@ -72,6 +74,20 @@ pub struct CommitTableResponseExt {
     pub commit_response: CommitTableResponse,
     pub storage_config: GetStorageConfigResult,
     pub previous_table_metadata: TableMetadata,
+}
+
+#[derive(Debug, Clone)]
+pub struct WarehouseResponse {
+    /// ID of the warehouse.
+    pub id: WarehouseIdent,
+    /// Name of the warehouse.
+    pub name: String,
+    /// Project ID in which the warehouse is created.
+    pub project_id: ProjectIdent,
+    /// Storage profile used for the warehouse.
+    pub storage_profile: StorageProfile,
+    /// Whether the warehouse is active.
+    pub status: WarehouseStatus,
 }
 
 #[async_trait::async_trait]
@@ -226,4 +242,36 @@ where
         table_ids: &HashMap<TableIdent, TableIdentUuid>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Vec<CommitTableResponseExt>>;
+
+    /// Return a list of all project ids in the catalog
+    async fn list_projects(catalog_state: Self::State) -> Result<HashSet<ProjectIdent>>;
+
+    /// Return a list of all warehouse in a project
+    async fn list_warehouses(
+        project_id: &ProjectIdent,
+        include_inactive: bool,
+        // If None, return all warehouses in the project
+        // If Some, return only the warehouses in the set
+        warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
+        catalog_state: Self::State,
+    ) -> Result<HashSet<WarehouseResponse>>;
+
+    /// Get the warehouse metadata.
+    async fn get_warehouse_metadata(
+        warehouse_id: &WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<WarehouseResponse>;
+
+    /// Delete a warehouse.
+    async fn delete_warehouse<'a>(
+        warehouse_id: &WarehouseIdent,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
+
+    /// Rename a warehouse.
+    async fn rename_warehouse<'a>(
+        warehouse_id: &WarehouseIdent,
+        new_name: &str,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
 }

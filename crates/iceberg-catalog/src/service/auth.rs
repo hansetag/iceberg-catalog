@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::{ProjectIdent, TableIdentUuid, WarehouseIdent};
 use crate::api::iceberg::v1::{NamespaceIdent, Result};
 use crate::request_metadata::RequestMetadata;
@@ -160,6 +162,40 @@ where
         warehouse_id: &WarehouseIdent,
         table: Option<&TableIdentUuid>,
         namespace: Option<&NamespaceIdent>,
+        state: Self::State,
+    ) -> Result<()>;
+
+    // ---------------- Management API ----------------
+    async fn check_create_warehouse(
+        metadata: &RequestMetadata,
+        project_id: &ProjectIdent,
+        state: Self::State,
+    ) -> Result<()>;
+
+    // Return an error if the user is not authorized.
+    // Return Ok(None) if the user is authorized to list all existing projects.
+    // Return Ok(Some(projects)) if the user is authorized to list only the
+    // specified projects.
+    async fn check_list_projects(
+        metadata: &RequestMetadata,
+        state: Self::State,
+    ) -> Result<Option<HashSet<ProjectIdent>>>;
+
+    async fn check_list_warehouse_in_project(
+        metadata: &RequestMetadata,
+        project_id: &ProjectIdent,
+        state: Self::State,
+    ) -> Result<Option<HashSet<WarehouseIdent>>>;
+
+    async fn check_delete_warehouse(
+        metadata: &RequestMetadata,
+        warehouse_id: &WarehouseIdent,
+        state: Self::State,
+    ) -> Result<()>;
+
+    async fn check_get_warehouse(
+        metadata: &RequestMetadata,
+        warehouse_id: &WarehouseIdent,
         state: Self::State,
     ) -> Result<()>;
 }
