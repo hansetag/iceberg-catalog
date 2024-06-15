@@ -1,4 +1,3 @@
-# docker build -f docker/full.Dockerfile -t iceberg-catalog-local:latest .
 FROM rust:1.78 AS chef
 
 RUN cargo install cargo-chef
@@ -17,6 +16,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
 
+ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin iceberg-catalog
 
 # our final base

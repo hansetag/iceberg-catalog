@@ -2,9 +2,8 @@ name: 🚀 Release
 
 on:
   push:
-    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
     branches:
-    - 'patch/ci-release-*'
+    - main
   pull_request:
     paths:
     - '.github/workflows/release.yml'
@@ -17,8 +16,29 @@ env:
   preview: ${{ !startsWith(github.ref, 'refs/tags/') || github.repository != 'hansetag/iceberg-catalog' }}
 
 jobs:
+  # Update release PR
+  release_please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    if: github.repository == 'hansetag/iceberg-catalog'
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      major: ${{ steps.release.outputs.major }}
+      minor: ${{ steps.release.outputs.minor }}
+      patch: ${{ steps.release.outputs.patch }}
+    steps:
+      - uses: google-github-actions/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          release-type: rust
+
   build-binary:
     name: Build Binary
+    needs:
+      - release_please
+    if: ${{ needs.release_please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' }}
     # not supported by windows nor macos
     # services:
     #   postgres:
@@ -175,13 +195,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download binaries
+      - name: Download Artifacts
         uses: actions/download-artifact@v4
 
-      - name: List artifacts
+      - name: List Artifacts
         run: ls -lh
 
-      - name: Restore binaries
+      - name: Restore Binaries
         run: |
           cd iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
           tar xzvf iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
@@ -200,16 +220,18 @@ jobs:
         run: |
           DOCKER_BUILDKIT=1 docker build -t localhost/iceberg-catalog-local:amd64 \
             -f docker/bin.Dockerfile \
+            --build-arg "ARCH=amd64/" \
             --build-arg "BIN=iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz/iceberg-catalog" .
           docker save -o /tmp/iceberg-catalog-amd64.tar localhost/iceberg-catalog-local:amd64
 
       - name: Build Docker image (arm64)
         run: |
           DOCKER_BUILDKIT=1 docker build \
-            --platform linux/arm64 -t localhost/iceberg-catalog-local:arm64 \
+            --platform linux/arm64 -t localhost/iceberg-catalog-local:arm64v8 \
             -f docker/bin.Dockerfile \
+            --build-arg "ARCH=arm64v8/" \
             --build-arg "BIN=iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
-          docker save -o /tmp/iceberg-catalog-arm64.tar localhost/iceberg-catalog-local:arm64
+          docker save -o /tmp/iceberg-catalog-arm64v8.tar localhost/iceberg-catalog-local:arm64v8
 
       - name: Test Docker (amd64)
         run: |
@@ -225,12 +247,103 @@ jobs:
           cd tests
           docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_pyiceberg_and_spark.sh"
         env:
-          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:arm64
+          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:arm64v8
           ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
 
       - name: Save Docker
         uses: actions/upload-artifact@v4
         with:
           name: iceberg-catalog-image
-          path: /tmp/*.tar
+          path: /tmp/iceberg-catalog-docker-*.tar
 
+      - name: Test Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: hansetag+githubicebergcatalog
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+  list-artifacts:
+    name: List Artifacts
+    runs-on: ubuntu-latest
+    needs:
+      - build-binary
+      - build-docker
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+
+      - name: List Artifacts
+        run: ls -Rlh
+
+  # Create GitHub release with Rust build targets and release notes
+  publish-binary:
+    name: Publish Binary
+    runs-on: ubuntu-latest
+    needs:
+      - build-binary
+      - build-docker
+      - release_please
+    if: ${{ needs.release_please.outputs.release_created == 'true' }}
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Publish Release
+        run: gh release edit ${{ needs.release_please.outputs.tag_name }} --draft=false --repo=hansetag/iceberg-catalog
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build | Add Artifacts to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: iceberg-catalog-*/iceberg-catalog-*.tar.gz
+          tag_name: ${{ needs.release_please.outputs.tag_name }}
+
+  publish-container:
+    name: Publish Container
+    runs-on: ubuntu-latest
+    needs:
+      - build-docker
+      - build-binary
+      - release_please
+    if: ${{ needs.release_please.outputs.release_created == 'true' }}
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: hansetag+githubicebergcatalog
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Push To quay.io
+        run: |
+          docker load -i /tmp/iceberg-catalog-docker-amd64.tar
+          docker load -i /tmp/iceberg-catalog-docker-arm64v8.tar
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:latest-amd64
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-amd64
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-amd64
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-amd64
+          docker tag localhost/iceberg-catalog-local:arm64v8 quay.io/hansetag/iceberg-catalog:latest-arm64v8
+          docker tag localhost/iceberg-catalog-local:arm64v8 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-arm64v8
+          docker tag localhost/iceberg-catalog-local:arm64v8 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-arm64v8
+          docker tag localhost/iceberg-catalog-local:arm64v8 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-arm64v8
+          docker push quay.io/hansetag/iceberg-catalog:latest-amd64
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-amd64
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-amd64
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-amd64
+          docker push quay.io/hansetag/iceberg-catalog:latest-arm64v8
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-arm64v8
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-arm64v8
+          docker push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-arm64v8
+          docker manifest create quay.io/hansetag/iceberg-catalog:latest quay.io/hansetag/iceberg-catalog:latest-amd64 quay.io/hansetag/iceberg-catalog:latest-arm64v8
+          docker manifest create quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }} quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-arm64v8
+          docker manifest create quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }} quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-arm64v8
+          docker manifest create quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }} quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-arm64v8
+          docker manifest push quay.io/hansetag/iceberg-catalog:latest
+          docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}
+          docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}
+          docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}

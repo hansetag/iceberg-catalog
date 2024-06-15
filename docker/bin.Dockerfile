@@ -1,6 +1,7 @@
 
 # our final base
-FROM debian:bookworm-slim
+ARG ARCH=
+FROM ${ARCH}debian:bookworm-slim
 
 # non-root user
 ARG USERNAME=iceberg
