@@ -20,6 +20,9 @@ fix:
     cargo fmt --all
     cargo sort -w
 
+sqlx-prepare:
+    cargo sqlx prepare --workspace -- --tests
+
 doc-test:
 	cargo test --no-fail-fast --doc --all-features --workspace
 
