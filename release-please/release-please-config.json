@@ -1,11 +1,32 @@
 {
     "packages": {
-        ".": {
-            "release-type": "rust"
+        "crates/iceberg-catalog": {
+            "release-type": "rust",
+            "component": "catalog"
+        },
+        "crates/iceberg-catalog-bin": {
+            "release-type": "rust",
+            "component": "catalog-bin"
+        },
+        "crates/iceberg-catalog-ext": {
+            "release-type": "rust",
+            "component": "catalog-ext"
         }
     },
     "plugins": [
-        "cargo-workspace"
+        {
+            "type": "cargo-workspace",
+            "merge": false
+        },
+        {
+            "type": "linked-versions",
+            "groupName": "iceberg-catalog",
+            "components": [
+                "catalog",
+                "catalog-bin",
+                "catalog-ext"
+            ]
+        }
     ],
     "bump-minor-pre-major": true,
     "bump-patch-for-minor-pre-major": true,
