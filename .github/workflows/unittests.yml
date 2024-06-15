@@ -20,7 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Cargo sqlx-check
-        run: cargo sqlx prepare --check -- --all-features --workspace
+        run: |
+          sudo apt-get install libpq-dev -y
+          cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+          cargo sqlx prepare --check -- --all-features --workspace
 
   check-format:
     runs-on: ubuntu-latest
