@@ -9,9 +9,9 @@ pub mod token_verification;
 
 pub use catalog::{
     Catalog, CommitTableResponse, CommitTableResponseExt, CommitTransactionRequest,
-    CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, CreateTableResult,
-    GetNamespaceResponse, GetStorageConfigResult, GetTableMetadataResult, GetWarehouseResponse,
-    ListNamespacesQuery, ListNamespacesResponse, LoadTableResult, NamespaceIdent, Result,
+    CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, CreateTableResponse,
+    GetNamespaceResponse, GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse,
+    ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
     TableIdent, Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 

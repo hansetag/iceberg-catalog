@@ -1,0 +1,236 @@
+name: 🚀 Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+    branches:
+    - 'patch/ci-release-*'
+  pull_request:
+    paths:
+    - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+env:
+  RUST_BACKTRACE: short
+  RUSTUP_MAX_RETRIES: 10
+  # Publish the build output as CI artifact to inspect
+  preview: ${{ !startsWith(github.ref, 'refs/tags/') || github.repository != 'hansetag/iceberg-catalog' }}
+
+jobs:
+  build-binary:
+    name: Build Binary
+    # not supported by windows nor macos
+    # services:
+    #   postgres:
+    #     image: postgres:16
+    #     env:
+    #       POSTGRES_USER: postgres
+    #       POSTGRES_PASSWORD: postgres
+    #       POSTGRES_DB: postgres
+    #     options: >-
+    #       --health-cmd pg_isready
+    #       --health-interval 10s
+    #       --health-timeout 5s
+    #       --health-retries 5
+    #     ports:
+    #       - 5432:5432
+    strategy:
+      matrix:
+        include:
+        - target: x86_64-unknown-linux-gnu
+          os: ubuntu-latest
+          name: iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
+          cross: false
+
+        - target: x86_64-unknown-linux-musl
+          os: ubuntu-latest
+          name: iceberg-catalog-x86_64-unknown-linux-musl.tar.gz
+          cross: true
+
+        - target: aarch64-unknown-linux-musl
+          os: ubuntu-latest
+          name: iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
+          cross: true
+
+        # Currently disabled due to https://github.com/actions/runner-images/issues/9460
+        # Which prevents us from launching postgres via docker / colima
+        # - target: aarch64-apple-darwin
+        #   os: macos-14
+        #   name: iceberg-catalog-aarch64-apple-darwin.tar.gz
+        #   cross: false
+
+        - target: x86_64-pc-windows-msvc
+          os: windows-latest
+          name: iceberg-catalog-x86_64-pc-windows-msvc.zip
+          rustflags: -C target-feature=+crt-static
+          cross: false
+
+        - target: aarch64-pc-windows-msvc
+          os: windows-latest
+          name: iceberg-catalog-aarch64-pc-windows-msvc.zip
+          rustflags: -C target-feature=+crt-static
+          cross: false
+
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags || '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          cache: false
+      
+      # - name: Setup docker (missing on MacOS)
+      #   if: matrix.os == 'macos-14'
+      #   run: |
+      #     brew install docker
+      #     # Docker on macOS misses daemon due to licensing, so install colima as runtime
+      #     brew install colima
+      #     colima start
+
+      - name: Run postgres
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          docker run -d --name postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres -p 5432:5432 postgres:16
+          docker ps -a
+
+      - name: Install cross
+        if: matrix.cross == true
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Migrate database [-nix]
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get install libpq-dev -y
+          cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+          cd crates/iceberg-catalog
+          sqlx database create
+          sqlx migrate run
+          cd -
+          cargo sqlx prepare --workspace
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+      - name: Test [Cargo]
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo test --all-features --release --locked --target ${{ matrix.target }} --workspace
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+      - name: Build [Cargo]
+        if: matrix.cross == false
+        run: cargo build --all-features --release --locked --target ${{ matrix.target }}
+
+      - name: Build [Cross]
+        if: matrix.cross == true
+        run: cross build --all-features --release --locked --target ${{ matrix.target }}
+
+      - name: Prepare artifacts [Windows]
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ../../../${{ matrix.name }} iceberg-catalog.exe
+          cd -
+
+      - name: Prepare artifacts [-nix]
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czvf ../../../${{ matrix.name }} iceberg-catalog
+          cd -
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}
+
+  build-docker:
+    name: Build Docker
+    runs-on: ubuntu-latest
+    needs: build-binary
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+
+      - name: List artifacts
+        run: ls -lh
+
+      - name: Restore binaries
+        run: |
+          cd iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
+          tar xzvf iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
+          cd -
+          cd iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
+          tar xzvf iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
+          ls -Rlh
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Docker info
+        run: docker info
+
+      - name: Build Docker image (amd64)
+        run: |
+          DOCKER_BUILDKIT=1 docker build -t localhost/iceberg-catalog-local:amd64 \
+            -f docker/bin.Dockerfile \
+            --build-arg "BIN=iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz/iceberg-catalog" .
+          docker save -o /tmp/iceberg-catalog-amd64.tar localhost/iceberg-catalog-local:amd64
+
+      - name: Build Docker image (arm64)
+        run: |
+          DOCKER_BUILDKIT=1 docker build \
+            --platform linux/arm64 -t localhost/iceberg-catalog-local:arm64 \
+            -f docker/bin.Dockerfile \
+            --build-arg "BIN=iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
+          docker save -o /tmp/iceberg-catalog-arm64.tar localhost/iceberg-catalog-local:arm64
+
+      - name: Test Docker (amd64)
+        run: |
+          cd tests
+          docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_pyiceberg_and_spark.sh"
+          docker compose rm --force
+        env:
+          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
+          ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
+
+      - name: Test Docker image (arm64)
+        run: |
+          cd tests
+          docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_pyiceberg_and_spark.sh"
+        env:
+          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:arm64
+          ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
+
+      - name: Save Docker
+        uses: actions/upload-artifact@v4
+        with:
+          name: iceberg-catalog-image
+          path: /tmp/*.tar
+

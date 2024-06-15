@@ -21,8 +21,8 @@ use crate::service::contract_verification::{ContractVerification, ContractVerifi
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::StorageCredential;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResult,
-    LoadTableResult as CatalogLoadTableResult, State, Transaction,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
+    LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
 use crate::service::{GetWarehouseResponse, TableIdentUuid, WarehouseStatus};
 
@@ -137,7 +137,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // serialize body before moving it
         let body = maybe_body_to_json(&request);
 
-        let CreateTableResult { table_metadata } = C::create_table(
+        let CreateTableResponse { table_metadata } = C::create_table(
             &namespace_id,
             &table,
             &table_id,

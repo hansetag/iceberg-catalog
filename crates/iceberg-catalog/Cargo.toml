@@ -12,23 +12,21 @@ Implementation of the Iceberg REST Catalog server.
 """
 
 [features]
-default = ["all"]
-all = ["sqlx-postgres", "api", "s3-signer", "router"]
+all = ["sqlx-postgres", "s3-signer", "router", "nats"]
 sqlx-postgres = ["sqlx"]
-sqlx-postgres-secrets = ["sqlx"]
 sqlx = ["dep:sqlx"]
-api = ["dep:axum"]
 s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]
-router = ["dep:tower-http", "tokio"]
+router = ["dep:tower-http"]
+nats = ["dep:async-nats"]
 
 [dependencies]
 anyhow = { workspace = true }
-async-nats = { workspace = true }
+async-nats = { workspace = true, optional = true }
 async-trait = { workspace = true }
 aws-credential-types = { version = "^1.2", optional = true }
 aws-sigv4 = { version = "^1.2", optional = true }
-axum = { workspace = true, optional = true }
-axum-extra = { version = "0.9.3", features = ["typed-header"] }
+axum = { workspace = true }
+axum-extra = { workspace = true, features = ["typed-header"] }
 chrono = { workspace = true }
 cloudevents-sdk = { version = "0.7.0" }
 derive_more = { workspace = true }
@@ -43,13 +41,14 @@ itertools = { workspace = true }
 jsonwebtoken = "9.3.0"
 jwks_client_rs = { workspace = true }
 lazy_static = { workspace = true }
+openssl = { version = '0.10', features = ["vendored"] }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
-sqlx = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true, features = ["tls-rustls"] }
 strum = { workspace = true }
 strum_macros = { workspace = true }
-tokio = { workspace = true, optional = true }
+tokio = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true, optional = true, features = [
     "default",
@@ -66,5 +65,4 @@ veil = { workspace = true }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
-tokio = { workspace = true }
 tower = { workspace = true }

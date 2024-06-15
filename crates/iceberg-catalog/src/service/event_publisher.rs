@@ -159,12 +159,14 @@ pub trait CloudEventBackend: Debug {
     fn name(&self) -> &str;
 }
 
+#[cfg(feature = "nats")]
 #[derive(Debug)]
 pub struct NatsBackend {
     pub client: async_nats::Client,
     pub topic: String,
 }
 
+#[cfg(feature = "nats")]
 #[async_trait]
 impl CloudEventBackend for NatsBackend {
     async fn publish(&self, event: Event) -> anyhow::Result<()> {

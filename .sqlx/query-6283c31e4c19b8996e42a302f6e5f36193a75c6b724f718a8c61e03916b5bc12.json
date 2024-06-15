@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        With deleted as (\n            DELETE FROM warehouse\n            WHERE warehouse_id = $1\n            Returning *\n        )\n\n        SELECT count(*) FROM deleted\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6283c31e4c19b8996e42a302f6e5f36193a75c6b724f718a8c61e03916b5bc12"
+}

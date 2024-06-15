@@ -7,10 +7,10 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
-homepage = "https://github.com/hansetag/iceberg-rest-rs.git"
-repository = "https://github.com/hansetag/iceberg-rest-rs.git"
+homepage = "https://github.com/hansetag/iceberg-catalog"
+repository = "https://github.com/hansetag/iceberg-catalog.git"
 rust-version = "1.75.0"
 license = "Apache-2.0"
 
@@ -29,6 +29,7 @@ iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", tag = "0.2.1+5
 typed-builder = "^0.18"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }
+axum-extra = { version = "0.9.3" }
 async-trait = "^0.1"
 env_logger = "^0.11"
 itertools = "0.13.0"

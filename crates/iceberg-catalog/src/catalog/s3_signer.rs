@@ -16,7 +16,7 @@ use crate::request_metadata::RequestMetadata;
 use crate::service::secrets::SecretStore;
 use crate::service::storage::{S3Profile, StorageCredential};
 use crate::service::{auth::AuthZHandler, Catalog, State};
-use crate::service::{GetTableMetadataResult, TableIdentUuid};
+use crate::service::{GetTableMetadataResponse, TableIdentUuid};
 use crate::WarehouseIdent;
 
 const READ_METHODS: &[&str] = &["GET", "HEAD"];
@@ -103,7 +103,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // drop(request_metadata);
 
         // Included staged tables as this might be a commit
-        let GetTableMetadataResult {
+        let GetTableMetadataResponse {
             table: _,
             table_id,
             warehouse_id: _,

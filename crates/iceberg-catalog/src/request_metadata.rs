@@ -25,7 +25,7 @@ impl RequestMetadata {
         }
     }
 }
-
+#[cfg(feature = "router")]
 pub(crate) async fn create_request_metadata_with_trace_id_fn(
     headers: HeaderMap,
     mut request: axum::extract::Request,
