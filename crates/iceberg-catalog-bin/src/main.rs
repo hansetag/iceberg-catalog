@@ -34,6 +34,8 @@ enum Commands {
     Serve {},
     /// Check the health of the server
     Healthcheck {},
+    /// Print the version of the server
+    Version {},
 }
 
 async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -121,6 +123,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Migrate {}) => {
+            print_info();
             println!("Migrating database...");
             let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool().await?;
 
@@ -130,6 +133,7 @@ async fn main() -> anyhow::Result<()> {
             println!("Database migration complete.");
         }
         Some(Commands::Serve {}) => {
+            print_info();
             println!("Starting server on 0.0.0.0:8080...");
             let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
             serve(bind_addr).await?;
@@ -147,6 +151,9 @@ async fn main() -> anyhow::Result<()> {
                 println!("Server is healthy.");
             }
         }
+        Some(Commands::Version {}) => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+        }
         None => {
             // Error out if no subcommand is provided.
             eprintln!("No subcommand provided. Use --help for more information.");
@@ -154,6 +161,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_info() {
+    println!("Iceberg Catalog Version: {}", env!("CARGO_PKG_VERSION"));
 }
 
 async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
