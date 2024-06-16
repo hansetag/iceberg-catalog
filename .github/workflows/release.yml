@@ -175,7 +175,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
+          name: bin-${{ matrix.name }}
           path: ${{ matrix.name }}
 
   build-docker:
@@ -208,10 +208,10 @@ jobs:
 
       - name: Restore Binaries
         run: |
-          cd iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
+          cd bin-iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
           tar xzvf iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
           cd -
-          cd iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
+          cd bin-iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
           tar xzvf iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
           ls -Rlh
 
@@ -226,8 +226,8 @@ jobs:
           DOCKER_BUILDKIT=1 docker build -t localhost/iceberg-catalog-local:amd64 \
             -f docker/bin.Dockerfile \
             --build-arg "ARCH=amd64/" \
-            --build-arg "BIN=iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz/iceberg-catalog" .
-          docker save -o /tmp/iceberg-catalog-docker-amd64.tar localhost/iceberg-catalog-local:amd64
+            --build-arg "BIN=bin-iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz/iceberg-catalog" .
+          docker save -o /tmp/docker-iceberg-catalog-amd64.tar localhost/iceberg-catalog-local:amd64
 
       - name: Build Docker image (arm64)
         run: |
@@ -235,8 +235,8 @@ jobs:
             --platform linux/arm64 -t localhost/iceberg-catalog-local:arm64v8 \
             -f docker/bin.Dockerfile \
             --build-arg "ARCH=arm64v8/" \
-            --build-arg "BIN=iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
-          docker save -o /tmp/iceberg-catalog-docker-arm64v8.tar localhost/iceberg-catalog-local:arm64v8
+            --build-arg "BIN=bin-iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
+          docker save -o /tmp/docker-iceberg-catalog-arm64v8.tar localhost/iceberg-catalog-local:arm64v8
 
       - name: Test Docker (amd64)
         run: |
@@ -258,8 +258,8 @@ jobs:
       - name: Save Docker
         uses: actions/upload-artifact@v4
         with:
-          name: iceberg-catalog-image
-          path: /tmp/iceberg-catalog-docker-*.tar
+          name: docker-iceberg-catalog
+          path: /tmp/docker-iceberg-catalog-*.tar
 
       - name: Test Login to Quay.io
         uses: docker/login-action@v3
@@ -268,8 +268,8 @@ jobs:
           username: hansetag+githubicebergcatalog
           password: ${{ secrets.QUAY_PASSWORD }}
 
-  list-artifacts:
-    name: List Artifacts
+  debug:
+    name: Debug Artifacts
     runs-on: ubuntu-latest
     needs:
       - build-binary
@@ -280,6 +280,12 @@ jobs:
 
       - name: List Artifacts
         run: ls -Rlh
+      
+      - name: Inspect Docker
+        run: |
+          docker load -i docker-iceberg-catalog/iceberg-catalog-docker-amd64.tar
+          docker load -i docker-iceberg-catalog/iceberg-catalog-docker-arm64v8.tar
+          docker images
 
   # Create GitHub release with Rust build targets and release notes
   publish-binary:
@@ -302,7 +308,7 @@ jobs:
       - name: Build | Add Artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: iceberg-catalog-*/iceberg-catalog-*.tar.gz
+          files: bin-iceberg-catalog-*/iceberg-catalog-*
           tag_name: ${{ needs.release_please.outputs.tag_name }}
 
   publish-container:
@@ -326,8 +332,8 @@ jobs:
 
       - name: Push To quay.io
         run: |
-          docker load -i iceberg-catalog-docker-amd64.tar
-          docker load -i iceberg-catalog-docker-arm64v8.tar
+          docker load -i docker-iceberg-catalog/iceberg-catalog-docker-amd64.tar
+          docker load -i docker-iceberg-catalog/iceberg-catalog-docker-arm64v8.tar
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:latest-amd64
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-amd64
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-amd64
