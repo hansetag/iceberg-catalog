@@ -334,10 +334,30 @@ jobs:
           username: hansetag+githubicebergcatalog
           password: ${{ secrets.QUAY_PASSWORD }}
 
-      - name: Push To quay.io
+      - name: Load Docker
         run: |
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-amd64.tar
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-arm64v8.tar
+          docker images
+      
+      - name: Push Full Tag to quay.io
+        run: |
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-amd64
+          docker tag localhost/iceberg-catalog-local:arm64v8 quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-arm64v8
+          docker push quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-amd64
+          docker push quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-arm64v8
+          docker manifest create quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }} quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-amd64 quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-arm64v8
+      
+      - name: Check if Tag is vX.Y.Z
+        id: check-tag
+        run: |
+          if [[ ${{ needs.release_please.outputs.tag_name }} =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "match=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Push Partial Tag to quay.io
+        if: steps.check-tag.outputs.match == 'true'
+        run: |
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:latest-amd64
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-amd64
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-amd64
@@ -362,3 +382,4 @@ jobs:
           docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}
           docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}
           docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}
+      
