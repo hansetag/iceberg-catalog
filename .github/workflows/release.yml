@@ -274,6 +274,7 @@ jobs:
     needs:
       - build-binary
       - build-docker
+      - release_please
     steps:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
@@ -283,9 +284,12 @@ jobs:
       
       - name: Inspect Docker
         run: |
-          docker load -i docker-iceberg-catalog/iceberg-catalog-docker-amd64.tar
-          docker load -i docker-iceberg-catalog/iceberg-catalog-docker-arm64v8.tar
+          docker load -i docker-iceberg-catalog/docker-iceberg-catalog-amd64.tar
+          docker load -i docker-iceberg-catalog/docker-iceberg-catalog-arm64v8.tar
           docker images
+      
+      - name: Release Please
+        run: echo ${{ needs.release_please.outputs.tag_name }}
 
   # Create GitHub release with Rust build targets and release notes
   publish-binary:
@@ -332,8 +336,8 @@ jobs:
 
       - name: Push To quay.io
         run: |
-          docker load -i docker-iceberg-catalog/iceberg-catalog-docker-amd64.tar
-          docker load -i docker-iceberg-catalog/iceberg-catalog-docker-arm64v8.tar
+          docker load -i docker-iceberg-catalog/docker-iceberg-catalog-amd64.tar
+          docker load -i docker-iceberg-catalog/docker-iceberg-catalog-arm64v8.tar
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:latest-amd64
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-amd64
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-amd64
