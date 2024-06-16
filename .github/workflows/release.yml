@@ -227,7 +227,7 @@ jobs:
             -f docker/bin.Dockerfile \
             --build-arg "ARCH=amd64/" \
             --build-arg "BIN=iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz/iceberg-catalog" .
-          docker save -o /tmp/iceberg-catalog-amd64.tar localhost/iceberg-catalog-local:amd64
+          docker save -o /tmp/iceberg-catalog-docker-amd64.tar localhost/iceberg-catalog-local:amd64
 
       - name: Build Docker image (arm64)
         run: |
@@ -236,7 +236,7 @@ jobs:
             -f docker/bin.Dockerfile \
             --build-arg "ARCH=arm64v8/" \
             --build-arg "BIN=iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
-          docker save -o /tmp/iceberg-catalog-arm64v8.tar localhost/iceberg-catalog-local:arm64v8
+          docker save -o /tmp/iceberg-catalog-docker-arm64v8.tar localhost/iceberg-catalog-local:arm64v8
 
       - name: Test Docker (amd64)
         run: |
@@ -326,8 +326,8 @@ jobs:
 
       - name: Push To quay.io
         run: |
-          docker load -i /tmp/iceberg-catalog-docker-amd64.tar
-          docker load -i /tmp/iceberg-catalog-docker-arm64v8.tar
+          docker load -i iceberg-catalog-docker-amd64.tar
+          docker load -i iceberg-catalog-docker-arm64v8.tar
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:latest-amd64
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}-amd64
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}-amd64
