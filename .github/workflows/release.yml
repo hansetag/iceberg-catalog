@@ -27,10 +27,10 @@ jobs:
     if: github.repository == 'hansetag/iceberg-catalog'
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      major: ${{ steps.release.outputs.major }}
-      minor: ${{ steps.release.outputs.minor }}
-      patch: ${{ steps.release.outputs.patch }}
+      tag_name: ${{ steps.release.outputs['crates/iceberg-catalog--tag_name'] }}
+      major: ${{ steps.release.outputs['crates/iceberg-catalog--major'] }}
+      minor: ${{ steps.release.outputs['crates/iceberg-catalog--minor'] }}
+      patch: ${{ steps.release.outputs['crates/iceberg-catalog--patch'] }}
     steps:
       - uses: google-github-actions/release-please-action@v4
         id: release
