@@ -1,7 +1,7 @@
-ARG ARCH="amd64"
-ARG BIN=./target/release/iceberg-catalog
+ARG ARCH
 
 FROM gcr.io/distroless/cc-debian12:nonroot-${ARCH}
+ARG BIN
 
 # copy the build artifact from the build stage
 COPY ${BIN} /home/nonroot/iceberg-catalog
