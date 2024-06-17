@@ -3,7 +3,7 @@ FROM rust:1.79-slim-bookworm AS chef
 # We only pay the installation cost once, 
 # it will be cached from the second build onwards
 RUN apt update -q && \
-    apt install -yqq libpq-dev pkg-config --no-install-recommends && \
+    DEBIAN_FRONTEND=noninteractive apt install -yqq libpq-dev pkg-config libssl-dev make perl --no-install-recommends && \
     cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
 RUN cargo install cargo-chef 
 
