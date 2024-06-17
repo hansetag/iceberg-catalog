@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.0-rc2](https://github.com/hansetag/iceberg-catalog/compare/v0.1.0-rc1...v0.1.0-rc2) (2024-06-17)
+
+
+### Bug Fixes
+
+* add view router ([#116](https://github.com/hansetag/iceberg-catalog/issues/116)) ([0745cc8](https://github.com/hansetag/iceberg-catalog/commit/0745cc85e16974c05adc3b158f5cb04c9dd54ac4))
+
+
+### Miscellaneous Chores
+
+* 🚀 Release 0.1.0-rc2 ([9bc25ef](https://github.com/hansetag/iceberg-catalog/commit/9bc25ef2b44d6c29556a5d0913c076904b1cb010))
+
 ## [0.1.0-rc1](https://github.com/hansetag/iceberg-catalog/compare/v0.0.2-rc1...v0.1.0-rc1) (2024-06-16)
 
 
