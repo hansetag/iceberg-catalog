@@ -32,7 +32,7 @@ jobs:
       minor: ${{ steps.release.outputs['crates/iceberg-catalog--minor'] }}
       patch: ${{ steps.release.outputs['crates/iceberg-catalog--patch'] }}
     steps:
-      - uses: google-github-actions/release-please-action@v4
+      - uses: googleapis/release-please-action@v4
         id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
