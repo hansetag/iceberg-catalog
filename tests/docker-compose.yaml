@@ -38,6 +38,18 @@ services:
     volumes:
       - .:/opt/tests
 
+  migrate:
+    image: ${ICEBERG_REST_TEST_SERVER_IMAGE}
+    environment:
+      - ICEBERG_REST__PG_ENCRYPTION_KEY=abc
+      - ICEBERG_REST__PG_DATABASE_URL_READ=postgresql://postgres:postgres@db:2345/postgres
+      - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:postgres@db:2345/postgres
+      - RUST_LOG=trace,axum=trace
+    restart: "no"
+    entrypoint: [ "/home/nonroot/iceberg-catalog", "migrate" ]
+    depends_on:
+      db:
+        condition: service_healthy
   server:
     image: ${ICEBERG_REST_TEST_SERVER_IMAGE}
     environment:
@@ -51,14 +63,16 @@ services:
       - ICEBERG_REST__NATS_PASSWORD=test
       - ICEBERG_REST__OPENID_PROVIDER_URI=http://keycloak:8080/realms/test/
       - RUST_LOG=trace,axum=trace,reqwest=trace
-    entrypoint: [ "bash", "-c", "./iceberg-catalog migrate && ./iceberg-catalog serve" ]
+    entrypoint: [ "/home/nonroot/iceberg-catalog", "serve" ]
     healthcheck:
-      test: [ "CMD", "bash", "-c", "./iceberg-catalog healthcheck" ]
+      test: [ "CMD", "/home/nonroot/iceberg-catalog", "healthcheck" ]
       interval: 2s
       timeout: 10s
       retries: 2
       start_period: 10s
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       minio:

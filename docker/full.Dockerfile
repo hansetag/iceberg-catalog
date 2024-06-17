@@ -1,6 +1,11 @@
-FROM rust:1.79 AS chef
-
-RUN cargo install cargo-chef
+# docker build -f docker/full.Dockerfile -t iceberg-catalog-local:latest .
+FROM rust:1.79-slim-bookworm AS chef
+# We only pay the installation cost once, 
+# it will be cached from the second build onwards
+RUN apt update -q && \
+    DEBIAN_FRONTEND=noninteractive apt install -yqq curl libpq-dev pkg-config libssl-dev make perl --no-install-recommends && \
+    cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+RUN cargo install cargo-chef 
 
 WORKDIR /app
 
@@ -20,29 +25,11 @@ ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin iceberg-catalog
 
 # our final base
-FROM debian:bookworm-slim
+FROM gcr.io/distroless/cc-debian12:nonroot
 
-# non-root user
-ARG USERNAME=iceberg
-ARG USER_UID=5001
-ARG USER_GID=$USER_UID
-
-# Install OS deps
-RUN apt-get update -q && \
-    apt-get install -y -q openssl && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Create the user
-RUN groupadd --gid $USER_GID $USERNAME \
-    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME
-
-USER $USERNAME
-
-WORKDIR /home/$USERNAME
 
 # copy the build artifact from the build stage
-COPY --from=builder /app/target/release/iceberg-catalog .
+COPY --from=builder /app/target/release/iceberg-catalog /home/nonroot/iceberg-catalog
 
 # # set the startup command to run your binary
-CMD ["./iceberg-catalog"]
+CMD ["/home/nonroot/iceberg-catalog"]
