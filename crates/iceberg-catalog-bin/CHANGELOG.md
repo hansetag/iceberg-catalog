@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.0-rc3](https://github.com/hansetag/iceberg-catalog/compare/v0.1.0-rc2...v0.1.0-rc3) (2024-06-17)
+
+
+### Miscellaneous Chores
+
+* 🚀 Release 0.1.0-rc3 ([9b0d219](https://github.com/hansetag/iceberg-catalog/commit/9b0d219e865dce85803fc93da7233e92d3e8b4b8))
+
 ## [0.1.0-rc2](https://github.com/hansetag/iceberg-catalog/compare/v0.1.0-rc1...v0.1.0-rc2) (2024-06-17)
 
 
