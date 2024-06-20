@@ -1,17 +1,21 @@
+use crate::api::iceberg::v1::tables::Service;
 use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, CreateViewRequest, ErrorModel, ListTablesResponse,
     LoadViewResult, NamespaceParameters, PaginationQuery, Prefix, RenameTableRequest, Result,
-    TableIdent, ViewParameters,
+    TableIdent, TableParameters, ViewParameters,
 };
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use std::vec;
 
 use super::tables::{
-    maybe_body_to_json, validate_lowercase_property, validate_table_or_view_ident,
+    maybe_body_to_json, require_no_location_specified, validate_lowercase_property,
+    validate_table_or_view_ident,
 };
 use super::{namespace::validate_namespace_ident, require_warehouse_id, CatalogServer};
-use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
+use crate::service::{
+    auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, Transaction,
+};
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -59,6 +63,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let table = TableIdent::new(namespace.clone(), request.name.clone());
         validate_table_or_view_ident(&table)?;
 
+        // TODO: this correct?
+        require_no_location_specified(&request.location)?;
+
         if request.location.is_some() {
             return Err(ErrorModel::builder()
                 .code(StatusCode::BAD_REQUEST.into())
@@ -70,6 +77,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         validate_view_properties(request.properties.keys())?;
 
+        if request.view_version.representations().is_empty() {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message("View must have at least one query.".to_string())
+                .r#type("EmptyView".to_string())
+                .build()
+                .into());
+        }
+
         // ------------------- AUTHZ -------------------
         A::check_create_table(
             &request_metadata,
@@ -80,6 +96,64 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
+
+        let namespace_id =
+            C::namespace_ident_to_id(&warehouse_id, &namespace, state.v1_state.catalog.clone())
+                .await?
+                .ok_or(
+                    ErrorModel::builder()
+                        .code(StatusCode::NOT_FOUND.into())
+                        .message("Namespace does not exist".to_string())
+                        .r#type("NamespaceNotFound".to_string())
+                        .build(),
+                )?;
+
+        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog.clone()).await?;
+        let GetWarehouseResponse {
+            id: _,
+            name: _,
+            project_id: _,
+            storage_profile,
+            storage_secret_id,
+            status,
+        } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
+        crate::catalog::tables::require_active_warehouse(status)?;
+
+        if C::table_ident_to_id(&warehouse_id, &table, true, transaction)
+            .await?
+            .is_some()
+        {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message(format!(
+                    "Table '{}' already exists in Namespace '{}'",
+                    table.name,
+                    table.namespace.encode_in_url()
+                ))
+                .r#type("TableAlreadyExists".to_string())
+                .build()
+                .into());
+        }
+
+        if Self::view_exists(
+            ViewParameters {
+                prefix,
+                view: table.clone(),
+            },
+            state.clone(),
+            request_metadata.clone(),
+        ) {
+            return Err(ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message(format!(
+                    "View '{}' already exists in Namespace '{}'",
+                    table.name,
+                    table.namespace.encode_in_url()
+                ))
+                .r#type("ViewAlreadyExists".to_string())
+                .build()
+                .into());
+        };
 
         return Err(ErrorModel::builder()
             .code(StatusCode::NOT_IMPLEMENTED.into())
