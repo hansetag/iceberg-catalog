@@ -27,7 +27,7 @@ select trigger_updated_at('"view_metadata_versions"');
 create table "view"
 (
     view_id       uuid primary key     default uuid_generate_v1mc(),
-    identifier_id uuid        not null REFERENCES tabular_identifiers (identifier_id),
+    CONSTRAINT "tabular_ident_fk" FOREIGN KEY (view_id) REFERENCES tabular (tabular_id),
     metadata_id   uuid        not null REFERENCES view_metadata (metadata_id),
     -- Speed up S3 Signing requests. Otherwise not needed
     -- as the location is stored in the metadata.

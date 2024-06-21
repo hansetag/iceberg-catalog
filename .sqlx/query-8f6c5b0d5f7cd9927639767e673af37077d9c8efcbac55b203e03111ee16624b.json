@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO \"table\" (table_id, \"metadata\", \"metadata_location\", \"table_location\")\n        (\n            SELECT $1, $2, $3, $4\n            WHERE EXISTS (\n                SELECT 1\n                FROM warehouse w\n                INNER JOIN namespace n ON w.warehouse_id = n.warehouse_id\n                INNER JOIN tabular ti ON n.namespace_id = ti.namespace_id\n                WHERE ti.tabular_id = $1 AND w.status = 'active')\n                )\n        ON CONFLICT ON CONSTRAINT \"table_pkey\"\n        DO UPDATE SET \"metadata\" = $2, \"metadata_location\" = $3, \"table_location\" = $4\n        WHERE \"table\".\"metadata_location\" IS NULL\n        RETURNING \"table_id\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8f6c5b0d5f7cd9927639767e673af37077d9c8efcbac55b203e03111ee16624b"
+}

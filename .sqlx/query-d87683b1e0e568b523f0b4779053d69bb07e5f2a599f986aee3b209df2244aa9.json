@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE tabular ti\n            SET name = $1\n            WHERE tabular_id = $2\n            AND $3 IN (\n                SELECT warehouse_id FROM warehouse WHERE status = 'active'\n            )\n            RETURNING tabular_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tabular_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d87683b1e0e568b523f0b4779053d69bb07e5f2a599f986aee3b209df2244aa9"
+}

@@ -7,7 +7,7 @@ use super::{
     },
     table::{
         commit_table_transaction, create_table, drop_table, get_table_metadata_by_id,
-        get_table_metadata_by_s3_location, list_tables, load_table, rename_table,
+        get_table_metadata_by_s3_location, list_tables, load_table, rename_tabular,
         table_ident_to_id, table_idents_to_ids,
     },
     warehouse::{
@@ -187,7 +187,7 @@ impl Catalog for super::Catalog {
         destination: &TableIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
-        rename_table(warehouse_id, source_id, source, destination, transaction).await
+        rename_tabular(warehouse_id, source_id, source, destination, transaction).await
     }
 
     async fn drop_table<'a>(

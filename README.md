@@ -1,3 +1,5 @@
+**This repo is under active development, breaking changes in the database may still happen, we try to avoid them, but it may still happen.**
+
 # Iceberg Catalog - The TIP of the Iceberg
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)

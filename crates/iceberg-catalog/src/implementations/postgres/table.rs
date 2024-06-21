@@ -16,12 +16,13 @@ use iceberg_ext::{
 };
 
 use crate::api::{TableRequirementExt as _, TableUpdateExt};
-use sqlx::{types::Json, Row};
+use sqlx::{types::Json, Arguments, Execute, FromRow, Postgres, QueryBuilder};
 use std::default::Default;
 use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
 };
+use uuid::Uuid;
 
 const MAX_PARAMETERS: usize = 30000;
 
@@ -40,9 +41,10 @@ where
         r#"
         SELECT t."table_id", t."metadata_location"
         FROM "table" t
-        INNER JOIN namespace n ON t.namespace_id = n.namespace_id
+        INNER JOIN tabular ti ON t.table_id = ti.tabular_id
+        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE n.namespace_name = $1 AND t.table_name = $2
+        WHERE n.namespace_name = $1 AND ti.name = $2
         AND n.warehouse_id = $3
         AND w.status = 'active'
         "#,
@@ -100,52 +102,76 @@ where
             .build()
             .into());
     }
-
-    let mut query_builder = sqlx::QueryBuilder::new(
+    #[derive(FromRow)]
+    struct Q {
+        pub(crate) table_id: Uuid,
+        pub(crate) metadata_location: Option<String>,
+        pub(crate) table_name: String,
+        pub(crate) namespace: Vec<String>,
+    }
+    // This query is statically verified against our DB, we then take it apart to do some dynamic
+    // extension further down before reconstructing it.
+    let mut q = sqlx::query_as!(
+        Q,
         r#"
-        SELECT t."table_id", n.namespace_name as "namespace", t.table_name, t."metadata_location"
+        SELECT t."table_id", n.namespace_name as "namespace", ti.name as "table_name", t."metadata_location"
         FROM "table" t
-        INNER JOIN namespace n ON t.namespace_id = n.namespace_id
+        INNER JOIN tabular ti ON t.table_id = ti.tabular_id
+        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE w.status = 'active' and n."warehouse_id" = "#,
+        WHERE w.status = 'active' and n."warehouse_id" = $1"#,
+        warehouse_id.as_uuid()
     );
-    query_builder.push_bind(warehouse_id.as_uuid());
-    query_builder.push(r" AND (n.namespace_name, t.table_name) IN ");
+    let checked_sql = q.sql();
+
+    let mut query_builder: QueryBuilder<'_, Postgres> = sqlx::QueryBuilder::new(checked_sql);
+
+    let mut args = q.take_arguments().unwrap_or_default();
+
+    query_builder.push(r" AND (n.namespace_name, ti.name) IN ");
     query_builder.push("(");
 
+    let mut arg_idx = 2;
     for (i, table) in batch_tables.iter().enumerate() {
-        query_builder.push("(");
-        query_builder.push_bind(table.0.clone().inner());
+        query_builder.push(format!("(${arg_idx}"));
+        arg_idx += 1;
+        args.add(table.0.clone().inner());
+
         query_builder.push(", ");
-        query_builder.push_bind(table.1);
+
+        query_builder.push(format!("${arg_idx}"));
+        arg_idx += 1;
+        args.add(table.1);
+
         query_builder.push(")");
         if i != batch_tables.len() - 1 {
             query_builder.push(", ");
         }
     }
     query_builder.push(")");
-
     let query = query_builder.build();
 
-    let rows = query
+    let rows: Vec<Q> = sqlx::query_as_with(query.sql(), args)
         .fetch_all(catalog_state)
         .await
         .map_err(|e| e.into_error_model("Error fetching tables".to_string()))?;
 
     let mut table_map = HashMap::new();
-    for row in rows {
-        let table_id = row.get::<uuid::Uuid, _>("table_id").into();
-        let table_name = row.get::<String, _>("table_name");
-        let metadata_location = row.get::<Option<String>, _>("metadata_location");
-        let namespace =
-            NamespaceIdent::from_vec(row.get::<Vec<String>, _>("namespace")).map_err(|e| {
-                ErrorModel::builder()
-                    .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                    .message("Error parsing namespace".to_string())
-                    .r#type("NamespaceParseError".to_string())
-                    .stack(Some(vec![e.to_string()]))
-                    .build()
-            })?;
+    for Q {
+        table_id,
+        metadata_location,
+        table_name,
+        namespace,
+    } in rows
+    {
+        let namespace = NamespaceIdent::from_vec(namespace).map_err(|e| {
+            ErrorModel::builder()
+                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                .message("Error parsing namespace".to_string())
+                .r#type("NamespaceParseError".to_string())
+                .stack(Some(vec![e.to_string()]))
+                .build()
+        })?;
 
         let table_ident = TableIdent {
             namespace,
@@ -154,7 +180,7 @@ where
 
         let staged = metadata_location.is_none();
         if !staged || include_staged {
-            table_map.insert(table_ident, Some(table_id));
+            table_map.insert(table_ident, Some(table_id.into()));
         }
     }
 
@@ -222,41 +248,56 @@ pub(crate) async fn create_table(
             .build()
     })?;
 
+    let tabular_id = sqlx::query_scalar!(
+        r#"
+        with existed as (select tabular_id, typ from tabular where name=$2 and namespace_id=$3)
+        INSERT INTO tabular (tabular_id, name, namespace_id, typ)
+        VALUES ($1, $2, $3, 'table')
+        ON CONFLICT ON CONSTRAINT unique_name_per_namespace_id
+        DO UPDATE SET tabular_id = $1
+        RETURNING tabular_id
+        "#,
+        table_id.as_uuid(),
+        name,
+        namespace_id.as_uuid()
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| e.as_error_model("Error creating table".to_string()))?;
+
     // ToDo: Should we keep the old table_id?
     let _update_result = sqlx::query!(
         r#"
-        INSERT INTO "table" (table_id, namespace_id, "table_name", "metadata", "metadata_location", "table_location")
+        INSERT INTO "table" (table_id, "metadata", "metadata_location", "table_location")
         (
-            SELECT $1, $2, $3, $4, $5, $6
+            SELECT $1, $2, $3, $4
             WHERE EXISTS (
                 SELECT 1
                 FROM warehouse w
                 INNER JOIN namespace n ON w.warehouse_id = n.warehouse_id
-                WHERE n.namespace_id = $2 AND w.status = 'active'
-        ))
-        ON CONFLICT ON CONSTRAINT unique_table_name_per_namespace
-        DO UPDATE SET table_id= $1, "metadata" = $4, "metadata_location" = $5, "table_location" = $6
+                INNER JOIN tabular ti ON n.namespace_id = ti.namespace_id
+                WHERE ti.tabular_id = $1 AND w.status = 'active')
+                )
+        ON CONFLICT ON CONSTRAINT "table_pkey"
+        DO UPDATE SET "metadata" = $2, "metadata_location" = $3, "table_location" = $4
         WHERE "table"."metadata_location" IS NULL
         RETURNING "table_id"
         "#,
-        table_id.as_uuid(),
-        namespace_id.as_uuid(),
-        name,
+        tabular_id,
         table_metadata_ser,
         metadata_location,
         location
     )
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|e| {
-        match &e {
-            sqlx::Error::RowNotFound => ErrorModel::builder()
-                .code(StatusCode::CONFLICT.into())
-                .message("Table already exists in Namespace".to_string())
-                .r#type("TableAlreadyExists".to_string())
-                .build(),
+    .map_err(|e| match &e {
+        sqlx::Error::RowNotFound => ErrorModel::builder()
+            .code(StatusCode::CONFLICT.into())
+            .message("Table already exists in Namespace".to_string())
+            .r#type("TableAlreadyExists".to_string())
+            .build(),
         _ => e.as_error_model("Error creating table".to_string()),
-    }})?;
+    })?;
 
     Ok(CreateTableResponse { table_metadata })
 }
@@ -272,15 +313,16 @@ pub(crate) async fn load_table(
         r#"
         SELECT
             t."table_id",
-            t."namespace_id",
+            ti."namespace_id",
             t."metadata" as "metadata: Json<TableMetadata>",
             t."metadata_location",
             w.storage_profile as "storage_profile: Json<StorageProfile>",
             w."storage_secret_id"
         FROM "table" t
-        INNER JOIN namespace n ON t.namespace_id = n.namespace_id
+        INNER JOIN tabular ti ON t.table_id = ti.tabular_id
+        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE w.warehouse_id = $1 AND namespace_name = $2 AND table_name = $3
+        WHERE w.warehouse_id = $1 AND namespace_name = $2 AND ti.name = $3
         AND w.status = 'active'
         AND "metadata_location" IS NOT NULL
         "#,
@@ -319,10 +361,11 @@ pub(crate) async fn list_tables(
         r#"
         SELECT
             t."table_id",
-            table_name,
+            ti.name as "table_name",
             namespace_name
         FROM "table" t
-        INNER JOIN namespace n ON t.namespace_id = n.namespace_id
+        INNER JOIN tabular ti ON t.table_id = ti.tabular_id
+        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE n.warehouse_id = $1 
             AND namespace_name = $2
@@ -368,7 +411,7 @@ pub(crate) async fn get_table_metadata_by_id(
         r#"
         SELECT
             t."table_id",
-            table_name,
+            ti.name as "table_name",
             t."table_location",
             namespace_name,
             t."metadata" as "metadata: Json<TableMetadata>",
@@ -376,7 +419,8 @@ pub(crate) async fn get_table_metadata_by_id(
             w.storage_profile as "storage_profile: Json<StorageProfile>",
             w."storage_secret_id"
         FROM "table" t
-        INNER JOIN namespace n ON t.namespace_id = n.namespace_id
+        INNER JOIN tabular ti ON t.table_id = ti.tabular_id
+        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1 AND t."table_id" = $2
         AND w.status = 'active'
@@ -439,7 +483,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
         r#"
         SELECT
             t."table_id",
-            table_name,
+            ti.name as "table_name",
             t."table_location",
             namespace_name,
             t."metadata" as "metadata: Json<TableMetadata>",
@@ -447,7 +491,8 @@ pub(crate) async fn get_table_metadata_by_s3_location(
             w.storage_profile as "storage_profile: Json<StorageProfile>",
             w."storage_secret_id"
         FROM "table" t
-        INNER JOIN namespace n ON t.namespace_id = n.namespace_id
+        INNER JOIN tabular ti ON t.table_id = ti.tabular_id
+        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1
             AND $2 like t."table_location" || '%'
@@ -506,7 +551,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
 }
 
 /// Rename a table. Tables may be moved across namespaces.
-pub(crate) async fn rename_table(
+pub(crate) async fn rename_tabular(
     warehouse_id: &WarehouseIdent,
     source_id: &TableIdentUuid,
     source: &TableIdent,
@@ -525,13 +570,13 @@ pub(crate) async fn rename_table(
     if source_namespace == dest_namespace {
         let _ = sqlx::query_scalar!(
             r#"
-            UPDATE "table"
-            SET table_name = $1
-            WHERE table_id = $2
+            UPDATE tabular ti
+            SET name = $1
+            WHERE tabular_id = $2
             AND $3 IN (
                 SELECT warehouse_id FROM warehouse WHERE status = 'active'
             )
-            RETURNING table_id
+            RETURNING tabular_id
             "#,
             &**dest_name,
             source_id.as_uuid(),
@@ -550,18 +595,18 @@ pub(crate) async fn rename_table(
     } else {
         let _ = sqlx::query_scalar!(
             r#"
-            UPDATE "table"
-            SET table_name = $1, "namespace_id" = (
+            UPDATE tabular ti
+            SET name = $1, "namespace_id" = (
                 SELECT namespace_id
                 FROM namespace
                 WHERE warehouse_id = $2 AND namespace_name = $3
             )
-            WHERE "table_id" = $4
-            AND table_name = $5
+            WHERE tabular_id = $4
+            AND ti.name = $5
             AND $2 IN (
                 SELECT warehouse_id FROM warehouse WHERE status = 'active'
             )
-            RETURNING "table_id"
+            RETURNING tabular_id
             "#,
             &**dest_name,
             warehouse_id.as_uuid(),
@@ -595,9 +640,9 @@ pub(crate) async fn drop_table<'a>(
 ) -> Result<()> {
     let _ = sqlx::query!(
         r#"
-        DELETE FROM "table"
-        WHERE "table_id" = $1
-        AND "namespace_id" IN (
+        DELETE FROM "tabular" CASCADE
+        WHERE "tabular_id" = $1
+        AND namespace_id IN (
             SELECT "namespace_id"
             FROM namespace
             WHERE "warehouse_id" IN (
@@ -606,7 +651,7 @@ pub(crate) async fn drop_table<'a>(
                 WHERE status = 'active'
             )
         )
-        RETURNING "table_id"
+        RETURNING "tabular_id"
         "#,
         table_id.as_uuid()
     )
@@ -653,7 +698,8 @@ async fn get_commit_context<'a>(
             w."storage_secret_id",
             n.namespace_id
         FROM "table" t
-        INNER JOIN namespace n ON t.namespace_id = n.namespace_id
+        INNER JOIN tabular ti ON t.table_id = ti.tabular_id
+        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE "table_id" = ANY($1)
         AND w.status = 'active'
@@ -1026,7 +1072,11 @@ pub(crate) mod tests {
         )
         .await
         .unwrap_err();
-        assert_eq!(create_err.error.code, StatusCode::CONFLICT);
+        assert_eq!(
+            create_err.error.code,
+            StatusCode::CONFLICT,
+            "{create_err:?}"
+        );
 
         // Load should succeed
         let load_result = load_table(&warehouse_id, &table_ident, state.clone())
@@ -1075,6 +1125,8 @@ pub(crate) mod tests {
 
         // Second create should succeed
         let mut transaction = pool.begin().await.unwrap();
+        // TODO: being able to update a pkey which is also a fkey elsewhere makes our live quite hard
+        //       do we really really need this? if yes then uncomment the line below and deal with it
         let table_id = uuid::Uuid::now_v7().into();
         let create_result = create_table(
             &namespace_id,
@@ -1112,7 +1164,7 @@ pub(crate) mod tests {
     }
 
     #[sqlx::test]
-    fn test_to_id(pool: sqlx::PgPool) {
+    async fn test_to_id(pool: sqlx::PgPool) {
         let state = CatalogState {
             read_pool: pool.clone(),
             write_pool: pool.clone(),
@@ -1238,7 +1290,7 @@ pub(crate) mod tests {
         };
 
         let mut transaction = pool.begin().await.unwrap();
-        rename_table(
+        rename_tabular(
             &warehouse_id,
             &table.table_id,
             &table.table_ident,
@@ -1280,7 +1332,7 @@ pub(crate) mod tests {
         };
 
         let mut transaction = pool.begin().await.unwrap();
-        rename_table(
+        rename_tabular(
             &warehouse_id,
             &table.table_id,
             &table.table_ident,

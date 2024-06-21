@@ -1,8 +1,7 @@
-use crate::api::iceberg::v1::tables::Service;
 use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, CreateViewRequest, ErrorModel, ListTablesResponse,
     LoadViewResult, NamespaceParameters, PaginationQuery, Prefix, RenameTableRequest, Result,
-    TableIdent, TableParameters, ViewParameters,
+    TableIdent, ViewParameters,
 };
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
@@ -91,49 +90,48 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             &request_metadata,
             &warehouse_id,
             &namespace,
-            state.v1_state.auth,
+            state.v1_state.auth.clone(),
         )
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
 
-        let namespace_id =
-            C::namespace_ident_to_id(&warehouse_id, &namespace, state.v1_state.catalog.clone())
-                .await?
-                .ok_or(
-                    ErrorModel::builder()
-                        .code(StatusCode::NOT_FOUND.into())
-                        .message("Namespace does not exist".to_string())
-                        .r#type("NamespaceNotFound".to_string())
-                        .build(),
-                )?;
+        let _ = C::namespace_ident_to_id(&warehouse_id, &namespace, state.v1_state.catalog.clone())
+            .await?
+            .ok_or(
+                ErrorModel::builder()
+                    .code(StatusCode::NOT_FOUND.into())
+                    .message("Namespace does not exist".to_string())
+                    .r#type("NamespaceNotFound".to_string())
+                    .build(),
+            )?;
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog.clone()).await?;
         let GetWarehouseResponse {
             id: _,
             name: _,
             project_id: _,
-            storage_profile,
-            storage_secret_id,
+            storage_profile: _,
+            storage_secret_id: _,
             status,
         } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
         crate::catalog::tables::require_active_warehouse(status)?;
 
-        if C::table_ident_to_id(&warehouse_id, &table, true, transaction)
-            .await?
-            .is_some()
-        {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::CONFLICT.into())
-                .message(format!(
-                    "Table '{}' already exists in Namespace '{}'",
-                    table.name,
-                    table.namespace.encode_in_url()
-                ))
-                .r#type("TableAlreadyExists".to_string())
-                .build()
-                .into());
-        }
+        // if C::table_ident_to_id(&warehouse_id, &table, true, transaction)
+        //     .await?
+        //     .is_some()
+        // {
+        //     return Err(ErrorModel::builder()
+        //         .code(StatusCode::CONFLICT.into())
+        //         .message(format!(
+        //             "Table '{}' already exists in Namespace '{}'",
+        //             table.name,
+        //             table.namespace.encode_in_url()
+        //         ))
+        //         .r#type("TableAlreadyExists".to_string())
+        //         .build()
+        //         .into());
+        // }
 
         if Self::view_exists(
             ViewParameters {
@@ -142,7 +140,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             },
             state.clone(),
             request_metadata.clone(),
-        ) {
+        )
+        .await
+        .is_ok()
+        {
             return Err(ErrorModel::builder()
                 .code(StatusCode::CONFLICT.into())
                 .message(format!(

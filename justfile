@@ -16,7 +16,7 @@ check-cargo-sort:
 check: check-format check-clippy check-cargo-sort
 
 fix:
-    cargo clippy --all-targets --all-features --workspace --fix --allow-staged
+    cargo clippy --all-targets --all-features --workspace --fix --allow-staged --allow-dirty
     cargo fmt --all
     cargo sort -w
 
