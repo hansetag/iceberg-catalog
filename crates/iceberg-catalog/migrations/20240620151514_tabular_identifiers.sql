@@ -24,3 +24,12 @@ alter table "table"
     add constraint "tabular_ident_fk" foreign key (table_id) references tabular (tabular_id) on update cascade,
     drop column namespace_id,
     drop column table_name;
+
+
+create view active_tables as
+select tabular_id as table_id, t.namespace_id, name, typ
+from tabular t
+         join namespace on t.namespace_id = namespace.namespace_id
+         join warehouse w on namespace.warehouse_id = w.warehouse_id
+where typ = 'table'
+  and w.status = 'active';

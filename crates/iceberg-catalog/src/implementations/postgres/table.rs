@@ -102,16 +102,17 @@ where
             .build()
             .into());
     }
+
     #[derive(FromRow)]
     struct Q {
-        pub(crate) table_id: Uuid,
-        pub(crate) metadata_location: Option<String>,
-        pub(crate) table_name: String,
-        pub(crate) namespace: Vec<String>,
+        table_id: Uuid,
+        namespace: Vec<String>,
+        table_name: String,
+        metadata_location: Option<String>,
     }
     // This query is statically verified against our DB, we then take it apart to do some dynamic
     // extension further down before reconstructing it.
-    let mut q = sqlx::query_as!(
+    let mut statically_checked_query = sqlx::query_as!(
         Q,
         r#"
         SELECT t."table_id", n.namespace_name as "namespace", ti.name as "table_name", t."metadata_location"
@@ -122,11 +123,13 @@ where
         WHERE w.status = 'active' and n."warehouse_id" = $1"#,
         warehouse_id.as_uuid()
     );
-    let checked_sql = q.sql();
+    let checked_sql = statically_checked_query.sql();
 
     let mut query_builder: QueryBuilder<'_, Postgres> = sqlx::QueryBuilder::new(checked_sql);
 
-    let mut args = q.take_arguments().unwrap_or_default();
+    let mut args = statically_checked_query
+        .take_arguments()
+        .unwrap_or_default();
 
     query_builder.push(r" AND (n.namespace_name, ti.name) IN ");
     query_builder.push("(");
@@ -640,18 +643,12 @@ pub(crate) async fn drop_table<'a>(
 ) -> Result<()> {
     let _ = sqlx::query!(
         r#"
-        DELETE FROM "tabular" CASCADE
-        WHERE "tabular_id" = $1
-        AND namespace_id IN (
-            SELECT "namespace_id"
-            FROM namespace
-            WHERE "warehouse_id" IN (
-                SELECT "warehouse_id"
-                FROM warehouse
-                WHERE status = 'active'
-            )
+        DELETE FROM "table" CASCADE
+        WHERE "table_id" = $1
+        AND table_id IN (
+            select table_id from active_tables
         )
-        RETURNING "tabular_id"
+        RETURNING "table_id"
         "#,
         table_id.as_uuid()
     )
@@ -663,7 +660,10 @@ pub(crate) async fn drop_table<'a>(
             .message("Table not found".to_string())
             .r#type("NoSuchTableError".to_string())
             .build(),
-        _ => e.into_error_model("Error dropping table".to_string()),
+        _ => {
+            tracing::warn!("Error dropping table: {}", e);
+            e.into_error_model("Error dropping table".to_string())
+        }
     })?;
 
     Ok(())
@@ -1535,6 +1535,28 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
+        transaction.commit().await.unwrap();
+
+        let err = get_table_metadata_by_id(&warehouse_id, &table.table_id, false, state.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(err.error.code, StatusCode::NOT_FOUND);
+    }
+
+    #[sqlx::test]
+    async fn test_drop_table_works(pool: sqlx::PgPool) {
+        let state = CatalogState {
+            read_pool: pool.clone(),
+            write_pool: pool.clone(),
+        };
+
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let table = initialize_table(&warehouse_id, state.clone(), false).await;
+
+        let mut transaction = pool.begin().await.unwrap();
+        drop_table(&warehouse_id, &table.table_id, &mut transaction)
+            .await
+            .unwrap();
         transaction.commit().await.unwrap();
 
         let err = get_table_metadata_by_id(&warehouse_id, &table.table_id, false, state.clone())
