@@ -619,26 +619,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let include_staged = false;
-        C::table_ident_to_id(
-            &warehouse_id,
-            &table,
-            include_staged,
-            state.v1_state.catalog,
-        )
-        .await
-        .map(|r| {
-            if r.is_some() {
-                Ok(())
-            } else {
-                Err(ErrorModel::builder()
-                    .code(StatusCode::NOT_FOUND.into())
-                    .message(format!("Table does not exist in warehouse {warehouse_id}"))
-                    .r#type("TableNotFound".to_string())
-                    .build()
-                    .into())
-            }
-        })?
+        if table_id.is_some() {
+            Ok(())
+        } else {
+            Err(ErrorModel::builder()
+                .code(StatusCode::NOT_FOUND.into())
+                .message(format!("Table does not exist in warehouse {warehouse_id}"))
+                .r#type("TableNotFound".to_string())
+                .build()
+                .into())
+        }
     }
 
     /// Rename a table

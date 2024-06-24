@@ -375,10 +375,10 @@ pub(crate) mod tests {
     use crate::implementations::postgres::PostgresTransaction;
     use crate::service::{Catalog as _, Transaction as _};
 
-    use super::super::table::tests::initialize_table;
     use super::super::warehouse::test::initialize_warehouse;
     use super::super::Catalog;
     use super::*;
+    use crate::implementations::postgres::tabular::table::tests::initialize_table;
 
     pub(crate) async fn initialize_namespace(
         state: CatalogState,

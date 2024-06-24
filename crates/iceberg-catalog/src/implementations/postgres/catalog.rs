@@ -5,9 +5,9 @@ use super::{
         create_namespace, drop_namespace, get_namespace, list_namespaces, namespace_ident_to_id,
         update_namespace_properties,
     },
-    table::{
+    tabular::table::{
         commit_table_transaction, create_table, drop_table, get_table_metadata_by_id,
-        get_table_metadata_by_s3_location, list_tables, load_table, rename_tabular,
+        get_table_metadata_by_s3_location, list_tables, load_table, rename_table,
         table_ident_to_id, table_idents_to_ids,
     },
     warehouse::{
@@ -16,6 +16,7 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
+
 use crate::service::{
     CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
     GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
@@ -187,7 +188,7 @@ impl Catalog for super::Catalog {
         destination: &TableIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
-        rename_tabular(warehouse_id, source_id, source, destination, transaction).await
+        rename_table(warehouse_id, source_id, source, destination, transaction).await
     }
 
     async fn drop_table<'a>(
