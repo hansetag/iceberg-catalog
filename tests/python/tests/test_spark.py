@@ -45,12 +45,23 @@ def test_create_table(spark, warehouse: conftest.Warehouse):
     )
     assert len(loaded_table.schema().fields) == 3
 
+def test_create_view(spark, warehouse: conftest.Warehouse):
+    spark.sql("CREATE NAMESPACE test_create_table_spark")
+    spark.sql(
+        "CREATE TABLE test_create_table_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql("CREATE VIEW test_create_table_spark.my_view AS SELECT my_ints, my_floats FROM test_create_table_spark.my_table")
+    loaded_table = warehouse.pyiceberg_catalog.load_view(
+        ("test_create_table_spark", "my_view")
+    )
+    assert len(loaded_table.schema().fields) == 2
 
 def test_create_table_pyspark(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_table_pyspark")
     data = pd.DataFrame([[1, "a-string", 2.2]], columns=["id", "strings", "floats"])
     sdf = spark.createDataFrame(data)
     sdf.writeTo(f"test_create_table_pyspark.my_table").createOrReplace()
+
 
 
 def test_replace_table_pyspark(spark, warehouse: conftest.Warehouse):
