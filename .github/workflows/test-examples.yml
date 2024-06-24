@@ -77,7 +77,7 @@ jobs:
       - name: Test Examples
         run: |
           cd examples &&
-          sed -i 'sXquay.io/hansetag/XlocalhostXg' docker-compose.yaml &&
+          sed -i 'sXquay.io/hansetag/Xlocalhost/Xg' docker-compose.yaml &&
           docker compose up -d &&
           curl localhost:8888/lab
       - name: Dump docker logs on failure
