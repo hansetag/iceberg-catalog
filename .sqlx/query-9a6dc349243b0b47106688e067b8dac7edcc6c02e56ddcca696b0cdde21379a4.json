@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, timestamp)\n                    VALUES ($1, $2, $3, $4, $5)\n                    returning view_version_uuid\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "view_version_uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int4",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9a6dc349243b0b47106688e067b8dac7edcc6c02e56ddcca696b0cdde21379a4"
+}

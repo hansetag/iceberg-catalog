@@ -1,3 +1,5 @@
+use iceberg::spec::ViewMetadata;
+use iceberg_ext::catalog::rest::{CreateViewRequest, LoadViewResult};
 use std::collections::{HashMap, HashSet};
 
 use super::{
@@ -17,6 +19,8 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 
+use crate::implementations::postgres::tabular::view::create_view;
+use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::service::{
     CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
     GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
@@ -276,6 +280,26 @@ impl Catalog for super::Catalog {
             warehouse_id,
             storage_profile,
             storage_secret_id,
+            transaction,
+        )
+        .await
+    }
+
+    async fn create_view<'a>(
+        _: &WarehouseIdent,
+        namespace_id: &NamespaceIdentUuid,
+        view_id: &TabularIdentUuid,
+        view: &TableIdent,
+        request: CreateViewRequest,
+        metadata_location: &str,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<ViewMetadata> {
+        create_view(
+            namespace_id,
+            view,
+            TableIdentUuid::from(**view_id),
+            request,
+            metadata_location,
             transaction,
         )
         .await

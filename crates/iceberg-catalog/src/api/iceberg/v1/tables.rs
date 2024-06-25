@@ -288,7 +288,7 @@ pub struct DataAccess {
     pub remote_signing: bool,
 }
 
-fn parse_data_access(headers: &HeaderMap) -> DataAccess {
+pub(crate) fn parse_data_access(headers: &HeaderMap) -> DataAccess {
     let header = headers
         .get_all(DATA_ACCESS_HEADER)
         .iter()

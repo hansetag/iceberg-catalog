@@ -1,5 +1,6 @@
 use crate::implementations::postgres::tabular::TabularType;
 use iceberg::TableIdent;
+use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use uuid::Uuid;
 
@@ -7,6 +8,12 @@ use uuid::Uuid;
 pub(crate) enum TabularIdentUuid {
     Table(Uuid),
     View(Uuid),
+}
+
+impl Display for TabularIdentUuid {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.deref())
+    }
 }
 
 // We get these two types since we are using them as HashMap keys. Those need to be sized,

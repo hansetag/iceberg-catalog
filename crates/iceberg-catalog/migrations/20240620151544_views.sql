@@ -1,83 +1,95 @@
 create type view_format_version as enum ('v1');
 
-
-create table view_metadata
+create table view
 (
-    metadata_id         uuid primary key default uuid_generate_v1mc(),
-    metadata_location   text                not null,
-    view_format_version view_format_version not null
-);
-
-call add_time_columns('view_metadata');
-select trigger_updated_at('"view_metadata"');
-
-create table view_metadata_versions
-(
-    id          uuid        not null primary key default uuid_generate_v1mc(),
-    metadata_id uuid        not null REFERENCES view_metadata (metadata_id),
-    version_id  int         not null,
-    schema_id   int         not null,
-    timestamp   timestamptz not null,
-    constraint "unique_version_per_metadata" unique (metadata_id, version_id)
-);
-
-call add_time_columns('view_metadata_versions');
-select trigger_updated_at('"view_metadata_versions"');
-
-create table "view"
-(
-    view_id       uuid primary key     default uuid_generate_v1mc(),
+    view_id             uuid primary key default uuid_generate_v1mc(),
     CONSTRAINT "tabular_ident_fk" FOREIGN KEY (view_id) REFERENCES tabular (tabular_id),
-    metadata_id   uuid        not null REFERENCES view_metadata (metadata_id),
+    view_format_version view_format_version not null,
     -- Speed up S3 Signing requests. Otherwise not needed
     -- as the location is stored in the metadata.
-    view_location text        not null,
-    created_at    timestamptz not null default now(),
-    updated_at    timestamptz
+    location            text                not null,
+    metadata_location   text                not null
 );
-
 call add_time_columns('"view"');
 select trigger_updated_at('"view"');
+
+create table view_schema
+(
+    schema_id int primary key,
+    view_id   uuid  not null REFERENCES view (view_id),
+    -- the schema object is quite complex and I'm not sure about the benefits of inviting that complexity into sql
+    schema    jsonb not null
+);
+call add_time_columns('view_schema');
+select trigger_updated_at('view_schema');
+
+create table view_version
+(
+    view_version_uuid uuid        not null primary key default uuid_generate_v1mc(),
+    view_id           uuid        not null REFERENCES view (view_id),
+    version_id        bigint      not null,
+    schema_id         int         not null REFERENCES view_schema (schema_id),
+    timestamp         timestamptz not null,
+    constraint "unique_version_per_metadata" unique (view_id, version_id),
+    constraint "unique_version_per_metadata_including_pkey" unique (view_version_uuid, view_id, version_id)
+);
+call add_time_columns('view_version');
+select trigger_updated_at('view_version');
+
+create table view_properties
+(
+    property_id uuid primary key default uuid_generate_v1mc(),
+    view_id     uuid not null REFERENCES view (view_id),
+    key         text not null,
+    value       text not null
+);
+
+
+call add_time_columns('view_properties');
+select trigger_updated_at('"view_properties"');
 
 
 create table current_view_metadata_version
 (
-    metadata_id uuid primary key REFERENCES view_metadata (metadata_id),
-    version_id  uuid not null REFERENCES view_metadata_versions (id)
+    view_id      uuid primary key REFERENCES view (view_id),
+    version_uuid uuid not null REFERENCES view_version (view_version_uuid),
+    version_id   int8 not null,
+    FOREIGN KEY (version_uuid, view_id, version_id) REFERENCES view_version (view_id, view_version_uuid, version_id)
 );
 
 call add_time_columns('current_view_metadata_version');
 select trigger_updated_at('"current_view_metadata_version"');
 
+create table view_version_log
+(
+    id         uuid primary key default uuid_generate_v1mc(),
+    view_id    uuid   not null,
+    version_id bigint not null,
+    FOREIGN KEY (view_id, version_id) REFERENCES view_version (view_id, version_id)
+);
+call add_time_columns('view_version_log');
+
 create table metadata_summary
 (
-    metadata_id uuid primary key REFERENCES view_metadata (metadata_id),
-    version_id  uuid not null REFERENCES view_metadata_versions (id),
-    key         text not null,
-    value       text not null
+    summary_tuple_id uuid primary key default uuid_generate_v1mc(),
+    version_id       uuid not null REFERENCES view_version (view_version_uuid),
+    key              text not null,
+    value            text not null
 );
 
 call add_time_columns('metadata_summary');
 select trigger_updated_at('"metadata_summary"');
 
-create table view_metadata_version_representations
+create type view_representation_type as enum ('sql');
+create table view_representation
 (
     view_representation_id uuid primary key default uuid_generate_v1mc(),
-    metadata_id            uuid not null REFERENCES view_metadata (metadata_id),
-    version_id             uuid not null REFERENCES view_metadata_versions (id)
+    view_id                uuid                     not null REFERENCES view (view_id),
+    version_id             uuid                     not null REFERENCES view_version (view_version_uuid),
+    typ                    view_representation_type not null,
+    sql                    text                     not null,
+    dialect                text                     not null
 );
 
-call add_time_columns('view_metadata_version_representations');
-select trigger_updated_at('"view_metadata_version_representations"');
-
-create table sql_view_representation
-(
-    view_representation_id uuid primary key     default uuid_generate_v1mc(),
-    sql                    text        not null,
-    dialect                text        not null,
-    created_at             timestamptz not null default now(),
-    updated_at             timestamptz
-);
-
-call add_time_columns('sql_view_representation');
-select trigger_updated_at('"sql_view_representation"');
+call add_time_columns('view_representation');
+select trigger_updated_at('"view_representation"');

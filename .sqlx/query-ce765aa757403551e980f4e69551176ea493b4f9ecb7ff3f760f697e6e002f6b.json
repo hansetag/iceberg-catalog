@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO view_representation (view_id, view_representation_id, typ, sql, dialect)\n            VALUES ($1, $2, $3, $4, $5)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "view_representation_type",
+            "kind": {
+              "Enum": [
+                "sql"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ce765aa757403551e980f4e69551176ea493b4f9ecb7ff3f760f697e6e002f6b"
+}

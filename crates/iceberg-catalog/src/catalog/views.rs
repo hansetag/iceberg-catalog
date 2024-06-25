@@ -1,8 +1,11 @@
 use crate::api::iceberg::v1::{
-    ApiContext, CommitViewRequest, CreateViewRequest, ErrorModel, ListTablesResponse,
+    ApiContext, CommitViewRequest, CreateViewRequest, DataAccess, ErrorModel, ListTablesResponse,
     LoadViewResult, NamespaceParameters, PaginationQuery, Prefix, RenameTableRequest, Result,
     TableIdent, ViewParameters,
 };
+use crate::catalog::io::write_metadata_file;
+use crate::implementations::postgres::tabular::view::create_view;
+use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use std::vec;
@@ -13,7 +16,8 @@ use super::tables::{
 };
 use super::{namespace::validate_namespace_ident, require_warehouse_id, CatalogServer};
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, Transaction,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, TableIdentUuid,
+    Transaction,
 };
 
 #[async_trait::async_trait]
@@ -54,6 +58,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         parameters: NamespaceParameters,
         request: CreateViewRequest,
         state: ApiContext<State<A, C, S>>,
+        data_access: DataAccess,
         request_metadata: RequestMetadata,
     ) -> Result<LoadViewResult> {
         // ------------------- VALIDATIONS -------------------
@@ -96,72 +101,83 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
 
-        let _ = C::namespace_ident_to_id(&warehouse_id, &namespace, state.v1_state.catalog.clone())
-            .await?
-            .ok_or(
-                ErrorModel::builder()
-                    .code(StatusCode::NOT_FOUND.into())
-                    .message("Namespace does not exist".to_string())
-                    .r#type("NamespaceNotFound".to_string())
-                    .build(),
-            )?;
+        let namespace_id =
+            C::namespace_ident_to_id(&warehouse_id, &namespace, state.v1_state.catalog.clone())
+                .await?
+                .ok_or(
+                    ErrorModel::builder()
+                        .code(StatusCode::NOT_FOUND.into())
+                        .message("Namespace does not exist".to_string())
+                        .r#type("NamespaceNotFound".to_string())
+                        .build(),
+                )?;
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog.clone()).await?;
         let GetWarehouseResponse {
             id: _,
             name: _,
             project_id: _,
-            storage_profile: _,
-            storage_secret_id: _,
+            storage_profile,
+            storage_secret_id,
             status,
         } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
         crate::catalog::tables::require_active_warehouse(status)?;
 
-        // if C::table_ident_to_id(&warehouse_id, &table, true, transaction)
-        //     .await?
-        //     .is_some()
-        // {
-        //     return Err(ErrorModel::builder()
-        //         .code(StatusCode::CONFLICT.into())
-        //         .message(format!(
-        //             "Table '{}' already exists in Namespace '{}'",
-        //             table.name,
-        //             table.namespace.encode_in_url()
-        //         ))
-        //         .r#type("TableAlreadyExists".to_string())
-        //         .build()
-        //         .into());
-        // }
+        let table_id: TabularIdentUuid = TabularIdentUuid::View(uuid::Uuid::now_v7());
 
-        if Self::view_exists(
-            ViewParameters {
-                prefix,
-                view: table.clone(),
-            },
-            state.clone(),
-            request_metadata.clone(),
+        let view_location = storage_profile.tabular_location(&namespace_id, &table_id);
+        let mut request = request;
+        let metadata_location = storage_profile.metadata_location(&view_location, &table_id);
+        request.location.as_mut().map(|loc| *loc = view_location);
+        let request = request;
+
+        let metadata = C::create_view(
+            &warehouse_id,
+            &namespace_id,
+            &table_id,
+            &table,
+            request,
+            &metadata_location,
+            transaction.transaction(),
         )
-        .await
-        .is_ok()
-        {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::CONFLICT.into())
-                .message(format!(
-                    "View '{}' already exists in Namespace '{}'",
-                    table.name,
-                    table.namespace.encode_in_url()
-                ))
-                .r#type("ViewAlreadyExists".to_string())
-                .build()
-                .into());
+        .await?;
+
+        // We don't commit the transaction yet, first we need to write the metadata file.
+        let storage_secret = if let Some(secret_id) = &storage_secret_id {
+            Some(
+                S::get_secret_by_id(secret_id, state.v1_state.secrets)
+                    .await?
+                    .secret,
+            )
+        } else {
+            None
         };
 
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_IMPLEMENTED.into())
-            .message("Creating views is not supported".to_string())
-            .r#type("CreateViewNotSupported".to_string())
-            .build()
-            .into());
+        let file_io = storage_profile.file_io(storage_secret.as_ref())?;
+        write_metadata_file(metadata_location.as_str(), &metadata, &file_io).await?;
+        tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
+
+        // Generate the storage profile. This requires the storage secret
+        // because the table config might contain vended-credentials based
+        // on the `data_access` parameter.
+        // ToDo: There is a small inefficiency here: If storage credentials
+        // are not required because of i.e. remote-signing and if this
+        // is a stage-create, we still fetch the secret.
+        let config = storage_profile
+            .generate_table_config(
+                &warehouse_id,
+                &namespace_id,
+                &TableIdentUuid::from(*table_id),
+                &data_access,
+                storage_secret.as_ref(),
+            )
+            .await?;
+
+        return Ok(LoadViewResult {
+            metadata_location,
+            metadata,
+            config: Some(config),
+        });
     }
 
     /// Load a view from the catalog

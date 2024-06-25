@@ -1,7 +1,8 @@
-use iceberg::spec::TableMetadata;
+use iceberg::spec::{TableMetadata, ViewMetadata};
 pub use iceberg_ext::catalog::rest::{
     CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
 };
+use iceberg_ext::catalog::rest::{CreateViewRequest, LoadViewResult};
 use std::collections::{HashMap, HashSet};
 
 use crate::SecretIdent;
@@ -15,6 +16,7 @@ pub use crate::api::iceberg::v1::{
     NamespaceIdent, Result, TableIdent, UpdateNamespacePropertiesRequest,
     UpdateNamespacePropertiesResponse,
 };
+use crate::implementations::postgres::tabular::TabularIdentUuid;
 
 #[async_trait::async_trait]
 pub trait Transaction<D>
@@ -302,4 +304,14 @@ where
         storage_secret_id: Option<SecretIdent>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
+
+    async fn create_view<'a>(
+        warehouse_id: &WarehouseIdent,
+        namespace_id: &NamespaceIdentUuid,
+        view_id: &TabularIdentUuid,
+        view: &TableIdent,
+        request: CreateViewRequest,
+        metadata_location: &str,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<ViewMetadata>;
 }
