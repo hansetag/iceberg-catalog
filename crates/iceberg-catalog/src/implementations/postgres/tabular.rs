@@ -268,11 +268,14 @@ pub(crate) async fn create_tabular<'a>(
     .fetch_one(conn)
     .await
     .map_err(|e| match &e {
-        sqlx::Error::RowNotFound => ErrorModel::builder()
-            .code(StatusCode::CONFLICT.into())
-            .message("Table or View with same name already exists in Namespace".to_string())
-            .r#type("TableOrViewAlreadyExists".to_string())
-            .build(),
+        sqlx::Error::RowNotFound => {
+            eprintln!("conflicted out {}, {}, {}", id, namespace_id, typ);
+            ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message("Table or View with same name already exists in Namespace".to_string())
+                .r#type("TableOrViewAlreadyExists".to_string())
+                .build()
+        }
         _ => e.as_error_model(format!("Error creating {typ}")),
     })?)
 }

@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n    SELECT version_id, schema_id, timestamp, namespace_name as default_namespace_name, view_version_uuid\n    FROM view_version\n    JOIN namespace ns on ns.namespace_id = view_version.default_namespace_id\n    WHERE view_id = $1\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "schema_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "default_namespace_name",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "view_version_uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "691377b374b5aa27af2e96d5816dc6ad2019d6f41c4ce8246bbf919905c0eeb1"
+}

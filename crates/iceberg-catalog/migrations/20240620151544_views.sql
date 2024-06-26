@@ -13,28 +13,6 @@ create table view
 call add_time_columns('"view"');
 select trigger_updated_at('"view"');
 
-create table view_schema
-(
-    schema_id int primary key,
-    view_id   uuid  not null REFERENCES view (view_id) ON DELETE CASCADE,
-    -- the schema object is quite complex and I'm not sure about the benefits of inviting that complexity into sql
-    schema    jsonb not null
-);
-call add_time_columns('view_schema');
-select trigger_updated_at('view_schema');
-
-create table view_version
-(
-    view_version_uuid uuid        not null primary key default uuid_generate_v1mc(),
-    view_id           uuid        not null REFERENCES view (view_id) ON DELETE CASCADE,
-    version_id        bigint      not null,
-    schema_id         int         not null REFERENCES view_schema (schema_id) ON DELETE CASCADE,
-    timestamp         timestamptz not null,
-    constraint "unique_version_per_metadata" unique (view_id, version_id),
-    constraint "unique_version_per_metadata_including_pkey" unique (view_version_uuid, view_id, version_id)
-);
-call add_time_columns('view_version');
-select trigger_updated_at('view_version');
 
 create table view_properties
 (
@@ -48,6 +26,29 @@ create table view_properties
 call add_time_columns('view_properties');
 select trigger_updated_at('"view_properties"');
 
+create table view_schema
+(
+    schema_id int primary key,
+    view_id   uuid  not null REFERENCES view (view_id) ON DELETE CASCADE,
+    -- the schema object is quite complex and I'm not sure about the benefits of inviting that complexity into sql
+    schema    jsonb not null
+);
+call add_time_columns('view_schema');
+select trigger_updated_at('view_schema');
+
+create table view_version
+(
+    view_version_uuid    uuid        not null primary key default uuid_generate_v1mc(),
+    view_id              uuid        not null REFERENCES view (view_id) ON DELETE CASCADE,
+    version_id           bigint      not null,
+    schema_id            int         not null REFERENCES view_schema (schema_id) ON DELETE CASCADE,
+    timestamp            timestamptz not null,
+    default_namespace_id uuid REFERENCES namespace (namespace_id),
+    constraint "unique_version_per_metadata" unique (view_id, version_id),
+    constraint "unique_version_per_metadata_including_pkey" unique (view_version_uuid, view_id, version_id)
+);
+call add_time_columns('view_version');
+select trigger_updated_at('view_version');
 
 create table current_view_metadata_version
 (
@@ -72,10 +73,10 @@ call add_time_columns('view_version_log');
 
 create table metadata_summary
 (
-    summary_tuple_id uuid primary key default uuid_generate_v1mc(),
-    version_id       uuid not null REFERENCES view_version (view_version_uuid) ON DELETE CASCADE,
-    key              text not null,
-    value            text not null
+    summary_tuple_id  uuid primary key default uuid_generate_v1mc(),
+    view_version_uuid uuid not null REFERENCES view_version (view_version_uuid) ON DELETE CASCADE,
+    key               text not null,
+    value             text not null
 );
 
 call add_time_columns('metadata_summary');

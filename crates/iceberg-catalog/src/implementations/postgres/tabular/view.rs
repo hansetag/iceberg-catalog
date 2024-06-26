@@ -23,8 +23,8 @@ use crate::implementations::postgres::tabular::{
 use chrono::{DateTime, Utc};
 use futures::TryFutureExt;
 use iceberg::spec::{
-    Schema, SchemaRef, ViewMetadata, ViewMetadataBuilder, ViewRepresentation, ViewVersion,
-    ViewVersionLog,
+    Schema, SchemaRef, SqlViewRepresentation, ViewFormatVersion as IcebergViewFormat, ViewMetadata,
+    ViewMetadataBuilder, ViewRepresentation, ViewVersion, ViewVersionLog, ViewVersionRef,
 };
 use iceberg::ViewCreation;
 use iceberg_ext::catalog::rest::{CreateViewRequest, IcebergErrorResponse, LoadViewResult};
@@ -32,8 +32,9 @@ use openssl::derive;
 use openssl::version::version;
 use serde_json::to_string;
 use sqlx::types::Json;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, PgConnection, Postgres, Transaction};
 use std::default::Default;
+use std::sync::Arc;
 use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
@@ -200,7 +201,7 @@ pub(crate) async fn create_view(
         &mut *transaction,
     )
     .await?;
-
+    eprintln!("Done tabular");
     let view_id = sqlx::query_scalar!(
         r#"
         INSERT INTO view (view_id, view_format_version, location, metadata_location)
@@ -345,24 +346,43 @@ async fn create_view_version(
     let view_version = view_version_request.inner();
     let version_id = view_version.version_id();
     let schema_id = view_version.schema_id();
-
+    let default_ns = view_version.default_namespace();
+    let default_ns = default_ns.clone().inner();
+    let default_namespace_id: Option<Uuid> = sqlx::query_scalar!(
+        r#"
+        SELECT namespace_id
+        FROM namespace
+        WHERE namespace_name = $1
+        "#,
+        &default_ns
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|e| {
+        let message = "Error fetching namespace_id".to_string();
+        tracing::warn!("{}", message);
+        e.into_error_model(message)
+    })?;
+    let default_cat = view_version.default_catalog();
+    eprintln!("{} {} {} {:?}", view_id, version_id, schema_id, default_ns);
     let version_uuid = sqlx::query_scalar!(
                 r#"
-                    INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, timestamp)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, timestamp, default_namespace_id)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                     returning view_version_uuid
                 "#,
                 Uuid::now_v7(),
                 view_id,
                 version_id,
                 schema_id,
-                view_version.timestamp()
+                view_version.timestamp(),
+                default_namespace_id
             )
         .fetch_one(&mut **transaction)
         .await.map_err(|e| {
         if let e = sqlx::Error::RowNotFound {
             let message = "View version already exists";
-            tracing::debug!("{}", message);
+            eprintln!("{} {:?}", message, e.to_string());
             ErrorModel::builder()
                 .code(StatusCode::CONFLICT.into())
                 .message(message.to_string())
@@ -378,7 +398,7 @@ async fn create_view_version(
     for (k, v) in view_version.summary().into_iter() {
         sqlx::query!(
             r#"
-            INSERT INTO metadata_summary (summary_tuple_id, version_id, key, value)
+            INSERT INTO metadata_summary (summary_tuple_id, view_version_uuid, key, value)
             VALUES ($1, $2, $3, $4)
             "#,
             Uuid::now_v7(),
@@ -458,38 +478,109 @@ async fn create_view_version(
 }
 
 #[derive(FromRow, Debug)]
-pub struct BaseQuery {
+pub struct View {
     view_id: uuid::Uuid,
     #[sqlx(rename = "view_format_version: ViewFormatVersion")]
     view_format_version: ViewFormatVersion,
     view_location: String,
     metadata_location: Option<String>,
     current_version_id: i64,
-    property_keys: Vec<String>,
-    property_values: Vec<String>,
 }
 
-impl BaseQuery {}
+pub struct MetadataFetcher {
+    warehouse_id: Uuid,
+    namespace: NamespaceIdent,
+    name: String,
+    view: Option<View>,
+    properties: Option<HashMap<String, String>>,
+    schemas: Option<HashMap<i32, SchemaRef>>,
+    versions: Option<HashMap<i64, ViewVersionRef>>,
+    version_log: Option<Vec<ViewVersionLog>>,
+}
 
-pub(crate) async fn load_view(
-    warehouse_id: &WarehouseIdent,
-    table: &TableIdent,
-    catalog_state: CatalogState,
-) -> Result<LoadViewResult> {
-    let TableIdent { namespace, name } = table;
-    let view = (sqlx::query_as!(
-        BaseQuery,
-        r#"
+impl MetadataFetcher {
+    pub fn new(
+        warehouse_ident: WarehouseIdent,
+        namespace_ident: NamespaceIdent,
+        name: String,
+    ) -> Self {
+        Self {
+            warehouse_id: *warehouse_ident.as_uuid(),
+            namespace: namespace_ident,
+            name,
+            view: None,
+            properties: None,
+            schemas: None,
+            versions: None,
+            version_log: None,
+        }
+    }
+
+    pub async fn fetch_metadata(self, conn: &mut PgConnection) -> ViewMetadata {
+        let slf = self
+            .fetch_view(&mut *conn)
+            .await
+            .fetch_schemas(&mut *conn)
+            .await
+            .fetch_properties(&mut *conn)
+            .await
+            .fetch_versions(&mut *conn)
+            .await
+            .fetch_version_log(&mut *conn)
+            .await;
+        let view = slf.view.unwrap();
+        ViewMetadataBuilder::from_parts(
+            iceberg::spec::ViewFormatVersion::V1,
+            view.view_id,
+            view.view_location,
+            view.current_version_id,
+            slf.versions.unwrap(),
+            slf.version_log.unwrap(),
+            slf.schemas.unwrap(),
+            slf.properties.unwrap(),
+        )
+        .build()
+        .unwrap()
+    }
+
+    pub async fn fetch_version_log(mut self, conn: &mut PgConnection) -> Self {
+        self.version_log = Some(
+            sqlx::query!(
+                r#"
+                SELECT version_id, timestamp
+                FROM view_version_log
+                WHERE view_id = $1
+                "#,
+                self.view.as_ref().unwrap().view_id
+            )
+            .fetch_all(conn)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| {
+                (ViewVersionLog {
+                    version_id: r.version_id,
+                    timestamp_ms: r.timestamp.timestamp_millis(),
+                })
+            })
+            .collect(),
+        );
+        self
+    }
+
+    pub async fn fetch_view(mut self, conn: &mut PgConnection) -> Self {
+        let view = sqlx::query_as!(
+            View,
+            r#"
     select
         v.view_id,
         view_format_version as "view_format_version: ViewFormatVersion",
         location as view_location,
         v.metadata_location,
-        cvv.version_id as current_version_id,
-        COALESCE(ARRAY_AGG(vp.key) filter (where vp.value is not null), '{}') AS "property_keys!",
-        COALESCE(ARRAY_AGG(vp.value) filter (where vp.value is not null), '{}') as "property_values!"
+        cvv.version_id as current_version_id
      from view v
         LEFT JOIN view_properties vp ON v.view_id = vp.view_id
+        JOIN view_version vv on v.view_id = vv.view_id
         JOIN tabular ta ON v.view_id=ta.tabular_id
         JOIN namespace n ON ta.namespace_id = n.namespace_id
         JOIN warehouse w ON n.warehouse_id = w.warehouse_id
@@ -497,49 +588,163 @@ pub(crate) async fn load_view(
     WHERE n.warehouse_id = $1 AND n.namespace_name = $2 AND ta.name = $3
     AND w.status = 'active' AND ta.typ = 'view'
     GROUP BY v.view_id, cvv.version_id"#,
-        warehouse_id.as_uuid(),
-        &namespace.clone().inner(),
-        name
-    )
-    .fetch_one(&catalog_state.read_pool)
-    .await
-    .unwrap());
-    eprintln!("{:?}", view);
-    // let table = sqlx::query!(
-    //     r#"
-    //     SELECT v.view_id,
-    //            view_format_version,
-    //            location as view_location,
-    //            metadata_location as metadata_location,
-    //            current_version_id,
-    //            ARRAY_AGG(vm.id) AS ids,
-    //            ARRAY_AGG(vm.view_id) AS view_ids,
-    //            ARRAY_AGG(vm.version_id) AS version_ids,
-    //            ARRAY_AGG(vm.schema_id) AS schema_ids,
-    //            ARRAY_AGG(vm.timestamp) AS timestamps,
-    //            ARRAY_AGG(vm.created_at) AS created_ats,
-    //            ARRAY_AGG(vm.updated_at) AS updated_ats
-    //     FROM view v
-    //     JOIN current_view_version cvv ON v.view_id = cvv.view_id
-    //     JOIN view_metadata_versions vmv ON v.view_id = vmv.view_id
-    //     JOIN metadata_summary ms on vmv version_id = ms.version_id AND ms.view_id = v.view_id
-    //     JOIN view_metadata_version_representation vmvr ON vmv.id = vmvr.id
-    //
-    //     GROUP BY v.view_id;
-    //     "#,
-    // )
-    // .fetch_one(&catalog_state.read_pool)
-    // .await
-    // .map_err(|e| match e {
-    //     sqlx::Error::RowNotFound => ErrorModel::builder()
-    //         .code(StatusCode::NOT_FOUND.into())
-    //         .message("Table not found".to_string())
-    //         .r#type("NoSuchTableError".to_string())
-    //         .build(),
-    //     _ => e.into_error_model("Error fetching table".to_string()),
-    // })?;
+            self.warehouse_id,
+            &self.namespace.clone().inner(),
+            &self.name
+        )
+        .fetch_one(conn)
+        .await
+        .unwrap();
 
-    todo!()
+        self.view = Some(view);
+        self
+    }
+
+    pub async fn fetch_schemas(mut self, conn: &mut PgConnection) -> Self {
+        let schemas = sqlx::query!(
+            r#"
+            SELECT schema_id, schema
+            FROM view_schema
+            WHERE view_id = $1
+            "#,
+            self.view.as_ref().unwrap().view_id
+        )
+        .fetch_all(conn)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| {
+            let schema: Schema = serde_json::from_value(r.schema).unwrap();
+            (r.schema_id, Arc::new(schema))
+        })
+        .collect();
+
+        self.schemas = Some(schemas);
+        self
+    }
+
+    pub async fn fetch_properties(mut self, conn: &mut PgConnection) -> Self {
+        let properties = sqlx::query!(
+            r#"
+            SELECT key, value
+            FROM view_properties
+            WHERE view_id = $1
+            "#,
+            self.view.as_ref().unwrap().view_id
+        )
+        .fetch_all(conn)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| (r.key, r.value))
+        .collect();
+
+        self.properties = Some(properties);
+        self
+    }
+
+    pub async fn fetch_versions(mut self, conn: &mut PgConnection) -> Self {
+        let mut versions = HashMap::new();
+        let rows = sqlx::query!(
+            r#"
+    SELECT version_id, schema_id, timestamp, namespace_name as default_namespace_name, view_version_uuid
+    FROM view_version
+    JOIN namespace ns on ns.namespace_id = view_version.default_namespace_id
+    WHERE view_id = $1
+    "#,
+            self.view.as_ref().unwrap().view_id
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .unwrap();
+
+        for r in rows {
+            let timestamp = r.timestamp;
+            let builder = ViewVersion::builder()
+                .with_timestamp_ms(timestamp.timestamp_millis())
+                .with_version_id(r.version_id)
+                .with_default_namespace(NamespaceIdent::from_vec(r.default_namespace_name).unwrap())
+                .with_schema_id(r.schema_id);
+            let summaries: HashMap<String, String> = sqlx::query!(
+                r#"
+                SELECT key, value
+                FROM metadata_summary
+                WHERE view_version_uuid = $1
+                "#,
+                r.view_version_uuid
+            )
+            .fetch_all(&mut *conn)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.key, r.value))
+            .collect();
+            let builder = builder.with_summary(summaries);
+            let representations: Vec<ViewRepresentation> = sqlx::query!(
+                r#"
+                SELECT typ as "typ: ViewRepresentationType", sql, dialect
+                FROM view_representation
+                WHERE view_version_uuid = $1
+                "#,
+                r.view_version_uuid
+            )
+            .fetch_all(&mut *conn)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| {
+                let repr = match r.typ {
+                    ViewRepresentationType::SQL => {
+                        ViewRepresentation::SqlViewRepresentation(SqlViewRepresentation {
+                            sql: r.sql,
+                            dialect: r.dialect,
+                        })
+                    }
+                };
+                repr
+            })
+            .collect();
+            versions.insert(
+                r.version_id,
+                Arc::new(builder.with_representations(representations).build()),
+            );
+        }
+
+        self.versions = Some(versions);
+        self
+    }
+}
+
+pub struct VersionBuilder {
+    summaries: Option<HashMap<String, String>>,
+    representations: Option<Vec<ViewRepresentation>>,
+}
+//
+// impl BaseQuery {
+//     async fn load_view_versions(self, conn: &mut PgConnection) {
+//         sqlx::query!(
+//             r#"
+//             SELECT * fROM view_version
+//             JOIN metadata_summary ON view_version.version_id = metadata_summary.version_id
+//             JOIN
+//             WHERE view_id = $1
+//             "#
+//         )
+//     }
+// }
+
+pub(crate) async fn load_view(
+    warehouse_id: &WarehouseIdent,
+    table: &TableIdent,
+    catalog_state: CatalogState,
+) -> Result<ViewMetadata> {
+    let fetcher = crate::implementations::postgres::tabular::view::MetadataFetcher::new(
+        warehouse_id.clone(),
+        table.namespace.clone(),
+        table.name.clone(),
+    );
+    let mut conn = catalog_state.read_pool.acquire().await.unwrap();
+    Ok(fetcher.fetch_metadata(&mut *conn).await)
 }
 
 pub(crate) async fn list_views(
