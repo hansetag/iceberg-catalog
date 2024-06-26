@@ -1,15 +1,12 @@
 use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, CreateViewRequest, DataAccess, ErrorModel, ListTablesResponse,
     LoadViewResult, NamespaceParameters, PaginationQuery, Prefix, RenameTableRequest, Result,
-    TableIdent, TableParameters, ViewParameters,
+    TableIdent, ViewParameters,
 };
 use crate::catalog::io::write_metadata_file;
-use crate::implementations::postgres::tabular::view::{create_view, drop_view, view_ident_to_id};
 use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
-use iceberg_ext::catalog::rest::LoadTableResult;
-use std::vec;
 use tracing::instrument;
 
 use super::tables::{
@@ -50,9 +47,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
 
+        let views = C::list_views(&warehouse_id, &namespace, state.v1_state.catalog.clone())
+            .await
+            .unwrap();
+
         Ok(ListTablesResponse {
             next_page_token: None,
-            identifiers: vec![],
+            identifiers: views.into_iter().map(|t| t.1).collect(),
         })
     }
 
@@ -376,7 +377,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // TODO: authz
         let v = C::view_ident_to_id(&whi, &view, state.v1_state.catalog.clone()).await?;
 
-        if let Some(v) = v {
+        if let Some(_) = v {
             return Ok(());
         }
 

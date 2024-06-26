@@ -1,50 +1,29 @@
 use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogState};
 use crate::{
-    service::{
-        storage::StorageProfile, CommitTableResponse, CommitTableResponseExt,
-        CommitTransactionRequest, CreateTableRequest, CreateTableResponse, ErrorModel,
-        GetStorageConfigResponse, GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid,
-        Result, TableIdent, TableIdentUuid,
-    },
-    SecretIdent, WarehouseIdent,
+    service::{ErrorModel, NamespaceIdentUuid, Result, TableIdent, TableIdentUuid},
+    WarehouseIdent,
 };
 
 use http::StatusCode;
-use iceberg_ext::{
-    spec::{TableMetadata, TableMetadataAggregate},
-    NamespaceIdent, TableRequirement, TableUpdate,
-};
+use iceberg_ext::NamespaceIdent;
 
-use crate::api::{TableRequirementExt as _, TableUpdateExt};
 use crate::implementations::postgres::tabular::{
-    create_tabular, drop_tabular, list_tabulars, try_parse_namespace_ident, CreateTabular,
-    TabularIdentOwned, TabularIdentRef, TabularIdentUuid, TabularType,
+    create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentOwned, TabularIdentRef,
+    TabularIdentUuid, TabularType,
 };
 use chrono::{DateTime, Utc};
-use figment::map;
-use futures::TryFutureExt;
 use iceberg::spec::{
-    Schema, SchemaRef, SqlViewRepresentation, ViewFormatVersion as IcebergViewFormat, ViewMetadata,
-    ViewMetadataBuilder, ViewRepresentation, ViewVersion, ViewVersionLog, ViewVersionRef,
+    Schema, SchemaRef, SqlViewRepresentation, ViewMetadata, ViewMetadataBuilder,
+    ViewRepresentation, ViewVersion, ViewVersionLog, ViewVersionRef,
 };
 use iceberg::ViewCreation;
-use iceberg_ext::catalog::rest::{CreateViewRequest, IcebergErrorResponse, LoadViewResult};
-use openssl::derive;
-use openssl::version::version;
-use serde_json::to_string;
-use sqlx::types::Json;
+use iceberg_ext::catalog::rest::{CreateViewRequest, IcebergErrorResponse};
 use sqlx::{FromRow, PgConnection, Postgres, Transaction};
+use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::sync::Arc;
-use std::{
-    collections::{HashMap, HashSet},
-    ops::Deref,
-};
-use tracing::{instrument, metadata};
-use utoipa::schema;
+use tracing::instrument;
 use uuid::Uuid;
-
-const MAX_PARAMETERS: usize = 30000;
 
 #[instrument(skip(catalog_state))]
 pub(crate) async fn view_ident_to_id<'e, 'c: 'e, E>(
@@ -105,15 +84,13 @@ where
     Ok(table_map)
 }
 
-pub enum CreateViewVersion {
-    Append(ViewVersionRef),
+pub(crate) enum CreateViewVersion {
     AsCurrent(ViewVersionRef),
 }
 
 impl CreateViewVersion {
     fn inner(&self) -> &ViewVersion {
         match self {
-            Self::Append(v) => v.as_ref(),
             Self::AsCurrent(v) => v.as_ref(),
         }
     }
@@ -130,7 +107,7 @@ pub(crate) async fn create_view(
 ) -> Result<ViewMetadata> {
     let TableIdent { namespace: _, name } = view;
     let CreateViewRequest {
-        name,
+        name: _,
         location,
         schema,
         view_version,
@@ -226,20 +203,22 @@ pub(crate) async fn create_view(
     )
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|e| {
-        if let e = sqlx::Error::RowNotFound {
-            ErrorModel::builder()
-                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("Error creating view".to_string())
-                .r#type("InternalDatabaseError".to_string())
-                .build()
-        } else {
-            e.into_error_model("Error creating view".to_string())
-        }
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => ErrorModel::builder()
+            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+            .message("Error creating view".to_string())
+            .r#type("InternalDatabaseError".to_string())
+            .build(),
+
+        _ => e.into_error_model("Error creating view".to_string()),
     })?;
+
+    tracing::debug!("Inserted base view and tabular.");
 
     let schema_id =
         create_view_schema(view_id, metadata.current_schema().clone(), transaction).await?;
+
+    tracing::debug!("Inserted schema with id: '{}'", schema_id);
 
     let (version_id, version_uuid) = create_view_version(
         view_id,
@@ -250,7 +229,15 @@ pub(crate) async fn create_view(
     )
     .await?;
 
+    tracing::debug!(
+        "Created view version with id: '{}' and version_uuid: '{}'",
+        version_id,
+        version_uuid
+    );
+
     insert_view_properties(&metadata, view_id, transaction).await?;
+
+    tracing::debug!("Inserted view properties for view",);
 
     Ok(metadata)
 }
@@ -337,16 +324,13 @@ async fn create_view_schema(
     )
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|e| {
-        if let e = sqlx::Error::RowNotFound {
-            ErrorModel::builder()
-                .code(StatusCode::CONFLICT.into())
-                .message("View schema already exists".to_string())
-                .r#type("ViewSchemaAlreadyExists".to_string())
-                .build()
-        } else {
-            e.into_error_model("Error creating view schema".to_string())
-        }
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => ErrorModel::builder()
+            .code(StatusCode::CONFLICT.into())
+            .message("View schema already exists".to_string())
+            .r#type("ViewSchemaAlreadyExists".to_string())
+            .build(),
+        _ => e.into_error_model("Error creating view schema".to_string()),
     })?)
 }
 
@@ -375,8 +359,10 @@ async fn create_view_version(
         tracing::warn!("{}", message);
         e.into_error_model(message)
     })?;
+
+    // TODO: does this relate to any warehouse id or similar?
     let default_cat = view_version.default_catalog();
-    eprintln!("{} {} {} {:?}", view_id, version_id, schema_id, default_ns);
+
     let version_uuid = sqlx::query_scalar!(
                 r#"
                     INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, timestamp, default_namespace_id)
@@ -392,19 +378,29 @@ async fn create_view_version(
             )
         .fetch_one(&mut **transaction)
         .await.map_err(|e| {
-        if let e = sqlx::Error::RowNotFound {
-            let message = "View version already exists";
-            eprintln!("{} {:?}", message, e.to_string());
-            ErrorModel::builder()
-                .code(StatusCode::CONFLICT.into())
-                .message(message.to_string())
-                .r#type("ViewVersionAlreadyExists".to_string())
-                .build()
-        } else {
-            let message = "Error creating view version";
-            tracing::warn!("{} for: '{}'/'{}' with schema_id: '{}' due to: '{}'", message, view_id, version_id, schema_id, e);
-            e.into_error_model(message.to_string())
-        }
+            match e {
+                sqlx::Error::RowNotFound => {
+                    let message = "View version already exists";
+                    eprintln!("{} {:?}", message, e.to_string());
+                    ErrorModel::builder()
+                        .code(StatusCode::CONFLICT.into())
+                        .message(message.to_string())
+                        .r#type("ViewVersionAlreadyExists".to_string())
+                        .build()
+                }
+                _ => {
+                    let message = "Error creating view version";
+                    tracing::warn!(
+                    "{} for: '{}'/'{}' with schema_id: '{}' due to: '{}'",
+                    message,
+                    view_id,
+                    version_id,
+                    schema_id,
+                    e
+                );
+                    e.into_error_model(message.to_string())
+                }
+            }
     })?;
 
     for (k, v) in view_version.summary().into_iter() {
@@ -450,56 +446,51 @@ async fn create_view_version(
         })?;
     }
 
-    match view_version_request {
-        CreateViewVersion::Append(_) => {
-            todo!()
-        }
-        CreateViewVersion::AsCurrent(view_version) => {
-            insert_view_version_log(view_id, version_id, None, transaction).await?;
+    let CreateViewVersion::AsCurrent(_) = view_version_request;
 
-            // UPSERT as current view version
-            sqlx::query!(
-                r#"
+    insert_view_version_log(view_id, version_id, None, transaction).await?;
+
+    sqlx::query!(
+        r#"
                 INSERT INTO current_view_metadata_version (view_id, version_uuid, version_id)
                 VALUES ($1, $2, $3)
                 ON CONFLICT (view_id)
                 DO UPDATE SET version_uuid = $2, version_id = $3
             "#,
-                view_id,
-                version_uuid,
-                version_id
-            )
-            .execute(&mut **transaction)
-            .await
-            .map_err(|e| {
-                let message = "Error setting current view version".to_string();
-                tracing::warn!(?e, "{}", message);
-                e.into_error_model(message)
-            })?;
+        view_id,
+        version_uuid,
+        version_id
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|e| {
+        let message = "Error setting current view version".to_string();
+        tracing::warn!(?e, "{}", message);
+        e.into_error_model(message)
+    })?;
 
-            tracing::debug!(
-                "Inserted version: '{}'/'{}' as current view metadata version for '{}'",
-                version_uuid,
-                version_id,
-                view_id
-            );
+    tracing::debug!(
+        "Inserted version: '{}'/'{}' as current view metadata version for '{}'",
+        version_uuid,
+        version_id,
+        view_id
+    );
 
-            Ok((version_id, version_uuid))
-        }
-    }
+    Ok((version_id, version_uuid))
 }
 
 #[derive(FromRow, Debug)]
-pub struct View {
+pub(crate) struct View {
     view_id: uuid::Uuid,
     #[sqlx(rename = "view_format_version: ViewFormatVersion")]
     view_format_version: ViewFormatVersion,
     view_location: String,
+    // TODO: We can construct this from uuid + location, why are we storing this?
     metadata_location: Option<String>,
     current_version_id: i64,
 }
 
-pub struct MetadataFetcher {
+pub(crate) struct MetadataFetcher {
     warehouse_id: Uuid,
     namespace: NamespaceIdent,
     name: String,
@@ -511,7 +502,7 @@ pub struct MetadataFetcher {
 }
 
 impl MetadataFetcher {
-    pub fn new(
+    pub(crate) fn new(
         warehouse_ident: WarehouseIdent,
         namespace_ident: NamespaceIdent,
         name: String,
@@ -528,7 +519,7 @@ impl MetadataFetcher {
         }
     }
 
-    pub async fn fetch_metadata(self, conn: &mut PgConnection) -> ViewMetadata {
+    pub(crate) async fn fetch_metadata(self, conn: &mut PgConnection) -> ViewMetadata {
         let slf = self
             .fetch_view(&mut *conn)
             .await
@@ -542,7 +533,9 @@ impl MetadataFetcher {
             .await;
         let view = slf.view.unwrap();
         ViewMetadataBuilder::from_parts(
-            iceberg::spec::ViewFormatVersion::V1,
+            match view.view_format_version {
+                ViewFormatVersion::V1 => iceberg::spec::ViewFormatVersion::V1,
+            },
             view.view_id,
             view.view_location,
             view.current_version_id,
@@ -555,7 +548,7 @@ impl MetadataFetcher {
         .unwrap()
     }
 
-    pub async fn fetch_version_log(mut self, conn: &mut PgConnection) -> Self {
+    pub(crate) async fn fetch_version_log(mut self, conn: &mut PgConnection) -> Self {
         self.version_log = Some(
             sqlx::query!(
                 r#"
@@ -569,18 +562,16 @@ impl MetadataFetcher {
             .await
             .unwrap()
             .into_iter()
-            .map(|r| {
-                (ViewVersionLog {
-                    version_id: r.version_id,
-                    timestamp_ms: r.timestamp.timestamp_millis(),
-                })
+            .map(|r| ViewVersionLog {
+                version_id: r.version_id,
+                timestamp_ms: r.timestamp.timestamp_millis(),
             })
             .collect(),
         );
         self
     }
 
-    pub async fn fetch_view(mut self, conn: &mut PgConnection) -> Self {
+    pub(crate) async fn fetch_view(mut self, conn: &mut PgConnection) -> Self {
         let view = sqlx::query_as!(
             View,
             r#"
@@ -612,7 +603,7 @@ impl MetadataFetcher {
         self
     }
 
-    pub async fn fetch_schemas(mut self, conn: &mut PgConnection) -> Self {
+    pub(crate) async fn fetch_schemas(mut self, conn: &mut PgConnection) -> Self {
         let schemas = sqlx::query!(
             r#"
             SELECT schema_id, schema
@@ -635,7 +626,7 @@ impl MetadataFetcher {
         self
     }
 
-    pub async fn fetch_properties(mut self, conn: &mut PgConnection) -> Self {
+    pub(crate) async fn fetch_properties(mut self, conn: &mut PgConnection) -> Self {
         let properties = sqlx::query!(
             r#"
             SELECT key, value
@@ -655,7 +646,7 @@ impl MetadataFetcher {
         self
     }
 
-    pub async fn fetch_versions(mut self, conn: &mut PgConnection) -> Self {
+    pub(crate) async fn fetch_versions(mut self, conn: &mut PgConnection) -> Self {
         let mut versions = HashMap::new();
         let rows = sqlx::query!(
             r#"
@@ -749,24 +740,6 @@ impl MetadataFetcher {
         self
     }
 }
-
-pub struct VersionBuilder {
-    summaries: Option<HashMap<String, String>>,
-    representations: Option<Vec<ViewRepresentation>>,
-}
-//
-// impl BaseQuery {
-//     async fn load_view_versions(self, conn: &mut PgConnection) {
-//         sqlx::query!(
-//             r#"
-//             SELECT * fROM view_version
-//             JOIN metadata_summary ON view_version.version_id = metadata_summary.version_id
-//             JOIN
-//             WHERE view_id = $1
-//             "#
-//         )
-//     }
-// }
 
 pub(crate) async fn load_view(
     warehouse_id: &WarehouseIdent,
@@ -899,17 +872,15 @@ impl From<iceberg::spec::ViewFormatVersion> for ViewFormatVersion {
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
-    use crate::implementations::postgres::tabular::table::tests::initialize_table;
+
     use crate::implementations::postgres::tabular::view::load_view;
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use crate::implementations::postgres::CatalogState;
-    use crate::service::TableIdentUuid;
-    use iceberg::spec::{NestedField, Schema, SqlViewRepresentation, ViewVersion};
+
     use iceberg::{NamespaceIdent, TableIdent};
     use iceberg_ext::catalog::rest::CreateViewRequest;
     use serde_json::json;
-    use std::collections::HashMap;
-    use std::sync::OnceLock;
+
     use uuid::Uuid;
 
     fn view_request() -> CreateViewRequest {
@@ -1065,20 +1036,18 @@ pub(crate) mod tests {
         let request = view_request();
         let table_uuid = Uuid::now_v7().into();
         let mut tx = pool.begin().await.unwrap();
-        let created_view = dbg!(
-            super::create_view(
-                &namespace_id,
-                &TableIdent {
-                    namespace: namespace.clone(),
-                    name: request.name.clone(),
-                },
-                table_uuid,
-                request.clone(),
-                "s3://my_bucket/my_table/metadata/bar",
-                &mut tx,
-            )
-            .await
+        let _ = super::create_view(
+            &namespace_id,
+            &TableIdent {
+                namespace: namespace.clone(),
+                name: request.name.clone(),
+            },
+            table_uuid,
+            request.clone(),
+            "s3://my_bucket/my_table/metadata/bar",
+            &mut tx,
         )
+        .await
         .unwrap();
 
         tx.commit().await.unwrap();

@@ -5,7 +5,7 @@ use std::ops::Deref;
 use uuid::Uuid;
 
 #[derive(Hash, PartialOrd, PartialEq, Debug, Clone, Copy, Eq)]
-pub(crate) enum TabularIdentUuid {
+pub enum TabularIdentUuid {
     Table(Uuid),
     View(Uuid),
 }

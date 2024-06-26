@@ -1,5 +1,5 @@
 use iceberg::spec::ViewMetadata;
-use iceberg_ext::catalog::rest::{CreateViewRequest, LoadViewResult};
+use iceberg_ext::catalog::rest::CreateViewRequest;
 use std::collections::{HashMap, HashSet};
 
 use super::{
@@ -20,7 +20,7 @@ use super::{
 };
 
 use crate::implementations::postgres::tabular::view::{
-    create_view, drop_view, load_view, view_ident_to_id,
+    create_view, drop_view, list_views, load_view, view_ident_to_id,
 };
 use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::service::{
@@ -329,5 +329,13 @@ impl Catalog for super::Catalog {
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ViewMetadata> {
         load_view(warehouse_id, table_id, &mut *transaction).await
+    }
+
+    async fn list_views(
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        catalog_state: Self::State,
+    ) -> Result<HashMap<TableIdentUuid, TableIdent>> {
+        list_views(warehouse_id, namespace, catalog_state).await
     }
 }

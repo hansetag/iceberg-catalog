@@ -1,8 +1,8 @@
 use iceberg::spec::{TableMetadata, ViewMetadata};
+use iceberg_ext::catalog::rest::CreateViewRequest;
 pub use iceberg_ext::catalog::rest::{
     CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
 };
-use iceberg_ext::catalog::rest::{CreateViewRequest, LoadViewResult};
 use std::collections::{HashMap, HashSet};
 
 use crate::SecretIdent;
@@ -336,12 +336,15 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
-    /// Drop a view.
-    ///
-    /// Consider in your implementation to implement an UNDROP feature.
     async fn load_view<'a>(
         warehouse_id: &WarehouseIdent,
         table_id: &TableIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ViewMetadata>;
+
+    async fn list_views(
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        catalog_state: Self::State,
+    ) -> Result<HashMap<TableIdentUuid, TableIdent>>;
 }
