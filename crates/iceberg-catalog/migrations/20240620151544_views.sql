@@ -38,14 +38,15 @@ create table view_schema
 call add_time_columns('view_schema');
 select trigger_updated_at('view_schema');
 
+
+
 create table view_version
 (
-    view_version_uuid    uuid        not null primary key default uuid_generate_v1mc(),
-    view_id              uuid        not null REFERENCES view (view_id) ON DELETE CASCADE,
-    version_id           bigint      not null,
-    schema_id            int         not null,
-    timestamp            timestamptz not null,
-    default_namespace_id uuid REFERENCES namespace (namespace_id),
+    view_version_uuid uuid   not null primary key default uuid_generate_v1mc(),
+    view_id           uuid   not null REFERENCES view (view_id) ON DELETE CASCADE,
+    version_id        bigint not null,
+    schema_id         int    not null,
+    version           jsonb  not null,
     FOREIGN KEY (view_id, schema_id) REFERENCES view_schema (view_id, schema_id) ON DELETE CASCADE,
     constraint "unique_version_per_metadata" unique (view_id, version_id),
     constraint "unique_version_per_metadata_including_pkey" unique (view_version_uuid, view_id, version_id)
@@ -74,27 +75,3 @@ create table view_version_log
 );
 call add_time_columns('view_version_log');
 
-create table metadata_summary
-(
-    summary_tuple_id  uuid primary key default uuid_generate_v1mc(),
-    view_version_uuid uuid not null REFERENCES view_version (view_version_uuid) ON DELETE CASCADE,
-    key               text not null,
-    value             text not null
-);
-
-call add_time_columns('metadata_summary');
-select trigger_updated_at('"metadata_summary"');
-
-create type view_representation_type as enum ('sql');
-create table view_representation
-(
-    view_representation_id uuid primary key default uuid_generate_v1mc(),
-    view_id                uuid                     not null REFERENCES view (view_id) ON DELETE CASCADE,
-    view_version_uuid      uuid                     not null REFERENCES view_version (view_version_uuid) ON DELETE CASCADE,
-    typ                    view_representation_type not null,
-    sql                    text                     not null,
-    dialect                text                     not null
-);
-
-call add_time_columns('view_representation');
-select trigger_updated_at('"view_representation"');

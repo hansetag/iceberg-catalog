@@ -13,8 +13,8 @@ use crate::implementations::postgres::tabular::{
 };
 use chrono::{DateTime, Utc};
 use iceberg::spec::{
-    Schema, SchemaRef, SqlViewRepresentation, ViewMetadata, ViewMetadataBuilder,
-    ViewRepresentation, ViewVersion, ViewVersionLog, ViewVersionRef,
+    Schema, SchemaRef, ViewMetadata, ViewMetadataBuilder, ViewRepresentation, ViewVersion,
+    ViewVersionLog, ViewVersionRef,
 };
 use iceberg::ViewCreation;
 use iceberg_ext::catalog::rest::{CreateViewRequest, IcebergErrorResponse};
@@ -342,114 +342,59 @@ async fn create_view_version(
     let view_version = view_version_request.inner();
     let version_id = view_version.version_id();
     let schema_id = view_version.schema_id();
-    let default_ns = view_version.default_namespace();
-    let default_ns = default_ns.clone().inner();
-    let default_namespace_id: Option<Uuid> = sqlx::query_scalar!(
-        r#"
-        SELECT namespace_id
-        FROM namespace
-        WHERE namespace_name = $1
-        "#,
-        &default_ns
-    )
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(|e| {
-        let message = "Error fetching namespace_id".to_string();
-        tracing::warn!("{}", message);
-        e.into_error_model(message)
+
+    let val = serde_json::to_value(&view_version).map_err(|e| {
+        ErrorModel::builder()
+            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+            .message("Error serializing view version".to_string())
+            .r#type("ViewVersionSerializationError".to_string())
+            .stack(Some(vec![e.to_string()]))
+            .build()
     })?;
-
-    // TODO: does this relate to any warehouse id or similar?
-    let default_cat = view_version.default_catalog();
-
     let version_uuid = sqlx::query_scalar!(
-                r#"
-                    INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, timestamp, default_namespace_id)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+        r#"
+                    INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, version)
+                    VALUES ($1, $2, $3, $4, $5)
                     returning view_version_uuid
                 "#,
-                Uuid::now_v7(),
+        Uuid::now_v7(),
+        view_id,
+        version_id,
+        schema_id,
+        val,
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => {
+            let message = "View version already exists";
+            eprintln!("{} {:?}", message, e.to_string());
+            ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message(message.to_string())
+                .r#type("ViewVersionAlreadyExists".to_string())
+                .build()
+        }
+        _ => {
+            let message = "Error creating view version";
+            tracing::warn!(
+                "{} for: '{}'/'{}' with schema_id: '{}' due to: '{}'",
+                message,
                 view_id,
                 version_id,
                 schema_id,
-                view_version.timestamp(),
-                default_namespace_id
-            )
-        .fetch_one(&mut **transaction)
-        .await.map_err(|e| {
-            match e {
-                sqlx::Error::RowNotFound => {
-                    let message = "View version already exists";
-                    eprintln!("{} {:?}", message, e.to_string());
-                    ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.into())
-                        .message(message.to_string())
-                        .r#type("ViewVersionAlreadyExists".to_string())
-                        .build()
-                }
-                _ => {
-                    let message = "Error creating view version";
-                    tracing::warn!(
-                    "{} for: '{}'/'{}' with schema_id: '{}' due to: '{}'",
-                    message,
-                    view_id,
-                    version_id,
-                    schema_id,
-                    e
-                );
-                    e.into_error_model(message.to_string())
-                }
-            }
+                e
+            );
+            e.into_error_model(message.to_string())
+        }
     })?;
-
-    for (k, v) in view_version.summary().into_iter() {
-        sqlx::query!(
-            r#"
-            INSERT INTO metadata_summary (summary_tuple_id, view_version_uuid, key, value)
-            VALUES ($1, $2, $3, $4)
-            "#,
-            Uuid::now_v7(),
-            version_uuid,
-            k,
-            v
-        )
-        .execute(&mut **transaction)
-        .await
-        .map_err(|e| {
-            let message = "Error inserting metadata summary".to_string();
-            tracing::warn!("{}", message);
-            e.into_error_model(message)
-        })?;
-    }
-
-    for rep in view_version.representations() {
-        let ViewRepresentation::SqlViewRepresentation(repr) = rep;
-        sqlx::query!(
-            r#"
-            INSERT INTO view_representation (view_id, view_version_uuid, view_representation_id, typ, sql, dialect)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-            view_id,
-            version_uuid,
-            Uuid::now_v7(),
-            ViewRepresentationType::from(rep) as _,
-            repr.sql.as_str(),
-            repr.dialect.as_str()
-        )
-        .execute(&mut **transaction)
-        .await
-        .map_err(|e| {
-            let message = "Error inserting view_representation".to_string();
-            tracing::warn!("{}", message);
-            e.into_error_model(message)
-        })?;
-    }
 
     let CreateViewVersion::AsCurrent(_) = view_version_request;
 
+    // TODO: metadatabuilder doesn't set this on its own, why?
     insert_view_version_log(view_id, version_id, None, transaction).await?;
 
+    // TODO: make this a trigger?
     sqlx::query!(
         r#"
                 INSERT INTO current_view_metadata_version (view_id, version_uuid, version_id)
@@ -649,12 +594,7 @@ impl MetadataFetcher {
     pub(crate) async fn fetch_versions(mut self, conn: &mut PgConnection) -> Self {
         let mut versions = HashMap::new();
         let rows = sqlx::query!(
-            r#"
-    SELECT version_id, schema_id, timestamp, default_namespace_id as "default_namespace_id?", view_version_uuid
-    FROM view_version
-    LEFT JOIN namespace ns on ns.namespace_id = view_version.default_namespace_id
-    WHERE view_id = $1
-    "#,
+            r#"SELECT version_id, version FROM view_version WHERE view_id = $1"#,
             self.view.as_ref().unwrap().view_id
         )
         .fetch_all(&mut *conn)
@@ -662,78 +602,9 @@ impl MetadataFetcher {
         .unwrap();
 
         for r in rows {
-            let timestamp = r.timestamp;
-            let dni: Option<Uuid> = r.default_namespace_id;
-            let namespace_name = if let Some(dni) = dni {
-                sqlx::query_scalar!(
-                    r#"
-                    SELECT namespace_name
-                    FROM namespace
-                    WHERE namespace_id = $1
-                "#,
-                    &dni
-                )
-                .fetch_one(&mut *conn)
-                .await
-                .map_err(|e| {
-                    let message = "Error fetching namespace_name".to_string();
-                    tracing::warn!("{}", message);
-                    e.into_error_model(message)
-                })
-                .unwrap()
-            } else {
-                // TODO: NamespaceIdent doesn't allow empty vecs, otoh, spark is happily handing those to us
-                vec!["".into()]
-            };
+            let version: ViewVersion = serde_json::from_value(r.version).unwrap();
 
-            let builder = ViewVersion::builder()
-                .with_timestamp_ms(timestamp.timestamp_millis())
-                .with_version_id(r.version_id)
-                .with_default_namespace(NamespaceIdent::from_vec(namespace_name).unwrap())
-                .with_schema_id(r.schema_id);
-            let summaries: HashMap<String, String> = sqlx::query!(
-                r#"
-                SELECT key, value
-                FROM metadata_summary
-                WHERE view_version_uuid = $1
-                "#,
-                r.view_version_uuid
-            )
-            .fetch_all(&mut *conn)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|r| (r.key, r.value))
-            .collect();
-            let builder = builder.with_summary(summaries);
-            let representations: Vec<ViewRepresentation> = sqlx::query!(
-                r#"
-                SELECT typ as "typ: ViewRepresentationType", sql, dialect
-                FROM view_representation
-                WHERE view_version_uuid = $1
-                "#,
-                r.view_version_uuid
-            )
-            .fetch_all(&mut *conn)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|r| {
-                let repr = match r.typ {
-                    ViewRepresentationType::SQL => {
-                        ViewRepresentation::SqlViewRepresentation(SqlViewRepresentation {
-                            sql: r.sql,
-                            dialect: r.dialect,
-                        })
-                    }
-                };
-                repr
-            })
-            .collect();
-            versions.insert(
-                r.version_id,
-                Arc::new(builder.with_representations(representations).build()),
-            );
+            versions.insert(r.version_id, Arc::new(version));
         }
 
         self.versions = Some(versions);
@@ -845,20 +716,6 @@ pub(crate) async fn drop_view<'a>(
 #[sqlx(type_name = "view_format_version", rename_all = "kebab-case")]
 pub(crate) enum ViewFormatVersion {
     V1,
-}
-
-#[derive(sqlx::Type, Debug)]
-#[sqlx(type_name = "view_representation_type", rename_all = "kebab-case")]
-pub(crate) enum ViewRepresentationType {
-    SQL,
-}
-
-impl From<&iceberg::spec::ViewRepresentation> for ViewRepresentationType {
-    fn from(value: &ViewRepresentation) -> Self {
-        match value {
-            ViewRepresentation::SqlViewRepresentation(_) => Self::SQL,
-        }
-    }
 }
 
 impl From<iceberg::spec::ViewFormatVersion> for ViewFormatVersion {
