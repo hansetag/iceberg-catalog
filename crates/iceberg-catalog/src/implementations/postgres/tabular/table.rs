@@ -26,6 +26,7 @@ use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
 };
+use tracing::instrument;
 
 const MAX_PARAMETERS: usize = 30000;
 
@@ -88,6 +89,7 @@ where
     Ok(table_map)
 }
 
+#[instrument(skip(transaction))]
 pub(crate) async fn create_table(
     namespace_id: &NamespaceIdentUuid,
     table: &TableIdent,
@@ -148,7 +150,7 @@ pub(crate) async fn create_table(
             name,
             namespace_id: namespace_id.into_uuid(),
             typ: TabularType::Table,
-            metadata_location: metadata_location.map(std::string::String::as_str),
+            metadata_location: dbg!(metadata_location.map(std::string::String::as_str)),
         },
         &mut *transaction,
     )
@@ -748,7 +750,7 @@ pub(crate) mod tests {
         )
     }
 
-    async fn get_namespace_id(
+    pub(crate) async fn get_namespace_id(
         state: CatalogState,
         warehouse_id: &WarehouseIdent,
         namespace: &NamespaceIdent,
@@ -940,7 +942,7 @@ pub(crate) mod tests {
             &table_ident,
             &table_id,
             request,
-            metadata_location.as_ref(),
+            dbg!(metadata_location.as_ref()),
             &mut transaction,
         )
         .await

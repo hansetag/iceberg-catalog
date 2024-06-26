@@ -185,6 +185,20 @@ where
         warehouse_id: &WarehouseIdent,
         state: Self::State,
     ) -> Result<()>;
+
+    async fn check_create_view(
+        metadata: &RequestMetadata,
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        state: Self::State,
+    ) -> Result<()>;
+
+    async fn check_drop_view(
+        metadata: &RequestMetadata,
+        warehouse_id: &WarehouseIdent,
+        table: Option<&TableIdentUuid>,
+        state: Self::State,
+    ) -> Result<()>;
 }
 
 /// Interface to provide Auth-related functions to the config gateway.

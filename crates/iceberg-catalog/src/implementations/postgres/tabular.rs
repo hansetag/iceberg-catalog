@@ -253,15 +253,16 @@ pub(crate) async fn create_tabular<'a>(
     Ok(sqlx::query_scalar!(
         r#"
         INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location)
-        VALUES ($1, $2, $3, 'table', $4)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT ON CONSTRAINT unique_name_per_namespace_id
-        DO UPDATE SET tabular_id = $1, metadata_location = $4
+        DO UPDATE SET tabular_id = $1, metadata_location = $5
         WHERE tabular.metadata_location IS NULL AND tabular.typ = 'table'
         RETURNING tabular_id
         "#,
         id,
         name,
         namespace_id,
+        typ as _,
         metadata_location
     )
     .fetch_one(conn)
@@ -294,7 +295,7 @@ pub(crate) async fn list_tabulars(
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE n.warehouse_id = $1 
+        WHERE n.warehouse_id = $1
             AND namespace_name = $2
             AND w.status = 'active'
             AND (t."metadata_location" IS NOT NULL OR $3)
@@ -313,6 +314,7 @@ pub(crate) async fn list_tabulars(
     for table in tables {
         let namespace = try_parse_namespace_ident(table.namespace_name)?;
         let name = table.tabular_name;
+        eprintln!("name: {}", name);
 
         match table.typ {
             TabularType::Table => {

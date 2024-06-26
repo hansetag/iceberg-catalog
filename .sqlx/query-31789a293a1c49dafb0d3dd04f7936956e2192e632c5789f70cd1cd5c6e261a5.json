@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n    select\n        v.view_id,\n        view_format_version as \"view_format_version: ViewFormatVersion\",\n        location as view_location,\n        v.metadata_location,\n        cvv.version_id as current_version_id,\n        COALESCE(ARRAY_AGG(vp.key) filter (where vp.value is not null), '{}') AS \"property_keys!\",\n        COALESCE(ARRAY_AGG(vp.value) filter (where vp.value is not null), '{}') as \"property_values!\"\n     from view v\n        LEFT JOIN view_properties vp ON v.view_id = vp.view_id\n        JOIN tabular ta ON v.view_id=ta.tabular_id\n        JOIN namespace n ON ta.namespace_id = n.namespace_id\n        JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n        JOIN current_view_metadata_version cvv ON v.view_id = cvv.view_id\n    WHERE n.warehouse_id = $1 AND n.namespace_name = $2 AND ta.name = $3\n    AND w.status = 'active' AND ta.typ = 'view'\n    GROUP BY v.view_id, cvv.version_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "view_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "view_format_version: ViewFormatVersion",
+        "type_info": {
+          "Custom": {
+            "name": "view_format_version",
+            "kind": {
+              "Enum": [
+                "v1"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "view_location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "metadata_location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "current_version_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "property_keys!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "property_values!",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "31789a293a1c49dafb0d3dd04f7936956e2192e632c5789f70cd1cd5c6e261a5"
+}

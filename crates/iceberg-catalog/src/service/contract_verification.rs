@@ -206,8 +206,10 @@ impl ContractVerification for ContractVerifiers {
 
         Ok(ContractVerificationOutcome::Clear {})
     }
+
     async fn check_drop(
         &self,
+        // TODO: change to a type that signals if we are a table or a view
         table_ident_uuid: TableIdentUuid,
     ) -> Result<ContractVerificationOutcome, ErrorModel> {
         for checker in &self.checkers {

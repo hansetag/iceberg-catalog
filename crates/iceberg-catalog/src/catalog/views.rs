@@ -4,11 +4,12 @@ use crate::api::iceberg::v1::{
     TableIdent, ViewParameters,
 };
 use crate::catalog::io::write_metadata_file;
-use crate::implementations::postgres::tabular::view::create_view;
+use crate::implementations::postgres::tabular::view::{create_view, drop_view};
 use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use std::vec;
+use tracing::instrument;
 
 use super::tables::{
     maybe_body_to_json, require_no_location_specified, validate_lowercase_property,
@@ -91,7 +92,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         // ------------------- AUTHZ -------------------
-        A::check_create_table(
+        A::check_create_view(
             &request_metadata,
             &warehouse_id,
             &namespace,
@@ -128,7 +129,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let view_location = storage_profile.tabular_location(&namespace_id, &table_id);
         let mut request = request;
         let metadata_location = storage_profile.metadata_location(&view_location, &table_id);
-        request.location.as_mut().map(|loc| *loc = view_location);
+        request.location = Some(view_location);
         let request = request;
 
         let metadata = C::create_view(
@@ -173,6 +174,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             )
             .await?;
 
+        transaction.commit().await?;
+
         return Ok(LoadViewResult {
             metadata_location,
             metadata,
@@ -216,23 +219,50 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .into());
     }
 
+    #[instrument(skip(state))]
     /// Drop a view from the catalog
     async fn drop_view(
         parameters: ViewParameters,
-        _state: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        state: ApiContext<State<A, C, S>>,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let ViewParameters { prefix, view } = parameters;
-        require_warehouse_id(prefix.clone())?;
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
         validate_table_or_view_ident(&view)?;
 
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Views are not implemented".to_string())
-            .r#type("DropViewNotSupported".to_string())
-            .build()
-            .into());
+        // ------------------- AUTHZ -------------------
+        let view_id = C::view_ident_to_id(&warehouse_id, &view, state.v1_state.catalog.clone())
+            .await
+            // We can't fail before AuthZ.
+            .ok()
+            .flatten();
+
+        A::check_drop_view(
+            &request_metadata,
+            &warehouse_id,
+            view_id.as_ref(),
+            state.v1_state.auth,
+        )
+        .await?;
+
+        // ------------------- BUSINESS LOGIC -------------------
+        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let table_id = view_id.ok_or_else(|| {
+            tracing::debug!("View does not exist.");
+            ErrorModel::builder()
+                .code(StatusCode::NOT_FOUND.into())
+                .message(format!("View does not exist in warehouse {warehouse_id}"))
+                .r#type("ViewNotFound".to_string())
+                .build()
+        })?;
+        tracing::debug!("Proceeding to delete view");
+        C::drop_view(&warehouse_id, &table_id, transaction.transaction()).await?;
+
+        // TODO: Delete metadata files
+        transaction.commit().await?;
+
+        return Ok(());
     }
 
     /// Check if a view exists

@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location)\n        VALUES ($1, $2, $3, $4, $5)\n        ON CONFLICT ON CONSTRAINT unique_name_per_namespace_id\n        DO UPDATE SET tabular_id = $1, metadata_location = $5\n        WHERE tabular.metadata_location IS NULL AND tabular.typ = 'table'\n        RETURNING tabular_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tabular_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "tabular_type",
+            "kind": {
+              "Enum": [
+                "table",
+                "view"
+              ]
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e54dc5cc2f9ebf30543acdf02dc1c51735cc4393a8a8325563676c5883ea379d"
+}
