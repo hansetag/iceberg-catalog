@@ -335,4 +335,13 @@ where
         table_id: &TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
+
+    /// Drop a view.
+    ///
+    /// Consider in your implementation to implement an UNDROP feature.
+    async fn load_view<'a>(
+        warehouse_id: &WarehouseIdent,
+        table_id: &TableIdent,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<ViewMetadata>;
 }

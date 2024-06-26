@@ -28,10 +28,12 @@ select trigger_updated_at('"view_properties"');
 
 create table view_schema
 (
-    schema_id int primary key,
-    view_id   uuid  not null REFERENCES view (view_id) ON DELETE CASCADE,
+    schema_uuid uuid primary key default uuid_generate_v1mc(),
+    schema_id   int   not null,
+    view_id     uuid  not null REFERENCES view (view_id) ON DELETE CASCADE,
     -- the schema object is quite complex and I'm not sure about the benefits of inviting that complexity into sql
-    schema    jsonb not null
+    schema      jsonb not null,
+    CONSTRAINT "unique_schema_per_view" unique (view_id, schema_id)
 );
 call add_time_columns('view_schema');
 select trigger_updated_at('view_schema');
@@ -41,9 +43,10 @@ create table view_version
     view_version_uuid    uuid        not null primary key default uuid_generate_v1mc(),
     view_id              uuid        not null REFERENCES view (view_id) ON DELETE CASCADE,
     version_id           bigint      not null,
-    schema_id            int         not null REFERENCES view_schema (schema_id) ON DELETE CASCADE,
+    schema_id            int         not null,
     timestamp            timestamptz not null,
     default_namespace_id uuid REFERENCES namespace (namespace_id),
+    FOREIGN KEY (view_id, schema_id) REFERENCES view_schema (view_id, schema_id) ON DELETE CASCADE,
     constraint "unique_version_per_metadata" unique (view_id, version_id),
     constraint "unique_version_per_metadata_including_pkey" unique (view_version_uuid, view_id, version_id)
 );

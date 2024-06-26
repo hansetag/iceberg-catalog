@@ -279,4 +279,14 @@ impl AuthZHandler for AllowAllAuthZHandler {
     ) -> Result<()> {
         Ok(())
     }
+
+    async fn check_load_view(
+        _metadata: &RequestMetadata,
+        _warehouse_id: &WarehouseIdent,
+        _namespace: Option<&NamespaceIdent>,
+        _view: Option<&TableIdentUuid>,
+        _state: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
 }

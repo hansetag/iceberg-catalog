@@ -21,6 +21,7 @@ use crate::implementations::postgres::tabular::{
     TabularIdentOwned, TabularIdentRef, TabularIdentUuid, TabularType,
 };
 use chrono::{DateTime, Utc};
+use figment::map;
 use futures::TryFutureExt;
 use iceberg::spec::{
     Schema, SchemaRef, SqlViewRepresentation, ViewFormatVersion as IcebergViewFormat, ViewMetadata,
@@ -105,15 +106,15 @@ where
 }
 
 pub enum CreateViewVersion {
-    Append(ViewVersion),
-    AsCurrent(ViewVersion),
+    Append(ViewVersionRef),
+    AsCurrent(ViewVersionRef),
 }
 
 impl CreateViewVersion {
     fn inner(&self) -> &ViewVersion {
         match self {
-            Self::Append(v) => v,
-            Self::AsCurrent(v) => v,
+            Self::Append(v) => v.as_ref(),
+            Self::AsCurrent(v) => v.as_ref(),
         }
     }
 }
@@ -134,7 +135,7 @@ pub(crate) async fn create_view(
         schema,
         view_version,
         properties,
-    } = request;
+    } = dbg!(request);
 
     let location = location.ok_or_else(|| {
         // TODO: encode this in the function signature / request struct? We shouldn't fail here when
@@ -149,6 +150,14 @@ pub(crate) async fn create_view(
 
     let summary = view_version.summary().clone();
     let representations = view_version.representations().clone();
+
+    // TODO: how to not go the request -> creation -> builder -> metadata route?
+    //       some of the request stuff is not properly validated, e.g. default_namespace() can be empty
+    //       when trying to read this from DB, NamespaceIdent::from_vec says no to an empty vec and we
+    //       have to hack it as a vec![""]. Going via ViewMetadataBuilder further renumbers versions
+    //       and it also doesn't seem to produce the a ViewVersionLog entry for the current version.
+    //       This is all not very nice, maybe it's best to move all the heavy lifting into the
+    //       service layer.
     let vc = ViewCreation {
         name: name.clone(),
         location,
@@ -160,7 +169,7 @@ pub(crate) async fn create_view(
         summary: summary.clone(),
     };
 
-    let metadata = ViewMetadataBuilder::from_view_creation(vc)
+    let metadata = dbg!(ViewMetadataBuilder::from_view_creation(vc)
         .map_err(|e| {
             // TODO: can we be more specific about errors here?
             ErrorModel::builder()
@@ -188,7 +197,7 @@ pub(crate) async fn create_view(
                 .r#type("ViewUUIDAssignmentError".to_string())
                 .stack(Some(vec![e.to_string()]))
                 .build()
-        })?;
+        })?);
 
     let tabular_id = create_tabular(
         CreateTabular {
@@ -234,7 +243,9 @@ pub(crate) async fn create_view(
 
     let (version_id, version_uuid) = create_view_version(
         view_id,
-        CreateViewVersion::AsCurrent(view_version),
+        // We gotta use metadata.current_version() here since ViewMetadataBuilder::from_view_creation
+        // renumbers the version_ids, 1 becomes 0 if there's no other version, that sounds troublesome?
+        CreateViewVersion::AsCurrent(metadata.current_version().clone()),
         transaction,
     )
     .await?;
@@ -315,10 +326,11 @@ async fn create_view_schema(
     })?;
     Ok(sqlx::query_scalar!(
         r#"
-        INSERT INTO view_schema (view_id, schema_id, schema)
-        VALUES ($1, $2, $3)
+        INSERT INTO view_schema (schema_uuid, view_id, schema_id, schema)
+        VALUES ($1, $2, $3, $4)
         RETURNING schema_id
         "#,
+        Uuid::now_v7(),
         view_id,
         schema.schema_id(),
         schema_as_value
@@ -647,9 +659,9 @@ impl MetadataFetcher {
         let mut versions = HashMap::new();
         let rows = sqlx::query!(
             r#"
-    SELECT version_id, schema_id, timestamp, namespace_name as default_namespace_name, view_version_uuid
+    SELECT version_id, schema_id, timestamp, default_namespace_id as "default_namespace_id?", view_version_uuid
     FROM view_version
-    JOIN namespace ns on ns.namespace_id = view_version.default_namespace_id
+    LEFT JOIN namespace ns on ns.namespace_id = view_version.default_namespace_id
     WHERE view_id = $1
     "#,
             self.view.as_ref().unwrap().view_id
@@ -660,10 +672,33 @@ impl MetadataFetcher {
 
         for r in rows {
             let timestamp = r.timestamp;
+            let dni: Option<Uuid> = r.default_namespace_id;
+            let namespace_name = if let Some(dni) = dni {
+                sqlx::query_scalar!(
+                    r#"
+                    SELECT namespace_name
+                    FROM namespace
+                    WHERE namespace_id = $1
+                "#,
+                    &dni
+                )
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(|e| {
+                    let message = "Error fetching namespace_name".to_string();
+                    tracing::warn!("{}", message);
+                    e.into_error_model(message)
+                })
+                .unwrap()
+            } else {
+                // TODO: NamespaceIdent doesn't allow empty vecs, otoh, spark is happily handing those to us
+                vec!["".into()]
+            };
+
             let builder = ViewVersion::builder()
                 .with_timestamp_ms(timestamp.timestamp_millis())
                 .with_version_id(r.version_id)
-                .with_default_namespace(NamespaceIdent::from_vec(r.default_namespace_name).unwrap())
+                .with_default_namespace(NamespaceIdent::from_vec(namespace_name).unwrap())
                 .with_schema_id(r.schema_id);
             let summaries: HashMap<String, String> = sqlx::query!(
                 r#"
@@ -736,15 +771,14 @@ pub struct VersionBuilder {
 pub(crate) async fn load_view(
     warehouse_id: &WarehouseIdent,
     table: &TableIdent,
-    catalog_state: CatalogState,
+    conn: &mut PgConnection,
 ) -> Result<ViewMetadata> {
     let fetcher = crate::implementations::postgres::tabular::view::MetadataFetcher::new(
         warehouse_id.clone(),
         table.namespace.clone(),
         table.name.clone(),
     );
-    let mut conn = catalog_state.read_pool.acquire().await.unwrap();
-    Ok(fetcher.fetch_metadata(&mut *conn).await)
+    Ok(fetcher.fetch_metadata(conn).await)
 }
 
 pub(crate) async fn list_views(
@@ -940,7 +974,7 @@ pub(crate) mod tests {
         let request = view_request();
         let table_uuid = Uuid::now_v7().into();
         let mut tx = pool.begin().await.unwrap();
-        let created_view = dbg!(
+        let created_meta = dbg!(
             super::create_view(
                 &namespace_id,
                 &TableIdent {
@@ -997,17 +1031,18 @@ pub(crate) mod tests {
         let (view_id, view) = views.into_iter().next().unwrap();
         assert_eq!(view_id, table_uuid);
         assert_eq!(view.name, "myview");
-
+        let mut conn = state.read_pool.acquire().await.unwrap();
         let metadata = load_view(
             &warehouse_id,
             &TableIdent {
                 namespace: namespace,
                 name: request.name.clone(),
             },
-            state,
+            &mut conn,
         )
         .await
         .unwrap();
+        assert_eq!(metadata, created_meta)
     }
 
     #[sqlx::test]

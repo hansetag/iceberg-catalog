@@ -199,6 +199,14 @@ where
         table: Option<&TableIdentUuid>,
         state: Self::State,
     ) -> Result<()>;
+
+    async fn check_load_view(
+        metadata: &RequestMetadata,
+        warehouse_id: &WarehouseIdent,
+        namespace: Option<&NamespaceIdent>,
+        view: Option<&TableIdentUuid>,
+        state: Self::State,
+    ) -> Result<()>;
 }
 
 /// Interface to provide Auth-related functions to the config gateway.

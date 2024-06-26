@@ -44,6 +44,7 @@ where
     async fn load_view(
         parameters: ViewParameters,
         state: ApiContext<S>,
+        data_access: DataAccess,
         request_metadata: RequestMetadata,
     ) -> Result<LoadViewResult>;
 
@@ -130,6 +131,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
             get(
                 |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap,
                  Extension(metadata): Extension<RequestMetadata>| {
                     {
                         I::load_view(
@@ -141,6 +143,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                                 },
                             },
                             api_context,
+                            crate::api::iceberg::v1::tables::parse_data_access(&headers),
                             metadata,
                         )
                     }

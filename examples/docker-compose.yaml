@@ -20,7 +20,7 @@ services:
       - ICEBERG_REST__PG_DATABASE_URL_READ=postgresql://postgres:postgres@db:5432/postgres
       - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:postgres@db:5432/postgres
       - ICEBERG_REST__DEFAULT_PROJECT_ID=00000000-0000-0000-0000-000000000000
-      - RUST_LOG=info
+      - RUST_LOG=trace,axum=info,tower=info
     entrypoint: [ "./iceberg-catalog", "serve" ]
     healthcheck:
       test: [ "CMD", "/home/nonroot/iceberg-catalog", "healthcheck" ]
@@ -94,7 +94,8 @@ services:
       start_period: 10s
     networks:
       iceberg_net:
-
+    ports:
+      - 2345:5432
   minio:
     image: bitnami/minio:latest
     environment:
