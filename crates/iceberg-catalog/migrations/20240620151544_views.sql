@@ -66,10 +66,10 @@ select trigger_updated_at('"current_view_metadata_version"');
 
 create table view_version_log
 (
-    id         uuid primary key default uuid_generate_v1mc(),
+    id         uuid primary key     default uuid_generate_v1mc(),
     view_id    uuid        not null,
     version_id bigint      not null,
-    timestamp  timestamptz not null,
+    timestamp  timestamptz not null default now(),
     FOREIGN KEY (view_id, version_id) REFERENCES view_version (view_id, version_id) ON DELETE CASCADE
 );
 call add_time_columns('view_version_log');

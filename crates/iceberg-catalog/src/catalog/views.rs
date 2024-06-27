@@ -7,19 +7,16 @@ use crate::catalog::io::write_metadata_file;
 use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
-use iceberg::spec::ViewMetadataBuilder;
-use iceberg::{NamespaceIdent, TableUpdate};
-use iceberg_ext::catalog::rest::{
-    AddSchemaUpdate, IcebergErrorResponse, UpgradeFormatVersionUpdate, ViewUpdate,
-};
-use iceberg_ext::catalog::{AssertViewUuid, ViewRequirement};
+use iceberg::NamespaceIdent;
+use iceberg_ext::catalog::rest::{IcebergErrorResponse, UpgradeFormatVersionUpdate, ViewUpdate};
+use iceberg_ext::catalog::ViewRequirement;
 use std::sync::Arc;
 use tracing::instrument;
 use uuid::Uuid;
 
 use super::tables::{
     maybe_body_to_json, require_active_warehouse, require_no_location_specified,
-    validate_lowercase_property, validate_table_or_view_ident, validate_table_properties,
+    validate_table_or_view_ident, validate_table_properties,
 };
 use super::{namespace::validate_namespace_ident, require_warehouse_id, CatalogServer};
 use crate::service::storage::StorageCredential;
@@ -192,7 +189,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             metadata,
             config: Some(config),
         };
-        eprintln!("{:?}", load_table_result);
 
         return Ok(load_table_result);
     }
@@ -271,9 +267,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             storage_secret_id,
             status,
         } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
-        crate::catalog::tables::require_active_warehouse(status)?;
+        require_active_warehouse(status)?;
 
-        let view_metadata = C::load_view(&warehouse_id, &view, transaction.transaction()).await?;
+        let view_metadata = C::load_view(view_id, transaction.transaction()).await?;
 
         // TODO: should load_view return this? What's there to gain?
         let location = storage_profile
@@ -522,12 +518,23 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     );
                 }
                 ViewUpdate::SetCurrentViewVersion(scvv) => {
-                    C::set_current_view_version(
-                        &view_id,
-                        scvv.view_version_id as i64,
-                        transaction.transaction(),
-                    )
-                    .await?;
+                    let version_id =
+                        if scvv.view_version_id == -1 {
+                            last_version.as_ref().ok_or(IcebergErrorResponse::from(
+                          ErrorModel::builder()
+                              .code(StatusCode::BAD_REQUEST.into())
+                              .message(
+                                  "-1 is only valid as a view version if one is added before"
+                                      .to_string(),
+                              )
+                              .r#type("ViewVersionIdNotSet".to_string())
+                              .build(),
+                      ))?.version_id
+                        } else {
+                            scvv.view_version_id as i64
+                        };
+                    C::set_current_view_version(&view_id, version_id, transaction.transaction())
+                        .await?;
                 }
             }
         }
@@ -537,8 +544,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         C::update_metadata_location(&view_id, &metadata_location, transaction.transaction())
             .await?;
-        let updated_meta =
-            C::load_view(&warehouse_id, &parameters.view, transaction.transaction()).await?;
+        let updated_meta = C::load_view(view_id, transaction.transaction()).await?;
 
         // We don't commit the transaction yet, first we need to write the metadata file.
         let storage_secret = if let Some(secret_id) = &storage_secret_id {
@@ -699,17 +705,21 @@ fn validate_view_updates_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
 
 #[cfg(test)]
 mod test {
-    use crate::api::iceberg::v1::{views, DataAccess, Prefix};
+    use crate::api::iceberg::v1::{views, DataAccess, NamespaceParameters, Prefix, ViewParameters};
     use crate::api::ApiContext;
     use crate::catalog::CatalogServer;
-    use crate::implementations;
+    use crate::implementations::postgres::namespace::tests::initialize_namespace;
+    use crate::implementations::postgres::secrets::Server;
+    use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use crate::implementations::postgres::{Catalog, CatalogState, SecretsState};
     use crate::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
     use crate::service::contract_verification::ContractVerifiers;
     use crate::service::event_publisher::{
-        CloudEventsPublisher, CloudEventsPublisherBackgroundTask,
+        CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
     };
+    use crate::service::storage::{S3Profile, StorageProfile, TestProfile};
     use crate::service::State;
+    use crate::{implementations, WarehouseIdent};
     use iceberg::spec::ViewRepresentation::SqlViewRepresentation;
     use iceberg::spec::{NestedField, Schema, StructType, ViewVersion};
     use iceberg::{NamespaceIdent, TableIdent};
@@ -717,23 +727,358 @@ mod test {
         AddSchema, AddViewVersion, SetCurrentViewVersion, SetProperties,
     };
     use iceberg_ext::catalog::rest::{
-        AddSchemaUpdate, AddViewVersionUpdate, CommitViewRequest, SetCurrentViewVersionUpdate,
-        SetPropertiesUpdate,
+        AddSchemaUpdate, AddViewVersionUpdate, CommitViewRequest, CreateViewRequest,
+        LoadViewResult, SetCurrentViewVersionUpdate, SetPropertiesUpdate,
     };
     use iceberg_ext::catalog::{AssertViewUuid, ViewRequirement};
     use maplit::hashmap;
     use serde_json::json;
     use sqlx::PgPool;
     use std::sync::Arc;
-    use tower::util::Either::A;
+    use tokio::sync::mpsc::Sender;
+    use uuid::Uuid;
+
+    #[sqlx::test]
+    async fn test_create_view(pool: PgPool) {
+        let (api_context, namespace, whi) = setup(pool).await;
+
+        let mut rq = create_view_request(None, None);
+
+        let view = create_view(
+            api_context.clone(),
+            namespace.clone(),
+            rq.clone(),
+            Some(whi.into_uuid().to_string()),
+        )
+        .await
+        .unwrap();
+        let view = create_view(
+            api_context.clone(),
+            namespace.clone(),
+            rq.clone(),
+            Some(whi.into_uuid().to_string()),
+        )
+        .await
+        .expect_err("Recreate with same ident should fail.");
+        assert_eq!(view.error.code, 409);
+        let old_name = rq.name.clone();
+        rq.name = "some-other-name".to_string();
+
+        let view = create_view(
+            api_context.clone(),
+            namespace,
+            rq.clone(),
+            Some(whi.into_uuid().to_string()),
+        )
+        .await
+        .expect("Recreate with with another name it should work");
+
+        rq.name = old_name;
+        let new_ns = new_namespace(
+            api_context.v1_state.catalog.clone(),
+            &whi,
+            Some(vec![Uuid::now_v7().to_string()]),
+        )
+        .await;
+        let view = create_view(api_context, new_ns, rq, Some(whi.into_uuid().to_string()))
+            .await
+            .expect("Recreate with same name but different ns should work.");
+    }
+
+    #[sqlx::test]
+    async fn test_drop_view(pool: PgPool) {
+        let (api_context, namespace, whi) = setup(pool).await;
+
+        let view_name = "my-view";
+        let rq: CreateViewRequest = create_view_request(Some(view_name), None);
+
+        let prefix = &whi.into_uuid().to_string();
+        let view = create_view(
+            api_context.clone(),
+            namespace.clone(),
+            rq,
+            Some(whi.into_uuid().to_string()),
+        )
+        .await
+        .unwrap();
+        let mut table_ident = namespace.clone().inner();
+        table_ident.push(view_name.into());
+        drop_view(
+            api_context.clone(),
+            namespace.clone(),
+            ViewParameters {
+                prefix: Some(Prefix(prefix.to_string())),
+                view: TableIdent::from_strs(&table_ident).unwrap(),
+            },
+            None,
+        )
+        .await
+        .expect("Drop should work");
+
+        let not_found = load_view(
+            api_context,
+            namespace,
+            ViewParameters {
+                prefix: Some(Prefix(prefix.to_string())),
+                view: TableIdent::from_strs(table_ident).unwrap(),
+            },
+            None,
+        )
+        .await
+        .expect_err("View should not exist anymore");
+        assert_eq!(not_found.error.code, 404);
+    }
+
+    #[sqlx::test]
+    async fn test_load_view(pool: PgPool) {
+        let (api_context, namespace, whi) = setup(pool).await;
+
+        let view_name = "my-view";
+        let rq: CreateViewRequest = create_view_request(Some(view_name), None);
+
+        let prefix = &whi.into_uuid().to_string();
+        let created_view = create_view(
+            api_context.clone(),
+            namespace.clone(),
+            rq,
+            Some(prefix.into()),
+        )
+        .await
+        .unwrap();
+        let mut table_ident = namespace.clone().inner();
+        table_ident.push(view_name.into());
+
+        let loaded_view = load_view(
+            api_context,
+            namespace,
+            ViewParameters {
+                prefix: Some(Prefix(prefix.to_string())),
+                view: TableIdent::from_strs(table_ident).unwrap(),
+            },
+            None,
+        )
+        .await
+        .expect("View should be loadable");
+        assert_eq!(loaded_view.metadata, created_view.metadata);
+    }
+
+    async fn load_view(
+        api_context: ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,
+        namespace: NamespaceIdent,
+        params: ViewParameters,
+        prefix: Option<String>,
+    ) -> crate::api::Result<LoadViewResult> {
+        <CatalogServer<Catalog, AllowAllAuthZHandler, Server> as views::Service<
+            State<AllowAllAuthZHandler, Catalog, Server>,
+        >>::load_view(
+            params,
+            api_context,
+            DataAccess {
+                vended_credentials: true,
+                remote_signing: false,
+            },
+            crate::request_metadata::RequestMetadata::new_random(),
+        )
+        .await
+    }
+
+    async fn drop_view(
+        api_context: ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,
+        namespace: NamespaceIdent,
+        params: ViewParameters,
+        prefix: Option<String>,
+    ) -> crate::api::Result<()> {
+        <CatalogServer<Catalog, AllowAllAuthZHandler, Server> as views::Service<
+            State<AllowAllAuthZHandler, Catalog, Server>,
+        >>::drop_view(
+            params,
+            api_context,
+            crate::request_metadata::RequestMetadata::new_random(),
+        )
+        .await
+    }
+
+    async fn create_view(
+        api_context: ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,
+        namespace: NamespaceIdent,
+        rq: CreateViewRequest,
+        prefix: Option<String>,
+    ) -> crate::api::Result<LoadViewResult> {
+        <CatalogServer<Catalog, AllowAllAuthZHandler, Server> as views::Service<
+            State<AllowAllAuthZHandler, Catalog, Server>,
+        >>::create_view(
+            NamespaceParameters {
+                namespace: namespace.clone(),
+                prefix: Some(Prefix(
+                    prefix.unwrap_or("b8683712-3484-11ef-a305-1bc8771ed40c".to_string()),
+                )),
+            },
+            rq,
+            api_context,
+            DataAccess {
+                vended_credentials: true,
+                remote_signing: false,
+            },
+            crate::request_metadata::RequestMetadata::new_random(),
+        )
+        .await
+    }
 
     #[sqlx::test]
     async fn test_commit_view(pool: PgPool) {
-        let rq: CommitViewRequest  = serde_json::from_value(json!({
+        let (api_context, namespace, whi) = setup(pool).await;
+        let prefix = whi.into_uuid().to_string();
+        let view_name = "myview";
+        let view = create_view(
+            api_context.clone(),
+            namespace.clone(),
+            create_view_request(Some(view_name), None),
+            Some(prefix.clone().into()),
+        )
+        .await
+        .unwrap();
+
+        let rq: CommitViewRequest = spark_commit_update_request(Some(view.metadata.view_uuid));
+
+        let res = <CatalogServer<
+            Catalog,
+            AllowAllAuthZHandler,
+            implementations::postgres::secrets::Server,
+        > as views::Service<
+            State<
+                AllowAllAuthZHandler,
+                implementations::postgres::Catalog,
+                implementations::postgres::secrets::Server,
+            >,
+        >>::commit_view(
+            views::ViewParameters {
+                prefix: Some(Prefix(prefix.clone().into())),
+                view: TableIdent::from_strs(
+                    namespace.inner().into_iter().chain([view_name.into()]),
+                )
+                .unwrap(),
+            },
+            rq,
+            api_context,
+            DataAccess {
+                vended_credentials: true,
+                remote_signing: false,
+            },
+            crate::request_metadata::RequestMetadata::new_random(),
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn setup(
+        pool: PgPool,
+    ) -> (
+        ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,
+        NamespaceIdent,
+        WarehouseIdent,
+    ) {
+        let api_context = get_api_context(pool);
+        let state = api_context.v1_state.catalog.clone();
+        let warehouse_id =
+            initialize_warehouse(state.clone(), Some(StorageProfile::Test(TestProfile)), None)
+                .await;
+        let namespace = new_namespace(state, &warehouse_id, None).await;
+        (api_context, namespace, warehouse_id)
+    }
+
+    async fn new_namespace(
+        state: CatalogState,
+        warehouse_id: &WarehouseIdent,
+        namespace: Option<Vec<String>>,
+    ) -> NamespaceIdent {
+        let namespace =
+            NamespaceIdent::from_vec(namespace.unwrap_or(vec!["my_namespace".to_string()]))
+                .unwrap();
+        initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
+        let namespace_id = implementations::postgres::tabular::table::tests::get_namespace_id(
+            state.clone(),
+            &warehouse_id,
+            &namespace,
+        )
+        .await;
+        namespace
+    }
+
+    fn get_api_context(pool: PgPool) -> ApiContext<State<AllowAllAuthZHandler, Catalog, Server>> {
+        let (tx, rx) = tokio::sync::mpsc::channel(1000);
+
+        let x = CloudEventsPublisherBackgroundTask {
+            source: rx,
+            sinks: vec![],
+        };
+        ApiContext {
+            v1_state: State {
+                auth: AllowAllAuthState,
+                catalog: CatalogState {
+                    read_pool: pool.clone(),
+                    write_pool: pool.clone(),
+                },
+                secrets: SecretsState {
+                    read_pool: pool.clone(),
+                    write_pool: pool,
+                },
+                publisher: CloudEventsPublisher::new(tx.clone()),
+                contract_verifiers: ContractVerifiers::new(vec![]),
+            },
+        }
+    }
+
+    fn create_view_request(name: Option<&str>, location: Option<&str>) -> CreateViewRequest {
+        serde_json::from_value(json!({
+                                  "name": name.unwrap_or("myview"),
+                                  "location": location,
+                                  "schema": {
+                                    "schema-id": 0,
+                                    "type": "struct",
+                                    "fields": [
+                                      {
+                                        "id": 0,
+                                        "name": "id",
+                                        "required": false,
+                                        "type": "long"
+                                      }
+                                    ]
+                                  },
+                                  "view-version": {
+                                    "version-id": 1,
+                                    "schema-id": 0,
+                                    "timestamp-ms": 1719395654343i64,
+                                    "summary": {
+                                      "engine-version": "3.5.1",
+                                      "iceberg-version": "Apache Iceberg 1.5.2 (commit cbb853073e681b4075d7c8707610dceecbee3a82)",
+                                      "engine-name": "spark",
+                                      "app-id": "local-1719395622847"
+                                    },
+                                    "representations": [
+                                      {
+                                        "type": "sql",
+                                        "sql": "select id, xyz from spark_demo.my_table",
+                                        "dialect": "spark"
+                                      }
+                                    ],
+                                    "default-namespace": []
+                                  },
+                                  "properties": {
+                                    "create_engine_version": "Spark 3.5.1",
+                                    "engine_version": "Spark 3.5.1",
+                                    "spark.query-column-names": "id"
+                                  }})).unwrap()
+    }
+
+    fn spark_commit_update_request(asserted_uuid: Option<Uuid>) -> CommitViewRequest {
+        let uuid = asserted_uuid
+            .map(|u| u.to_string())
+            .unwrap_or("019059cb-9277-7ff0-b71a-537df05b33f8".into());
+        serde_json::from_value(json!({
   "requirements": [
     {
       "type": "assert-view-uuid",
-      "uuid": "019059cb-9277-7ff0-b71a-537df05b33f8"
+      "uuid": &uuid
     }
   ],
   "updates": [
@@ -765,7 +1110,7 @@ mod test {
     {
       "action": "add-view-version",
       "view-version": {
-        "version-id": 1,
+        "version-id": 2,
         "schema-id": -1,
         "timestamp-ms": 1719494740509i64,
         "summary": {
@@ -789,56 +1134,6 @@ mod test {
       "view-version-id": -1
     }
   ]
-})).unwrap();
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
-        let (tx, rx) = tokio::sync::mpsc::channel(1000);
-
-        let x = CloudEventsPublisherBackgroundTask {
-            source: rx,
-            sinks: vec![],
-        };
-
-        let res = <CatalogServer<
-            Catalog,
-            AllowAllAuthZHandler,
-            implementations::postgres::secrets::Server,
-        > as views::Service<
-            State<
-                AllowAllAuthZHandler,
-                implementations::postgres::Catalog,
-                implementations::postgres::secrets::Server,
-            >,
-        >>::commit_view(
-            views::ViewParameters {
-                prefix: Some(Prefix("b8683712-3484-11ef-a305-1bc8771ed40c".to_string())),
-                view: TableIdent::from_strs(["spark_demo", "myview4"]).unwrap(),
-            },
-            rq,
-            ApiContext {
-                v1_state: State {
-                    auth: AllowAllAuthState,
-                    catalog: CatalogState {
-                        read_pool: pool.clone(),
-                        write_pool: pool.clone(),
-                    },
-                    secrets: SecretsState {
-                        read_pool: pool.clone(),
-                        write_pool: pool,
-                    },
-                    publisher: CloudEventsPublisher::new(tx.clone()),
-                    contract_verifiers: ContractVerifiers::new(vec![]),
-                },
-            },
-            DataAccess {
-                vended_credentials: true,
-                remote_signing: false,
-            },
-            crate::request_metadata::RequestMetadata::new_random(),
-        )
-        .await
-        .unwrap();
+})).unwrap()
     }
 }

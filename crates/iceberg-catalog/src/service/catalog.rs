@@ -338,8 +338,7 @@ where
     ) -> Result<()>;
 
     async fn load_view<'a>(
-        warehouse_id: &WarehouseIdent,
-        table_id: &TableIdent,
+        view_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ViewMetadata>;
 

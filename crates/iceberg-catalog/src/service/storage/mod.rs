@@ -20,6 +20,8 @@ pub enum StorageProfile {
     /// S3 storage profile
     #[serde(rename = "s3")]
     S3(S3Profile),
+    #[cfg(test)]
+    Test(TestProfile),
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
@@ -27,6 +29,9 @@ pub enum StorageProfile {
 pub enum StorageType {
     #[strum(serialize = "s3")]
     S3,
+    #[cfg(test)]
+    #[strum(serialize = "test")]
+    Test,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -35,6 +40,11 @@ impl StorageProfile {
     pub fn generate_catalog_config(&self, warehouse_id: &WarehouseIdent) -> CatalogConfig {
         match self {
             StorageProfile::S3(profile) => profile.generate_catalog_config(warehouse_id),
+            #[cfg(test)]
+            StorageProfile::Test(_) => CatalogConfig {
+                overrides: Default::default(),
+                defaults: Default::default(),
+            },
         }
     }
 
@@ -49,6 +59,10 @@ impl StorageProfile {
             (StorageProfile::S3(this_profile), StorageProfile::S3(other_profile)) => {
                 this_profile.can_be_updated_with(other_profile)
             }
+            #[cfg(test)]
+            (StorageProfile::Test(_), _) => Ok(()),
+            #[cfg(test)]
+            (_, StorageProfile::Test(_)) => Ok(()),
         }
     }
 
@@ -61,6 +75,11 @@ impl StorageProfile {
             StorageProfile::S3(profile) => profile.file_io(secret.map(|s| match s {
                 StorageCredential::S3(s) => s,
             })),
+            #[cfg(test)]
+            StorageProfile::Test(_) => {
+                let file_io = iceberg::io::FileIOBuilder::new("file").build().unwrap();
+                Ok(file_io)
+            }
         }
     }
 
@@ -72,6 +91,8 @@ impl StorageProfile {
     ) -> String {
         match self {
             StorageProfile::S3(profile) => profile.tabular_location(namespace_id, table_id),
+            #[cfg(test)]
+            StorageProfile::Test(_) => format!("/tmp/{}/{}", namespace_id, table_id),
         }
     }
 
@@ -87,6 +108,8 @@ impl StorageProfile {
     pub fn storage_type(&self) -> StorageType {
         match self {
             StorageProfile::S3(_) => StorageType::S3,
+            #[cfg(test)]
+            StorageProfile::Test(_) => StorageType::Test,
         }
     }
 
@@ -116,6 +139,8 @@ impl StorageProfile {
                     )
                     .await
             }
+            #[cfg(test)]
+            StorageProfile::Test(_) => Ok(Default::default()),
         }
     }
 
@@ -132,6 +157,8 @@ impl StorageProfile {
                     }))
                     .await
             }
+            #[cfg(test)]
+            StorageProfile::Test(_) => Ok(()),
         }
     }
 
@@ -153,6 +180,9 @@ impl StorageProfile {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TestProfile;
 
 /// Storage secret for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]

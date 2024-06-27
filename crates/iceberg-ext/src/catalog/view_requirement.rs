@@ -1,5 +1,4 @@
 use crate::catalog::rest::ErrorModel;
-use axum::async_trait;
 use iceberg::spec::ViewMetadata;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

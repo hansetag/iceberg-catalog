@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n                    v.view_id,\n                    view_format_version as \"view_format_version: ViewFormatVersion\",\n                    location as view_location,\n                    v.metadata_location as \"metadata_location!\",\n                    cvv.version_id as current_version_id\n                 from view v\n                    LEFT JOIN view_properties vp ON v.view_id = vp.view_id\n                    JOIN view_version vv on v.view_id = vv.view_id\n                    JOIN tabular ta ON v.view_id=ta.tabular_id\n                    JOIN namespace n ON ta.namespace_id = n.namespace_id\n                    JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n                    JOIN current_view_metadata_version cvv ON v.view_id = cvv.view_id\n                WHERE v.view_id = $1 AND w.status = 'active' AND ta.typ = 'view'\n                GROUP BY v.view_id,  cvv.version_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "view_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "view_format_version: ViewFormatVersion",
+        "type_info": {
+          "Custom": {
+            "name": "view_format_version",
+            "kind": {
+              "Enum": [
+                "v1"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "view_location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "metadata_location!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "current_version_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "742271643c5d26c23a673a941098acd6067ab6c414ad290a4bd99a65ddb3a02f"
+}
