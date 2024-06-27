@@ -7,5 +7,5 @@ pub use iceberg::spec::{
 };
 
 mod partition_binder;
-mod table_metadata;
+pub(crate) mod table_metadata;
 pub use table_metadata::TableMetadataAggregate;

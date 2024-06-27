@@ -1,7 +1,33 @@
+use crate::catalog::rest::ErrorModel;
+use axum::async_trait;
+use iceberg::spec::ViewMetadata;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ViewRequirement {
     AssertViewUuid(AssertViewUuid),
+}
+
+pub trait ViewRequirementExt {
+    fn assert(&self, view: &ViewMetadata) -> Result<(), ErrorModel>;
+}
+
+impl ViewRequirementExt for ViewRequirement {
+    fn assert(&self, view: &ViewMetadata) -> Result<(), ErrorModel> {
+        match self {
+            ViewRequirement::AssertViewUuid(x) => {
+                if view.uuid() != x.uuid {
+                    return Err(ErrorModel::builder()
+                        .code(409)
+                        .message("View UUID does not match")
+                        .r#type("ContractViolation".to_string())
+                        .build()
+                        .into());
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The view UUID must match the requirement's `uuid`

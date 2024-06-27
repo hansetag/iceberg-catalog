@@ -207,6 +207,13 @@ where
         view: Option<&TableIdentUuid>,
         state: Self::State,
     ) -> Result<()>;
+    async fn check_commit_view(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        _: Option<&TableIdentUuid>,
+        _: Option<&NamespaceIdent>,
+        _: Self::State,
+    ) -> Result<()>;
 }
 
 /// Interface to provide Auth-related functions to the config gateway.

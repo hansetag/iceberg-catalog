@@ -289,4 +289,14 @@ impl AuthZHandler for AllowAllAuthZHandler {
     ) -> Result<()> {
         Ok(())
     }
+
+    async fn check_commit_view(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        _: Option<&TableIdentUuid>,
+        _: Option<&NamespaceIdent>,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
 }

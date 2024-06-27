@@ -1015,7 +1015,7 @@ pub(crate) fn validate_lowercase_property(prop: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_table_properties<'a, I>(properties: I) -> Result<()>
+pub(crate) fn validate_table_properties<'a, I>(properties: I) -> Result<()>
 where
     I: IntoIterator<Item = &'a String>,
 {

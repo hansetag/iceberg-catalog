@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE view\n        SET metadata_location = $1\n        WHERE view_id = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c2044c14043677846d3e414cb8d1c6822b2b981f38fbc57f7d5c3c523e6f8a92"
+}

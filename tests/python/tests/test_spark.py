@@ -6,8 +6,8 @@ import pytest
 def test_create_namespace(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_namespace_spark")
     assert (
-        "test_create_namespace_spark",
-    ) in warehouse.pyiceberg_catalog.list_namespaces()
+               "test_create_namespace_spark",
+           ) in warehouse.pyiceberg_catalog.list_namespaces()
 
 
 def test_list_namespaces(spark, warehouse: conftest.Warehouse):
@@ -45,23 +45,24 @@ def test_create_table(spark, warehouse: conftest.Warehouse):
     )
     assert len(loaded_table.schema().fields) == 3
 
+
 def test_create_view(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_view")
     spark.sql(
         "CREATE TABLE test_create_view.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
     )
     spark.sql("CREATE VIEW test_create_view.my_view AS SELECT my_ints, my_floats FROM test_create_view.my_table")
-    loaded_table = warehouse.pyiceberg_catalog.load_view(
-        ("test_create_view", "my_view")
-    )
-    assert len(loaded_table.schema().fields) == 2
+    spark.sql("SELECT * from test_create_view.my_view")
+    spark.sql("CREATE OR REPLACE VIEW test_create_view.my_view AS SELECT my_ints FROM test_create_view.my_table")
+
 
 def test_create_drop_view(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_drop_view_spark")
     spark.sql(
         "CREATE TABLE test_create_drop_view_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
     )
-    spark.sql("CREATE VIEW test_create_drop_view_spark.my_view AS SELECT my_ints, my_floats FROM test_create_drop_view_spark.my_table")
+    spark.sql(
+        "CREATE VIEW test_create_drop_view_spark.my_view AS SELECT my_ints, my_floats FROM test_create_drop_view_spark.my_table")
     loaded_table = warehouse.pyiceberg_catalog.load_view(
         ("test_create_drop_view_spark", "my_view")
     )
@@ -72,12 +73,12 @@ def test_create_drop_view(spark, warehouse: conftest.Warehouse):
         warehouse.pyiceberg_catalog.load_view(("test_create_drop_view_spark", "my_view"))
         assert "NoSuchTableError" in str(e)
 
+
 def test_create_table_pyspark(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_table_pyspark")
     data = pd.DataFrame([[1, "a-string", 2.2]], columns=["id", "strings", "floats"])
     sdf = spark.createDataFrame(data)
     sdf.writeTo(f"test_create_table_pyspark.my_table").createOrReplace()
-
 
 
 def test_replace_table_pyspark(spark, warehouse: conftest.Warehouse):

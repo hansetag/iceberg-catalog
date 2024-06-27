@@ -15,7 +15,7 @@ use crate::catalog::rest::ErrorModel;
 use crate::spec::partition_binder::PartitionSpecBinder;
 
 // ToDo: Migrate to schema impl
-trait SchemaExt {
+pub(crate) trait SchemaExt {
     fn is_same_schema(&self, other: &SchemaRef) -> bool;
 }
 

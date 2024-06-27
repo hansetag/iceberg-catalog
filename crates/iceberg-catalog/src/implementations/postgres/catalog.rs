@@ -1,4 +1,4 @@
-use iceberg::spec::ViewMetadata;
+use iceberg::spec::{SchemaRef, ViewMetadata, ViewVersionRef};
 use iceberg_ext::catalog::rest::CreateViewRequest;
 use std::collections::{HashMap, HashSet};
 
@@ -20,7 +20,9 @@ use super::{
 };
 
 use crate::implementations::postgres::tabular::view::{
-    create_view, drop_view, list_views, load_view, view_ident_to_id,
+    create_view, create_view_schema, create_view_version, delete_properties, drop_view,
+    insert_view_properties, list_views, load_view, set_current_view_metadata_version,
+    update_metadata_location, view_ident_to_id, CreateViewVersion, ViewVersionResponse,
 };
 use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::service::{
@@ -337,5 +339,58 @@ impl Catalog for super::Catalog {
         catalog_state: Self::State,
     ) -> Result<HashMap<TableIdentUuid, TableIdent>> {
         list_views(warehouse_id, namespace, catalog_state).await
+    }
+
+    async fn add_view_schema(
+        view_id: &TableIdentUuid,
+        schema: SchemaRef,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<i32> {
+        create_view_schema(view_id.into_uuid(), schema, transaction).await
+    }
+
+    async fn insert_view_properties(
+        view_id: &TableIdentUuid,
+        properties: &HashMap<String, String>,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<()> {
+        insert_view_properties(properties, view_id.into_uuid(), transaction).await
+    }
+
+    async fn delete_view_properties(
+        view_id: &TableIdentUuid,
+        keys: &[String],
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<()> {
+        delete_properties(view_id.into_uuid(), &keys, transaction).await
+    }
+
+    async fn create_view_version<'a>(
+        view_id: &TableIdentUuid,
+        view_version_ref: ViewVersionRef,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<ViewVersionResponse> {
+        create_view_version(
+            view_id.into_uuid(),
+            CreateViewVersion::Append(view_version_ref),
+            transaction,
+        )
+        .await
+    }
+
+    async fn set_current_view_version<'a>(
+        view_id: &TableIdentUuid,
+        version_id: i64,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()> {
+        set_current_view_metadata_version(version_id, view_id.into_uuid(), transaction).await
+    }
+
+    async fn update_metadata_location(
+        table_id: &TableIdentUuid,
+        metadata_location: &str,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<()> {
+        update_metadata_location(table_id.into_uuid(), metadata_location, transaction).await
     }
 }
