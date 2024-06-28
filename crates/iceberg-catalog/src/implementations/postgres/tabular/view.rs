@@ -219,7 +219,7 @@ async fn insert_view_version_log(
         tracing::warn!("{}", message);
         e.into_error_model(message)
     })?;
-
+    tracing::debug!("Inserted view version log");
     Ok(())
 }
 
@@ -466,12 +466,13 @@ pub(crate) async fn create_view_version(
     Ok(insert_response)
 }
 
+#[instrument(fields(version_id=%version_id, view_id=%view_id))]
 pub(crate) async fn set_current_view_metadata_version(
     version_id: i64,
     view_id: Uuid,
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), IcebergErrorResponse> {
-    let r = dbg!(sqlx::query!(
+    let r = sqlx::query!(
         r#"select view_version_uuid from view_version where view_id = $1 AND version_id=$2"#,
         view_id,
         version_id
@@ -482,15 +483,15 @@ pub(crate) async fn set_current_view_metadata_version(
         let message = "Error fetching current view metadata version".to_string();
         tracing::warn!("{}", message);
         e.into_error_model(message)
-    })?);
+    })?;
     sqlx::query!(
         r#"
         UPDATE current_view_metadata_version SET version_id = $1, version_uuid = $2
         WHERE view_id = $3
         "#,
-        dbg!(version_id),
+        version_id,
         r.view_version_uuid,
-        dbg!(view_id)
+        view_id
     )
     .execute(&mut **transaction)
     .await
@@ -499,6 +500,11 @@ pub(crate) async fn set_current_view_metadata_version(
         tracing::warn!("{}", message);
         e.into_error_model(message)
     })?;
+
+    insert_view_version_log(view_id, version_id, None, transaction).await?;
+    tracing::debug!(
+        "Successfully set current view metadata version and inserted view version log."
+    );
     Ok(())
 }
 
