@@ -22,11 +22,14 @@ pub(crate) async fn load_view(
     fetcher.fetch_metadata(conn).await
 }
 
+#[allow(clippy::struct_field_names)]
 #[derive(FromRow, Debug)]
 pub(crate) struct View {
-    view_id: uuid::Uuid,
+    view_id: Uuid,
     #[sqlx(rename = "view_format_version: ViewFormatVersion")]
     view_format_version: ViewFormatVersion,
+    // TODO: this is not part of view metadata as it seems
+    #[allow(dead_code)]
     view_location: String,
     // TODO: We can construct this from uuid + location, why are we storing this?
     metadata_location: String,

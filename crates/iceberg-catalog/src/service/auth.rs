@@ -214,6 +214,12 @@ where
         _: Option<&NamespaceIdent>,
         _: Self::State,
     ) -> Result<()>;
+    async fn check_rename_view(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        _: Option<&TableIdentUuid>,
+        _: Self::State,
+    ) -> Result<()>;
 }
 
 /// Interface to provide Auth-related functions to the config gateway.

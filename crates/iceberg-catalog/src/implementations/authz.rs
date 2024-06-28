@@ -299,4 +299,13 @@ impl AuthZHandler for AllowAllAuthZHandler {
     ) -> Result<()> {
         Ok(())
     }
+
+    async fn check_rename_view(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        _: Option<&TableIdentUuid>,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
 }

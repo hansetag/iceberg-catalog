@@ -21,7 +21,7 @@ use super::{
 
 use crate::implementations::postgres::tabular::view::{
     create_view, create_view_schema, create_view_version, delete_properties, drop_view,
-    insert_view_properties, list_views, load_view, set_current_view_metadata_version,
+    insert_view_properties, list_views, load_view, rename_view, set_current_view_metadata_version,
     update_metadata_location, view_ident_to_id, CreateViewVersion, ViewVersionResponse,
 };
 use crate::implementations::postgres::tabular::TabularIdentUuid;
@@ -385,11 +385,21 @@ impl Catalog for super::Catalog {
         set_current_view_metadata_version(version_id, view_id.into_uuid(), transaction).await
     }
 
-    async fn update_metadata_location(
+    async fn update_view_metadata_location(
         table_id: &TableIdentUuid,
         metadata_location: &str,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()> {
         update_metadata_location(table_id.into_uuid(), metadata_location, transaction).await
+    }
+
+    async fn rename_view(
+        warehouse_id: &WarehouseIdent,
+        source_id: &TableIdentUuid,
+        source: &TableIdent,
+        destination: &TableIdent,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<()> {
+        rename_view(warehouse_id, source_id, source, destination, transaction).await
     }
 }

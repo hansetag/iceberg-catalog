@@ -42,8 +42,8 @@ impl StorageProfile {
             StorageProfile::S3(profile) => profile.generate_catalog_config(warehouse_id),
             #[cfg(test)]
             StorageProfile::Test(_) => CatalogConfig {
-                overrides: Default::default(),
-                defaults: Default::default(),
+                overrides: HashMap::default(),
+                defaults: HashMap::default(),
             },
         }
     }
@@ -77,7 +77,16 @@ impl StorageProfile {
             })),
             #[cfg(test)]
             StorageProfile::Test(_) => {
-                let file_io = iceberg::io::FileIOBuilder::new("file").build().unwrap();
+                let file_io = iceberg::io::FileIOBuilder::new("file")
+                    .build()
+                    .map_err(|e| {
+                        ErrorModel::builder()
+                            .code(500)
+                            .message("Failed to create file IO".to_string())
+                            .r#type("FileIOCreationFailed".to_string())
+                            .stack(Some(vec![format!("{:?}", e)]))
+                            .build()
+                    })?;
                 Ok(file_io)
             }
         }
@@ -140,7 +149,7 @@ impl StorageProfile {
                     .await
             }
             #[cfg(test)]
-            StorageProfile::Test(_) => Ok(Default::default()),
+            StorageProfile::Test(_) => Ok(HashMap::default()),
         }
     }
 
@@ -169,6 +178,14 @@ impl StorageProfile {
     pub fn try_into_s3(self, code: u16) -> Result<S3Profile> {
         match self {
             Self::S3(profile) => Ok(profile),
+            #[cfg(test)]
+            Self::Test(_) => Err(ErrorModel::builder()
+                .code(code)
+                .message("Storage profile is not S3".to_string())
+                .r#type("StorageProfileNotS3".to_string())
+                .stack(Some(vec![format!("Storage Type: {}", self.storage_type())]))
+                .build()
+                .into()),
             #[allow(unreachable_patterns)] // More profiles will be added in the future
             _ => Err(ErrorModel::builder()
                 .code(code)

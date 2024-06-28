@@ -303,6 +303,7 @@ pub(crate) async fn create_view_schema(
     })?)
 }
 
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, FromRow)]
 pub struct ViewVersionResponse {
     pub version_id: i64,

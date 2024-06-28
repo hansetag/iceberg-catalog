@@ -15,10 +15,11 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use super::tables::{
-    maybe_body_to_json, require_active_warehouse, require_no_location_specified,
-    validate_table_or_view_ident, validate_table_properties,
+    require_active_warehouse, require_no_location_specified, validate_table_or_view_ident,
+    validate_table_properties,
 };
 use super::{namespace::validate_namespace_ident, require_warehouse_id, CatalogServer};
+use crate::service::contract_verification::ContractVerification;
 use crate::service::storage::StorageCredential;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, TableIdentUuid,
@@ -306,6 +307,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     }
 
     /// Commit updates to a view
+    // TODO: break up into smaller fns
+    #[allow(clippy::too_many_lines)]
     async fn commit_view(
         parameters: ViewParameters,
         mut request: CommitViewRequest,
@@ -435,7 +438,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
         require_active_warehouse(status)?;
 
-        for assertion in request.requirements.unwrap_or_default() {
+        for assertion in requirements.as_deref().unwrap_or(&[]) {
             match assertion {
                 ViewRequirement::AssertViewUuid(uuid) => {
                     if uuid.uuid != view_id.into_uuid() {
@@ -472,7 +475,19 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 }
 
                 ViewUpdate::UpgradeFormatVersion(UpgradeFormatVersionUpdate { format_version }) => {
-                    todo!()
+                    match format_version {
+                        1 => {
+                            // No-op
+                        }
+                        _ => {
+                            return Err(ErrorModel::builder()
+                                .code(StatusCode::BAD_REQUEST.into())
+                                .message("Format version not supported".to_string())
+                                .r#type("FormatVersionNotSupported".to_string())
+                                .build()
+                                .into());
+                        }
+                    }
                 }
                 ViewUpdate::AddSchema(iceberg_ext::catalog::rest::AddSchemaUpdate {
                     schema,
@@ -540,7 +555,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .tabular_location(&namespace_id, &TabularIdentUuid::View(view_id.into_uuid()));
         let metadata_location = storage_profile.metadata_location(&tab_location, &Uuid::now_v7());
 
-        C::update_metadata_location(&view_id, &metadata_location, transaction.transaction())
+        C::update_view_metadata_location(&view_id, &metadata_location, transaction.transaction())
             .await?;
         let updated_meta = C::load_view(view_id, transaction.transaction()).await?;
 
@@ -657,12 +672,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     async fn rename_view(
         prefix: Option<Prefix>,
         request: RenameTableRequest,
-        _state: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        state: ApiContext<State<A, C, S>>,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
-        let _warehouse_id = require_warehouse_id(prefix.clone())?;
-        let _body = maybe_body_to_json(&request);
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
         let RenameTableRequest {
             source,
             destination,
@@ -670,12 +684,65 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         validate_table_or_view_ident(&source)?;
         validate_table_or_view_ident(&destination)?;
 
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Views are not implemented".to_string())
-            .r#type("RenameViewNotSupported".to_string())
-            .build()
-            .into());
+        // ------------------- AUTHZ -------------------
+        let source_id = C::view_ident_to_id(&warehouse_id, &source, state.v1_state.catalog.clone())
+            .await
+            // We can't fail before AuthZ.
+            .ok()
+            .flatten();
+
+        // We need to be allowed to delete the old table and create the new one
+        let rename_check = A::check_rename_view(
+            &request_metadata,
+            &warehouse_id,
+            source_id.as_ref(),
+            state.v1_state.auth.clone(),
+        );
+        let create_check = A::check_create_view(
+            &request_metadata,
+            &warehouse_id,
+            &destination.namespace,
+            state.v1_state.auth,
+        );
+        futures::try_join!(rename_check, create_check)?;
+
+        // ------------------- BUSINESS LOGIC -------------------
+        if source == destination {
+            return Ok(());
+        }
+
+        // This case should not happen after AuthZ.
+        // Its rust though, so we have do to something.
+        let source_id = source_id.ok_or_else(|| {
+            ErrorModel::builder()
+                .code(StatusCode::NOT_FOUND.into())
+                .message(format!(
+                    "Source view does not exist in warehouse {warehouse_id}"
+                ))
+                .r#type("ViewNotFound".to_string())
+                .build()
+        })?;
+
+        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        C::rename_view(
+            &warehouse_id,
+            &source_id,
+            &source,
+            &destination,
+            transaction.transaction(),
+        )
+        .await?;
+
+        state
+            .v1_state
+            .contract_verifiers
+            .check_rename(source_id, &destination)
+            .await?
+            .into_result()?;
+
+        transaction.commit().await?;
+
+        return Ok(());
     }
 }
 
@@ -712,9 +779,7 @@ mod test {
     use crate::implementations::postgres::{Catalog, CatalogState, SecretsState};
     use crate::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
     use crate::service::contract_verification::ContractVerifiers;
-    use crate::service::event_publisher::{
-        CloudEventsPublisher, CloudEventsPublisherBackgroundTask,
-    };
+    use crate::service::event_publisher::CloudEventsPublisher;
     use crate::service::storage::{StorageProfile, TestProfile};
     use crate::service::State;
     use crate::{implementations, WarehouseIdent};
@@ -783,7 +848,7 @@ mod test {
         let rq: CreateViewRequest = create_view_request(Some(view_name), None);
 
         let prefix = &whi.into_uuid().to_string();
-        let view = create_view(
+        let _view = create_view(
             api_context.clone(),
             namespace.clone(),
             rq,
@@ -791,28 +856,24 @@ mod test {
         )
         .await
         .unwrap();
-        let mut table_ident = namespace.clone().inner();
+        let mut table_ident = namespace.inner();
         table_ident.push(view_name.into());
         drop_view(
             api_context.clone(),
-            namespace.clone(),
             ViewParameters {
                 prefix: Some(Prefix(prefix.to_string())),
                 view: TableIdent::from_strs(&table_ident).unwrap(),
             },
-            None,
         )
         .await
         .expect("Drop should work");
 
         let not_found = load_view(
             api_context,
-            namespace,
             ViewParameters {
                 prefix: Some(Prefix(prefix.to_string())),
                 view: TableIdent::from_strs(table_ident).unwrap(),
             },
-            None,
         )
         .await
         .expect_err("View should not exist anymore");
@@ -840,12 +901,10 @@ mod test {
 
         let loaded_view = load_view(
             api_context,
-            namespace,
             ViewParameters {
                 prefix: Some(Prefix(prefix.to_string())),
                 view: TableIdent::from_strs(table_ident).unwrap(),
             },
-            None,
         )
         .await
         .expect("View should be loadable");
@@ -854,9 +913,7 @@ mod test {
 
     async fn load_view(
         api_context: ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,
-        namespace: NamespaceIdent,
         params: ViewParameters,
-        prefix: Option<String>,
     ) -> crate::api::Result<LoadViewResult> {
         <CatalogServer<Catalog, AllowAllAuthZHandler, Server> as views::Service<
             State<AllowAllAuthZHandler, Catalog, Server>,
@@ -874,9 +931,7 @@ mod test {
 
     async fn drop_view(
         api_context: ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,
-        namespace: NamespaceIdent,
         params: ViewParameters,
-        prefix: Option<String>,
     ) -> crate::api::Result<()> {
         <CatalogServer<Catalog, AllowAllAuthZHandler, Server> as views::Service<
             State<AllowAllAuthZHandler, Catalog, Server>,
@@ -958,6 +1013,15 @@ mod test {
         )
         .await
         .unwrap();
+
+        assert_eq!(res.metadata.current_version_id, 2);
+        assert_eq!(res.metadata.schemas.len(), 2);
+        assert_eq!(res.metadata.versions.len(), 2);
+        let max_schema = res.metadata.schemas.keys().max();
+        assert_eq!(
+            res.metadata.current_version().schema_id,
+            *max_schema.unwrap()
+        );
     }
 
     async fn setup(
@@ -985,17 +1049,11 @@ mod test {
             NamespaceIdent::from_vec(namespace.unwrap_or(vec!["my_namespace".to_string()]))
                 .unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
-        let namespace_id = implementations::postgres::tabular::table::tests::get_namespace_id(
-            state.clone(),
-            warehouse_id,
-            &namespace,
-        )
-        .await;
         namespace
     }
 
     fn get_api_context(pool: PgPool) -> ApiContext<State<AllowAllAuthZHandler, Catalog, Server>> {
-        let (tx, rx) = tokio::sync::mpsc::channel(1000);
+        let (tx, _) = tokio::sync::mpsc::channel(1000);
 
         ApiContext {
             v1_state: State {

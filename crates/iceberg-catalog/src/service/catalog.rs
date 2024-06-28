@@ -378,9 +378,17 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
-    async fn update_metadata_location(
+    async fn update_view_metadata_location(
         table_id: &TableIdentUuid,
         metadata_location: &str,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<()>;
+
+    async fn rename_view(
+        warehouse_id: &WarehouseIdent,
+        source_id: &TableIdentUuid,
+        source: &TableIdent,
+        destination: &TableIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()>;
 }
