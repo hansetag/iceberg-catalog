@@ -24,7 +24,6 @@ use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, TableIdentUuid,
     Transaction,
 };
-use iceberg_ext::catalog::ViewRequirementExt;
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -75,9 +74,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let NamespaceParameters { namespace, prefix } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
         let table = TableIdent::new(namespace.clone(), request.name.clone());
-        validate_table_or_view_ident(&table)?;
 
-        // TODO: this correct?
+        validate_table_or_view_ident(&table)?;
         require_no_location_specified(&request.location)?;
 
         if request.location.is_some() {
@@ -131,7 +129,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             storage_secret_id,
             status,
         } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
-        crate::catalog::tables::require_active_warehouse(status)?;
+        require_active_warehouse(status)?;
 
         let table_id: TabularIdentUuid = TabularIdentUuid::View(uuid::Uuid::now_v7());
 
@@ -531,7 +529,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                               .build(),
                       ))?.version_id
                         } else {
-                            scvv.view_version_id as i64
+                            i64::from(scvv.view_version_id)
                         };
                     C::set_current_view_version(&view_id, version_id, transaction.transaction())
                         .await?;
@@ -643,7 +641,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // TODO: authz
         let v = C::view_ident_to_id(&whi, &view, state.v1_state.catalog.clone()).await?;
 
-        if let Some(_) = v {
+        if v.is_some() {
             return Ok(());
         }
 
@@ -715,27 +713,19 @@ mod test {
     use crate::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
     use crate::service::contract_verification::ContractVerifiers;
     use crate::service::event_publisher::{
-        CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
+        CloudEventsPublisher, CloudEventsPublisherBackgroundTask,
     };
-    use crate::service::storage::{S3Profile, StorageProfile, TestProfile};
+    use crate::service::storage::{StorageProfile, TestProfile};
     use crate::service::State;
     use crate::{implementations, WarehouseIdent};
-    use iceberg::spec::ViewRepresentation::SqlViewRepresentation;
-    use iceberg::spec::{NestedField, Schema, StructType, ViewVersion};
+
     use iceberg::{NamespaceIdent, TableIdent};
-    use iceberg_ext::catalog::rest::ViewUpdate::{
-        AddSchema, AddViewVersion, SetCurrentViewVersion, SetProperties,
-    };
-    use iceberg_ext::catalog::rest::{
-        AddSchemaUpdate, AddViewVersionUpdate, CommitViewRequest, CreateViewRequest,
-        LoadViewResult, SetCurrentViewVersionUpdate, SetPropertiesUpdate,
-    };
-    use iceberg_ext::catalog::{AssertViewUuid, ViewRequirement};
-    use maplit::hashmap;
+
+    use iceberg_ext::catalog::rest::{CommitViewRequest, CreateViewRequest, LoadViewResult};
+
     use serde_json::json;
     use sqlx::PgPool;
-    use std::sync::Arc;
-    use tokio::sync::mpsc::Sender;
+
     use uuid::Uuid;
 
     #[sqlx::test]
@@ -744,7 +734,7 @@ mod test {
 
         let mut rq = create_view_request(None, None);
 
-        let view = create_view(
+        let _view = create_view(
             api_context.clone(),
             namespace.clone(),
             rq.clone(),
@@ -764,7 +754,7 @@ mod test {
         let old_name = rq.name.clone();
         rq.name = "some-other-name".to_string();
 
-        let view = create_view(
+        let _view = create_view(
             api_context.clone(),
             namespace,
             rq.clone(),
@@ -780,7 +770,7 @@ mod test {
             Some(vec![Uuid::now_v7().to_string()]),
         )
         .await;
-        let view = create_view(api_context, new_ns, rq, Some(whi.into_uuid().to_string()))
+        let _view = create_view(api_context, new_ns, rq, Some(whi.into_uuid().to_string()))
             .await
             .expect("Recreate with same name but different ns should work.");
     }
@@ -933,7 +923,7 @@ mod test {
             api_context.clone(),
             namespace.clone(),
             create_view_request(Some(view_name), None),
-            Some(prefix.clone().into()),
+            Some(prefix.clone()),
         )
         .await
         .unwrap();
@@ -952,7 +942,7 @@ mod test {
             >,
         >>::commit_view(
             views::ViewParameters {
-                prefix: Some(Prefix(prefix.clone().into())),
+                prefix: Some(Prefix(prefix.clone())),
                 view: TableIdent::from_strs(
                     namespace.inner().into_iter().chain([view_name.into()]),
                 )
@@ -994,10 +984,10 @@ mod test {
         let namespace =
             NamespaceIdent::from_vec(namespace.unwrap_or(vec!["my_namespace".to_string()]))
                 .unwrap();
-        initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
+        initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let namespace_id = implementations::postgres::tabular::table::tests::get_namespace_id(
             state.clone(),
-            &warehouse_id,
+            warehouse_id,
             &namespace,
         )
         .await;
@@ -1047,7 +1037,7 @@ mod test {
                                   "view-version": {
                                     "version-id": 1,
                                     "schema-id": 0,
-                                    "timestamp-ms": 1719395654343i64,
+                                    "timestamp-ms": 1_719_395_654_343_i64,
                                     "summary": {
                                       "engine-version": "3.5.1",
                                       "iceberg-version": "Apache Iceberg 1.5.2 (commit cbb853073e681b4075d7c8707610dceecbee3a82)",
@@ -1071,9 +1061,9 @@ mod test {
     }
 
     fn spark_commit_update_request(asserted_uuid: Option<Uuid>) -> CommitViewRequest {
-        let uuid = asserted_uuid
-            .map(|u| u.to_string())
-            .unwrap_or("019059cb-9277-7ff0-b71a-537df05b33f8".into());
+        let uuid = asserted_uuid.map_or("019059cb-9277-7ff0-b71a-537df05b33f8".into(), |u| {
+            u.to_string()
+        });
         serde_json::from_value(json!({
   "requirements": [
     {
@@ -1112,7 +1102,7 @@ mod test {
       "view-version": {
         "version-id": 2,
         "schema-id": -1,
-        "timestamp-ms": 1719494740509i64,
+        "timestamp-ms": 1_719_494_740_509_i64,
         "summary": {
           "engine-name": "spark",
           "engine-version": "3.5.1",

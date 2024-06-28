@@ -917,8 +917,6 @@ pub(crate) mod tests {
 
         // Second create should succeed
         let mut transaction = pool.begin().await.unwrap();
-        // TODO: being able to update a pkey which is also a fkey elsewhere makes our live quite hard
-        //       do we really really need this? if yes then uncomment the line below and deal with it
         let table_id = uuid::Uuid::now_v7().into();
         let create_result = create_table(
             &namespace_id,

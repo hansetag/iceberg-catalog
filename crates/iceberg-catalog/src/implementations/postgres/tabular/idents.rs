@@ -12,7 +12,7 @@ pub enum TabularIdentUuid {
 
 impl Display for TabularIdentUuid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.deref())
+        write!(f, "{}", &**self)
     }
 }
 

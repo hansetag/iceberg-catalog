@@ -10,20 +10,15 @@ use http::StatusCode;
 use iceberg_ext::NamespaceIdent;
 
 use crate::implementations::postgres::tabular::{
-    create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentOwned, TabularIdentRef,
-    TabularIdentUuid, TabularType,
+    create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentRef, TabularIdentUuid,
+    TabularType,
 };
 use chrono::{DateTime, Utc};
-use iceberg::spec::{
-    Schema, SchemaRef, SqlViewRepresentation, ViewMetadata, ViewMetadataBuilder,
-    ViewRepresentation, ViewVersion, ViewVersionLog, ViewVersionRef,
-};
-use iceberg::ViewCreation;
+use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersion, ViewVersionRef};
 use iceberg_ext::catalog::rest::{CreateViewRequest, IcebergErrorResponse};
 use maplit::hashmap;
-use serde::ser;
-use sqlx::{FromRow, PgConnection, Postgres, Transaction};
-use std::collections::{HashMap, HashSet};
+use sqlx::{FromRow, Postgres, Transaction};
+use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
 use tracing::instrument;
@@ -91,8 +86,7 @@ pub(crate) async fn create_view(
     } = request;
 
     let location = location.ok_or_else(|| {
-        // TODO: encode this in the function signature / request struct? We shouldn't fail here when
-        //       we set the location in the handler fn.
+        // TODO: encode this in the request struct? I.e. decouple rest interface from db interface
         tracing::error!("Server failed to set view location, this should not be possible.");
         ErrorModel::builder()
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
@@ -107,7 +101,7 @@ pub(crate) async fn create_view(
     let metadata = ViewMetadata {
         format_version: iceberg::spec::ViewFormatVersion::V1,
         view_uuid: view_id.into_uuid(),
-        location,
+        location: metadata_location.to_string(),
         current_version_id: view_version.version_id,
         versions: hashmap!(view_version.version_id => Arc::new(view_version)),
         // we'll populate this on insert
@@ -136,9 +130,7 @@ pub(crate) async fn create_view(
         "#,
         tabular_id,
         ViewFormatVersion::from(metadata.format_version()) as _,
-        // TODO: ViewCreation sets location to location so it ends up as metadata.location is this different from
-        // metadata_location?
-        metadata.location(),
+        location,
         metadata_location,
     )
     .fetch_one(&mut **transaction)
@@ -180,7 +172,7 @@ pub(crate) async fn create_view(
 
     tracing::debug!("Inserted view properties for view",);
 
-    Ok(load_view(&TableIdentUuid::from(view_id), transaction).await?)
+    load_view(&TableIdentUuid::from(view_id), transaction).await
 }
 
 // TODO: do we wanna do this via a trigger?
@@ -389,7 +381,7 @@ pub(crate) async fn create_view_version(
             }
     })?;
 
-    for (k, v) in view_version.summary().into_iter() {
+    for (k, v) in view_version.summary() {
         sqlx::query!(
             r#"
             INSERT INTO metadata_summary (summary_tuple_id, view_version_uuid, key, value)
@@ -680,7 +672,7 @@ pub(crate) mod tests {
                                   "view-version": {
                                     "version-id": 1,
                                     "schema-id": 0,
-                                    "timestamp-ms": 1719395654343i64,
+                                    "timestamp-ms": 1_719_395_654_343_i64,
                                     "summary": {
                                       "engine-version": "3.5.1",
                                       "iceberg-version": "Apache Iceberg 1.5.2 (commit cbb853073e681b4075d7c8707610dceecbee3a82)",
@@ -782,7 +774,7 @@ pub(crate) mod tests {
         assert_eq!(view.name, "myview");
         let mut conn = state.read_pool.acquire().await.unwrap();
         let metadata = load_view(&view_id, &mut conn).await.unwrap();
-        assert_eq!(metadata, created_meta)
+        assert_eq!(metadata, created_meta);
     }
 
     #[sqlx::test]

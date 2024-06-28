@@ -361,7 +361,7 @@ impl Catalog for super::Catalog {
         keys: &[String],
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()> {
-        delete_properties(view_id.into_uuid(), &keys, transaction).await
+        delete_properties(view_id.into_uuid(), keys, transaction).await
     }
 
     async fn create_view_version<'a>(

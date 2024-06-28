@@ -92,7 +92,7 @@ impl StorageProfile {
         match self {
             StorageProfile::S3(profile) => profile.tabular_location(namespace_id, table_id),
             #[cfg(test)]
-            StorageProfile::Test(_) => format!("/tmp/{}/{}", namespace_id, table_id),
+            StorageProfile::Test(_) => format!("/tmp/{namespace_id}/{table_id}"),
         }
     }
 

@@ -2,12 +2,11 @@ use crate::api::Result;
 use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::view::{ViewFormatVersion, ViewRepresentationType};
 use crate::service::TableIdentUuid;
-use crate::WarehouseIdent;
 use iceberg::spec::{
     Schema, SchemaRef, SqlViewRepresentation, ViewMetadata, ViewRepresentation, ViewVersion,
     ViewVersionLog, ViewVersionRef,
 };
-use iceberg::{NamespaceIdent, TableIdent};
+use iceberg::NamespaceIdent;
 use iceberg_ext::catalog::rest::ErrorModel;
 use sqlx::{FromRow, PgConnection};
 use std::collections::HashMap;
@@ -131,7 +130,7 @@ impl MetadataFetcher {
         conn: &mut PgConnection,
         view_id: Uuid,
     ) -> crate::api::Result<HashMap<i32, SchemaRef>> {
-        Ok(sqlx::query!(
+        sqlx::query!(
             r#"
             SELECT schema_id, schema
             FROM view_schema
@@ -160,7 +159,7 @@ impl MetadataFetcher {
             })?;
             Ok((r.schema_id, Arc::new(schema)))
         })
-        .collect::<Result<HashMap<_, _>>>()?)
+        .collect::<Result<HashMap<_, _>>>()
     }
 
     pub(crate) async fn fetch_properties(
@@ -254,16 +253,13 @@ impl MetadataFetcher {
             e.into_error_model(message)
         })?
         .into_iter()
-        .map(|r| {
-            let repr = match r.typ {
-                ViewRepresentationType::SQL => {
-                    ViewRepresentation::SqlViewRepresentation(SqlViewRepresentation {
-                        sql: r.sql,
-                        dialect: r.dialect,
-                    })
-                }
-            };
-            repr
+        .map(|r| match r.typ {
+            ViewRepresentationType::SQL => {
+                ViewRepresentation::SqlViewRepresentation(SqlViewRepresentation {
+                    sql: r.sql,
+                    dialect: r.dialect,
+                })
+            }
         })
         .collect())
     }

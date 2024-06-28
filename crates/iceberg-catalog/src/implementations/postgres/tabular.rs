@@ -67,7 +67,7 @@ where
             r.metadata_location.is_none(),
         ))
     });
-    // TODO: can views be staged?
+
     match rows {
         Err(e) => match e {
             sqlx::Error::RowNotFound => Ok(None),
@@ -269,7 +269,7 @@ pub(crate) async fn create_tabular<'a>(
     .await
     .map_err(|e| match &e {
         sqlx::Error::RowNotFound => {
-            eprintln!("conflicted out {}, {}, {}", id, namespace_id, typ);
+            eprintln!("conflicted out {id}, {namespace_id}, {typ}");
             ErrorModel::builder()
                 .code(StatusCode::CONFLICT.into())
                 .message("Table or View with same name already exists in Namespace".to_string())
@@ -286,7 +286,6 @@ pub(crate) async fn list_tabulars(
     include_staged: bool,
     catalog_state: CatalogState,
     typ: Option<TabularType>,
-    // TODO: the return type looks a bit funky
 ) -> Result<HashMap<TabularIdentUuid, TabularIdentOwned>> {
     let tables = sqlx::query!(
         r#"
@@ -317,7 +316,7 @@ pub(crate) async fn list_tabulars(
     for table in tables {
         let namespace = try_parse_namespace_ident(table.namespace_name)?;
         let name = table.tabular_name;
-        eprintln!("name: {}", name);
+        eprintln!("name: {name}");
 
         match table.typ {
             TabularType::Table => {
