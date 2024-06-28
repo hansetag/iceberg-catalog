@@ -195,7 +195,7 @@ impl MetadataFetcher {
     ) -> crate::api::Result<HashMap<i64, ViewVersionRef>> {
         let mut versions = HashMap::new();
         let rows = sqlx::query!(
-                r#"SELECT version_id, schema_id, timestamp, default_namespace_id as "default_namespace_id?", view_version_uuid
+                r#"SELECT version_id, schema_id, timestamp, default_namespace_id as "default_namespace_id?", default_catalog, view_version_uuid
                 FROM view_version
                 LEFT JOIN namespace ns on ns.namespace_id = view_version.default_namespace_id
                 WHERE view_id = $1
@@ -221,6 +221,7 @@ impl MetadataFetcher {
                 .with_timestamp_ms(timestamp.timestamp_millis())
                 .with_version_id(version_id)
                 .with_default_namespace(namespace_name)
+                .with_default_catalog(r.default_catalog)
                 .with_schema_id(r.schema_id)
                 .with_summary(Self::fetch_metadata_summary(conn, view_version_uuid).await?)
                 .with_representations(
@@ -254,7 +255,7 @@ impl MetadataFetcher {
         })?
         .into_iter()
         .map(|r| match r.typ {
-            ViewRepresentationType::SQL => {
+            ViewRepresentationType::Sql => {
                 ViewRepresentation::SqlViewRepresentation(SqlViewRepresentation {
                     sql: r.sql,
                     dialect: r.dialect,

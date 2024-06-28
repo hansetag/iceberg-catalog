@@ -997,10 +997,6 @@ mod test {
     fn get_api_context(pool: PgPool) -> ApiContext<State<AllowAllAuthZHandler, Catalog, Server>> {
         let (tx, rx) = tokio::sync::mpsc::channel(1000);
 
-        let x = CloudEventsPublisherBackgroundTask {
-            source: rx,
-            sinks: vec![],
-        };
         ApiContext {
             v1_state: State {
                 auth: AllowAllAuthState,

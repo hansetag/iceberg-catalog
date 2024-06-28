@@ -95,9 +95,6 @@ pub(crate) async fn create_view(
             .build()
     })?;
 
-    let summary = view_version.summary().clone();
-    let representations = view_version.representations().clone();
-
     let metadata = ViewMetadata {
         format_version: iceberg::spec::ViewFormatVersion::V1,
         view_uuid: view_id.into_uuid(),
@@ -312,6 +309,7 @@ pub struct ViewVersionResponse {
     pub view_version_uuid: Uuid,
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn create_view_version(
     view_id: Uuid,
     view_version_request: CreateViewVersion,
@@ -343,8 +341,8 @@ pub(crate) async fn create_view_version(
 
     let insert_response = sqlx::query_as!(ViewVersionResponse,
                 r#"
-                    INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, timestamp, default_namespace_id)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                    INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, timestamp, default_namespace_id, default_catalog)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
                     returning view_version_uuid, version_id
                 "#,
                 Uuid::now_v7(),
@@ -352,32 +350,29 @@ pub(crate) async fn create_view_version(
                 version_id,
                 schema_id,
                 view_version.timestamp(),
-                default_namespace_id
+                default_namespace_id,
+                default_cat
             )
         .fetch_one(&mut **transaction)
         .await.map_err(|e| {
-            match e {
-                sqlx::Error::RowNotFound => {
-                    let message = "View version already exists";
-                    eprintln!("{} {:?}", message, e.to_string());
-                    ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.into())
-                        .message(message.to_string())
-                        .r#type("ViewVersionAlreadyExists".to_string())
-                        .build()
-                }
-                _ => {
-                    let message = "Error creating view version";
-                    tracing::warn!(
-                    "{} for: '{}'/'{}' with schema_id: '{}' due to: '{}'",
-                    message,
-                    view_id,
-                    version_id,
-                    schema_id,
-                    e
-                );
-                    e.into_error_model(message.to_string())
-                }
+            if let sqlx::Error::RowNotFound = e {
+                let message = "View version already exists";
+                tracing::debug!(?e,"{}", message);
+                ErrorModel::builder()
+                    .code(StatusCode::CONFLICT.into())
+                    .message(message.to_string())
+                    .r#type("ViewVersionAlreadyExists".to_string())
+                    .build()
+            } else {
+                let message = "Error creating view version";
+                tracing::warn!(?e, "{} for: '{}'/'{}' with schema_id: '{}' due to: '{}'",
+                message,
+                view_id,
+                version_id,
+                schema_id,
+                e
+            );
+                e.into_error_model(message.to_string())
             }
     })?;
 
@@ -402,25 +397,7 @@ pub(crate) async fn create_view_version(
     }
 
     for rep in view_version.representations() {
-        let ViewRepresentation::SqlViewRepresentation(repr) = rep;
-        sqlx::query!(
-            r#"
-            INSERT INTO view_representation (view_version_uuid, view_representation_id, typ, sql, dialect)
-            VALUES ($1, $2, $3, $4, $5)
-            "#,
-            insert_response.view_version_uuid,
-            Uuid::now_v7(),
-            ViewRepresentationType::from(rep) as _,
-            repr.sql.as_str(),
-            repr.dialect.as_str()
-        )
-        .execute(&mut **transaction)
-        .await
-        .map_err(|e| {
-            let message = "Error inserting view_representation".to_string();
-            tracing::warn!("{}", message);
-            e.into_error_model(message)
-        })?;
+        insert_representation(rep, transaction, insert_response.view_version_uuid).await?;
     }
 
     let CreateViewVersion::AsCurrent(_) = view_version_request else {
@@ -611,6 +588,33 @@ pub(crate) async fn drop_view<'a>(
     Ok(())
 }
 
+async fn insert_representation(
+    rep: &ViewRepresentation,
+    transaction: &mut Transaction<'_, Postgres>,
+    view_version_uuid: Uuid,
+) -> Result<(), IcebergErrorResponse> {
+    let ViewRepresentation::SqlViewRepresentation(repr) = rep;
+    sqlx::query!(
+            r#"
+            INSERT INTO view_representation (view_version_uuid, view_representation_id, typ, sql, dialect)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+            view_version_uuid,
+            Uuid::now_v7(),
+            ViewRepresentationType::from(rep) as _,
+            repr.sql.as_str(),
+            repr.dialect.as_str()
+        )
+        .execute(&mut **transaction)
+        .await
+        .map_err(|e| {
+            let message = "Error inserting view_representation".to_string();
+            tracing::warn!(?e, "{}", message);
+            e.into_error_model(message)
+        })?;
+    Ok(())
+}
+
 #[derive(Debug, sqlx::Type)]
 #[sqlx(type_name = "view_format_version", rename_all = "kebab-case")]
 pub(crate) enum ViewFormatVersion {
@@ -620,13 +624,13 @@ pub(crate) enum ViewFormatVersion {
 #[derive(sqlx::Type, Debug)]
 #[sqlx(type_name = "view_representation_type", rename_all = "kebab-case")]
 pub(crate) enum ViewRepresentationType {
-    SQL,
+    Sql,
 }
 
 impl From<&iceberg::spec::ViewRepresentation> for ViewRepresentationType {
     fn from(value: &ViewRepresentation) -> Self {
         match value {
-            ViewRepresentation::SqlViewRepresentation(_) => Self::SQL,
+            ViewRepresentation::SqlViewRepresentation(_) => Self::Sql,
         }
     }
 }

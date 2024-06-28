@@ -46,6 +46,7 @@ create table view_version
     schema_id            int         not null,
     timestamp            timestamptz not null,
     default_namespace_id uuid REFERENCES namespace (namespace_id),
+    default_catalog      text,
     FOREIGN KEY (view_id, schema_id) REFERENCES view_schema (view_id, schema_id) ON DELETE CASCADE,
     constraint "unique_version_per_metadata" unique (view_id, version_id),
     constraint "unique_version_per_metadata_including_pkey" unique (view_version_uuid, view_id, version_id)

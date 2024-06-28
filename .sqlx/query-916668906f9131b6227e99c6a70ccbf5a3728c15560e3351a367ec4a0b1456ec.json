@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                    INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, timestamp, default_namespace_id)\n                    VALUES ($1, $2, $3, $4, $5, $6)\n                    returning view_version_uuid, version_id\n                ",
+  "query": "\n                    INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, timestamp, default_namespace_id, default_catalog)\n                    VALUES ($1, $2, $3, $4, $5, $6, $7)\n                    returning view_version_uuid, version_id\n                ",
   "describe": {
     "columns": [
       {
@@ -21,7 +21,8 @@
         "Int8",
         "Int4",
         "Timestamptz",
-        "Uuid"
+        "Uuid",
+        "Text"
       ]
     },
     "nullable": [
@@ -29,5 +30,5 @@
       false
     ]
   },
-  "hash": "7853cdcdb315051cfe3dbf0ae9e60bf1b3c0562e0996e4a839ff0279ee2d70cf"
+  "hash": "916668906f9131b6227e99c6a70ccbf5a3728c15560e3351a367ec4a0b1456ec"
 }

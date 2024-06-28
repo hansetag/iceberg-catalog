@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT version_id, schema_id, timestamp, default_namespace_id as \"default_namespace_id?\", view_version_uuid\n                FROM view_version\n                LEFT JOIN namespace ns on ns.namespace_id = view_version.default_namespace_id\n                WHERE view_id = $1\n                ",
+  "query": "SELECT version_id, schema_id, timestamp, default_namespace_id as \"default_namespace_id?\", default_catalog, view_version_uuid\n                FROM view_version\n                LEFT JOIN namespace ns on ns.namespace_id = view_version.default_namespace_id\n                WHERE view_id = $1\n                ",
   "describe": {
     "columns": [
       {
@@ -25,6 +25,11 @@
       },
       {
         "ordinal": 4,
+        "name": "default_catalog",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
         "name": "view_version_uuid",
         "type_info": "Uuid"
       }
@@ -39,8 +44,9 @@
       false,
       false,
       true,
+      true,
       false
     ]
   },
-  "hash": "211b939d5bac8e1549a1fa5b60361292bb80fe7cfcccb2da1c35dfc6a1674bf9"
+  "hash": "4965a0ca56edda6283ed7772edefd80be077058473f6af12272eacce3849c548"
 }
