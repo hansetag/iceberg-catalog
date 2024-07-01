@@ -4,7 +4,6 @@ use crate::api::iceberg::v1::{
     TableIdent, ViewParameters,
 };
 use crate::catalog::io::write_metadata_file;
-use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::NamespaceIdent;
@@ -21,6 +20,7 @@ use super::tables::{
 use super::{namespace::validate_namespace_ident, require_warehouse_id, CatalogServer};
 use crate::service::contract_verification::ContractVerification;
 use crate::service::storage::StorageCredential;
+use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, TableIdentUuid,
     Transaction,
@@ -453,6 +453,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             }
         }
 
+        let before_update_metadata = C::load_view(view_id, transaction.transaction()).await?;
+
+        state
+            .v1_state
+            .contract_verifiers
+            .check_view_updates(&updates, &before_update_metadata)
+            .await?
+            .into_result()?;
+
         let mut last_added_schema_id = None;
         let mut last_version = None;
         for upd in request.updates {
@@ -634,6 +643,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .r#type("ViewNotFound".to_string())
                 .build()
         })?;
+
+        state
+            .v1_state
+            .contract_verifiers
+            .check_drop(TabularIdentUuid::View(view_id.into_uuid()))
+            .await?
+            .into_result()?;
+
         tracing::debug!("Proceeding to delete view");
         C::drop_view(&warehouse_id, &table_id, transaction.transaction()).await?;
 
@@ -736,7 +753,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state
             .v1_state
             .contract_verifiers
-            .check_rename(source_id, &destination)
+            .check_rename(TabularIdentUuid::View(source_id.into_uuid()), &destination)
             .await?
             .into_result()?;
 

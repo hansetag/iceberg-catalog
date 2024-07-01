@@ -1,9 +1,9 @@
 #![allow(clippy::module_name_repetitions)]
 use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
-use iceberg::spec::TableMetadata;
+use iceberg::spec::{TableMetadata, ViewMetadata};
 use iceberg::{TableIdent, TableUpdate};
-use iceberg_ext::catalog::rest::ErrorModel;
+use iceberg_ext::catalog::rest::{ErrorModel, ViewUpdate};
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -17,10 +17,10 @@ use std::sync::Arc;
 ///
 /// ```rust
 ///     use async_trait::async_trait;
-///     use iceberg::spec::TableMetadata;
+///     use iceberg::spec::{TableMetadata, ViewMetadata};
 ///     use iceberg::{TableIdent, TableUpdate};
-///     use iceberg_catalog::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
-///     use iceberg_ext::catalog::rest::ErrorModel;
+///     use iceberg_catalog::service::{tabular_idents::TabularIdentUuid, contract_verification::{ContractVerification, ContractVerificationOutcome}};
+///     use iceberg_ext::catalog::rest::{ErrorModel, ViewUpdate};
 ///
 ///     #[derive(Debug)]
 ///     pub struct AllowAllChecker;
@@ -35,6 +35,10 @@ use std::sync::Arc;
 ///             _table_updates: &[TableUpdate],
 ///             _current_metadata: &TableMetadata,
 ///         ) -> Result<ContractVerificationOutcome, ErrorModel> {
+///             Ok(ContractVerificationOutcome::Clear {})
+///         }
+///
+///         async fn check_view_updates(&self, _view_updates: &[ViewUpdate], _current_metadata: &ViewMetadata) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Clear {})
 ///         }
 ///
@@ -63,6 +67,17 @@ use std::sync::Arc;
 ///             _table_updates: &[TableUpdate],
 ///             _current_metadata: &TableMetadata,
 ///         ) -> Result<ContractVerificationOutcome, ErrorModel> {
+///             Ok(ContractVerificationOutcome::Violation {
+///                 error_model: ErrorModel::builder()
+///                     .code(409)
+///                     .message("Denied")
+///                     .r#type("ContractViolation".to_string())
+///                     .build()
+///                     .into(),
+///             })
+///         }
+///
+///         async fn check_view_updates(&self, _view_updates: &[ViewUpdate], _current_metadata: &ViewMetadata) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Violation {
 ///                 error_model: ErrorModel::builder()
 ///                     .code(409)
@@ -107,6 +122,12 @@ pub trait ContractVerification: Debug {
         &self,
         table_updates: &[TableUpdate],
         current_metadata: &TableMetadata,
+    ) -> Result<ContractVerificationOutcome, ErrorModel>;
+
+    async fn check_view_updates(
+        &self,
+        _view_updates: &[ViewUpdate],
+        _current_metadata: &ViewMetadata,
     ) -> Result<ContractVerificationOutcome, ErrorModel>;
 
     async fn check_drop(

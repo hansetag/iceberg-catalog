@@ -17,7 +17,7 @@ pub use crate::api::iceberg::v1::{
     UpdateNamespacePropertiesResponse,
 };
 use crate::implementations::postgres::tabular::view::ViewVersionResponse;
-use crate::implementations::postgres::tabular::TabularIdentUuid;
+use crate::service::tabular_idents::TabularIdentUuid;
 
 #[async_trait::async_trait]
 pub trait Transaction<D>
