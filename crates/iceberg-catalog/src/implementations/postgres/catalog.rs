@@ -16,6 +16,7 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
+use crate::implementations::postgres::tabular::view::view_ident_to_id;
 use crate::service::{
     CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
     GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
@@ -278,5 +279,13 @@ impl Catalog for super::Catalog {
             transaction,
         )
         .await
+    }
+
+    async fn view_ident_to_id(
+        warehouse_id: &WarehouseIdent,
+        view: &TableIdent,
+        catalog_state: Self::State,
+    ) -> Result<Option<TableIdentUuid>> {
+        view_ident_to_id(warehouse_id, view, &catalog_state.read_pool).await
     }
 }
