@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
 use uuid::Uuid;
+use crate::implementations::postgres::CatalogState;
 
 pub(crate) use crate::service::ViewMetadataWithLocation;
 pub(crate) use load::load_view;
