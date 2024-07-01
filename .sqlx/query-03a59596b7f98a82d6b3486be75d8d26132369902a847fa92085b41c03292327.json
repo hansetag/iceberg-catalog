@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            t.\"table_id\",\n            t.\"namespace_id\",\n            t.\"metadata\" as \"metadata: Json<TableMetadata>\",\n            t.\"metadata_location\",\n            w.storage_profile as \"storage_profile: Json<StorageProfile>\",\n            w.\"storage_secret_id\"\n        FROM \"table\" t\n        INNER JOIN namespace n ON t.namespace_id = n.namespace_id\n        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n        WHERE w.warehouse_id = $1 AND namespace_name = $2 AND table_name = $3\n        AND w.status = 'active'\n        AND \"metadata_location\" IS NOT NULL\n        ",
+  "query": "\n        SELECT\n            t.\"table_id\",\n            ti.\"namespace_id\",\n            t.\"metadata\" as \"metadata: Json<TableMetadata>\",\n            ti.\"metadata_location\",\n            w.storage_profile as \"storage_profile: Json<StorageProfile>\",\n            w.\"storage_secret_id\"\n        FROM \"table\" t\n        INNER JOIN tabular ti ON t.table_id = ti.tabular_id\n        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id\n        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n        WHERE w.warehouse_id = $1 AND namespace_name = $2 AND ti.name = $3\n        AND w.status = 'active'\n        AND t.\"metadata_location\" IS NOT NULL\n        ",
   "describe": {
     "columns": [
       {
@@ -50,5 +50,5 @@
       true
     ]
   },
-  "hash": "36397acbb856525095b68f5ee11f8a47406bfd943e83b61e0febc363cda4175b"
+  "hash": "03a59596b7f98a82d6b3486be75d8d26132369902a847fa92085b41c03292327"
 }

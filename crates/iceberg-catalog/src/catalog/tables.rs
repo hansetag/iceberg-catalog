@@ -7,6 +7,7 @@ use crate::api::iceberg::v1::{
     NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
     TableIdent, TableParameters,
 };
+use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
@@ -119,8 +120,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
         require_active_warehouse(status)?;
 
-        let table_id: TableIdentUuid = uuid::Uuid::now_v7().into();
-        let table_location = storage_profile.table_location(&namespace_id, &table_id);
+        let table_id: TabularIdentUuid = TabularIdentUuid::Table(uuid::Uuid::now_v7());
+        let table_location = storage_profile.tabular_location(&namespace_id, &table_id);
 
         // This is the only place where we change request
         request.location = Some(table_location.clone());
@@ -140,7 +141,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let CreateTableResponse { table_metadata } = C::create_table(
             &namespace_id,
             &table,
-            &table_id,
+            &TableIdentUuid::from(*table_id),
             request,
             metadata_location.as_ref(),
             transaction.transaction(),
@@ -173,7 +174,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .generate_table_config(
                 &warehouse_id,
                 &namespace_id,
-                &table_id,
+                &TableIdentUuid::from(*table_id),
                 &data_access,
                 storage_secret.as_ref(),
             )
@@ -189,7 +190,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         emit_change_event(
             EventMetadata {
-                table_id: *table_id.as_uuid(),
+                table_id: *table_id,
                 warehouse_id: *warehouse_id.as_uuid(),
                 name: table.name.clone(),
                 namespace: table.namespace.encode_in_url(),
@@ -619,26 +620,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let include_staged = false;
-        C::table_ident_to_id(
-            &warehouse_id,
-            &table,
-            include_staged,
-            state.v1_state.catalog,
-        )
-        .await
-        .map(|r| {
-            if r.is_some() {
-                Ok(())
-            } else {
-                Err(ErrorModel::builder()
-                    .code(StatusCode::NOT_FOUND.into())
-                    .message(format!("Table does not exist in warehouse {warehouse_id}"))
-                    .r#type("TableNotFound".to_string())
-                    .build()
-                    .into())
-            }
-        })?
+        if table_id.is_some() {
+            Ok(())
+        } else {
+            Err(ErrorModel::builder()
+                .code(StatusCode::NOT_FOUND.into())
+                .message(format!("Table does not exist in warehouse {warehouse_id}"))
+                .r#type("TableNotFound".to_string())
+                .build()
+                .into())
+        }
     }
 
     /// Rename a table

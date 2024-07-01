@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.tabular_id,\n               n.namespace_name as \"namespace\",\n               t.name as tabular_name,\n               t.metadata_location,\n               t.typ as \"typ: TabularType\"\n        FROM tabular t\n        INNER JOIN namespace n ON t.namespace_id = n.namespace_id\n        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n        WHERE w.status = 'active' and n.\"warehouse_id\" = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tabular_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "namespace",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "tabular_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "metadata_location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "typ: TabularType",
+        "type_info": {
+          "Custom": {
+            "name": "tabular_type",
+            "kind": {
+              "Enum": [
+                "table",
+                "view"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "52fcb40075d473612bed1919dbae39d03bd28df8bc16738af25bc58972369e43"
+}

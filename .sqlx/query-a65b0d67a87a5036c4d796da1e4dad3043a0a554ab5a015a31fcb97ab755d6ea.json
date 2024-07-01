@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM tabular\n        WHERE tabular_id = $1 AND typ = $2\n        AND tabular_id IN (\n            select tabular_id from active_tabulars\n        )\n        RETURNING \"tabular_id\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tabular_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        {
+          "Custom": {
+            "name": "tabular_type",
+            "kind": {
+              "Enum": [
+                "table",
+                "view"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a65b0d67a87a5036c4d796da1e4dad3043a0a554ab5a015a31fcb97ab755d6ea"
+}

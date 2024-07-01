@@ -3,6 +3,7 @@ mod s3;
 use std::collections::HashMap;
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
+use crate::implementations::postgres::tabular::TabularIdentUuid;
 pub use s3::{S3Credential, S3Profile};
 use serde::{Deserialize, Serialize};
 
@@ -64,13 +65,13 @@ impl StorageProfile {
     }
 
     #[must_use]
-    pub fn table_location(
+    pub fn tabular_location(
         &self,
         namespace_id: &NamespaceIdentUuid,
-        table_id: &TableIdentUuid,
+        table_id: &TabularIdentUuid,
     ) -> String {
         match self {
-            StorageProfile::S3(profile) => profile.table_location(namespace_id, table_id),
+            StorageProfile::S3(profile) => profile.tabular_location(namespace_id, table_id),
         }
     }
 

@@ -5,7 +5,7 @@ use super::{
         create_namespace, drop_namespace, get_namespace, list_namespaces, namespace_ident_to_id,
         update_namespace_properties,
     },
-    table::{
+    tabular::table::{
         commit_table_transaction, create_table, drop_table, get_table_metadata_by_id,
         get_table_metadata_by_s3_location, list_tables, load_table, rename_table,
         table_ident_to_id, table_idents_to_ids,
