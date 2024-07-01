@@ -21,6 +21,7 @@ use crate::implementations::postgres::tabular::{
     TabularIdentOwned, TabularIdentRef, TabularIdentUuid, TabularType,
 };
 use sqlx::types::Json;
+use sqlx::Execute;
 use std::default::Default;
 use std::{
     collections::{HashMap, HashSet},
@@ -637,7 +638,7 @@ pub(crate) async fn commit_table_transaction<'a>(
     let mut query_builder_metadata = sqlx::QueryBuilder::new(
         r#"
         UPDATE "table" as t
-        SET "metadata" = c."metadata", "metadata_location" = c."metadata_location"
+        SET "metadata" = c."metadata"
         FROM (VALUES
         "#,
     );
@@ -668,6 +669,8 @@ pub(crate) async fn commit_table_transaction<'a>(
         query_builder_metadata.push(")");
 
         query_builder_metadata_location.push("(");
+        query_builder_metadata_location.push_bind(response.commit_response.metadata.uuid());
+        query_builder_metadata_location.push(", ");
         query_builder_metadata_location
             .push_bind(response.commit_response.metadata_location.clone());
         query_builder_metadata_location.push(")");
@@ -688,16 +691,20 @@ pub(crate) async fn commit_table_transaction<'a>(
 
     let query_meta_update = query_builder_metadata.build();
     let query_meta_location_update = query_builder_metadata_location.build();
-
+    eprintln!("{}", query_meta_update.sql());
+    eprintln!("{}", query_meta_location_update.sql());
     // futures::try_join didn't work due to concurrent mutable borrow of transaction
     let updated_meta = query_meta_update
         .fetch_all(&mut **transaction)
         .await
-        .map_err(|e| e.into_error_model("Error committing table updates".to_string()))?;
+        .map_err(|e| e.into_error_model("Error committing tablemetadata updates".to_string()))?;
+
     let updated_meta_location = query_meta_location_update
         .fetch_all(&mut **transaction)
         .await
-        .map_err(|e| e.into_error_model("Error committing table updates".to_string()))?;
+        .map_err(|e| {
+            e.into_error_model("Error committing tablemetadata location updates".to_string())
+        })?;
 
     if updated_meta.len() != responses.len() || updated_meta_location.len() != responses.len() {
         return Err(ErrorModel::builder()
