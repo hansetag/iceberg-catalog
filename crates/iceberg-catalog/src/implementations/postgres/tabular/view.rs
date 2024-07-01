@@ -108,6 +108,7 @@ pub(crate) async fn create_view(
             namespace_id: namespace_id.into_uuid(),
             typ: TabularType::View,
             metadata_location: Some(metadata_location),
+            location: &location,
         },
         &mut *transaction,
     )
@@ -115,14 +116,12 @@ pub(crate) async fn create_view(
 
     let view_id = sqlx::query_scalar!(
         r#"
-        INSERT INTO view (view_id, view_format_version, location, metadata_location)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO view (view_id, view_format_version)
+        VALUES ($1, $2)
         returning view_id
         "#,
         tabular_id,
         ViewFormatVersion::from(metadata.format_version()) as _,
-        location,
-        metadata_location,
     )
     .fetch_one(&mut **transaction)
     .await
