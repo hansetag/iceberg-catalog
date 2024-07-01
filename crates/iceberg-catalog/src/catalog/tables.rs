@@ -132,7 +132,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             None
         } else {
             let metadata_id = uuid::Uuid::now_v7();
-            Some(storage_profile.metadata_location(&table_location, &metadata_id))
+            Some(storage_profile.metadata_location(&table_location, metadata_id))
         };
 
         // serialize body before moving it

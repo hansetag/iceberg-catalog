@@ -329,6 +329,12 @@ where
         view_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ViewMetadataWithLocation>;
+
+    async fn list_views(
+        warehouse_id: WarehouseIdent,
+        namespace: &NamespaceIdent,
+        catalog_state: Self::State,
+    ) -> Result<HashMap<TableIdentUuid, TableIdent>>;
 }
 
 #[derive(Debug, Clone)]
