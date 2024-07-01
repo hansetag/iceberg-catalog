@@ -50,9 +50,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
 
+        let views = C::list_views(&warehouse_id, &namespace, state.v1_state.catalog.clone())
+            .await
+            .unwrap();
+
         Ok(ListTablesResponse {
             next_page_token: None,
-            identifiers: vec![],
+            identifiers: views.into_iter().map(|t| t.1).collect(),
         })
     }
 

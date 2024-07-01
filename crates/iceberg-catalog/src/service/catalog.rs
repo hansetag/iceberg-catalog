@@ -331,4 +331,10 @@ where
         view_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ViewMetadata>;
+
+    async fn list_views(
+        warehouse_id: &WarehouseIdent,
+        namespace: &NamespaceIdent,
+        catalog_state: Self::State,
+    ) -> Result<HashMap<TableIdentUuid, TableIdent>>;
 }
