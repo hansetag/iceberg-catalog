@@ -7,7 +7,6 @@ use crate::api::iceberg::v1::{
     NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
     TableIdent, TableParameters,
 };
-use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
@@ -21,6 +20,7 @@ use super::{
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::StorageCredential;
+use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,

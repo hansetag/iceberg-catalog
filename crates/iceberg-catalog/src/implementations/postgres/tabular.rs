@@ -1,4 +1,3 @@
-pub(crate) mod idents;
 pub(crate) mod table;
 
 use super::{dbutils::DBErrorHandler as _, CatalogState};
@@ -9,9 +8,7 @@ use crate::{
 use http::StatusCode;
 use iceberg_ext::NamespaceIdent;
 
-pub(crate) use crate::implementations::postgres::tabular::idents::{
-    TabularIdentOwned, TabularIdentRef, TabularIdentUuid,
-};
+use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentRef, TabularIdentUuid};
 use sqlx::postgres::PgArguments;
 use sqlx::{Arguments, Execute, FromRow, PgConnection, Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
@@ -466,4 +463,31 @@ fn try_parse_namespace_ident(namespace: Vec<String>) -> Result<NamespaceIdent> {
             .build()
             .into()
     })
+}
+
+impl<'a, 'b> From<&'b TabularIdentRef<'a>> for TabularType {
+    fn from(ident: &'b TabularIdentRef<'a>) -> Self {
+        match ident {
+            TabularIdentRef::Table(_) => TabularType::Table,
+            TabularIdentRef::View(_) => TabularType::View,
+        }
+    }
+}
+
+impl<'a> From<&'a TabularIdentUuid> for TabularType {
+    fn from(ident: &'a TabularIdentUuid) -> Self {
+        match ident {
+            TabularIdentUuid::Table(_) => TabularType::Table,
+            TabularIdentUuid::View(_) => TabularType::View,
+        }
+    }
+}
+
+impl From<TabularIdentUuid> for TabularType {
+    fn from(ident: TabularIdentUuid) -> Self {
+        match ident {
+            TabularIdentUuid::Table(_) => TabularType::Table,
+            TabularIdentUuid::View(_) => TabularType::View,
+        }
+    }
 }

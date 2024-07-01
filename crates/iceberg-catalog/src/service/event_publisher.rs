@@ -1,4 +1,4 @@
-use crate::implementations::postgres::tabular::TabularIdentUuid;
+use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
 use cloudevents::Event;
 use std::fmt::Debug;

@@ -1,5 +1,5 @@
 #![allow(clippy::module_name_repetitions)]
-use crate::implementations::postgres::tabular::TabularIdentUuid;
+use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
 use iceberg::spec::TableMetadata;
 use iceberg::{TableIdent, TableUpdate};
@@ -20,7 +20,6 @@ use std::sync::Arc;
 ///     use iceberg::spec::TableMetadata;
 ///     use iceberg::{TableIdent, TableUpdate};
 ///     use iceberg_catalog::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
-///     use iceberg_catalog::service::TableIdentUuid;
 ///     use iceberg_ext::catalog::rest::ErrorModel;
 ///
 ///     #[derive(Debug)]
@@ -41,12 +40,12 @@ use std::sync::Arc;
 ///
 ///         async fn check_drop(
 ///             &self,
-///             _table_ident_uuid: TableIdentUuid,
+///             _table_ident_uuid: TabularIdentUuid,
 ///         ) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Clear {})
 ///         }
 ///
-///         async fn check_rename(&self, source: TableIdentUuid, destination: &TableIdent) -> Result<ContractVerificationOutcome, ErrorModel> {
+///         async fn check_rename(&self, source: TabularIdentUuid, destination: &TableIdent) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Clear {})
 ///         }
 ///     }
@@ -76,7 +75,7 @@ use std::sync::Arc;
 ///
 ///         async fn check_drop(
 ///             &self,
-///             _table_ident_uuid: TableIdentUuid,
+///             _table_ident_uuid: TabularIdentUuid,
 ///         ) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Violation {
 ///                 error_model: ErrorModel::builder()
@@ -88,7 +87,7 @@ use std::sync::Arc;
 ///             })
 ///         }
 ///
-///         async fn check_rename(&self, source: TableIdentUuid, destination: &TableIdent) -> Result<ContractVerificationOutcome, ErrorModel> {
+///         async fn check_rename(&self, source: TabularIdentUuid, destination: &TableIdent) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Violation {
 ///                 error_model: ErrorModel::builder()
 ///                     .code(409)
