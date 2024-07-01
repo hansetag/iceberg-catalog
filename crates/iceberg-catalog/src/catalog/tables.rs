@@ -7,7 +7,6 @@ use crate::api::iceberg::v1::{
     NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
     TableIdent, TableParameters,
 };
-use crate::implementations::postgres::tabular::TabularIdentUuid;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
@@ -21,6 +20,7 @@ use super::{
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::StorageCredential;
+use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
@@ -190,7 +190,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         emit_change_event(
             EventMetadata {
-                table_id: *table_id,
+                tabular_id: TabularIdentUuid::Table(*table_id),
                 warehouse_id: *warehouse_id.as_uuid(),
                 name: table.name.clone(),
                 namespace: table.namespace.encode_in_url(),
@@ -459,7 +459,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state
             .v1_state
             .contract_verifiers
-            .check(&updates, &result.previous_table_metadata)
+            .check_table_updates(&updates, &result.previous_table_metadata)
             .await?
             .into_result()?;
         // We don't commit the transaction yet, first we need to write the metadata file.
@@ -488,7 +488,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         transaction.commit().await?;
         emit_change_event(
             EventMetadata {
-                table_id: *table_id.as_uuid(),
+                tabular_id: TabularIdentUuid::Table(*table_id.as_uuid()),
                 warehouse_id: *warehouse_id.as_uuid(),
                 name: parameters.table.name,
                 namespace: parameters.table.namespace.encode_in_url(),
@@ -558,7 +558,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state
             .v1_state
             .contract_verifiers
-            .check_drop(table_id)
+            .check_drop(TabularIdentUuid::Table(table_id.into_uuid()))
             .await?
             .into_result()?;
 
@@ -566,7 +566,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         emit_change_event(
             EventMetadata {
-                table_id: *table_id.as_uuid(),
+                tabular_id: TabularIdentUuid::Table(*table_id.as_uuid()),
                 warehouse_id: *warehouse_id.as_uuid(),
                 name: table.name,
                 namespace: table.namespace.encode_in_url(),
@@ -707,7 +707,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state
             .v1_state
             .contract_verifiers
-            .check_rename(source_id, &destination)
+            .check_rename(TabularIdentUuid::Table(source_id.into_uuid()), &destination)
             .await?
             .into_result()?;
 
@@ -715,7 +715,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         emit_change_event(
             EventMetadata {
-                table_id: *source_id.as_uuid(),
+                tabular_id: TabularIdentUuid::Table(source_id.into_uuid()),
                 warehouse_id: *warehouse_id.as_uuid(),
                 name: source.name,
                 namespace: source.namespace.encode_in_url(),
@@ -865,7 +865,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 state
                     .v1_state
                     .contract_verifiers
-                    .check(update, &response.previous_table_metadata)
+                    .check_table_updates(update, &response.previous_table_metadata)
             });
 
         futures::future::try_join_all(futures)
@@ -930,7 +930,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         {
             emit_change_event(
                 EventMetadata {
-                    table_id: *table_id.as_uuid(),
+                    tabular_id: TabularIdentUuid::Table(table_id.into_uuid()),
                     warehouse_id: *warehouse_id.as_uuid(),
                     name: table_ident.name,
                     namespace: table_ident.namespace.encode_in_url(),

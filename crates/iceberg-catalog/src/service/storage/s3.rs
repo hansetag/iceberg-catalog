@@ -5,7 +5,7 @@ use crate::{
 use http::StatusCode;
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
-use crate::implementations::postgres::tabular::TabularIdentUuid;
+use crate::service::tabular_idents::TabularIdentUuid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use veil::Redact;
@@ -492,6 +492,7 @@ async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) ->
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::service::tabular_idents::TabularIdentUuid;
 
     #[test]
     fn test_is_valid_bucket_name() {

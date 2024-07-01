@@ -1,3 +1,4 @@
+use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
 use cloudevents::Event;
 use std::fmt::Debug;
@@ -55,7 +56,7 @@ impl CloudEventsPublisher {
 
 #[derive(Debug, Clone)]
 pub struct EventMetadata {
-    pub table_id: Uuid,
+    pub tabular_id: TabularIdentUuid,
     pub warehouse_id: Uuid,
     pub name: String,
     pub namespace: String,
@@ -110,7 +111,7 @@ impl CloudEventsPublisherBackgroundTask {
                 .data("application/json", data);
 
             let EventMetadata {
-                table_id,
+                tabular_id,
                 warehouse_id,
                 name,
                 namespace,
@@ -121,12 +122,13 @@ impl CloudEventsPublisherBackgroundTask {
             } = metadata;
             // TODO: this could be more elegant with a proc macro to give us IntoIter for EventMetadata
             let event = event_builder
-                .extension("table-id", table_id.to_string())
+                .extension("tabular-type", tabular_id.typ_str())
+                .extension("tabular-id", tabular_id.to_string())
                 .extension("warehouse-id", warehouse_id.to_string())
                 .extension("name", name.to_string())
                 .extension("namespace", namespace.to_string())
                 .extension("prefix", prefix.to_string())
-                // TODO: decide what to do with these numbbers, likely they are never anywhere close to
+                // TODO: decide what to do with these numbers, likely they are never anywhere close to
                 // saturating the respective int types, so probably a non-issue. Still we are converting
                 // the numbers to_string here to avoid usize -> i64 which is what EventBuilderV10
                 // uses to represent integers. The CloudEvents spec states i32 would be the correct int

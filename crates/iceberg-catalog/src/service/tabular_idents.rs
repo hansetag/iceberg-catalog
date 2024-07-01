@@ -1,4 +1,3 @@
-use crate::implementations::postgres::tabular::TabularType;
 use iceberg::TableIdent;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
@@ -8,6 +7,15 @@ use uuid::Uuid;
 pub enum TabularIdentUuid {
     Table(Uuid),
     View(Uuid),
+}
+
+impl TabularIdentUuid {
+    pub fn typ_str(&self) -> &'static str {
+        match self {
+            TabularIdentUuid::Table(_) => "table",
+            TabularIdentUuid::View(_) => "view",
+        }
+    }
 }
 
 impl Display for TabularIdentUuid {
@@ -49,33 +57,6 @@ impl<'a> From<TabularIdentRef<'a>> for TabularIdentOwned {
         match ident {
             TabularIdentRef::Table(ident) => TabularIdentOwned::Table(ident.clone()),
             TabularIdentRef::View(ident) => TabularIdentOwned::View(ident.clone()),
-        }
-    }
-}
-
-impl<'a, 'b> From<&'b TabularIdentRef<'a>> for TabularType {
-    fn from(ident: &'b TabularIdentRef<'a>) -> Self {
-        match ident {
-            TabularIdentRef::Table(_) => TabularType::Table,
-            TabularIdentRef::View(_) => TabularType::View,
-        }
-    }
-}
-
-impl<'a> From<&'a TabularIdentUuid> for TabularType {
-    fn from(ident: &'a TabularIdentUuid) -> Self {
-        match ident {
-            TabularIdentUuid::Table(_) => TabularType::Table,
-            TabularIdentUuid::View(_) => TabularType::View,
-        }
-    }
-}
-
-impl From<TabularIdentUuid> for TabularType {
-    fn from(ident: TabularIdentUuid) -> Self {
-        match ident {
-            TabularIdentUuid::Table(_) => TabularType::Table,
-            TabularIdentUuid::View(_) => TabularType::View,
         }
     }
 }
