@@ -26,7 +26,6 @@ use uuid::Uuid;
 
 pub(crate) use load::load_view;
 
-#[instrument(skip(catalog_state))]
 pub(crate) async fn view_ident_to_id<'e, 'c: 'e, E>(
     warehouse_id: &WarehouseIdent,
     table: &TableIdent,

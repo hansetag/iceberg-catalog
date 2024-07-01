@@ -18,13 +18,13 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
-
 use crate::implementations::postgres::tabular::view::{
     create_view, create_view_schema, create_view_version, delete_properties, drop_view,
     insert_view_properties, list_views, load_view, rename_view, set_current_view_metadata_version,
     update_metadata_location, view_ident_to_id, CreateViewVersion, ViewVersionResponse,
 };
 use crate::service::tabular_idents::TabularIdentUuid;
+
 use crate::service::{
     CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
     GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
