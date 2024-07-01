@@ -6,8 +6,8 @@ import pytest
 def test_create_namespace(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_namespace_spark")
     assert (
-        "test_create_namespace_spark",
-    ) in warehouse.pyiceberg_catalog.list_namespaces()
+               "test_create_namespace_spark",
+           ) in warehouse.pyiceberg_catalog.list_namespaces()
 
 
 def test_list_namespaces(spark, warehouse: conftest.Warehouse):
@@ -59,6 +59,16 @@ def test_replace_table_pyspark(spark, warehouse: conftest.Warehouse):
     sdf = spark.createDataFrame(data)
     sdf.writeTo(f"test_replace_table_pyspark.my_table").createOrReplace()
     sdf.writeTo(f"test_replace_table_pyspark.my_table").createOrReplace()
+
+
+def test_create_view(spark, warehouse: conftest.Warehouse):
+    spark.sql("CREATE NAMESPACE test_create_view")
+    spark.sql(
+        "CREATE TABLE test_create_view.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql("CREATE VIEW test_create_view.my_view AS SELECT my_ints, my_floats FROM test_create_view.my_table")
+    spark.sql("SELECT * from test_create_view.my_view")
+    spark.sql("CREATE OR REPLACE VIEW test_create_view.my_view AS SELECT my_ints FROM test_create_view.my_table")
 
 
 def test_merge_into(spark):

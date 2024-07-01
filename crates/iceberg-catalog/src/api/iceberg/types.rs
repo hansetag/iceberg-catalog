@@ -3,7 +3,7 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
-pub struct Prefix(String);
+pub struct Prefix(pub(crate) String);
 
 impl Prefix {
     #[inline]

@@ -1,5 +1,6 @@
 use crate::api::iceberg::types::Prefix;
 use crate::api::iceberg::v1::namespace::{NamespaceIdentUrl, NamespaceParameters, PaginationQuery};
+use crate::api::iceberg::v1::DataAccess;
 use crate::api::{
     ApiContext, CommitViewRequest, CreateViewRequest, ListTablesResponse, LoadViewResult,
     RenameTableRequest, Result,
@@ -14,7 +15,7 @@ use axum::{
     routing::get,
     Extension, Json, Router,
 };
-use http::StatusCode;
+use http::{HeaderMap, StatusCode};
 use iceberg::TableIdent;
 
 #[async_trait]
@@ -35,6 +36,7 @@ where
         parameters: NamespaceParameters,
         request: CreateViewRequest,
         state: ApiContext<S>,
+        data_access: DataAccess,
         request_metadata: RequestMetadata,
     ) -> Result<LoadViewResult>;
 
@@ -42,6 +44,7 @@ where
     async fn load_view(
         parameters: ViewParameters,
         state: ApiContext<S>,
+        data_access: DataAccess,
         request_metadata: RequestMetadata,
     ) -> Result<LoadViewResult>;
 
@@ -104,6 +107,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
             .post(
                 |Path((prefix, namespace)): Path<(Prefix, NamespaceIdentUrl)>,
                  State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap,
                  Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CreateViewRequest>| {
                     {
@@ -114,6 +118,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                             },
                             request,
                             api_context,
+                            crate::api::iceberg::v1::tables::parse_data_access(&headers),
                             metadata,
                         )
                     }
@@ -126,6 +131,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
             get(
                 |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap,
                  Extension(metadata): Extension<RequestMetadata>| {
                     {
                         I::load_view(
@@ -137,6 +143,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                                 },
                             },
                             api_context,
+                            crate::api::iceberg::v1::tables::parse_data_access(&headers),
                             metadata,
                         )
                     }

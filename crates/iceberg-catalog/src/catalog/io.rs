@@ -1,12 +1,13 @@
 use crate::api::{ErrorModel, Result};
 use flate2::{write::GzEncoder, Compression};
 use http::StatusCode;
-use iceberg::{io::FileIO, spec::TableMetadata};
+use iceberg::io::FileIO;
+use serde::Serialize;
 use std::io::Write;
 
 pub(crate) async fn write_metadata_file(
     metadata_location: &str,
-    table_metadata: &TableMetadata,
+    table_metadata: impl Serialize,
     file_io: &FileIO,
 ) -> Result<()> {
     let metadata_file = file_io.new_output(metadata_location).map_err(|e| {

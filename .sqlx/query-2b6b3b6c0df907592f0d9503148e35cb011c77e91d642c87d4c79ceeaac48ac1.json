@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT schema_id, schema\n            FROM view_schema\n            WHERE view_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "schema_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "schema",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "2b6b3b6c0df907592f0d9503148e35cb011c77e91d642c87d4c79ceeaac48ac1"
+}

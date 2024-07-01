@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE current_view_metadata_version SET version_id = $1, version_uuid = $2\n        WHERE view_id = $3\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6946c1218d92b0dc62fb4e0bd50dd4cb03520bff77f310d3cbafcd008a2a9871"
+}
