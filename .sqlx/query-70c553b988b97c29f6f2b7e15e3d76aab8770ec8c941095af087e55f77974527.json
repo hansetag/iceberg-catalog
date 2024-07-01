@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO view (view_id, view_format_version, location, metadata_location)\n        VALUES ($1, $2, $3, $4)\n        returning view_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "view_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        {
+          "Custom": {
+            "name": "view_format_version",
+            "kind": {
+              "Enum": [
+                "v1"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "70c553b988b97c29f6f2b7e15e3d76aab8770ec8c941095af087e55f77974527"
+}
