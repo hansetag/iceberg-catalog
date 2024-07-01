@@ -54,7 +54,7 @@ select trigger_updated_at('view_version');
 create table current_view_metadata_version
 (
     view_id      uuid primary key REFERENCES view (view_id) ON DELETE CASCADE,
-    version_uuid uuid not null REFERENCES view_version (view_version_uuid) ON DELETE CASCADE,
+    version_uuid uuid not null unique REFERENCES view_version (view_version_uuid) ON DELETE CASCADE,
     version_id   int8 not null,
     FOREIGN KEY (version_uuid, view_id, version_id) REFERENCES view_version (view_version_uuid, view_id, version_id)
 );

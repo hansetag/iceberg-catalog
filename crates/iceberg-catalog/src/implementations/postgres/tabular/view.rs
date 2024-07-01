@@ -13,6 +13,7 @@ use crate::implementations::postgres::tabular::{
 };
 use chrono::{DateTime, Utc};
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersion, ViewVersionRef};
+use iceberg::NamespaceIdent;
 use iceberg_ext::catalog::rest::{CreateViewRequest, IcebergErrorResponse};
 use maplit::hashmap;
 use sqlx::{FromRow, Postgres, Transaction};
@@ -399,8 +400,11 @@ pub(crate) async fn set_current_view_metadata_version(
     })?;
     sqlx::query!(
         r#"
-        UPDATE current_view_metadata_version SET version_id = $1, version_uuid = $2
-        WHERE view_id = $3
+        INSERT INTO current_view_metadata_version (version_id, version_uuid, view_id)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (view_id)
+        DO UPDATE SET version_id = $1, version_uuid = $2
+        WHERE current_view_metadata_version.view_id = $3
         "#,
         version_id,
         r.view_version_uuid,

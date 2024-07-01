@@ -81,7 +81,6 @@ impl MetadataFetcher {
                     ta.metadata_location as "metadata_location!",
                     cvv.version_id as current_version_id
                  from view v
-                    LEFT JOIN view_properties vp ON v.view_id = vp.view_id
                     JOIN view_version vv on v.view_id = vv.view_id
                     JOIN tabular ta ON v.view_id=ta.tabular_id
                     JOIN namespace n ON ta.namespace_id = n.namespace_id
