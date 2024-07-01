@@ -10,6 +10,15 @@ pub enum TabularIdentUuid {
     View(Uuid),
 }
 
+impl TabularIdentUuid {
+    pub fn typ_str(&self) -> &'static str {
+        match self {
+            TabularIdentUuid::Table(_) => "table",
+            TabularIdentUuid::View(_) => "view",
+        }
+    }
+}
+
 impl Display for TabularIdentUuid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &**self)

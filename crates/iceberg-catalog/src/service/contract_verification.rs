@@ -1,5 +1,5 @@
 #![allow(clippy::module_name_repetitions)]
-use crate::service::TableIdentUuid;
+use crate::implementations::postgres::tabular::TabularIdentUuid;
 use async_trait::async_trait;
 use iceberg::spec::TableMetadata;
 use iceberg::{TableIdent, TableUpdate};
@@ -31,7 +31,7 @@ use std::sync::Arc;
 ///         fn name(&self) -> &'static str {
 ///             "AllowAllChecker"
 ///         }
-///         async fn check(
+///         async fn check_table_updates(
 ///             &self,
 ///             _table_updates: &[TableUpdate],
 ///             _current_metadata: &TableMetadata,
@@ -59,7 +59,7 @@ use std::sync::Arc;
 ///         fn name(&self) -> &'static str {
 ///             "DenyAllChecker"
 ///         }
-///         async fn check(
+///         async fn check_table_updates(
 ///             &self,
 ///             _table_updates: &[TableUpdate],
 ///             _current_metadata: &TableMetadata,
@@ -104,7 +104,7 @@ use std::sync::Arc;
 pub trait ContractVerification: Debug {
     fn name(&self) -> &'static str;
 
-    async fn check(
+    async fn check_table_updates(
         &self,
         table_updates: &[TableUpdate],
         current_metadata: &TableMetadata,
@@ -112,12 +112,12 @@ pub trait ContractVerification: Debug {
 
     async fn check_drop(
         &self,
-        table_ident_uuid: TableIdentUuid,
+        table_ident_uuid: TabularIdentUuid,
     ) -> Result<ContractVerificationOutcome, ErrorModel>;
 
     async fn check_rename(
         &self,
-        source: TableIdentUuid,
+        source: TabularIdentUuid,
         destination: &TableIdent,
     ) -> Result<ContractVerificationOutcome, ErrorModel>;
 }
@@ -181,13 +181,16 @@ impl ContractVerification for ContractVerifiers {
         "ContractVerifiers"
     }
 
-    async fn check(
+    async fn check_table_updates(
         &self,
         table_updates: &[TableUpdate],
         current_metadata: &TableMetadata,
     ) -> Result<ContractVerificationOutcome, ErrorModel> {
         for checker in &self.checkers {
-            match checker.check(table_updates, current_metadata).await {
+            match checker
+                .check_table_updates(table_updates, current_metadata)
+                .await
+            {
                 Ok(ContractVerificationOutcome::Clear {}) => {}
                 Ok(block_result @ ContractVerificationOutcome::Violation { error_model: _ }) => {
                     tracing::info!(
@@ -209,8 +212,7 @@ impl ContractVerification for ContractVerifiers {
 
     async fn check_drop(
         &self,
-        // TODO: change to a type that signals if we are a table or a view
-        table_ident_uuid: TableIdentUuid,
+        table_ident_uuid: TabularIdentUuid,
     ) -> Result<ContractVerificationOutcome, ErrorModel> {
         for checker in &self.checkers {
             match checker.check_drop(table_ident_uuid).await {
@@ -234,7 +236,7 @@ impl ContractVerification for ContractVerifiers {
 
     async fn check_rename(
         &self,
-        source: TableIdentUuid,
+        source: TabularIdentUuid,
         destination: &TableIdent,
     ) -> Result<ContractVerificationOutcome, ErrorModel> {
         for checker in &self.checkers {
