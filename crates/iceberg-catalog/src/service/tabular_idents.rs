@@ -10,6 +10,7 @@ pub enum TabularIdentUuid {
 }
 
 impl TabularIdentUuid {
+    #[must_use]
     pub fn typ_str(&self) -> &'static str {
         match self {
             TabularIdentUuid::Table(_) => "table",
