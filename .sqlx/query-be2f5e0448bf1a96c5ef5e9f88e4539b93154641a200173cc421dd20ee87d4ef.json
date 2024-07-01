@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH cte AS (\n            SELECT w.warehouse_id, w.status\n            FROM tabular\n            JOIN namespace n ON tabular.namespace_id = n.namespace_id\n            JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n            WHERE tabular_id = $1 AND typ = $2\n        )\n        DELETE FROM tabular\n        WHERE tabular_id = $1 AND typ = $2\n        AND (SELECT status FROM cte) = 'active'\n        RETURNING \"tabular_id\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tabular_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        {
+          "Custom": {
+            "name": "tabular_type",
+            "kind": {
+              "Enum": [
+                "table",
+                "view"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "be2f5e0448bf1a96c5ef5e9f88e4539b93154641a200173cc421dd20ee87d4ef"
+}

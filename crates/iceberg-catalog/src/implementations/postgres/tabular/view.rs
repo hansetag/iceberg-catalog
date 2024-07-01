@@ -1,6 +1,6 @@
 mod load;
 
-use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogState};
+use crate::implementations::postgres::{dbutils::DBErrorHandler as _, tabular, CatalogState};
 use crate::{
     service::{ErrorModel, NamespaceIdentUuid, Result, TableIdent, TableIdentUuid},
     WarehouseIdent,
@@ -113,6 +113,7 @@ pub(crate) async fn create_view(
             namespace_id: namespace_id.into_uuid(),
             typ: TabularType::View,
             metadata_location: Some(metadata_location),
+            location: &location,
         },
         &mut *transaction,
     )
@@ -120,14 +121,12 @@ pub(crate) async fn create_view(
 
     let view_id = sqlx::query_scalar!(
         r#"
-        INSERT INTO view (view_id, view_format_version, location, metadata_location)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO view (view_id, view_format_version)
+        VALUES ($1, $2)
         returning view_id
         "#,
         tabular_id,
         ViewFormatVersion::from(metadata.format_version()) as _,
-        location,
-        metadata_location,
     )
     .fetch_one(&mut **transaction)
     .await
@@ -404,26 +403,7 @@ pub(crate) async fn create_view_version(
         return Ok(insert_response);
     };
 
-    insert_view_version_log(view_id, version_id, None, transaction).await?;
-
-    sqlx::query!(
-        r#"
-                INSERT INTO current_view_metadata_version (view_id, version_uuid, version_id)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (view_id)
-                DO UPDATE SET version_uuid = $2, version_id = $3
-            "#,
-        view_id,
-        insert_response.view_version_uuid,
-        version_id
-    )
-    .execute(&mut **transaction)
-    .await
-    .map_err(|e| {
-        let message = "Error setting current view version".to_string();
-        tracing::warn!(?e, "{}", message);
-        e.into_error_model(message)
-    })?;
+    set_current_view_metadata_version(version_id, view_id, transaction).await?;
 
     tracing::debug!(
         "Inserted version: '{}'/'{}' as current view metadata version for '{}'",
@@ -435,7 +415,6 @@ pub(crate) async fn create_view_version(
     Ok(insert_response)
 }
 
-#[instrument(fields(version_id=%version_id, view_id=%view_id))]
 pub(crate) async fn set_current_view_metadata_version(
     version_id: i64,
     view_id: Uuid,
@@ -455,8 +434,11 @@ pub(crate) async fn set_current_view_metadata_version(
     })?;
     sqlx::query!(
         r#"
-        UPDATE current_view_metadata_version SET version_id = $1, version_uuid = $2
-        WHERE view_id = $3
+        INSERT INTO current_view_metadata_version (version_id, version_uuid, view_id)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (view_id)
+        DO UPDATE SET version_id = $1, version_uuid = $2
+        WHERE current_view_metadata_version.view_id = $3
         "#,
         version_id,
         r.view_version_uuid,
@@ -482,23 +464,12 @@ pub(crate) async fn update_metadata_location(
     metadata_location: &str,
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), IcebergErrorResponse> {
-    sqlx::query!(
-        r#"
-        UPDATE view
-        SET metadata_location = $1
-        WHERE view_id = $2
-        "#,
+    tabular::update_metadata_location(
+        TabularIdentUuid::View(view_id),
         metadata_location,
-        view_id
+        transaction,
     )
-    .execute(&mut **transaction)
     .await
-    .map_err(|e| {
-        let message = "Error updating metadata location".to_string();
-        tracing::warn!("{}", message);
-        e.into_error_model(message)
-    })?;
-    Ok(())
 }
 
 pub(crate) async fn list_views(
@@ -719,20 +690,18 @@ pub(crate) mod tests {
         let request = view_request();
         let table_uuid = Uuid::now_v7().into();
         let mut tx = pool.begin().await.unwrap();
-        let created_meta = dbg!(
-            super::create_view(
-                &namespace_id,
-                &TableIdent {
-                    namespace: namespace.clone(),
-                    name: request.name.clone(),
-                },
-                table_uuid,
-                request.clone(),
-                "s3://my_bucket/my_table/metadata/bar",
-                &mut tx,
-            )
-            .await
+        let created_meta = super::create_view(
+            &namespace_id,
+            &TableIdent {
+                namespace: namespace.clone(),
+                name: request.name.clone(),
+            },
+            table_uuid,
+            request.clone(),
+            "s3://my_bucket/my_table/metadata/bar",
+            &mut tx,
         )
+        .await
         .unwrap();
 
         // recreate with same uuid should fail

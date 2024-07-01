@@ -10,8 +10,9 @@ use http::StatusCode;
 use iceberg_ext::NamespaceIdent;
 
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentRef, TabularIdentUuid};
+use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use sqlx::postgres::PgArguments;
-use sqlx::{Arguments, Execute, FromRow, PgConnection, Postgres, QueryBuilder};
+use sqlx::{Arguments, Execute, FromRow, PgConnection, Postgres, QueryBuilder, Transaction};
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use uuid::Uuid;
@@ -235,6 +236,7 @@ pub(crate) struct CreateTabular<'a> {
     pub(crate) namespace_id: Uuid,
     pub(crate) typ: TabularType,
     pub(crate) metadata_location: Option<&'a str>,
+    pub(crate) location: &'a str,
 }
 
 pub(crate) async fn create_tabular<'a>(
@@ -244,15 +246,16 @@ pub(crate) async fn create_tabular<'a>(
         namespace_id,
         typ,
         metadata_location,
+        location,
     }: CreateTabular<'a>,
     conn: &mut PgConnection,
 ) -> Result<Uuid> {
     Ok(sqlx::query_scalar!(
         r#"
-        INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location, location)
+        VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT ON CONSTRAINT unique_name_per_namespace_id
-        DO UPDATE SET tabular_id = $1, metadata_location = $5
+        DO UPDATE SET tabular_id = $1, metadata_location = $5, location = $6
         WHERE tabular.metadata_location IS NULL AND tabular.typ = 'table'
         RETURNING tabular_id
         "#,
@@ -260,7 +263,8 @@ pub(crate) async fn create_tabular<'a>(
         name,
         namespace_id,
         typ as _,
-        metadata_location
+        metadata_location,
+        location
     )
     .fetch_one(conn)
     .await
@@ -313,7 +317,6 @@ pub(crate) async fn list_tabulars(
     for table in tables {
         let namespace = try_parse_namespace_ident(table.namespace_name)?;
         let name = table.tabular_name;
-        eprintln!("name: {name}");
 
         match table.typ {
             TabularType::Table => {
@@ -426,11 +429,16 @@ pub(crate) async fn drop_tabular<'a>(
 ) -> Result<()> {
     let _ = sqlx::query!(
         r#"
+        WITH cte AS (
+            SELECT w.warehouse_id, w.status
+            FROM tabular
+            JOIN namespace n ON tabular.namespace_id = n.namespace_id
+            JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+            WHERE tabular_id = $1 AND typ = $2
+        )
         DELETE FROM tabular
         WHERE tabular_id = $1 AND typ = $2
-        AND tabular_id IN (
-            select tabular_id from active_tabulars
-        )
+        AND (SELECT status FROM cte) = 'active'
         RETURNING "tabular_id"
         "#,
         &*tabular_id,
@@ -451,6 +459,38 @@ pub(crate) async fn drop_tabular<'a>(
         }
     })?;
 
+    Ok(())
+}
+
+pub(crate) async fn update_metadata_location(
+    tabular_id: TabularIdentUuid,
+    metadata_location: &str,
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), IcebergErrorResponse> {
+    sqlx::query!(
+        r#"
+        WITH cte AS (
+            SELECT w.warehouse_id, w.status
+            FROM tabular
+            JOIN namespace n ON tabular.namespace_id = n.namespace_id
+            JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+            WHERE tabular_id = $2 AND typ = $3
+        )
+        UPDATE tabular ti
+        SET metadata_location = $1
+        WHERE tabular_id = $2 AND typ = $3 AND (SELECT status FROM cte) = 'active'
+        "#,
+        metadata_location,
+        *tabular_id,
+        TabularType::from(tabular_id) as _
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|e| {
+        let message = "Error updating metadata location".to_string();
+        tracing::warn!("{}", message);
+        e.into_error_model(message)
+    })?;
     Ok(())
 }
 

@@ -306,16 +306,6 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
-    async fn create_view<'a>(
-        warehouse_id: &WarehouseIdent,
-        namespace_id: &NamespaceIdentUuid,
-        view_id: &TabularIdentUuid,
-        view: &TableIdent,
-        request: CreateViewRequest,
-        metadata_location: &str,
-        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<ViewMetadata>;
-
     /// Return Err only on unexpected errors, not if the table does not exist.
     /// If include_staged is true, also return staged tables.
     /// If the table does not exist, return Ok(None).
@@ -328,14 +318,15 @@ where
         catalog_state: Self::State,
     ) -> Result<Option<TableIdentUuid>>;
 
-    /// Drop a view.
-    ///
-    /// Consider in your implementation to implement an UNDROP feature.
-    async fn drop_view<'a>(
+    async fn create_view<'a>(
         warehouse_id: &WarehouseIdent,
-        table_id: &TableIdentUuid,
+        namespace_id: &NamespaceIdentUuid,
+        view_id: &TabularIdentUuid,
+        view: &TableIdent,
+        request: CreateViewRequest,
+        metadata_location: &str,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<()>;
+    ) -> Result<ViewMetadata>;
 
     async fn load_view<'a>(
         view_id: TableIdentUuid,
@@ -347,6 +338,15 @@ where
         namespace: &NamespaceIdent,
         catalog_state: Self::State,
     ) -> Result<HashMap<TableIdentUuid, TableIdent>>;
+
+    /// Drop a view.
+    ///
+    /// Consider in your implementation to implement an UNDROP feature.
+    async fn drop_view<'a>(
+        warehouse_id: &WarehouseIdent,
+        table_id: &TableIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
 
     async fn add_view_schema(
         view_id: &TableIdentUuid,

@@ -4,12 +4,9 @@ create table view
 (
     view_id             uuid primary key default uuid_generate_v1mc(),
     CONSTRAINT "tabular_ident_fk" FOREIGN KEY (view_id) REFERENCES tabular (tabular_id),
-    view_format_version view_format_version not null,
-    -- Speed up S3 Signing requests. Otherwise not needed
-    -- as the location is stored in the metadata.
-    location            text                not null,
-    metadata_location   text                not null
+    view_format_version view_format_version not null
 );
+
 call add_time_columns('"view"');
 select trigger_updated_at('"view"');
 
@@ -57,7 +54,7 @@ select trigger_updated_at('view_version');
 create table current_view_metadata_version
 (
     view_id      uuid primary key REFERENCES view (view_id) ON DELETE CASCADE,
-    version_uuid uuid not null REFERENCES view_version (view_version_uuid) ON DELETE CASCADE,
+    version_uuid uuid not null unique REFERENCES view_version (view_version_uuid) ON DELETE CASCADE,
     version_id   int8 not null,
     FOREIGN KEY (version_uuid, view_id, version_id) REFERENCES view_version (view_version_uuid, view_id, version_id)
 );

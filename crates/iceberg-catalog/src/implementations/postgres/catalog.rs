@@ -1,6 +1,6 @@
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewVersionRef};
-use iceberg_ext::catalog::rest::CreateViewRequest;
 use std::collections::{HashMap, HashSet};
+use iceberg_ext::catalog::rest::CreateViewRequest;
 
 use super::{
     namespace::{

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO current_view_metadata_version (version_id, version_uuid, view_id)\n        VALUES ($1, $2, $3)\n        ON CONFLICT (view_id)\n        DO UPDATE SET version_id = $1, version_uuid = $2\n        WHERE current_view_metadata_version.view_id = $3\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6cfba6027a3a6b7a01901a5cc341c777f7ce0aa5dd2db21cbaeb7b8ebcff912f"
+}

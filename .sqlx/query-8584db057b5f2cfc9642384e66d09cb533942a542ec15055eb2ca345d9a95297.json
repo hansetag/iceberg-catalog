@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH cte AS (\n            SELECT w.warehouse_id, w.status\n            FROM tabular\n            JOIN namespace n ON tabular.namespace_id = n.namespace_id\n            JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n            WHERE tabular_id = $2 AND typ = $3\n        )\n        UPDATE tabular ti\n        SET metadata_location = $1\n        WHERE tabular_id = $2 AND typ = $3 AND (SELECT status FROM cte) = 'active'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "tabular_type",
+            "kind": {
+              "Enum": [
+                "table",
+                "view"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8584db057b5f2cfc9642384e66d09cb533942a542ec15055eb2ca345d9a95297"
+}
