@@ -24,7 +24,7 @@ serde_json = { version = "^1.0", features = ["raw_value"] }
 url = { version = "^2.5", features = ["serde"] }
 uuid = { version = "^1.6", features = ["serde", "v4", "v7"] }
 reqwest = { version = "^0.12", features = ["json"] }
-iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", tag = "0.2.1+5" }
+iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "tp/pub-viewmetabuilder" }
 typed-builder = "^0.18"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }
@@ -37,6 +37,7 @@ http = "^1.1"
 derive_more = "^0.99"
 flate2 = "^1.0"
 lazy_static = "^1.4"
+maplit = "1.0.2"
 futures = "^0.3"
 anyhow = "^1.0"
 chrono = "^0.4"
