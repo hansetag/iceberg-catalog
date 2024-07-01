@@ -9,7 +9,8 @@ create table tabular
     typ               tabular_type                    not null,
     metadata_location text,
     location          text                            not null,
-    CONSTRAINT "unique_name_per_namespace_id" UNIQUE (namespace_id, name)
+    CONSTRAINT "unique_name_per_namespace_id" UNIQUE (namespace_id, name),
+    CHECK ((typ = 'view' AND metadata_location IS NOT NULL) OR typ = 'table')
 );
 
 call add_time_columns('tabular');
