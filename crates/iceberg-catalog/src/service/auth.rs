@@ -220,6 +220,19 @@ where
         _: Option<&TableIdentUuid>,
         _: Self::State,
     ) -> Result<()>;
+    async fn check_list_views(
+        _metadata: &RequestMetadata,
+        _warehouse_id: &WarehouseIdent,
+        _namespace: &NamespaceIdent,
+        _state: Self::State,
+    ) -> Result<()>;
+    async fn check_view_exists(
+        _metadata: &RequestMetadata,
+        _warehouse_id: &WarehouseIdent,
+        _namespace: Option<&NamespaceIdent>,
+        _view: Option<&TableIdentUuid>,
+        _state: Self::State,
+    ) -> Result<()>;
 }
 
 /// Interface to provide Auth-related functions to the config gateway.

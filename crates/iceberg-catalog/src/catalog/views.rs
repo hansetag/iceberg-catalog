@@ -44,7 +44,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         validate_namespace_ident(&namespace)?;
 
         // ------------------- AUTHZ -------------------
-        A::check_list_tables(
+        A::check_list_views(
             &request_metadata,
             &warehouse_id,
             &namespace,
@@ -735,23 +735,35 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     async fn view_exists(
         parameters: ViewParameters,
         state: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let ViewParameters { prefix, view } = parameters;
-        let whi = require_warehouse_id(prefix.clone())?;
+        let warehouse_id = require_warehouse_id(prefix.clone())?;
         validate_table_or_view_ident(&view)?;
         // TODO: authz
-        let v = C::view_ident_to_id(&whi, &view, state.v1_state.catalog.clone()).await?;
+        let view_id = C::view_ident_to_id(&warehouse_id, &view, state.v1_state.catalog.clone())
+            .await
+            .ok()
+            .flatten();
 
-        if v.is_some() {
+        A::check_view_exists(
+            &request_metadata,
+            &warehouse_id,
+            Some(&view.namespace),
+            view_id.as_ref(),
+            state.v1_state.auth,
+        )
+        .await?;
+
+        if view_id.is_some() {
             return Ok(());
         }
 
         Err(ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
-            .message("Views are not implemented".to_string())
-            .r#type("ViewExistsNotSupported".to_string())
+            .message(format!("View does not exist in warehouse {warehouse_id}"))
+            .r#type("ViewNotFound".to_string())
             .build()
             .into())
     }
