@@ -39,3 +39,7 @@ select tabular_id, t.namespace_id, name, metadata_location
 from active_tabulars t
 where typ = 'table';
 
+create view active_views as
+select tabular_id, t.namespace_id, name, metadata_location
+from active_tabulars t
+where typ = 'view';
