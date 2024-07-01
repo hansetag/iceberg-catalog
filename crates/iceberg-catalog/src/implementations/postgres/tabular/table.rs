@@ -150,7 +150,8 @@ pub(crate) async fn create_table(
             name,
             namespace_id: namespace_id.into_uuid(),
             typ: TabularType::Table,
-            metadata_location: dbg!(metadata_location.map(std::string::String::as_str)),
+            metadata_location: metadata_location.map(std::string::String::as_str),
+            location: location.as_str(),
         },
         &mut *transaction,
     )
@@ -159,21 +160,18 @@ pub(crate) async fn create_table(
     // ToDo: Should we keep the old table_id?
     let _update_result = sqlx::query!(
         r#"
-        INSERT INTO "table" (table_id, "metadata", "metadata_location", "table_location")
+        INSERT INTO "table" (table_id, "metadata")
         (
-            SELECT $1, $2, $3, $4
+            SELECT $1, $2
             WHERE EXISTS (SELECT 1
                 FROM active_tables
                 WHERE active_tables.tabular_id = $1))
         ON CONFLICT ON CONSTRAINT "table_pkey"
-        DO UPDATE SET "metadata" = $2, "metadata_location" = $3, "table_location" = $4
-        WHERE "table"."metadata_location" IS NULL
+        DO UPDATE SET "metadata" = $2
         RETURNING "table_id"
         "#,
         tabular_id,
         table_metadata_ser,
-        metadata_location,
-        location
     )
     .fetch_one(&mut **transaction)
     .await
@@ -203,6 +201,7 @@ pub(crate) async fn load_table(
             ti."namespace_id",
             t."metadata" as "metadata: Json<TableMetadata>",
             ti."metadata_location",
+            ti.location as "table_location",
             w.storage_profile as "storage_profile: Json<StorageProfile>",
             w."storage_secret_id"
         FROM "table" t
@@ -211,7 +210,7 @@ pub(crate) async fn load_table(
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1 AND namespace_name = $2 AND ti.name = $3
         AND w.status = 'active'
-        AND t."metadata_location" IS NOT NULL
+        AND ti."metadata_location" IS NOT NULL
         "#,
         warehouse_id.as_uuid(),
         &**namespace,
@@ -276,10 +275,10 @@ pub(crate) async fn get_table_metadata_by_id(
         SELECT
             t."table_id",
             ti.name as "table_name",
-            t."table_location",
+            ti.location as "table_location",
             namespace_name,
             t."metadata" as "metadata: Json<TableMetadata>",
-            t."metadata_location",
+            ti."metadata_location",
             w.storage_profile as "storage_profile: Json<StorageProfile>",
             w."storage_secret_id"
         FROM "table" t
@@ -341,10 +340,10 @@ pub(crate) async fn get_table_metadata_by_s3_location(
         SELECT
             t."table_id",
             ti.name as "table_name",
-            t."table_location",
+            ti.location as "table_location",
             namespace_name,
             t."metadata" as "metadata: Json<TableMetadata>",
-            t."metadata_location",
+            ti."metadata_location",
             w.storage_profile as "storage_profile: Json<StorageProfile>",
             w."storage_secret_id"
         FROM "table" t
@@ -352,8 +351,8 @@ pub(crate) async fn get_table_metadata_by_s3_location(
         INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1
-            AND $2 like t."table_location" || '%'
-            AND LENGTH(t."table_location") <= $3
+            AND $2 like ti."location" || '%'
+            AND LENGTH(ti."location") <= $3
             AND w.status = 'active'
         "#,
         warehouse_id.as_uuid(),
@@ -484,7 +483,7 @@ async fn get_commit_context<'a>(
         SELECT 
             t."table_id", 
             t."metadata" as "metadata: Json<TableMetadata>", 
-            t."metadata_location",
+            ti."metadata_location",
             w.storage_profile as "storage_profile: Json<StorageProfile>",
             w."storage_secret_id",
             n.namespace_id
@@ -635,10 +634,18 @@ pub(crate) async fn commit_table_transaction<'a>(
     // Apply updates
     let responses = apply_commits(contexts)?;
 
-    let mut query_builder = sqlx::QueryBuilder::new(
+    let mut query_builder_metadata = sqlx::QueryBuilder::new(
         r#"
         UPDATE "table" as t
         SET "metadata" = c."metadata", "metadata_location" = c."metadata_location"
+        FROM (VALUES
+        "#,
+    );
+
+    let mut query_builder_metadata_location = sqlx::QueryBuilder::new(
+        r#"
+        UPDATE "tabular" as t
+        SET "metadata_location" = c."metadata_location"
         FROM (VALUES
         "#,
     );
@@ -654,29 +661,45 @@ pub(crate) async fn commit_table_transaction<'a>(
                     .build()
             })?;
 
-        query_builder.push("(");
-        query_builder.push_bind(response.commit_response.metadata.uuid());
-        query_builder.push(", ");
-        query_builder.push_bind(metadata_ser);
-        query_builder.push(", ");
-        query_builder.push_bind(response.commit_response.metadata_location.clone());
-        query_builder.push(")");
+        query_builder_metadata.push("(");
+        query_builder_metadata.push_bind(response.commit_response.metadata.uuid());
+        query_builder_metadata.push(", ");
+        query_builder_metadata.push_bind(metadata_ser);
+        query_builder_metadata.push(")");
+
+        query_builder_metadata_location.push("(");
+        query_builder_metadata_location
+            .push_bind(response.commit_response.metadata_location.clone());
+        query_builder_metadata_location.push(")");
+
         if i != responses.len() - 1 {
-            query_builder.push(", ");
+            query_builder_metadata.push(", ");
+            query_builder_metadata_location.push(", ");
         }
     }
 
-    query_builder
-        .push(") as c(table_id, metadata, metadata_location) WHERE c.table_id = t.table_id");
-    query_builder.push(" RETURNING t.table_id");
-    let query = query_builder.build();
+    query_builder_metadata.push(") as c(table_id, metadata) WHERE c.table_id = t.table_id");
+    query_builder_metadata_location.push(
+        ") as c(table_id, metadata_location) WHERE c.table_id = t.tabular_id AND t.typ = 'table'",
+    );
 
-    let updated = query
+    query_builder_metadata.push(" RETURNING t.table_id");
+    query_builder_metadata_location.push(" RETURNING t.tabular_id");
+
+    let query_meta_update = query_builder_metadata.build();
+    let query_meta_location_update = query_builder_metadata_location.build();
+
+    // futures::try_join didn't work due to concurrent mutable borrow of transaction
+    let updated_meta = query_meta_update
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|e| e.into_error_model("Error committing table updates".to_string()))?;
+    let updated_meta_location = query_meta_location_update
         .fetch_all(&mut **transaction)
         .await
         .map_err(|e| e.into_error_model("Error committing table updates".to_string()))?;
 
-    if updated.len() != responses.len() {
+    if updated_meta.len() != responses.len() || updated_meta_location.len() != responses.len() {
         return Err(ErrorModel::builder()
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error committing table updates".to_string())

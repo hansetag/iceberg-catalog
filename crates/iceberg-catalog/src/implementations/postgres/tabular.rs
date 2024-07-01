@@ -234,6 +234,7 @@ pub(crate) struct CreateTabular<'a> {
     pub(crate) namespace_id: Uuid,
     pub(crate) typ: TabularType,
     pub(crate) metadata_location: Option<&'a str>,
+    pub(crate) location: &'a str,
 }
 
 pub(crate) async fn create_tabular<'a>(
@@ -243,15 +244,16 @@ pub(crate) async fn create_tabular<'a>(
         namespace_id,
         typ,
         metadata_location,
+        location,
     }: CreateTabular<'a>,
     conn: &mut PgConnection,
 ) -> Result<Uuid> {
     Ok(sqlx::query_scalar!(
         r#"
-        INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location, location)
+        VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT ON CONSTRAINT unique_name_per_namespace_id
-        DO UPDATE SET tabular_id = $1, metadata_location = $5
+        DO UPDATE SET tabular_id = $1, metadata_location = $5, location = $6
         WHERE tabular.metadata_location IS NULL AND tabular.typ = 'table'
         RETURNING tabular_id
         "#,
@@ -259,7 +261,8 @@ pub(crate) async fn create_tabular<'a>(
         name,
         namespace_id,
         typ as _,
-        metadata_location
+        metadata_location,
+        location
     )
     .fetch_one(conn)
     .await
@@ -312,7 +315,6 @@ pub(crate) async fn list_tabulars(
     for table in tables {
         let namespace = try_parse_namespace_ident(table.namespace_name)?;
         let name = table.tabular_name;
-        eprintln!("name: {name}");
 
         match table.typ {
             TabularType::Table => {
