@@ -77,8 +77,8 @@ impl MetadataFetcher {
             r#"select
                     v.view_id,
                     view_format_version as "view_format_version: ViewFormatVersion",
-                    location as view_location,
-                    v.metadata_location as "metadata_location!",
+                    ta.location as view_location,
+                    ta.metadata_location as "metadata_location!",
                     cvv.version_id as current_version_id
                  from view v
                     LEFT JOIN view_properties vp ON v.view_id = vp.view_id
@@ -87,8 +87,7 @@ impl MetadataFetcher {
                     JOIN namespace n ON ta.namespace_id = n.namespace_id
                     JOIN warehouse w ON n.warehouse_id = w.warehouse_id
                     JOIN current_view_metadata_version cvv ON v.view_id = cvv.view_id
-                WHERE v.view_id = $1 AND w.status = 'active' AND ta.typ = 'view'
-                GROUP BY v.view_id,  cvv.version_id"#,
+                WHERE v.view_id = $1 AND w.status = 'active' AND ta.typ = 'view'"#,
             self.view_id
         )
         .fetch_one(conn)

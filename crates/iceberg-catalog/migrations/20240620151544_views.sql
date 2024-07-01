@@ -4,12 +4,9 @@ create table view
 (
     view_id             uuid primary key default uuid_generate_v1mc(),
     CONSTRAINT "tabular_ident_fk" FOREIGN KEY (view_id) REFERENCES tabular (tabular_id),
-    view_format_version view_format_version not null,
-    -- Speed up S3 Signing requests. Otherwise not needed
-    -- as the location is stored in the metadata.
-    location            text                not null,
-    metadata_location   text                not null
+    view_format_version view_format_version not null
 );
+
 call add_time_columns('"view"');
 select trigger_updated_at('"view"');
 
