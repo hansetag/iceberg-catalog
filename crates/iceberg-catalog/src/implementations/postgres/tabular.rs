@@ -427,11 +427,16 @@ pub(crate) async fn drop_tabular<'a>(
 ) -> Result<()> {
     let _ = sqlx::query!(
         r#"
+        WITH cte AS (
+            SELECT w.warehouse_id, w.status
+            FROM tabular
+            JOIN namespace n ON tabular.namespace_id = n.namespace_id
+            JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+            WHERE tabular_id = $1 AND typ = $2
+        )
         DELETE FROM tabular
         WHERE tabular_id = $1 AND typ = $2
-        AND tabular_id IN (
-            select tabular_id from active_tabulars
-        )
+        AND (SELECT status FROM cte) = 'active'
         RETURNING "tabular_id"
         "#,
         &*tabular_id,
