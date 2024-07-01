@@ -19,7 +19,7 @@ use std::sync::Arc;
 ///     use async_trait::async_trait;
 ///     use iceberg::spec::TableMetadata;
 ///     use iceberg::{TableIdent, TableUpdate};
-///     use iceberg_catalog::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
+///     use iceberg_catalog::service::{tabular_idents::TabularIdentUuid, contract_verification::{ContractVerification, ContractVerificationOutcome}};
 ///     use iceberg_ext::catalog::rest::ErrorModel;
 ///
 ///     #[derive(Debug)]

@@ -5,7 +5,7 @@ pub mod contract_verification;
 pub mod event_publisher;
 pub mod secrets;
 pub mod storage;
-pub(crate) mod tabular_idents;
+pub mod tabular_idents;
 pub mod token_verification;
 
 pub use catalog::{
