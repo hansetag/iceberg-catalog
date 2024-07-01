@@ -302,4 +302,16 @@ where
         storage_secret_id: Option<SecretIdent>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
+
+    /// Return Err only on unexpected errors, not if the table does not exist.
+    /// If include_staged is true, also return staged tables.
+    /// If the table does not exist, return Ok(None).
+    ///
+    /// We use this function also to handle the `view_exists` endpoint.
+    /// Also return Ok(None) if the warehouse is not active.
+    async fn view_ident_to_id(
+        warehouse_id: &WarehouseIdent,
+        view: &TableIdent,
+        catalog_state: Self::State,
+    ) -> Result<Option<TableIdentUuid>>;
 }

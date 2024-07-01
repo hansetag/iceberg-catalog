@@ -1,4 +1,5 @@
 pub(crate) mod table;
+pub(crate) mod view;
 
 use super::{dbutils::DBErrorHandler as _, CatalogState};
 use crate::{
