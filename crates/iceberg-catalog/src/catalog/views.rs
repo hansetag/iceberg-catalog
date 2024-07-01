@@ -14,11 +14,12 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use super::tables::{
-    require_active_warehouse, require_no_location_specified, validate_table_or_view_ident,
-    validate_table_properties,
+    maybe_body_to_json, require_active_warehouse, require_no_location_specified,
+    validate_table_or_view_ident, validate_table_properties,
 };
 use super::{namespace::validate_namespace_ident, require_warehouse_id, CatalogServer};
 use crate::service::contract_verification::ContractVerification;
+use crate::service::event_publisher::EventMetadata;
 use crate::service::storage::StorageCredential;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
@@ -63,6 +64,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         })
     }
 
+    // TODO: split up into smaller functions
+    #[allow(clippy::too_many_lines)]
     /// Create a view in the given namespace
     async fn create_view(
         parameters: NamespaceParameters,
@@ -74,9 +77,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- VALIDATIONS -------------------
         let NamespaceParameters { namespace, prefix } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
-        let table = TableIdent::new(namespace.clone(), request.name.clone());
+        let view = TableIdent::new(namespace.clone(), request.name.clone());
 
-        validate_table_or_view_ident(&table)?;
+        validate_table_or_view_ident(&view)?;
         require_no_location_specified(&request.location)?;
 
         if request.location.is_some() {
@@ -132,19 +135,21 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
         require_active_warehouse(status)?;
 
-        let table_id: TabularIdentUuid = TabularIdentUuid::View(uuid::Uuid::now_v7());
+        let view_id: TabularIdentUuid = TabularIdentUuid::View(uuid::Uuid::now_v7());
 
-        let view_location = storage_profile.tabular_location(&namespace_id, &table_id);
+        let view_location = storage_profile.tabular_location(&namespace_id, &view_id);
         let mut request = request;
-        let metadata_location = storage_profile.metadata_location(&view_location, &table_id);
+        let metadata_location = storage_profile.metadata_location(&view_location, &view_id);
         request.location = Some(view_location);
         let request = request;
+        // serialize body before moving it
+        let body = maybe_body_to_json(&request);
 
         let metadata = C::create_view(
             &warehouse_id,
             &namespace_id,
-            &table_id,
-            &table,
+            &view_id,
+            &view,
             request,
             &metadata_location,
             transaction.transaction(),
@@ -176,13 +181,34 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .generate_table_config(
                 &warehouse_id,
                 &namespace_id,
-                &TableIdentUuid::from(*table_id),
+                &TableIdentUuid::from(*view_id),
                 &data_access,
                 storage_secret.as_ref(),
             )
             .await?;
 
         transaction.commit().await?;
+
+        let _ = state
+            .v1_state
+            .publisher
+            .publish(
+                Uuid::now_v7(),
+                "createView",
+                body,
+                EventMetadata {
+                    tabular_id: TabularIdentUuid::View(*view_id),
+                    warehouse_id: *warehouse_id.as_uuid(),
+                    name: view.name.clone(),
+                    namespace: view.namespace.encode_in_url(),
+                    prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
+                    num_events: 1,
+                    sequence_number: 0,
+                    trace_id: request_metadata.request_id,
+                },
+            )
+            .await;
+
         let load_table_result = LoadViewResult {
             metadata_location,
             metadata,
@@ -458,9 +484,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state
             .v1_state
             .contract_verifiers
-            .check_view_updates(&updates, &before_update_metadata)
+            .check_view_updates(updates, &before_update_metadata)
             .await?
             .into_result()?;
+        // serialize body before moving it
+        let body = maybe_body_to_json(&request);
 
         let mut last_added_schema_id = None;
         let mut last_version = None;
@@ -599,6 +627,29 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .await?;
         transaction.commit().await?;
 
+        let _ = state
+            .v1_state
+            .publisher
+            .publish(
+                Uuid::now_v7(),
+                "commitView",
+                body,
+                EventMetadata {
+                    tabular_id: TabularIdentUuid::View(view_id.into_uuid()),
+                    warehouse_id: *warehouse_id.as_uuid(),
+                    name: parameters.view.name,
+                    namespace: parameters.view.namespace.encode_in_url(),
+                    prefix: parameters
+                        .prefix
+                        .map(Prefix::into_string)
+                        .unwrap_or_default(),
+                    num_events: 1,
+                    sequence_number: 0,
+                    trace_id: request_metadata.request_id,
+                },
+            )
+            .await;
+
         return Ok(LoadViewResult {
             metadata_location,
             metadata: updated_meta,
@@ -635,7 +686,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let table_id = view_id.ok_or_else(|| {
+        let view_id = view_id.ok_or_else(|| {
             tracing::debug!("View does not exist.");
             ErrorModel::builder()
                 .code(StatusCode::NOT_FOUND.into())
@@ -652,10 +703,30 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .into_result()?;
 
         tracing::debug!("Proceeding to delete view");
-        C::drop_view(&warehouse_id, &table_id, transaction.transaction()).await?;
+        C::drop_view(&warehouse_id, &view_id, transaction.transaction()).await?;
 
         // TODO: Delete metadata files
         transaction.commit().await?;
+
+        let _ = state
+            .v1_state
+            .publisher
+            .publish(
+                Uuid::now_v7(),
+                "dropView",
+                serde_json::Value::Null,
+                EventMetadata {
+                    tabular_id: TabularIdentUuid::View(view_id.into_uuid()),
+                    warehouse_id: *warehouse_id.as_uuid(),
+                    name: view.name.clone(),
+                    namespace: view.namespace.encode_in_url(),
+                    prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
+                    num_events: 1,
+                    sequence_number: 0,
+                    trace_id: request_metadata.request_id,
+                },
+            )
+            .await;
 
         return Ok(());
     }
@@ -694,6 +765,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(prefix.clone())?;
+        let body = maybe_body_to_json(&request);
+
         let RenameTableRequest {
             source,
             destination,
@@ -758,6 +831,26 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .into_result()?;
 
         transaction.commit().await?;
+
+        let _ = state
+            .v1_state
+            .publisher
+            .publish(
+                Uuid::now_v7(),
+                "renameView",
+                body,
+                EventMetadata {
+                    tabular_id: TabularIdentUuid::View(source_id.into_uuid()),
+                    warehouse_id: *warehouse_id.as_uuid(),
+                    name: source.name,
+                    namespace: source.namespace.encode_in_url(),
+                    prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
+                    num_events: 1,
+                    sequence_number: 0,
+                    trace_id: request_metadata.request_id,
+                },
+            )
+            .await;
 
         return Ok(());
     }

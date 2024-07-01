@@ -230,6 +230,35 @@ impl ContractVerification for ContractVerifiers {
         Ok(ContractVerificationOutcome::Clear {})
     }
 
+    async fn check_view_updates(
+        &self,
+        view_updates: &[ViewUpdate],
+        current_metadata: &ViewMetadata,
+    ) -> Result<ContractVerificationOutcome, ErrorModel> {
+        for checker in &self.checkers {
+            match checker
+                .check_view_updates(view_updates, current_metadata)
+                .await
+            {
+                Ok(ContractVerificationOutcome::Clear {}) => {}
+                Ok(block_result @ ContractVerificationOutcome::Violation { error_model: _ }) => {
+                    tracing::info!(
+                        "ContractVerifier '{}' blocked change on view '{}'",
+                        checker.name(),
+                        current_metadata.view_uuid
+                    );
+                    return Ok(block_result);
+                }
+                Err(error) => {
+                    tracing::warn!("Checker {} failed", checker.name());
+                    return Err(error);
+                }
+            }
+        }
+
+        Ok(ContractVerificationOutcome::Clear {})
+    }
+
     async fn check_drop(
         &self,
         table_ident_uuid: TabularIdentUuid,
