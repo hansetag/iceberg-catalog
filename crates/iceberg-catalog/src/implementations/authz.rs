@@ -261,4 +261,70 @@ impl AuthZHandler for AllowAllAuthZHandler {
     ) -> Result<()> {
         Ok(())
     }
+
+    async fn check_create_view(
+        _metadata: &RequestMetadata,
+        _warehouse_id: &WarehouseIdent,
+        _namespace: &NamespaceIdent,
+        _state: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_view_exists(
+        _metadata: &RequestMetadata,
+        _warehouse_id: &WarehouseIdent,
+        _namespace: Option<&NamespaceIdent>,
+        _view: Option<&TableIdentUuid>,
+        _state: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_list_views(
+        _metadata: &RequestMetadata,
+        _warehouse_id: &WarehouseIdent,
+        _namespace: &NamespaceIdent,
+        _state: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_drop_view(
+        _metadata: &RequestMetadata,
+        _warehouse_id: &WarehouseIdent,
+        _table: Option<&TableIdentUuid>,
+        _state: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_load_view(
+        _metadata: &RequestMetadata,
+        _warehouse_id: &WarehouseIdent,
+        _namespace: Option<&NamespaceIdent>,
+        _view: Option<&TableIdentUuid>,
+        _state: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_commit_view(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        _: Option<&TableIdentUuid>,
+        _: Option<&NamespaceIdent>,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn check_rename_view(
+        _: &RequestMetadata,
+        _: &WarehouseIdent,
+        _: Option<&TableIdentUuid>,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
