@@ -106,7 +106,7 @@ impl StorageProfile {
     }
 
     #[must_use]
-    pub fn metadata_location(&self, table_location: &str, metadata_id: &uuid::Uuid) -> String {
+    pub fn metadata_location(&self, table_location: &str, metadata_id: uuid::Uuid) -> String {
         format!(
             "{}/metadata/{metadata_id}.gz.metadata.json",
             table_location.trim_end_matches('/')

@@ -50,9 +50,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
 
+        let views = C::list_views(warehouse_id, &namespace, state.v1_state.catalog.clone())
+            .await
+            .unwrap();
+
         Ok(ListTablesResponse {
             next_page_token: None,
-            identifiers: vec![],
+            identifiers: views.into_iter().map(|t| t.1).collect(),
         })
     }
 
@@ -131,7 +135,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         let view_location = storage_profile.tabular_location(namespace_id, view_id);
         let mut request = request;
-        let metadata_location = storage_profile.metadata_location(&view_location, &view_id);
+        let metadata_location = storage_profile.metadata_location(&view_location, *view_id);
         request.location = Some(view_location);
         let request = request;
         // serialize body before moving it

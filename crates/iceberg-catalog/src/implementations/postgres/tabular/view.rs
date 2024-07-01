@@ -9,10 +9,13 @@ use crate::{
 use http::StatusCode;
 
 use crate::implementations::postgres::tabular::{
-    create_tabular, CreateTabular, TabularIdentBorrowed, TabularIdentUuid, TabularType,
+    create_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed, TabularIdentUuid,
+    TabularType,
 };
+use crate::implementations::postgres::CatalogState;
 use chrono::{DateTime, Utc};
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersion, ViewVersionRef};
+use iceberg::NamespaceIdent;
 use iceberg_ext::catalog::rest::{CreateViewRequest, IcebergErrorResponse};
 use maplit::hashmap;
 use serde::Deserialize;
@@ -397,6 +400,32 @@ pub(crate) async fn set_current_view_metadata_version(
     Ok(())
 }
 
+pub(crate) async fn list_views(
+    warehouse_id: WarehouseIdent,
+    namespace: &NamespaceIdent,
+    catalog_state: CatalogState,
+) -> Result<HashMap<TableIdentUuid, TableIdent>> {
+    list_tabulars(
+        warehouse_id,
+        namespace,
+        false,
+        catalog_state,
+        Some(TabularType::View),
+    )
+    .await?
+    .into_iter()
+    .map(|(k, v)| match k {
+        TabularIdentUuid::Table(_) => Err(ErrorModel::builder()
+            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+            .message("DB returned a table when filtering for tables.".to_string())
+            .r#type("InternalDatabaseError".to_string())
+            .build()
+            .into()),
+        TabularIdentUuid::View(t) => Ok((TableIdentUuid::from(t), v.into_inner())),
+    })
+    .collect::<Result<HashMap<TableIdentUuid, TableIdent>>>()
+}
+
 async fn insert_representation(
     rep: &ViewRepresentation,
     transaction: &mut Transaction<'_, Postgres>,
@@ -581,6 +610,14 @@ pub(crate) mod tests {
         assert_eq!(created_view.error.code, 409);
 
         tx.commit().await.unwrap();
+
+        let views = super::list_views(warehouse_id, &namespace, state.clone())
+            .await
+            .unwrap();
+        assert_eq!(views.len(), 1);
+        let (view_id, view) = views.into_iter().next().unwrap();
+        assert_eq!(view_id, table_uuid);
+        assert_eq!(view.name, "myview");
 
         let mut conn = state.read_pool.acquire().await.unwrap();
         let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
