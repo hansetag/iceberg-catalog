@@ -313,7 +313,7 @@ impl Catalog for super::Catalog {
     async fn load_view<'a>(
         view_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<ViewMetadata> {
+    ) -> Result<crate::implementations::postgres::tabular::view::ViewMetadataWithLocation> {
         load_view(view_id, &mut *transaction).await
     }
 }

@@ -1,7 +1,7 @@
 use crate::api::Result;
 use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::view::{ViewFormatVersion, ViewRepresentationType};
-use crate::service::TableIdentUuid;
+use crate::service::{TableIdentUuid, ViewMetadataWithLocation};
 use iceberg::spec::{
     Schema, SchemaRef, SqlViewRepresentation, ViewMetadata, ViewRepresentation, ViewVersion,
     ViewVersionLog, ViewVersionRef,
@@ -17,7 +17,7 @@ use uuid::Uuid;
 pub(crate) async fn load_view(
     view: TableIdentUuid,
     conn: &mut PgConnection,
-) -> Result<ViewMetadata> {
+) -> Result<ViewMetadataWithLocation> {
     let fetcher: MetadataFetcher = MetadataFetcher::new(*view);
     fetcher.fetch_metadata(conn).await
 }
@@ -48,26 +48,29 @@ impl MetadataFetcher {
     pub(crate) async fn fetch_metadata(
         self,
         conn: &mut PgConnection,
-    ) -> crate::api::Result<ViewMetadata> {
+    ) -> crate::api::Result<ViewMetadataWithLocation> {
         let View {
             view_id,
             view_format_version,
-            view_location: _,
+            view_location,
             metadata_location: location,
             current_version_id,
         } = self.fetch_view(&mut *conn).await?;
 
-        Ok(ViewMetadata {
-            format_version: match view_format_version {
-                ViewFormatVersion::V1 => iceberg::spec::ViewFormatVersion::V1,
+        Ok(ViewMetadataWithLocation {
+            view_location,
+            metadata: ViewMetadata {
+                format_version: match view_format_version {
+                    ViewFormatVersion::V1 => iceberg::spec::ViewFormatVersion::V1,
+                },
+                view_uuid: view_id,
+                location,
+                current_version_id,
+                versions: self.fetch_versions(&mut *conn, view_id).await?,
+                version_log: self.fetch_version_log(&mut *conn, view_id).await?,
+                schemas: self.fetch_schemas(&mut *conn, view_id).await?,
+                properties: self.fetch_properties(&mut *conn, view_id).await?,
             },
-            view_uuid: view_id,
-            location,
-            current_version_id,
-            versions: self.fetch_versions(&mut *conn, view_id).await?,
-            version_log: self.fetch_version_log(&mut *conn, view_id).await?,
-            schemas: self.fetch_schemas(&mut *conn, view_id).await?,
-            properties: self.fetch_properties(&mut *conn, view_id).await?,
         })
     }
 

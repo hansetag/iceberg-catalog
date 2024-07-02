@@ -21,6 +21,7 @@ use std::default::Default;
 use std::sync::Arc;
 use uuid::Uuid;
 
+pub(crate) use crate::service::ViewMetadataWithLocation;
 pub(crate) use load::load_view;
 
 pub(crate) async fn view_ident_to_id<'e, 'c: 'e, E>(
@@ -162,7 +163,9 @@ pub(crate) async fn create_view(
 
     tracing::debug!("Inserted view properties for view",);
 
-    load_view(TableIdentUuid::from(view_id), transaction).await
+    load_view(TableIdentUuid::from(view_id), transaction)
+        .await
+        .map(|metadata| metadata.metadata)
 }
 
 // TODO: do we wanna do this via a trigger?
@@ -594,6 +597,6 @@ pub(crate) mod tests {
         let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
             .await
             .unwrap();
-        assert_eq!(metadata, created_meta);
+        assert_eq!(metadata.metadata, created_meta);
     }
 }

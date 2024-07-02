@@ -328,5 +328,11 @@ where
     async fn load_view<'a>(
         view_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<ViewMetadata>;
+    ) -> Result<ViewMetadataWithLocation>;
+}
+
+#[derive(Debug, Clone)]
+pub struct ViewMetadataWithLocation {
+    pub view_location: String,
+    pub metadata: ViewMetadata,
 }
