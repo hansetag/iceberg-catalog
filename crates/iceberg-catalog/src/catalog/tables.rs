@@ -951,7 +951,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     }
 }
 
-fn require_no_location_specified(location: &Option<String>) -> Result<()> {
+pub(crate) fn require_no_location_specified(location: &Option<String>) -> Result<()> {
     if location.is_some() {
         return Err(ErrorModel::builder()
             .code(StatusCode::BAD_REQUEST.into())
@@ -963,7 +963,7 @@ fn require_no_location_specified(location: &Option<String>) -> Result<()> {
     Ok(())
 }
 
-fn require_active_warehouse(status: WarehouseStatus) -> Result<()> {
+pub(crate) fn require_active_warehouse(status: WarehouseStatus) -> Result<()> {
     if status != WarehouseStatus::Active {
         return Err(ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
@@ -1013,7 +1013,7 @@ pub(crate) fn validate_lowercase_property(prop: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_table_properties<'a, I>(properties: I) -> Result<()>
+pub(crate) fn validate_table_properties<'a, I>(properties: I) -> Result<()>
 where
     I: IntoIterator<Item = &'a String>,
 {
