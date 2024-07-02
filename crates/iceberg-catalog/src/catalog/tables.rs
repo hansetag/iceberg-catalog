@@ -1018,9 +1018,7 @@ where
     I: IntoIterator<Item = &'a String>,
 {
     for prop in properties {
-        if prop != &prop.to_lowercase() {
-            validate_lowercase_property(prop)?;
-        }
+        validate_lowercase_property(prop)?;
     }
     Ok(())
 }

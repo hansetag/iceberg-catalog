@@ -81,6 +81,8 @@ services:
         condition: service_started
       keycloak:
         condition: service_healthy
+    ports:
+      - 1234:8080
   db:
     image: bitnami/postgresql:15
     environment:

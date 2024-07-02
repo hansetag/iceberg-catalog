@@ -1,7 +1,3 @@
-use iceberg::spec::ViewMetadata;
-use iceberg_ext::catalog::rest::CreateViewRequest;
-use std::collections::{HashMap, HashSet};
-
 use super::{
     namespace::{
         create_namespace, drop_namespace, get_namespace, list_namespaces, namespace_ident_to_id,
@@ -19,9 +15,8 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::implementations::postgres::tabular::view::{
-    create_view, list_views, load_view, view_ident_to_id,
+    create_view, drop_view, list_views, load_view, view_ident_to_id,
 };
-use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
     GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
@@ -36,6 +31,8 @@ use crate::{
     },
     SecretIdent,
 };
+use iceberg::spec::ViewMetadata;
+use std::collections::{HashMap, HashSet};
 
 #[async_trait::async_trait]
 impl Catalog for super::Catalog {
@@ -287,19 +284,17 @@ impl Catalog for super::Catalog {
 
     async fn create_view<'a>(
         namespace_id: NamespaceIdentUuid,
-        view_id: TabularIdentUuid,
         view: &TableIdent,
-        request: CreateViewRequest,
+        request: ViewMetadata,
         metadata_location: &str,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ViewMetadata> {
         create_view(
             namespace_id,
-            view,
-            TableIdentUuid::from(*view_id),
-            request,
             metadata_location,
             transaction,
+            view.name.as_str(),
+            request,
         )
         .await
     }
@@ -325,5 +320,24 @@ impl Catalog for super::Catalog {
         catalog_state: Self::State,
     ) -> Result<HashMap<TableIdentUuid, TableIdent>> {
         list_views(warehouse_id, namespace, catalog_state).await
+    }
+
+    async fn update_view_metadata(
+        namespace_id: NamespaceIdentUuid,
+        view_id: TableIdentUuid,
+        view: &TableIdent,
+        metadata_location: &str,
+        metadata: ViewMetadata,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<ViewMetadata> {
+        drop_view(view_id, transaction).await?;
+        create_view(
+            namespace_id,
+            metadata_location,
+            transaction,
+            &view.name,
+            metadata,
+        )
+        .await
     }
 }

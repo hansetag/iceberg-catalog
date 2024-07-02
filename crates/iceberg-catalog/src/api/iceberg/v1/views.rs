@@ -53,6 +53,7 @@ where
         parameters: ViewParameters,
         request: CommitViewRequest,
         state: ApiContext<S>,
+        data_access: DataAccess,
         request_metadata: RequestMetadata,
     ) -> Result<LoadViewResult>;
 
@@ -152,6 +153,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
             .post(
                 |Path((prefix, namespace, view)): Path<(Prefix, NamespaceIdentUrl, String)>,
                  State(api_context): State<ApiContext<S>>,
+                 headers: HeaderMap,
                  Extension(metadata): Extension<RequestMetadata>,
                  Json(request): Json<CommitViewRequest>| {
                     {
@@ -165,6 +167,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                             },
                             request,
                             api_context,
+                            crate::api::iceberg::v1::tables::parse_data_access(&headers),
                             metadata,
                         )
                     }

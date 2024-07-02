@@ -62,13 +62,13 @@ pub(crate) async fn load_view(
     )
     .await?;
     Ok(ViewMetadataWithLocation {
-        view_location,
+        metadata_location,
         metadata: ViewMetadata {
             format_version: match view_format_version {
                 ViewFormatVersion::V1 => iceberg::spec::ViewFormatVersion::V1,
             },
             view_uuid: view_id,
-            location: metadata_location,
+            location: view_location,
             current_version_id,
             versions,
             version_log,

@@ -161,7 +161,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         transaction.commit().await?;
 
         Ok(CreateWarehouseResponse {
-            warehouse_id: warehouse_id.to_uuid(),
+            warehouse_id: *warehouse_id,
         })
     }
 

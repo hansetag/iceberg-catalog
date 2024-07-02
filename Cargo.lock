@@ -1900,7 +1900,7 @@ dependencies = [
 [[package]]
 name = "iceberg"
 version = "0.2.0"
-source = "git+https://github.com/hansetag/iceberg-rust.git?branch=tp/pub-viewmetabuilder#cf3c1f2db95181eb3ae5f2e0beb7c8e67a459fd0"
+source = "git+https://github.com/hansetag/iceberg-rust.git?branch=tp/pub-viewmetabuilder#1e0d8bc090f2c6d8d4eb9abed20e6bd2f633926b"
 dependencies = [
  "anyhow",
  "apache-avro",
