@@ -5,8 +5,7 @@ use crate::catalog::tables::{require_active_warehouse, validate_table_or_view_id
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
 use crate::service::storage::StorageCredential;
-use crate::service::tabular_idents::TabularIdentUuid;
-use crate::service::{Catalog, SecretStore, State, Transaction};
+use crate::service::{Catalog, SecretStore, State, Transaction, ViewMetadataWithLocation};
 use crate::service::{GetWarehouseResponse, Result};
 use http::StatusCode;
 use iceberg_ext::catalog::rest::{ErrorModel, LoadViewResult};
@@ -86,11 +85,12 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     } = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
     require_active_warehouse(status)?;
 
-    let view_metadata = C::load_view(view_id, transaction.transaction()).await?;
+    let ViewMetadataWithLocation {
+        view_location: _,
+        metadata: view_metadata,
+    } = C::load_view(view_id, transaction.transaction()).await?;
 
-    // TODO: should load_view return this? What's there to gain?
-    let location = storage_profile.tabular_location(namespace_id, TabularIdentUuid::View(*view_id));
-    let metadata_location = storage_profile.metadata_location(&location, view_metadata.uuid());
+    let metadata_location = &view_metadata.location;
 
     // We don't commit the transaction yet, first we need to write the metadata file.
     let storage_secret: Option<StorageCredential> = if let Some(secret_id) = &storage_secret_id {
@@ -113,7 +113,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         )
         .await?;
     let load_table_result = LoadViewResult {
-        metadata_location,
+        metadata_location: metadata_location.clone(),
         metadata: view_metadata,
         config: Some(access),
     };

@@ -175,7 +175,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     state
         .v1_state
         .contract_verifiers
-        .check_view_updates(updates, &before_update_metadata)
+        .check_view_updates(updates, &before_update_metadata.metadata)
         .await?
         .into_result()?;
     // serialize body before moving it
@@ -280,9 +280,9 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             }
         }
     }
-    let tab_location =
-        storage_profile.tabular_location(namespace_id, TabularIdentUuid::View(*view_id));
-    let metadata_location = storage_profile.metadata_location(&tab_location, Uuid::now_v7());
+
+    let metadata_location =
+        storage_profile.metadata_location(&before_update_metadata.view_location, Uuid::now_v7());
 
     C::update_view_metadata_location(view_id, &metadata_location, transaction.transaction())
         .await?;
@@ -300,7 +300,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     };
 
     let file_io = storage_profile.file_io(storage_secret.as_ref())?;
-    write_metadata_file(metadata_location.as_str(), &updated_meta, &file_io).await?;
+    write_metadata_file(metadata_location.as_str(), &updated_meta.metadata, &file_io).await?;
     tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
     // Generate the storage profile. This requires the storage secret
     // because the table config might contain vended-credentials based
@@ -344,7 +344,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     Ok(LoadViewResult {
         metadata_location,
-        metadata: updated_meta,
+        metadata: updated_meta.metadata,
         config: Some(config),
     })
 }
