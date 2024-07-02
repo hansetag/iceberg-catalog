@@ -1,5 +1,6 @@
 mod commit;
 mod create;
+mod list;
 mod load;
 
 use crate::api::iceberg::v1::{
@@ -12,10 +13,8 @@ use http::StatusCode;
 use iceberg_ext::catalog::rest::ViewUpdate;
 
 use super::tables::{validate_table_or_view_ident, validate_table_properties};
-use super::{namespace::validate_namespace_ident, require_warehouse_id, CatalogServer};
-use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, State,
-};
+use super::{require_warehouse_id, CatalogServer};
+use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -24,34 +23,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     /// List all view identifiers underneath a given namespace
     async fn list_views(
         parameters: NamespaceParameters,
-        _query: PaginationQuery,
+        query: PaginationQuery,
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<ListTablesResponse> {
-        // ------------------- VALIDATIONS -------------------
-        let NamespaceParameters { namespace, prefix } = parameters;
-        let warehouse_id = require_warehouse_id(prefix)?;
-        validate_namespace_ident(&namespace)?;
-
-        // ------------------- AUTHZ -------------------
-        A::check_list_views(
-            &request_metadata,
-            warehouse_id,
-            &namespace,
-            state.v1_state.auth,
-        )
-        .await?;
-
-        // ------------------- BUSINESS LOGIC -------------------
-
-        let views = C::list_views(warehouse_id, &namespace, state.v1_state.catalog.clone())
-            .await
-            .unwrap();
-
-        Ok(ListTablesResponse {
-            next_page_token: None,
-            identifiers: views.into_iter().map(|t| t.1).collect(),
-        })
+        list::list_views(parameters, query, state, request_metadata).await
     }
 
     /// Create a view in the given namespace
