@@ -175,11 +175,9 @@ pub(crate) async fn create_table(
     )
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|e| match &e {
-        _ => {
-            tracing::warn!("Error creating table: {}", e);
-            e.as_error_model("Error creating table".to_string())
-        }
+    .map_err(|e| {
+        tracing::warn!("Error creating table: {}", e);
+        e.as_error_model("Error creating table".to_string())
     })?;
 
     Ok(CreateTableResponse { table_metadata })
