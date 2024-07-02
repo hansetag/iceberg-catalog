@@ -176,12 +176,10 @@ pub(crate) async fn create_table(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| match &e {
-        sqlx::Error::RowNotFound => ErrorModel::builder()
-            .code(StatusCode::CONFLICT.into())
-            .message("Table already exists in Namespace".to_string())
-            .r#type("TableAlreadyExists".to_string())
-            .build(),
-        _ => e.as_error_model("Error creating table".to_string()),
+        _ => {
+            tracing::warn!("Error creating table: {}", e);
+            e.as_error_model("Error creating table".to_string())
+        }
     })?;
 
     Ok(CreateTableResponse { table_metadata })
@@ -435,16 +433,8 @@ pub(crate) async fn drop_table<'a>(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| {
-        if let sqlx::Error::RowNotFound = e {
-            ErrorModel::builder()
-                .code(StatusCode::NOT_FOUND.into())
-                .message("Table not found".to_string())
-                .r#type("NoSuchTableError".to_string())
-                .build()
-        } else {
-            tracing::warn!("Error dropping tabular: {}", e);
-            e.into_error_model("Error dropping table".to_string())
-        }
+        tracing::warn!("Error dropping tabular: {}", e);
+        e.into_error_model("Error dropping table".to_string())
     })?;
 
     drop_tabular(TabularIdentUuid::Table(*table_id), transaction).await?;
