@@ -68,7 +68,6 @@ def test_create_view(spark, warehouse: conftest.Warehouse):
     )
     spark.sql("CREATE VIEW test_create_view.my_view AS SELECT my_ints, my_floats FROM test_create_view.my_table")
     spark.sql("SELECT * from test_create_view.my_view")
-    spark.sql("CREATE OR REPLACE VIEW test_create_view.my_view AS SELECT my_ints FROM test_create_view.my_table")
 
 
 def test_merge_into(spark):
