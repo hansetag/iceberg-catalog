@@ -69,6 +69,9 @@ create table view_version_log
     timestamp  timestamptz not null default now(),
     FOREIGN KEY (view_id, version_id) REFERENCES view_version (view_id, version_id) ON DELETE CASCADE
 );
+
+create index view_version_log_view_id_version_id_idx on view_version_log (view_id, version_id);
+
 call add_time_columns('view_version_log');
 
 create table metadata_summary
@@ -78,7 +81,7 @@ create table metadata_summary
     key                    text not null,
     value                  text not null
 );
-
+create index metadata_summary_view_version_unique_id_idx on metadata_summary (view_version_unique_id);
 call add_time_columns('metadata_summary');
 select trigger_updated_at('"metadata_summary"');
 
@@ -91,6 +94,8 @@ create table view_representation
     sql                    text                     not null,
     dialect                text                     not null
 );
+
+create index view_representation_view_version_unique_id_idx on view_representation (view_version_unique_id);
 
 call add_time_columns('view_representation');
 select trigger_updated_at('"view_representation"');
