@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::implementations::postgres::CatalogState;
+use crate::implementations::postgres::{tabular, CatalogState};
 
 pub(crate) use crate::service::ViewMetadataWithLocation;
 pub(crate) use load::load_view;
@@ -57,12 +57,13 @@ where
 
 pub(crate) enum CreateViewVersion {
     AsCurrent(ViewVersionRef),
+    Append(ViewVersionRef),
 }
 
 impl CreateViewVersion {
     fn inner(&self) -> &ViewVersion {
         match self {
-            Self::AsCurrent(v) => v.as_ref(),
+            Self::Append(v) | Self::AsCurrent(v) => v.as_ref(),
         }
     }
 }
@@ -236,6 +237,34 @@ pub(crate) async fn insert_view_properties(
     Ok(())
 }
 
+pub(crate) async fn delete_properties(
+    view_id: Uuid,
+    removals: &[String],
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), IcebergErrorResponse> {
+    let placeholders: Vec<String> = (1..=removals.len())
+        .map(|i| format!("${}", i + 1))
+        .collect();
+    let sql = format!(
+        r#"
+        DELETE FROM view_properties
+        WHERE view_id = $1 AND key IN ({})
+        "#,
+        placeholders.join(", ")
+    );
+
+    let mut q = sqlx::query(&sql).bind(view_id);
+    for r in removals {
+        q = q.bind(r);
+    }
+    q.execute(&mut **transaction).await.map_err(|e| {
+        let message = "Error deleting view properties".to_string();
+        tracing::warn!("{}", message);
+        e.into_error_model(message)
+    })?;
+    Ok(())
+}
+
 pub(crate) async fn create_view_schema(
     view_id: Uuid,
     schema: SchemaRef,
@@ -356,7 +385,9 @@ pub(crate) async fn create_view_version(
         insert_representation(rep, transaction, insert_response).await?;
     }
 
-    let CreateViewVersion::AsCurrent(_) = view_version_request;
+    let CreateViewVersion::AsCurrent(_) = view_version_request else {
+        return Ok(insert_response);
+    };
 
     set_current_view_metadata_version(version_id, view_id, transaction).await?;
 
@@ -398,6 +429,19 @@ pub(crate) async fn set_current_view_metadata_version(
         "Successfully set current view metadata version and inserted view version log."
     );
     Ok(())
+}
+
+pub(crate) async fn update_metadata_location(
+    view_id: Uuid,
+    metadata_location: &str,
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), IcebergErrorResponse> {
+    tabular::update_metadata_location(
+        TabularIdentUuid::View(view_id),
+        metadata_location,
+        transaction,
+    )
+    .await
 }
 
 pub(crate) async fn list_views(
