@@ -169,15 +169,15 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         config: Some(config),
     };
 
-    return Ok(load_view_result);
+    Ok(load_view_result)
 }
 
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    
+
     use crate::catalog::views::test::new_namespace;
-    
+
     use crate::implementations::postgres::secrets::Server;
     use crate::implementations::AllowAllAuthZHandler;
     use iceberg::NamespaceIdent;

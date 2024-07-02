@@ -123,30 +123,25 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use crate::api::iceberg::v1::{views, DataAccess, Prefix, ViewParameters};
     use crate::api::ApiContext;
     use crate::catalog::CatalogServer;
-    
-    use crate::implementations::postgres::secrets::Server;
-    
-    use crate::implementations::postgres::{Catalog};
-    use crate::implementations::{AllowAllAuthZHandler};
-    
-    
-    
-    use crate::service::State;
-    
 
-    use iceberg::{TableIdent};
+    use crate::implementations::postgres::secrets::Server;
+
+    use crate::implementations::postgres::Catalog;
+    use crate::implementations::AllowAllAuthZHandler;
+
+    use crate::service::State;
+
+    use iceberg::TableIdent;
     use iceberg_ext::catalog::rest::{CreateViewRequest, LoadViewResult};
 
-    
     use sqlx::PgPool;
 
     use crate::catalog::views::create::test::create_view;
     use crate::catalog::views::test::setup;
-    
 
     pub(crate) async fn load_view(
         api_context: ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,

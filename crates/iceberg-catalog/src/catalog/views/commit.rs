@@ -342,37 +342,24 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         )
         .await;
 
-    return Ok(LoadViewResult {
+    Ok(LoadViewResult {
         metadata_location,
         metadata: updated_meta,
         config: Some(config),
-    });
+    })
 }
 
 #[cfg(test)]
 mod test {
     use crate::api::iceberg::v1::{views, DataAccess, Prefix, ViewParameters};
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    use iceberg::{TableIdent};
-    use iceberg_ext::catalog::rest::{CommitViewRequest};
+
+    use iceberg::TableIdent;
+    use iceberg_ext::catalog::rest::CommitViewRequest;
     use maplit::hashmap;
 
     use serde_json::json;
     use sqlx::PgPool;
 
-    
     use crate::catalog::views::create::test::{create_view, create_view_request};
     use crate::catalog::views::test::setup;
     use uuid::Uuid;
