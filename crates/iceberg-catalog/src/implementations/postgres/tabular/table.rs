@@ -18,7 +18,7 @@ use iceberg_ext::{
 use crate::api::{TableRequirementExt as _, TableUpdateExt};
 use crate::implementations::postgres::tabular::{
     create_tabular, drop_tabular, list_tabulars, try_parse_namespace_ident, CreateTabular,
-    TabularIdentOwned, TabularIdentRef, TabularIdentUuid, TabularType,
+    TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid, TabularType,
 };
 use sqlx::types::Json;
 use std::default::Default;
@@ -26,7 +26,6 @@ use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
 };
-use tracing::instrument;
 
 const MAX_PARAMETERS: usize = 30000;
 
@@ -41,7 +40,7 @@ where
 {
     crate::implementations::postgres::tabular::tabular_ident_to_id(
         warehouse_id,
-        &TabularIdentRef::Table(table),
+        &TabularIdentBorrowed::Table(table),
         include_staged,
         catalog_state,
     )
@@ -69,7 +68,10 @@ where
 {
     let table_map = crate::implementations::postgres::tabular::tabular_idents_to_ids(
         warehouse_id,
-        tables.into_iter().map(TabularIdentRef::Table).collect(),
+        tables
+            .into_iter()
+            .map(TabularIdentBorrowed::Table)
+            .collect(),
         include_staged,
         catalog_state,
     )
@@ -89,7 +91,6 @@ where
     Ok(table_map)
 }
 
-#[instrument(skip(transaction))]
 pub(crate) async fn create_table(
     namespace_id: &NamespaceIdentUuid,
     table: &TableIdent,
@@ -131,7 +132,7 @@ pub(crate) async fn create_table(
         builder.set_default_sort_order(-1)?;
     }
     builder.set_properties(properties.unwrap_or_default())?;
-    builder.assign_uuid(table_id.as_uuid().to_owned())?;
+    builder.assign_uuid(**table_id)?;
 
     let table_metadata = builder.build()?;
 
@@ -146,7 +147,7 @@ pub(crate) async fn create_table(
 
     let tabular_id = create_tabular(
         CreateTabular {
-            id: table_id.into_uuid(),
+            id: table_id.to_uuid(),
             name,
             namespace_id: namespace_id.into_uuid(),
             typ: TabularType::Table,
@@ -157,7 +158,6 @@ pub(crate) async fn create_table(
     )
     .await?;
 
-    // ToDo: Should we keep the old table_id?
     let _update_result = sqlx::query!(
         r#"
         INSERT INTO "table" (table_id, "metadata")
@@ -165,7 +165,7 @@ pub(crate) async fn create_table(
             SELECT $1, $2
             WHERE EXISTS (SELECT 1
                 FROM active_tables
-                WHERE active_tables.tabular_id = $1))
+                WHERE active_tables.table_id = $1))
         ON CONFLICT ON CONSTRAINT "table_pkey"
         DO UPDATE SET "metadata" = $2
         RETURNING "table_id"
@@ -212,7 +212,7 @@ pub(crate) async fn load_table(
         AND w.status = 'active'
         AND ti."metadata_location" IS NOT NULL
         "#,
-        warehouse_id.as_uuid(),
+        **warehouse_id,
         &**namespace,
         &**name
     )
@@ -288,8 +288,8 @@ pub(crate) async fn get_table_metadata_by_id(
         WHERE w.warehouse_id = $1 AND t."table_id" = $2
         AND w.status = 'active'
         "#,
-        warehouse_id.as_uuid(),
-        table.as_uuid()
+        **warehouse_id,
+        **table
     )
     .fetch_one(&catalog_state.read_pool)
     .await
@@ -355,7 +355,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
             AND LENGTH(ti."location") <= $3
             AND w.status = 'active'
         "#,
-        warehouse_id.as_uuid(),
+        **warehouse_id,
         location,
         i32::try_from(location.len()).unwrap_or(i32::MAX)
     )
@@ -409,7 +409,7 @@ pub(crate) async fn rename_table(
 ) -> Result<()> {
     crate::implementations::postgres::tabular::rename_tabular(
         warehouse_id,
-        TabularIdentUuid::Table(source_id.into_uuid()),
+        TabularIdentUuid::Table(source_id.to_uuid()),
         source,
         destination,
         transaction,
@@ -420,7 +420,6 @@ pub(crate) async fn rename_table(
 }
 
 pub(crate) async fn drop_table<'a>(
-    whi: &WarehouseIdent,
     table_id: &TableIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
@@ -428,12 +427,10 @@ pub(crate) async fn drop_table<'a>(
         r#"
         DELETE FROM "table"
         WHERE table_id = $1
-        AND table_id IN (
-            select table_id from active_tables
-        )
+        AND table_id IN (select table_id from active_tables)
         RETURNING "table_id"
         "#,
-        table_id.as_uuid(),
+        **table_id,
     )
     .fetch_one(&mut **transaction)
     .await
@@ -450,12 +447,7 @@ pub(crate) async fn drop_table<'a>(
         }
     })?;
 
-    drop_tabular(
-        whi,
-        TabularIdentUuid::Table(*table_id.as_uuid()),
-        transaction,
-    )
-    .await?;
+    drop_tabular(TabularIdentUuid::Table(**table_id), transaction).await?;
     Ok(())
 }
 
@@ -523,7 +515,7 @@ async fn get_commit_context<'a>(
 
         let record = metadata
             .iter()
-            .find(|m| &m.table_id == table_id.as_uuid())
+            .find(|m| m.table_id == **table_id)
             .ok_or_else(|| {
                 ErrorModel::builder()
                     .code(StatusCode::NOT_FOUND.into())
@@ -789,7 +781,7 @@ pub(crate) mod tests {
             FROM namespace
             WHERE warehouse_id = $1 AND namespace_name = $2
             "#,
-            warehouse_id.as_uuid(),
+            **warehouse_id,
             &**namespace
         )
         .fetch_one(&state.read_pool)
@@ -1221,6 +1213,7 @@ pub(crate) mod tests {
         let table1 = initialize_table(&warehouse_id, state.clone(), true).await;
         let table2 = initialize_table(&warehouse_id, state.clone(), false).await;
 
+        let self1 = &table2.table_id;
         let request = CommitTransactionRequest {
             table_changes: vec![
                 CommitTableRequest {
@@ -1235,9 +1228,7 @@ pub(crate) mod tests {
                 },
                 CommitTableRequest {
                     identifier: Some(table2.table_ident.clone()),
-                    requirements: vec![TableRequirement::UuidMatch {
-                        uuid: table2.table_id.as_uuid().to_owned(),
-                    }],
+                    requirements: vec![TableRequirement::UuidMatch { uuid: **self1 }],
                     updates: vec![TableUpdate::SetProperties {
                         updates: HashMap::from_iter(vec![(
                             "t2_key".to_string(),
@@ -1273,11 +1264,17 @@ pub(crate) mod tests {
 
         let response1 = responses
             .iter()
-            .find(|r| &r.commit_response.metadata.uuid() == table1.table_id.as_uuid())
+            .find(|r| {
+                let self1 = table1.table_id;
+                r.commit_response.metadata.uuid() == *self1
+            })
             .unwrap();
         let response2 = responses
             .iter()
-            .find(|r| &r.commit_response.metadata.uuid() == table2.table_id.as_uuid())
+            .find(|r| {
+                let self1 = table2.table_id;
+                r.commit_response.metadata.uuid() == *self1
+            })
             .unwrap();
 
         assert_eq!(
@@ -1371,9 +1368,7 @@ pub(crate) mod tests {
         let table = initialize_table(&warehouse_id, state.clone(), false).await;
 
         let mut transaction = pool.begin().await.unwrap();
-        drop_table(&warehouse_id, &table.table_id, &mut transaction)
-            .await
-            .unwrap();
+        drop_table(&table.table_id, &mut transaction).await.unwrap();
         transaction.commit().await.unwrap();
 
         let err = get_table_metadata_by_id(&warehouse_id, &table.table_id, false, state.clone())

@@ -8,7 +8,7 @@ use crate::{
 use http::StatusCode;
 use iceberg_ext::NamespaceIdent;
 
-use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentRef, TabularIdentUuid};
+use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
 use sqlx::postgres::PgArguments;
 use sqlx::{Arguments, Execute, FromRow, PgConnection, Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
@@ -26,7 +26,7 @@ pub(crate) enum TabularType {
 
 pub(crate) async fn tabular_ident_to_id<'a, 'e, 'c: 'e, E>(
     warehouse_id: &WarehouseIdent,
-    table: &TabularIdentRef<'a>,
+    table: &TabularIdentBorrowed<'a>,
     include_staged: bool,
     catalog_state: E,
 ) -> Result<Option<TabularIdentUuid>>
@@ -45,11 +45,11 @@ where
         WHERE n.namespace_name = $1 AND t.name = $2
         AND n.warehouse_id = $3
         AND w.status = 'active'
-        AND ((t.typ = $4) OR ($4 IS NULL))
+        AND t.typ = $4
         "#,
         t.namespace.as_ref(),
         t.name,
-        warehouse_id.as_uuid(),
+        **warehouse_id,
         typ as _
     )
     .fetch_one(catalog_state)
@@ -68,7 +68,7 @@ where
         Err(e) => match e {
             sqlx::Error::RowNotFound => Ok(None),
             _ => Err(e
-                .into_error_model("Error fetching table".to_string())
+                .into_error_model(format!("Error fetching {}", table.typ_str()))
                 .into()),
         },
         Ok(Some((table_id, staged))) => {
@@ -95,7 +95,7 @@ struct TabularRow {
 
 pub(crate) async fn tabular_idents_to_ids<'e, 'c: 'e, E>(
     warehouse_id: &WarehouseIdent,
-    tables: HashSet<TabularIdentRef<'_>>,
+    tables: HashSet<TabularIdentBorrowed<'_>>,
     include_staged: bool,
     catalog_state: E,
 ) -> Result<HashMap<TabularIdentOwned, Option<TabularIdentUuid>>>
@@ -118,8 +118,8 @@ where
     if batch_tables.len() > (MAX_PARAMETERS / 2) {
         return Err(ErrorModel::builder()
             .code(StatusCode::BAD_REQUEST.into())
-            .message("Too many tables to fetch".to_string())
-            .r#type("TooManyTables".to_string())
+            .message("Too many tables or views to fetch".to_string())
+            .r#type("TooManyTablesOrViews".to_string())
             .build()
             .into());
     }
@@ -138,7 +138,7 @@ where
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.status = 'active' and n."warehouse_id" = $1"#,
-        warehouse_id.as_uuid()
+        **warehouse_id
     );
     let checked_sql = statically_checked_query.sql();
 
@@ -155,7 +155,7 @@ where
     let rows: Vec<TabularRow> = sqlx::query_as_with(query.sql(), args)
         .fetch_all(catalog_state)
         .await
-        .map_err(|e| e.into_error_model("Error fetching tables".to_string()))?;
+        .map_err(|e| e.into_error_model("Error fetching tables or views".to_string()))?;
 
     let mut table_map = HashMap::with_capacity(tables.len());
     for TabularRow {
@@ -302,14 +302,14 @@ pub(crate) async fn list_tabulars(
             AND (t."metadata_location" IS NOT NULL OR $3)
             AND (t.typ = $4 OR $4 IS NULL)
         "#,
-        warehouse_id.as_uuid(),
+        **warehouse_id,
         &**namespace,
         include_staged,
         typ as _
     )
     .fetch_all(&catalog_state.read_pool)
     .await
-    .map_err(|e| e.into_error_model("Error fetching tables".to_string()))?;
+    .map_err(|e| e.into_error_model("Error fetching tables or views".to_string()))?;
 
     let mut table_map = HashMap::new();
     for table in tables {
@@ -366,17 +366,17 @@ pub(crate) async fn rename_tabular(
             &**dest_name,
             &*source_id,
             TabularType::from(source_id) as _,
-            warehouse_id.as_uuid(),
+            **warehouse_id,
         )
         .fetch_one(&mut **transaction)
         .await
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => ErrorModel::builder()
                 .code(StatusCode::NOT_FOUND.into())
-                .message("ID of Table to rename not found".to_string())
-                .r#type("RenameTableIdNotFound".to_string())
+                .message(format!("ID of {} to rename not found", source_id.typ_str()))
+                .r#type(format!("Rename{}IdNotFound", source_id.typ_str()))
                 .build(),
-            _ => e.into_error_model("Error renaming table".to_string()),
+            _ => e.into_error_model(format!("Error renaming {}", source_id.typ_str())),
         })?;
     } else {
         let _ = sqlx::query_scalar!(
@@ -395,7 +395,7 @@ pub(crate) async fn rename_tabular(
             RETURNING tabular_id
             "#,
             &**dest_name,
-            warehouse_id.as_uuid(),
+            **warehouse_id,
             &**dest_namespace,
             &*source_id,
             TabularType::from(source_id) as _,
@@ -406,13 +406,16 @@ pub(crate) async fn rename_tabular(
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => ErrorModel::builder()
                 .code(StatusCode::NOT_FOUND.into())
-                .message(
-                    "ID of Table to rename not found or destination namespace not found"
-                        .to_string(),
-                )
-                .r#type("RenameTableIdOrNamespaceNotFound".to_string())
+                .message(format!(
+                    "ID of {} to rename not found or destination namespace not found",
+                    source_id.typ_str()
+                ))
+                .r#type(format!(
+                    "Rename{}IdOrNamespaceNotFound",
+                    source_id.typ_str()
+                ))
                 .build(),
-            _ => e.into_error_model("Error renaming Table".to_string()),
+            _ => e.into_error_model(format!("Error renaming {}", source_id.typ_str())),
         })?;
     };
 
@@ -421,25 +424,17 @@ pub(crate) async fn rename_tabular(
 
 // ToDo: Switch to a soft delete
 pub(crate) async fn drop_tabular<'a>(
-    _: &WarehouseIdent,
     tabular_id: TabularIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
     let _ = sqlx::query!(
         r#"
-        WITH cte AS (
-            SELECT w.warehouse_id, w.status
-            FROM tabular
-            JOIN namespace n ON tabular.namespace_id = n.namespace_id
-            JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-            WHERE tabular_id = $1 AND typ = $2
-        )
         DELETE FROM tabular
         WHERE tabular_id = $1 AND typ = $2
-        AND (SELECT status FROM cte) = 'active'
+        AND tabular_id IN (select tabular_id from active_tabulars)
         RETURNING "tabular_id"
         "#,
-        &*tabular_id,
+        *tabular_id,
         TabularType::from(tabular_id) as _
     )
     .fetch_one(&mut **transaction)
@@ -448,12 +443,12 @@ pub(crate) async fn drop_tabular<'a>(
         if let sqlx::Error::RowNotFound = e {
             ErrorModel::builder()
                 .code(StatusCode::NOT_FOUND.into())
-                .message("Table not found".to_string())
+                .message(format!("{} not found", tabular_id.typ_str()))
                 .r#type("NoSuchTableError".to_string())
                 .build()
         } else {
             tracing::warn!("Error dropping tabular: {}", e);
-            e.into_error_model("Error dropping table".to_string())
+            e.into_error_model(format!("Error dropping {}", tabular_id.typ_str()))
         }
     })?;
 
@@ -472,11 +467,11 @@ fn try_parse_namespace_ident(namespace: Vec<String>) -> Result<NamespaceIdent> {
     })
 }
 
-impl<'a, 'b> From<&'b TabularIdentRef<'a>> for TabularType {
-    fn from(ident: &'b TabularIdentRef<'a>) -> Self {
+impl<'a, 'b> From<&'b TabularIdentBorrowed<'a>> for TabularType {
+    fn from(ident: &'b TabularIdentBorrowed<'a>) -> Self {
         match ident {
-            TabularIdentRef::Table(_) => TabularType::Table,
-            TabularIdentRef::View(_) => TabularType::View,
+            TabularIdentBorrowed::Table(_) => TabularType::Table,
+            TabularIdentBorrowed::View(_) => TabularType::View,
         }
     }
 }

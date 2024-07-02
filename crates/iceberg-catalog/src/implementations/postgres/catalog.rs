@@ -195,7 +195,7 @@ impl Catalog for super::Catalog {
         table_id: &TableIdentUuid,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
-        drop_table(warehouse_id, table_id, transaction).await
+        drop_table(table_id, transaction).await
     }
 
     async fn table_idents_to_ids(

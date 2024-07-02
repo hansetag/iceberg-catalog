@@ -15,6 +15,7 @@ pub use catalog::{
     ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
     TableIdent, Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
+use std::ops::Deref;
 
 use crate::api::iceberg::v1::Prefix;
 use crate::api::ThreadSafe as ServiceState;
@@ -122,15 +123,23 @@ impl std::fmt::Display for TableIdentUuid {
     }
 }
 
+impl Deref for TableIdentUuid {
+    type Target = uuid::Uuid;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl TableIdentUuid {
     #[must_use]
-    pub fn into_uuid(&self) -> uuid::Uuid {
-        self.0
+    pub fn to_uuid(&self) -> uuid::Uuid {
+        **self
     }
 
     #[must_use]
     pub fn as_uuid(&self) -> &uuid::Uuid {
-        &self.0
+        self
     }
 }
 
@@ -197,19 +206,27 @@ impl sqlx::postgres::PgHasArrayType for WarehouseStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
 pub struct WarehouseIdent(uuid::Uuid);
 
 impl WarehouseIdent {
     #[must_use]
-    pub fn into_uuid(&self) -> uuid::Uuid {
-        self.0
+    pub fn to_uuid(&self) -> uuid::Uuid {
+        **self
     }
 
     #[must_use]
     pub fn as_uuid(&self) -> &uuid::Uuid {
+        self
+    }
+}
+
+impl Deref for WarehouseIdent {
+    type Target = uuid::Uuid;
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
 }

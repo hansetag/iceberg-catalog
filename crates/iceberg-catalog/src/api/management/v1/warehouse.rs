@@ -161,7 +161,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         transaction.commit().await?;
 
         Ok(CreateWarehouseResponse {
-            warehouse_id: warehouse_id.into_uuid(),
+            warehouse_id: warehouse_id.to_uuid(),
         })
     }
 
@@ -462,7 +462,7 @@ impl axum::response::IntoResponse for GetWarehouseResponse {
 impl From<crate::service::GetWarehouseResponse> for GetWarehouseResponse {
     fn from(warehouse: crate::service::GetWarehouseResponse) -> Self {
         Self {
-            id: warehouse.id.into_uuid(),
+            id: warehouse.id.to_uuid(),
             name: warehouse.name,
             project_id: warehouse.project_id.into_uuid(),
             storage_profile: warehouse.storage_profile,

@@ -27,8 +27,8 @@ pub(crate) async fn get_namespace(
         WHERE n.warehouse_id = $1 AND n.namespace_name = $2
         AND w.status = 'active'
         "#,
-        warehouse_id.as_uuid(),
-        &**namespace
+        **warehouse_id,
+        namespace
     )
     .fetch_one(&mut **transaction)
     .await
@@ -85,7 +85,7 @@ pub(crate) async fn list_namespaces(
             AND array_length("namespace_name", 1) = $2 + 1
             AND "namespace_name"[1:$2] = $3
             "#,
-            warehouse_id.as_uuid(),
+            **warehouse_id,
             parent_len,
             &*parent
         )
@@ -105,7 +105,7 @@ pub(crate) async fn list_namespaces(
             WHERE n.warehouse_id = $1
             AND w.status = 'active'
             "#,
-            warehouse_id.as_uuid()
+            **warehouse_id
         )
         .fetch_all(&catalog_state.read_pool)
         .await
@@ -157,7 +157,7 @@ pub(crate) async fn create_namespace(
         ))
         RETURNING namespace_id
         "#,
-        warehouse_id.as_uuid(),
+        **warehouse_id,
         &*namespace,
         serde_json::to_value(properties.clone()).map_err(|e| {
             ErrorModel::builder()
@@ -223,7 +223,7 @@ pub(crate) async fn namespace_ident_to_id(
         WHERE n.warehouse_id = $1 AND namespace_name = $2
         AND w.status = 'active'
         "#,
-        warehouse_id.as_uuid(),
+        **warehouse_id,
         &**namespace
     )
     .fetch_one(&catalog_state.read_pool)
@@ -259,7 +259,7 @@ pub(crate) async fn drop_namespace(
         )
         SELECT count(*) FROM deleted
         "#,
-        warehouse_id.as_uuid(),
+        **warehouse_id,
         &**namespace
     )
     .fetch_one(&mut **transaction)
@@ -352,7 +352,7 @@ pub(crate) async fn update_namespace_properties(
         )
         "#,
         properties,
-        warehouse_id.as_uuid(),
+        **warehouse_id,
         &**namespace
     )
     .execute(&mut **transaction)

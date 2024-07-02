@@ -191,7 +191,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         emit_change_event(
             EventMetadata {
                 tabular_id: TabularIdentUuid::Table(*table_id),
-                warehouse_id: *warehouse_id.as_uuid(),
+                warehouse_id: *warehouse_id,
                 name: table.name.clone(),
                 namespace: table.namespace.encode_in_url(),
                 prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
@@ -488,8 +488,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         transaction.commit().await?;
         emit_change_event(
             EventMetadata {
-                tabular_id: TabularIdentUuid::Table(*table_id.as_uuid()),
-                warehouse_id: *warehouse_id.as_uuid(),
+                tabular_id: TabularIdentUuid::Table(*table_id),
+                warehouse_id: *warehouse_id,
                 name: parameters.table.name,
                 namespace: parameters.table.namespace.encode_in_url(),
                 prefix: parameters
@@ -558,7 +558,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state
             .v1_state
             .contract_verifiers
-            .check_drop(TabularIdentUuid::Table(table_id.into_uuid()))
+            .check_drop(TabularIdentUuid::Table(*table_id))
             .await?
             .into_result()?;
 
@@ -566,8 +566,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         emit_change_event(
             EventMetadata {
-                tabular_id: TabularIdentUuid::Table(*table_id.as_uuid()),
-                warehouse_id: *warehouse_id.as_uuid(),
+                tabular_id: TabularIdentUuid::Table(*table_id),
+                warehouse_id: *warehouse_id,
                 name: table.name,
                 namespace: table.namespace.encode_in_url(),
                 prefix: prefix
@@ -606,21 +606,19 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             state.v1_state.catalog.clone(),
         )
         .await
+        .transpose();
         // We can't fail before AuthZ.
-        .ok()
-        .flatten();
-
         A::check_table_exists(
             &request_metadata,
             &warehouse_id,
             Some(&table.namespace),
-            table_id.as_ref(),
+            table_id.as_ref().map(|x| x.as_ref().ok()).flatten(),
             state.v1_state.auth,
         )
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        if table_id.is_some() {
+        if table_id.transpose()?.is_some() {
             Ok(())
         } else {
             Err(ErrorModel::builder()
@@ -707,7 +705,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state
             .v1_state
             .contract_verifiers
-            .check_rename(TabularIdentUuid::Table(source_id.into_uuid()), &destination)
+            .check_rename(TabularIdentUuid::Table(source_id.to_uuid()), &destination)
             .await?
             .into_result()?;
 
@@ -715,8 +713,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         emit_change_event(
             EventMetadata {
-                tabular_id: TabularIdentUuid::Table(source_id.into_uuid()),
-                warehouse_id: *warehouse_id.as_uuid(),
+                tabular_id: TabularIdentUuid::Table(source_id.to_uuid()),
+                warehouse_id: *warehouse_id,
                 name: source.name,
                 namespace: source.namespace.encode_in_url(),
                 prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
@@ -930,8 +928,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         {
             emit_change_event(
                 EventMetadata {
-                    tabular_id: TabularIdentUuid::Table(table_id.into_uuid()),
-                    warehouse_id: *warehouse_id.as_uuid(),
+                    tabular_id: TabularIdentUuid::Table(table_id.to_uuid()),
+                    warehouse_id: *warehouse_id,
                     name: table_ident.name,
                     namespace: table_ident.namespace.encode_in_url(),
                     prefix: prefix

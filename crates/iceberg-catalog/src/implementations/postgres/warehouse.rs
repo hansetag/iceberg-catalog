@@ -61,7 +61,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
             WHERE warehouse_id = $1
             AND status = 'active'
             "#,
-            warehouse_id.as_uuid()
+            **warehouse_id
         )
         .fetch_one(&catalog_state.read_pool)
         .await
@@ -153,7 +153,7 @@ pub(crate) async fn list_warehouses(
     let warehouses = if let Some(warehouse_id_filter) = warehouse_id_filter {
         let warehouse_ids: Vec<uuid::Uuid> = warehouse_id_filter
             .iter()
-            .map(WarehouseIdent::into_uuid)
+            .map(WarehouseIdent::to_uuid)
             .collect();
         sqlx::query_as!(
             WarehouseRecord,
@@ -225,7 +225,7 @@ pub(crate) async fn get_warehouse<'a>(
         FROM warehouse
         WHERE warehouse_id = $1
         "#,
-        warehouse_id.as_uuid()
+        **warehouse_id
     )
     .fetch_one(&mut **transaction)
     .await
@@ -280,7 +280,7 @@ pub(crate) async fn delete_warehouse<'a>(
 
         SELECT count(*) FROM deleted
         "#,
-        warehouse_id.as_uuid()
+        **warehouse_id
     )
     .fetch_one(&mut **transaction)
     .await
@@ -331,7 +331,7 @@ pub(crate) async fn rename_warehouse<'a>(
         SELECT count(*) FROM update
         "#,
         new_name,
-        warehouse_id.as_uuid()
+        **warehouse_id
     )
     .fetch_one(&mut **transaction)
     .await
@@ -366,7 +366,7 @@ pub(crate) async fn set_warehouse_status<'a>(
         SELECT count(*) FROM update
         "#,
         status as WarehouseStatus,
-        warehouse_id.as_uuid()
+        **warehouse_id
     )
     .fetch_one(&mut **transaction)
     .await
@@ -413,7 +413,7 @@ pub(crate) async fn update_storage_profile<'a>(
         "#,
         storage_profile_ser,
         storage_secret_id.map(|id| id.into_uuid()),
-        warehouse_id.as_uuid()
+        **warehouse_id
     )
     .fetch_one(&mut **transaction)
     .await
