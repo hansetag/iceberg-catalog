@@ -178,7 +178,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
                 projects: projects
                     .into_iter()
                     .map(|project_id| ProjectResponse {
-                        project_id: project_id.into_uuid(),
+                        project_id: *project_id,
                     })
                     .collect(),
             });
@@ -189,7 +189,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             projects: projects
                 .into_iter()
                 .map(|project_id| ProjectResponse {
-                    project_id: project_id.into_uuid(),
+                    project_id: *project_id,
                 })
                 .collect(),
         })
@@ -212,14 +212,14 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         );
         let warehouses = A::check_list_warehouse_in_project(
             &request_metadata,
-            &project_id,
+            project_id,
             context.v1_state.auth,
         )
         .await?;
 
         // ------------------- Business Logic -------------------
         let warehouses = C::list_warehouses(
-            &project_id,
+            project_id,
             request.warehouse_status,
             warehouses.as_ref(),
             context.v1_state.catalog,
@@ -240,11 +240,11 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<GetWarehouseResponse> {
         // ------------------- AuthZ -------------------
-        A::check_get_warehouse(&request_metadata, &warehouse_id, context.v1_state.auth).await?;
+        A::check_get_warehouse(&request_metadata, warehouse_id, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_read(context.v1_state.catalog).await?;
-        let warehouses = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
+        let warehouses = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
 
         Ok(warehouses.into())
     }
@@ -255,12 +255,12 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_delete_warehouse(&request_metadata, &warehouse_id, context.v1_state.auth).await?;
+        A::check_delete_warehouse(&request_metadata, warehouse_id, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
 
-        C::delete_warehouse(&warehouse_id, transaction.transaction()).await?;
+        C::delete_warehouse(warehouse_id, transaction.transaction()).await?;
 
         transaction.commit().await?;
 
@@ -273,12 +273,12 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_rename_warehouse(&request_metadata, &warehouse_id, context.v1_state.auth).await?;
+        A::check_rename_warehouse(&request_metadata, warehouse_id, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
 
-        C::rename_warehouse(&warehouse_id, &request.new_name, transaction.transaction()).await?;
+        C::rename_warehouse(warehouse_id, &request.new_name, transaction.transaction()).await?;
 
         transaction.commit().await?;
 
@@ -291,14 +291,14 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_deactivate_warehouse(&request_metadata, &warehouse_id, context.v1_state.auth)
+        A::check_deactivate_warehouse(&request_metadata, warehouse_id, context.v1_state.auth)
             .await?;
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
 
         C::set_warehouse_status(
-            &warehouse_id,
+            warehouse_id,
             WarehouseStatus::Inactive,
             transaction.transaction(),
         )
@@ -315,14 +315,13 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_activate_warehouse(&request_metadata, &warehouse_id, context.v1_state.auth)
-            .await?;
+        A::check_activate_warehouse(&request_metadata, warehouse_id, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
 
         C::set_warehouse_status(
-            &warehouse_id,
+            warehouse_id,
             WarehouseStatus::Active,
             transaction.transaction(),
         )
@@ -340,7 +339,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_update_storage(&request_metadata, &warehouse_id, context.v1_state.auth).await?;
+        A::check_update_storage(&request_metadata, warehouse_id, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
         let UpdateWarehouseStorageRequest {
@@ -353,7 +352,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             .await?;
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
-        let warehouse = C::get_warehouse(&warehouse_id.clone(), transaction.transaction()).await?;
+        let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
         warehouse
             .storage_profile
             .can_be_updated_with(&storage_profile)?;
@@ -366,7 +365,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         };
 
         C::update_storage_profile(
-            &warehouse_id,
+            warehouse_id,
             storage_profile,
             secret_id,
             transaction.transaction(),
@@ -395,7 +394,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_update_storage(&request_metadata, &warehouse_id, context.v1_state.auth).await?;
+        A::check_update_storage(&request_metadata, warehouse_id, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
         let UpdateWarehouseCredentialRequest {
@@ -403,7 +402,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         } = request;
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
-        let warehouse = C::get_warehouse(&warehouse_id.clone(), transaction.transaction()).await?;
+        let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
         let mut storage_profile = warehouse.storage_profile;
         let old_secret_id = warehouse.storage_secret_id;
 
@@ -418,7 +417,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         };
 
         C::update_storage_profile(
-            &warehouse_id,
+            warehouse_id,
             storage_profile,
             secret_id,
             transaction.transaction(),
@@ -464,7 +463,7 @@ impl From<crate::service::GetWarehouseResponse> for GetWarehouseResponse {
         Self {
             id: warehouse.id.to_uuid(),
             name: warehouse.name,
-            project_id: warehouse.project_id.into_uuid(),
+            project_id: *warehouse.project_id,
             storage_profile: warehouse.storage_profile,
             status: warehouse.status,
         }

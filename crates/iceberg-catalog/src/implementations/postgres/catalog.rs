@@ -54,14 +54,14 @@ impl Catalog for super::Catalog {
     }
 
     async fn get_warehouse<'a>(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<GetWarehouseResponse> {
         get_warehouse(warehouse_id, transaction).await
     }
 
     async fn get_namespace<'a>(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<GetNamespaceResponse> {
@@ -69,7 +69,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn list_namespaces(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         query: &ListNamespacesQuery,
         catalog_state: CatalogState,
     ) -> Result<ListNamespacesResponse> {
@@ -77,7 +77,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn create_namespace<'a>(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         request: CreateNamespaceRequest,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<CreateNamespaceResponse> {
@@ -85,7 +85,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn namespace_ident_to_id(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         catalog_state: CatalogState,
     ) -> Result<Option<NamespaceIdentUuid>> {
@@ -93,7 +93,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn drop_namespace<'a>(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
@@ -101,7 +101,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn update_namespace_properties<'a>(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         request: UpdateNamespacePropertiesRequest,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
@@ -110,9 +110,9 @@ impl Catalog for super::Catalog {
     }
 
     async fn create_table<'a>(
-        namespace_id: &NamespaceIdentUuid,
+        namespace_id: NamespaceIdentUuid,
         table: &TableIdent,
-        table_id: &TableIdentUuid,
+        table_id: TableIdentUuid,
         request: CreateTableRequest,
         // Metadata location may be none if stage-create is true
         metadata_location: Option<&String>,
@@ -130,7 +130,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn list_tables(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         include_staged: bool,
         catalog_state: CatalogState,
@@ -139,7 +139,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn load_table(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         table: &TableIdent,
         catalog_state: CatalogState,
     ) -> Result<LoadTableResponse> {
@@ -147,8 +147,8 @@ impl Catalog for super::Catalog {
     }
 
     async fn get_table_metadata_by_id(
-        warehouse_id: &WarehouseIdent,
-        table: &TableIdentUuid,
+        warehouse_id: WarehouseIdent,
+        table: TableIdentUuid,
         include_staged: bool,
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse> {
@@ -156,7 +156,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn get_table_metadata_by_s3_location(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         location: &str,
         include_staged: bool,
         catalog_state: Self::State,
@@ -166,7 +166,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn table_ident_to_id(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         table: &TableIdent,
         include_staged: bool,
         catalog_state: Self::State,
@@ -181,8 +181,8 @@ impl Catalog for super::Catalog {
     }
 
     async fn rename_table<'a>(
-        warehouse_id: &WarehouseIdent,
-        source_id: &TableIdentUuid,
+        warehouse_id: WarehouseIdent,
+        source_id: TableIdentUuid,
         source: &TableIdent,
         destination: &TableIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
@@ -191,15 +191,14 @@ impl Catalog for super::Catalog {
     }
 
     async fn drop_table<'a>(
-        warehouse_id: &WarehouseIdent,
-        table_id: &TableIdentUuid,
-        transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
+        table_id: TableIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()> {
         drop_table(table_id, transaction).await
     }
 
     async fn table_idents_to_ids(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         tables: HashSet<&TableIdent>,
         include_staged: bool,
         catalog_state: Self::State,
@@ -214,7 +213,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn commit_table_transaction<'a>(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         request: CommitTransactionRequest,
         table_ids: &HashMap<TableIdent, TableIdentUuid>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
@@ -228,7 +227,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn list_warehouses(
-        project_id: &ProjectIdent,
+        project_id: ProjectIdent,
         include_inactive: Option<Vec<WarehouseStatus>>,
         warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
         catalog_state: Self::State,
@@ -243,14 +242,14 @@ impl Catalog for super::Catalog {
     }
 
     async fn delete_warehouse<'a>(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
         delete_warehouse(warehouse_id, transaction).await
     }
 
     async fn rename_warehouse<'a>(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         new_name: &str,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
@@ -258,7 +257,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn set_warehouse_status<'a>(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         status: WarehouseStatus,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
@@ -266,7 +265,7 @@ impl Catalog for super::Catalog {
     }
 
     async fn update_storage_profile<'a>(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         storage_profile: StorageProfile,
         storage_secret_id: Option<SecretIdent>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,

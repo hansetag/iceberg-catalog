@@ -32,7 +32,7 @@ pub enum StorageType {
 #[allow(clippy::module_name_repetitions)]
 impl StorageProfile {
     #[must_use]
-    pub fn generate_catalog_config(&self, warehouse_id: &WarehouseIdent) -> CatalogConfig {
+    pub fn generate_catalog_config(&self, warehouse_id: WarehouseIdent) -> CatalogConfig {
         match self {
             StorageProfile::S3(profile) => profile.generate_catalog_config(warehouse_id),
         }
@@ -67,8 +67,8 @@ impl StorageProfile {
     #[must_use]
     pub fn tabular_location(
         &self,
-        namespace_id: &NamespaceIdentUuid,
-        table_id: &TabularIdentUuid,
+        namespace_id: NamespaceIdentUuid,
+        table_id: TabularIdentUuid,
     ) -> String {
         match self {
             StorageProfile::S3(profile) => profile.tabular_location(namespace_id, table_id),
@@ -96,9 +96,9 @@ impl StorageProfile {
     /// Fails if the underlying storage profile's generation fails.
     pub async fn generate_table_config(
         &self,
-        warehouse_id: &WarehouseIdent,
-        namespace_id: &NamespaceIdentUuid,
-        table_id: &TableIdentUuid,
+        warehouse_id: WarehouseIdent,
+        namespace_id: NamespaceIdentUuid,
+        table_id: TableIdentUuid,
         data_access: &DataAccess,
         secret: Option<&StorageCredential>,
     ) -> Result<HashMap<String, String>> {

@@ -30,7 +30,7 @@ use std::{
 const MAX_PARAMETERS: usize = 30000;
 
 pub(crate) async fn table_ident_to_id<'e, 'c: 'e, E>(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     table: &TableIdent,
     include_staged: bool,
     catalog_state: E,
@@ -58,7 +58,7 @@ where
 }
 
 pub(crate) async fn table_idents_to_ids<'e, 'c: 'e, E>(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     tables: HashSet<&TableIdent>,
     include_staged: bool,
     catalog_state: E,
@@ -92,9 +92,9 @@ where
 }
 
 pub(crate) async fn create_table(
-    namespace_id: &NamespaceIdentUuid,
+    namespace_id: NamespaceIdentUuid,
     table: &TableIdent,
-    table_id: &TableIdentUuid,
+    table_id: TableIdentUuid,
     request: CreateTableRequest,
     // Metadata location may be none if stage-create is true
     metadata_location: Option<&String>,
@@ -132,7 +132,7 @@ pub(crate) async fn create_table(
         builder.set_default_sort_order(-1)?;
     }
     builder.set_properties(properties.unwrap_or_default())?;
-    builder.assign_uuid(**table_id)?;
+    builder.assign_uuid(*table_id)?;
 
     let table_metadata = builder.build()?;
 
@@ -147,9 +147,9 @@ pub(crate) async fn create_table(
 
     let tabular_id = create_tabular(
         CreateTabular {
-            id: table_id.to_uuid(),
+            id: *table_id,
             name,
-            namespace_id: namespace_id.into_uuid(),
+            namespace_id: *namespace_id,
             typ: TabularType::Table,
             metadata_location: metadata_location.map(std::string::String::as_str),
             location: location.as_str(),
@@ -188,7 +188,7 @@ pub(crate) async fn create_table(
 }
 
 pub(crate) async fn load_table(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     table: &TableIdent,
     catalog_state: CatalogState,
 ) -> Result<LoadTableResponse> {
@@ -212,7 +212,7 @@ pub(crate) async fn load_table(
         AND w.status = 'active'
         AND ti."metadata_location" IS NOT NULL
         "#,
-        **warehouse_id,
+        *warehouse_id,
         &**namespace,
         &**name
     )
@@ -238,7 +238,7 @@ pub(crate) async fn load_table(
 }
 
 pub(crate) async fn list_tables(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     namespace: &NamespaceIdent,
     include_staged: bool,
     catalog_state: CatalogState,
@@ -265,8 +265,8 @@ pub(crate) async fn list_tables(
 }
 
 pub(crate) async fn get_table_metadata_by_id(
-    warehouse_id: &WarehouseIdent,
-    table: &TableIdentUuid,
+    warehouse_id: WarehouseIdent,
+    table: TableIdentUuid,
     include_staged: bool,
     catalog_state: CatalogState,
 ) -> Result<GetTableMetadataResponse> {
@@ -288,8 +288,8 @@ pub(crate) async fn get_table_metadata_by_id(
         WHERE w.warehouse_id = $1 AND t."table_id" = $2
         AND w.status = 'active'
         "#,
-        **warehouse_id,
-        **table
+        *warehouse_id,
+        *table
     )
     .fetch_one(&catalog_state.read_pool)
     .await
@@ -319,7 +319,7 @@ pub(crate) async fn get_table_metadata_by_id(
             name: table.table_name,
         },
         table_id: table.table_id.into(),
-        warehouse_id: warehouse_id.clone(),
+        warehouse_id,
         location: table.table_location,
         metadata_location: table.metadata_location,
         storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
@@ -328,7 +328,7 @@ pub(crate) async fn get_table_metadata_by_id(
 }
 
 pub(crate) async fn get_table_metadata_by_s3_location(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     location: &str,
     include_staged: bool,
     catalog_state: CatalogState,
@@ -355,7 +355,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
             AND LENGTH(ti."location") <= $3
             AND w.status = 'active'
         "#,
-        **warehouse_id,
+        *warehouse_id,
         location,
         i32::try_from(location.len()).unwrap_or(i32::MAX)
     )
@@ -391,7 +391,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
             name: table.table_name,
         },
         table_id: table.table_id.into(),
-        warehouse_id: warehouse_id.clone(),
+        warehouse_id,
         location: table.table_location,
         metadata_location: table.metadata_location,
         storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
@@ -401,15 +401,15 @@ pub(crate) async fn get_table_metadata_by_s3_location(
 
 /// Rename a table. Tables may be moved across namespaces.
 pub(crate) async fn rename_table(
-    warehouse_id: &WarehouseIdent,
-    source_id: &TableIdentUuid,
+    warehouse_id: WarehouseIdent,
+    source_id: TableIdentUuid,
     source: &TableIdent,
     destination: &TableIdent,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
     crate::implementations::postgres::tabular::rename_tabular(
         warehouse_id,
-        TabularIdentUuid::Table(source_id.to_uuid()),
+        TabularIdentUuid::Table(*source_id),
         source,
         destination,
         transaction,
@@ -420,7 +420,7 @@ pub(crate) async fn rename_table(
 }
 
 pub(crate) async fn drop_table<'a>(
-    table_id: &TableIdentUuid,
+    table_id: TableIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
     let _ = sqlx::query!(
@@ -430,7 +430,7 @@ pub(crate) async fn drop_table<'a>(
         AND table_id IN (select table_id from active_tables)
         RETURNING "table_id"
         "#,
-        **table_id,
+        *table_id,
     )
     .fetch_one(&mut **transaction)
     .await
@@ -447,7 +447,7 @@ pub(crate) async fn drop_table<'a>(
         }
     })?;
 
-    drop_tabular(TabularIdentUuid::Table(**table_id), transaction).await?;
+    drop_tabular(TabularIdentUuid::Table(*table_id), transaction).await?;
     Ok(())
 }
 
@@ -486,10 +486,7 @@ async fn get_commit_context<'a>(
         WHERE "table_id" = ANY($1)
         AND w.status = 'active'
         "#,
-        &table_ids
-            .values()
-            .map(|id| id.as_uuid().clone())
-            .collect::<Vec<_>>()
+        &table_ids.values().map(|id| **id).collect::<Vec<_>>()
     )
     .fetch_all(&mut **transaction)
     .await
@@ -598,7 +595,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
 
 pub(crate) async fn commit_table_transaction<'a>(
     // We do not need the warehouse_id here, because table_ids are unique across warehouses
-    _: &WarehouseIdent,
+    _: WarehouseIdent,
     request: CommitTransactionRequest,
     table_ids: &HashMap<TableIdent, TableIdentUuid>,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -772,7 +769,7 @@ pub(crate) mod tests {
 
     pub(crate) async fn get_namespace_id(
         state: CatalogState,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
     ) -> NamespaceIdentUuid {
         let namespace = sqlx::query!(
@@ -781,7 +778,7 @@ pub(crate) mod tests {
             FROM namespace
             WHERE warehouse_id = $1 AND namespace_name = $2
             "#,
-            **warehouse_id,
+            *warehouse_id,
             &**namespace
         )
         .fetch_one(&state.read_pool)
@@ -799,7 +796,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) async fn initialize_table(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         state: CatalogState,
         staged: bool,
     ) -> InitializedTable {
@@ -819,9 +816,9 @@ pub(crate) mod tests {
         let mut transaction = state.write_pool.begin().await.unwrap();
         let table_id = uuid::Uuid::now_v7().into();
         let _create_result = create_table(
-            &namespace_id,
+            namespace_id,
             &table_ident,
-            &table_id,
+            table_id,
             request.clone(),
             metadata_location.as_ref(),
             &mut transaction,
@@ -848,8 +845,8 @@ pub(crate) mod tests {
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
-        initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
-        let namespace_id = get_namespace_id(state.clone(), &warehouse_id, &namespace).await;
+        initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
+        let namespace_id = get_namespace_id(state.clone(), warehouse_id, &namespace).await;
 
         let (request, metadata_location) = create_request(None);
         let table_ident = TableIdent {
@@ -860,9 +857,9 @@ pub(crate) mod tests {
         let mut transaction = pool.begin().await.unwrap();
         let table_id = uuid::Uuid::now_v7().into();
         let create_result = create_table(
-            &namespace_id,
+            namespace_id,
             &table_ident,
-            &table_id,
+            table_id,
             request.clone(),
             metadata_location.as_ref(),
             &mut transaction,
@@ -875,9 +872,9 @@ pub(crate) mod tests {
         // Second create should fail
         let table_id = uuid::Uuid::now_v7().into();
         let create_err = create_table(
-            &namespace_id,
+            namespace_id,
             &table_ident,
-            &table_id,
+            table_id,
             request,
             metadata_location.as_ref(),
             &mut transaction,
@@ -891,7 +888,7 @@ pub(crate) mod tests {
         );
 
         // Load should succeed
-        let load_result = load_table(&warehouse_id, &table_ident, state.clone())
+        let load_result = load_table(warehouse_id, &table_ident, state.clone())
             .await
             .unwrap();
         assert_eq!(load_result.table_metadata, create_result.table_metadata);
@@ -906,8 +903,8 @@ pub(crate) mod tests {
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
-        initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
-        let namespace_id = get_namespace_id(state.clone(), &warehouse_id, &namespace).await;
+        initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
+        let namespace_id = get_namespace_id(state.clone(), warehouse_id, &namespace).await;
 
         let (request, metadata_location) = create_request(Some(true));
         let table_ident = TableIdent {
@@ -918,9 +915,9 @@ pub(crate) mod tests {
         let mut transaction = pool.begin().await.unwrap();
         let table_id = uuid::Uuid::now_v7().into();
         let _create_result = create_table(
-            &namespace_id,
+            namespace_id,
             &table_ident,
-            &table_id,
+            table_id,
             request.clone(),
             metadata_location.as_ref(),
             &mut transaction,
@@ -930,7 +927,7 @@ pub(crate) mod tests {
         transaction.commit().await.unwrap();
 
         // Load should fail
-        let load_err = load_table(&warehouse_id, &table_ident, state.clone())
+        let load_err = load_table(warehouse_id, &table_ident, state.clone())
             .await
             .unwrap_err();
         assert_eq!(load_err.error.code, StatusCode::NOT_FOUND);
@@ -939,9 +936,9 @@ pub(crate) mod tests {
         let mut transaction = pool.begin().await.unwrap();
         let table_id = uuid::Uuid::now_v7().into();
         let create_result = create_table(
-            &namespace_id,
+            namespace_id,
             &table_ident,
-            &table_id,
+            table_id,
             request,
             metadata_location.as_ref(),
             &mut transaction,
@@ -956,9 +953,9 @@ pub(crate) mod tests {
         let (request, metadata_location) = create_request(Some(false));
         let mut transaction = pool.begin().await.unwrap();
         let create_result = create_table(
-            &namespace_id,
+            namespace_id,
             &table_ident,
-            &table_id,
+            table_id,
             request,
             dbg!(metadata_location.as_ref()),
             &mut transaction,
@@ -967,7 +964,7 @@ pub(crate) mod tests {
         .unwrap();
         transaction.commit().await.unwrap();
 
-        let load_result = load_table(&warehouse_id, &table_ident, state.clone())
+        let load_result = load_table(warehouse_id, &table_ident, state.clone())
             .await
             .unwrap();
         assert_eq!(load_result.table_metadata, create_result.table_metadata);
@@ -982,28 +979,28 @@ pub(crate) mod tests {
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
-        initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
+        initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
 
         let table_ident = TableIdent {
             namespace: namespace.clone(),
             name: "my_table".to_string(),
         };
 
-        let exists = table_ident_to_id(&warehouse_id, &table_ident, false, &state.read_pool)
+        let exists = table_ident_to_id(warehouse_id, &table_ident, false, &state.read_pool)
             .await
             .unwrap();
         assert!(exists.is_none());
         drop(table_ident);
 
-        let table = initialize_table(&warehouse_id, state.clone(), true).await;
+        let table = initialize_table(warehouse_id, state.clone(), true).await;
 
         // Table is staged - no result if include_staged is false
-        let exists = table_ident_to_id(&warehouse_id, &table.table_ident, false, &state.read_pool)
+        let exists = table_ident_to_id(warehouse_id, &table.table_ident, false, &state.read_pool)
             .await
             .unwrap();
         assert!(exists.is_none());
 
-        let exists = table_ident_to_id(&warehouse_id, &table.table_ident, true, &state.read_pool)
+        let exists = table_ident_to_id(warehouse_id, &table.table_ident, true, &state.read_pool)
             .await
             .unwrap();
         assert_eq!(exists, Some(table.table_id));
@@ -1018,7 +1015,7 @@ pub(crate) mod tests {
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
-        initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
+        initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
 
         let table_ident = TableIdent {
             namespace: namespace.clone(),
@@ -1026,7 +1023,7 @@ pub(crate) mod tests {
         };
 
         let exists = table_idents_to_ids(
-            &warehouse_id,
+            warehouse_id,
             vec![&table_ident].into_iter().collect(),
             false,
             &state.read_pool,
@@ -1036,18 +1033,18 @@ pub(crate) mod tests {
         assert!(exists.len() == 1 && exists.get(&table_ident).unwrap().is_none());
         drop(table_ident);
 
-        let table_1 = initialize_table(&warehouse_id, state.clone(), true).await;
+        let table_1 = initialize_table(warehouse_id, state.clone(), true).await;
         let mut tables = HashSet::new();
         tables.insert(&table_1.table_ident);
 
         // Table is staged - no result if include_staged is false
-        let exists = table_idents_to_ids(&warehouse_id, tables.clone(), false, &state.read_pool)
+        let exists = table_idents_to_ids(warehouse_id, tables.clone(), false, &state.read_pool)
             .await
             .unwrap();
         assert_eq!(exists.len(), 1);
         assert!(exists.get(&table_1.table_ident).unwrap().is_none());
 
-        let exists = table_idents_to_ids(&warehouse_id, tables.clone(), true, &state.read_pool)
+        let exists = table_idents_to_ids(warehouse_id, tables.clone(), true, &state.read_pool)
             .await
             .unwrap();
         assert_eq!(exists.len(), 1);
@@ -1057,12 +1054,12 @@ pub(crate) mod tests {
         );
 
         // Second Table
-        let table_2 = initialize_table(&warehouse_id, state.clone(), false).await;
+        let table_2 = initialize_table(warehouse_id, state.clone(), false).await;
         tables.insert(&table_2.table_ident);
 
         let exists =
             dbg!(
-                table_idents_to_ids(&warehouse_id, tables.clone(), false, &state.read_pool)
+                table_idents_to_ids(warehouse_id, tables.clone(), false, &state.read_pool)
                     .await
                     .unwrap()
             );
@@ -1073,7 +1070,7 @@ pub(crate) mod tests {
             &Some(table_2.table_id)
         );
 
-        let exists = table_idents_to_ids(&warehouse_id, tables.clone(), true, &state.read_pool)
+        let exists = table_idents_to_ids(warehouse_id, tables.clone(), true, &state.read_pool)
             .await
             .unwrap();
         assert_eq!(exists.len(), 2);
@@ -1095,7 +1092,7 @@ pub(crate) mod tests {
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table = initialize_table(&warehouse_id, state.clone(), false).await;
+        let table = initialize_table(warehouse_id, state.clone(), false).await;
 
         let new_table_ident = TableIdent {
             namespace: table.namespace.clone(),
@@ -1104,8 +1101,8 @@ pub(crate) mod tests {
 
         let mut transaction = pool.begin().await.unwrap();
         rename_table(
-            &warehouse_id,
-            &table.table_id,
+            warehouse_id,
+            table.table_id,
             &table.table_ident,
             &new_table_ident,
             &mut transaction,
@@ -1114,12 +1111,12 @@ pub(crate) mod tests {
         .unwrap();
         transaction.commit().await.unwrap();
 
-        let exists = table_ident_to_id(&warehouse_id, &table.table_ident, false, &state.read_pool)
+        let exists = table_ident_to_id(warehouse_id, &table.table_ident, false, &state.read_pool)
             .await
             .unwrap();
         assert!(exists.is_none());
 
-        let exists = table_ident_to_id(&warehouse_id, &new_table_ident, false, &state.read_pool)
+        let exists = table_ident_to_id(warehouse_id, &new_table_ident, false, &state.read_pool)
             .await
             .unwrap();
         // Table id should be the same
@@ -1134,10 +1131,10 @@ pub(crate) mod tests {
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table = initialize_table(&warehouse_id, state.clone(), false).await;
+        let table = initialize_table(warehouse_id, state.clone(), false).await;
 
         let new_namespace = NamespaceIdent::from_vec(vec!["new_namespace".to_string()]).unwrap();
-        initialize_namespace(state.clone(), &warehouse_id, &new_namespace, None).await;
+        initialize_namespace(state.clone(), warehouse_id, &new_namespace, None).await;
 
         let new_table_ident = TableIdent {
             namespace: new_namespace.clone(),
@@ -1146,8 +1143,8 @@ pub(crate) mod tests {
 
         let mut transaction = pool.begin().await.unwrap();
         rename_table(
-            &warehouse_id,
-            &table.table_id,
+            warehouse_id,
+            table.table_id,
             &table.table_ident,
             &new_table_ident,
             &mut transaction,
@@ -1156,12 +1153,12 @@ pub(crate) mod tests {
         .unwrap();
         transaction.commit().await.unwrap();
 
-        let exists = table_ident_to_id(&warehouse_id, &table.table_ident, false, &state.read_pool)
+        let exists = table_ident_to_id(warehouse_id, &table.table_ident, false, &state.read_pool)
             .await
             .unwrap();
         assert!(exists.is_none());
 
-        let exists = table_ident_to_id(&warehouse_id, &new_table_ident, false, &state.read_pool)
+        let exists = table_ident_to_id(warehouse_id, &new_table_ident, false, &state.read_pool)
             .await
             .unwrap();
         assert_eq!(exists, Some(table.table_id));
@@ -1176,26 +1173,26 @@ pub(crate) mod tests {
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
-        initialize_namespace(state.clone(), &warehouse_id, &namespace, None).await;
-        let tables = list_tables(&warehouse_id, &namespace, false, state.clone())
+        initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
+        let tables = list_tables(warehouse_id, &namespace, false, state.clone())
             .await
             .unwrap();
         assert_eq!(tables.len(), 0);
 
-        let table1 = initialize_table(&warehouse_id, state.clone(), false).await;
+        let table1 = initialize_table(warehouse_id, state.clone(), false).await;
 
-        let tables = list_tables(&warehouse_id, &table1.namespace, false, state.clone())
+        let tables = list_tables(warehouse_id, &table1.namespace, false, state.clone())
             .await
             .unwrap();
         assert_eq!(tables.len(), 1);
         assert_eq!(tables.get(&table1.table_id), Some(&table1.table_ident));
 
-        let table2 = initialize_table(&warehouse_id, state.clone(), true).await;
-        let tables = list_tables(&warehouse_id, &table2.namespace, false, state.clone())
+        let table2 = initialize_table(warehouse_id, state.clone(), true).await;
+        let tables = list_tables(warehouse_id, &table2.namespace, false, state.clone())
             .await
             .unwrap();
         assert_eq!(tables.len(), 0);
-        let tables = list_tables(&warehouse_id, &table2.namespace, true, state.clone())
+        let tables = list_tables(warehouse_id, &table2.namespace, true, state.clone())
             .await
             .unwrap();
         assert_eq!(tables.len(), 1);
@@ -1210,8 +1207,8 @@ pub(crate) mod tests {
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table1 = initialize_table(&warehouse_id, state.clone(), true).await;
-        let table2 = initialize_table(&warehouse_id, state.clone(), false).await;
+        let table1 = initialize_table(warehouse_id, state.clone(), true).await;
+        let table2 = initialize_table(warehouse_id, state.clone(), false).await;
 
         let self1 = &table2.table_id;
         let request = CommitTransactionRequest {
@@ -1240,7 +1237,7 @@ pub(crate) mod tests {
         };
 
         let table_ids = table_idents_to_ids(
-            &warehouse_id,
+            warehouse_id,
             vec![&table1.table_ident, &table2.table_ident]
                 .into_iter()
                 .collect(),
@@ -1255,7 +1252,7 @@ pub(crate) mod tests {
 
         let mut transaction = pool.begin().await.unwrap();
         let responses =
-            commit_table_transaction(&warehouse_id, request, &table_ids, &mut transaction)
+            commit_table_transaction(warehouse_id, request, &table_ids, &mut transaction)
                 .await
                 .unwrap();
         transaction.commit().await.unwrap();
@@ -1295,16 +1292,15 @@ pub(crate) mod tests {
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table = initialize_table(&warehouse_id, state.clone(), false).await;
+        let table = initialize_table(warehouse_id, state.clone(), false).await;
 
-        let metadata =
-            get_table_metadata_by_id(&warehouse_id, &table.table_id, false, state.clone())
-                .await
-                .unwrap();
+        let metadata = get_table_metadata_by_id(warehouse_id, table.table_id, false, state.clone())
+            .await
+            .unwrap();
 
         // Exact path works
         let metadata = get_table_metadata_by_s3_location(
-            &warehouse_id,
+            warehouse_id,
             &metadata.location,
             false,
             state.clone(),
@@ -1317,7 +1313,7 @@ pub(crate) mod tests {
 
         // Subpath works
         let metadata = get_table_metadata_by_s3_location(
-            &warehouse_id,
+            warehouse_id,
             &format!("{}/data/foo.parquet", &metadata.location),
             false,
             state.clone(),
@@ -1327,7 +1323,7 @@ pub(crate) mod tests {
 
         // Shorter path does not work
         get_table_metadata_by_s3_location(
-            &warehouse_id,
+            warehouse_id,
             &metadata.location[0..metadata.location.len() - 1],
             false,
             state.clone(),
@@ -1344,14 +1340,14 @@ pub(crate) mod tests {
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table = initialize_table(&warehouse_id, state.clone(), false).await;
+        let table = initialize_table(warehouse_id, state.clone(), false).await;
         let mut transaction = pool.begin().await.unwrap();
-        set_warehouse_status(&warehouse_id, WarehouseStatus::Inactive, &mut transaction)
+        set_warehouse_status(warehouse_id, WarehouseStatus::Inactive, &mut transaction)
             .await
             .unwrap();
         transaction.commit().await.unwrap();
 
-        let err = get_table_metadata_by_id(&warehouse_id, &table.table_id, false, state.clone())
+        let err = get_table_metadata_by_id(warehouse_id, table.table_id, false, state.clone())
             .await
             .unwrap_err();
         assert_eq!(err.error.code, StatusCode::NOT_FOUND);
@@ -1365,13 +1361,13 @@ pub(crate) mod tests {
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table = initialize_table(&warehouse_id, state.clone(), false).await;
+        let table = initialize_table(warehouse_id, state.clone(), false).await;
 
         let mut transaction = pool.begin().await.unwrap();
-        drop_table(&table.table_id, &mut transaction).await.unwrap();
+        drop_table(table.table_id, &mut transaction).await.unwrap();
         transaction.commit().await.unwrap();
 
-        let err = get_table_metadata_by_id(&warehouse_id, &table.table_id, false, state.clone())
+        let err = get_table_metadata_by_id(warehouse_id, table.table_id, false, state.clone())
             .await
             .unwrap_err();
         assert_eq!(err.error.code, StatusCode::NOT_FOUND);

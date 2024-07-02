@@ -40,14 +40,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         A::check_list_namespace(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             query.parent.as_ref(),
             state.v1_state.auth,
         )
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        C::list_namespaces(&warehouse_id, &query, state.v1_state.catalog).await
+        C::list_namespaces(warehouse_id, &query, state.v1_state.catalog).await
     }
 
     async fn create_namespace(
@@ -83,7 +83,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         A::check_create_namespace(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             request.namespace.parent().as_ref(),
             state.v1_state.auth,
         )
@@ -91,7 +91,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let r = C::create_namespace(&warehouse_id, request, t.transaction()).await?;
+        let r = C::create_namespace(warehouse_id, request, t.transaction()).await?;
         t.commit().await?;
         Ok(r)
     }
@@ -109,7 +109,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         A::check_load_namespace_metadata(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             &parameters.namespace,
             state.v1_state.auth,
         )
@@ -117,7 +117,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let r = C::get_namespace(&warehouse_id, &parameters.namespace, t.transaction()).await?;
+        let r = C::get_namespace(warehouse_id, &parameters.namespace, t.transaction()).await?;
         t.commit().await?;
         Ok(GetNamespaceResponse {
             properties: r.properties,
@@ -138,14 +138,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         //  ------------------- AUTHZ -------------------
         A::check_namespace_exists(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             &parameters.namespace,
             state.v1_state.auth,
         )
         .await?;
 
         //  ------------------- BUSINESS LOGIC -------------------
-        if C::namespace_ident_to_id(&warehouse_id, &parameters.namespace, state.v1_state.catalog)
+        if C::namespace_ident_to_id(warehouse_id, &parameters.namespace, state.v1_state.catalog)
             .await?
             .is_some()
         {
@@ -185,7 +185,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         //  ------------------- AUTHZ -------------------
         A::check_drop_namespace(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             &parameters.namespace,
             state.v1_state.auth,
         )
@@ -193,7 +193,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         //  ------------------- BUSINESS LOGIC -------------------
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let r = C::drop_namespace(&warehouse_id, &parameters.namespace, t.transaction()).await?;
+        let r = C::drop_namespace(warehouse_id, &parameters.namespace, t.transaction()).await?;
         t.commit().await?;
         Ok(r)
     }
@@ -221,7 +221,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         //  ------------------- AUTHZ -------------------
         A::check_update_namespace_properties(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             &parameters.namespace,
             state.v1_state.auth,
         )
@@ -230,7 +230,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         //  ------------------- BUSINESS LOGIC -------------------
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let r = C::update_namespace_properties(
-            &warehouse_id,
+            warehouse_id,
             &parameters.namespace,
             request,
             t.transaction(),

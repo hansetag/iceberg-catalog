@@ -162,8 +162,8 @@ impl S3Profile {
 
         let file_io = self.file_io(credential)?;
         let test_location = self.tabular_location(
-            &uuid::Uuid::now_v7().into(),
-            &TabularIdentUuid::Table(uuid::Uuid::now_v7()),
+            uuid::Uuid::now_v7().into(),
+            TabularIdentUuid::Table(uuid::Uuid::now_v7()),
         );
 
         validate_file_io(&file_io, &test_location)
@@ -279,7 +279,7 @@ impl S3Profile {
     }
 
     #[must_use]
-    pub fn generate_catalog_config(&self, warehouse_id: &WarehouseIdent) -> CatalogConfig {
+    pub fn generate_catalog_config(&self, warehouse_id: WarehouseIdent) -> CatalogConfig {
         CatalogConfig {
             // ToDo: s3.delete-enabled?
             defaults: HashMap::default(),
@@ -293,8 +293,8 @@ impl S3Profile {
     #[must_use]
     pub fn tabular_location(
         &self,
-        namespace_id: &NamespaceIdentUuid,
-        tabular_id: &TabularIdentUuid,
+        namespace_id: NamespaceIdentUuid,
+        tabular_id: TabularIdentUuid,
     ) -> String {
         // s3://bucket-name/<path_prefix>/<namespace-uuid>/<table-uuid>/
         if let Some(key_prefix) = &self.key_prefix {
@@ -315,9 +315,9 @@ impl S3Profile {
     /// Fails if vended credentials are used - currently not supported.
     pub async fn generate_table_config(
         &self,
-        _: &WarehouseIdent,
-        _: &TableIdentUuid,
-        _: &NamespaceIdentUuid,
+        _: WarehouseIdent,
+        _: TableIdentUuid,
+        _: NamespaceIdentUuid,
         data_access: &DataAccess,
         _: Option<&S3Credential>,
     ) -> Result<HashMap<String, String>> {
@@ -540,7 +540,7 @@ mod test {
         let namespace_id = NamespaceIdentUuid::from(uuid::Uuid::now_v7());
         let table_id = TabularIdentUuid::Table(uuid::Uuid::now_v7());
 
-        let location = profile.tabular_location(&namespace_id, &table_id);
+        let location = profile.tabular_location(namespace_id, table_id);
         assert_eq!(
             location,
             format!("s3://test_bucket/test_prefix/{namespace_id}/{table_id}")
@@ -549,7 +549,7 @@ mod test {
         let mut profile = profile.clone();
         profile.key_prefix = None;
 
-        let location = profile.tabular_location(&namespace_id, &table_id);
+        let location = profile.tabular_location(namespace_id, table_id);
         assert_eq!(
             location,
             format!("s3://test_bucket/{namespace_id}/{table_id}")

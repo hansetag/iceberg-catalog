@@ -25,7 +25,7 @@ pub(crate) enum TabularType {
 }
 
 pub(crate) async fn tabular_ident_to_id<'a, 'e, 'c: 'e, E>(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     table: &TabularIdentBorrowed<'a>,
     include_staged: bool,
     catalog_state: E,
@@ -49,7 +49,7 @@ where
         "#,
         t.namespace.as_ref(),
         t.name,
-        **warehouse_id,
+        *warehouse_id,
         typ as _
     )
     .fetch_one(catalog_state)
@@ -94,7 +94,7 @@ struct TabularRow {
 }
 
 pub(crate) async fn tabular_idents_to_ids<'e, 'c: 'e, E>(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     tables: HashSet<TabularIdentBorrowed<'_>>,
     include_staged: bool,
     catalog_state: E,
@@ -138,7 +138,7 @@ where
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.status = 'active' and n."warehouse_id" = $1"#,
-        **warehouse_id
+        *warehouse_id
     );
     let checked_sql = statically_checked_query.sql();
 
@@ -280,7 +280,7 @@ pub(crate) async fn create_tabular<'a>(
 }
 
 pub(crate) async fn list_tabulars(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     namespace: &NamespaceIdent,
     include_staged: bool,
     catalog_state: CatalogState,
@@ -302,7 +302,7 @@ pub(crate) async fn list_tabulars(
             AND (t."metadata_location" IS NOT NULL OR $3)
             AND (t.typ = $4 OR $4 IS NULL)
         "#,
-        **warehouse_id,
+        *warehouse_id,
         &**namespace,
         include_staged,
         typ as _
@@ -337,7 +337,7 @@ pub(crate) async fn list_tabulars(
 
 /// Rename a tabular. Tabulars may be moved across namespaces.
 pub(crate) async fn rename_tabular(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     source_id: TabularIdentUuid,
     source: &TableIdent,
     destination: &TableIdent,
@@ -364,9 +364,9 @@ pub(crate) async fn rename_tabular(
             RETURNING tabular_id
             "#,
             &**dest_name,
-            &*source_id,
+            *source_id,
             TabularType::from(source_id) as _,
-            **warehouse_id,
+            *warehouse_id,
         )
         .fetch_one(&mut **transaction)
         .await
@@ -395,9 +395,9 @@ pub(crate) async fn rename_tabular(
             RETURNING tabular_id
             "#,
             &**dest_name,
-            **warehouse_id,
+            *warehouse_id,
             &**dest_namespace,
-            &*source_id,
+            *source_id,
             TabularType::from(source_id) as _,
             &**source_name,
         )

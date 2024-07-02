@@ -16,7 +16,7 @@ use sqlx::types::Json;
 impl ConfigProvider<Catalog> for super::Catalog {
     async fn get_warehouse_by_name(
         warehouse_name: &str,
-        project_id: &ProjectIdent,
+        project_id: ProjectIdent,
         catalog_state: CatalogState,
     ) -> Result<WarehouseIdent> {
         let warehouse_id = sqlx::query_scalar!(
@@ -28,7 +28,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
             AND status = 'active'
             "#,
             warehouse_name.to_string(),
-            project_id.as_uuid()
+            *project_id
         )
         .fetch_one(&catalog_state.read_pool)
         .await
@@ -50,7 +50,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
     }
 
     async fn get_config_for_warehouse(
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         catalog_state: CatalogState,
     ) -> Result<CatalogConfig> {
         let storage_profile = sqlx::query_scalar!(
@@ -61,7 +61,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
             WHERE warehouse_id = $1
             AND status = 'active'
             "#,
-            **warehouse_id
+            *warehouse_id
         )
         .fetch_one(&catalog_state.read_pool)
         .await
@@ -107,7 +107,7 @@ pub(crate) async fn create_warehouse<'a>(
         RETURNING warehouse_id
         "#,
         warehouse_name,
-        project_id.as_uuid(),
+        *project_id,
         storage_profile_ser,
         storage_secret_id.map(|id| id.into_uuid())
     )
@@ -135,7 +135,7 @@ pub(crate) async fn create_warehouse<'a>(
 }
 
 pub(crate) async fn list_warehouses(
-    project_id: &ProjectIdent,
+    project_id: ProjectIdent,
     include_status: Option<Vec<WarehouseStatus>>,
     warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
     catalog_state: CatalogState,
@@ -168,7 +168,7 @@ pub(crate) async fn list_warehouses(
             WHERE project_id = $1 AND warehouse_id = ANY($2)
             AND status = ANY($3)
             "#,
-            project_id.as_uuid(),
+            *project_id,
             &warehouse_ids,
             include_status as Vec<WarehouseStatus>
         )
@@ -189,7 +189,7 @@ pub(crate) async fn list_warehouses(
             WHERE project_id = $1
             AND status = ANY($2)
             "#,
-            project_id.as_uuid(),
+            *project_id,
             include_status as Vec<WarehouseStatus>
         )
         .fetch_all(&catalog_state.read_pool)
@@ -202,7 +202,7 @@ pub(crate) async fn list_warehouses(
         .map(|warehouse| GetWarehouseResponse {
             id: warehouse.warehouse_id.into(),
             name: warehouse.warehouse_name,
-            project_id: project_id.clone(),
+            project_id,
             storage_profile: warehouse.storage_profile.deref().clone(),
             storage_secret_id: warehouse.storage_secret_id.map(std::convert::Into::into),
             status: warehouse.status,
@@ -211,7 +211,7 @@ pub(crate) async fn list_warehouses(
 }
 
 pub(crate) async fn get_warehouse<'a>(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<GetWarehouseResponse> {
     let warehouse = sqlx::query!(
@@ -225,7 +225,7 @@ pub(crate) async fn get_warehouse<'a>(
         FROM warehouse
         WHERE warehouse_id = $1
         "#,
-        **warehouse_id
+        *warehouse_id
     )
     .fetch_one(&mut **transaction)
     .await
@@ -239,7 +239,7 @@ pub(crate) async fn get_warehouse<'a>(
     })?;
 
     Ok(GetWarehouseResponse {
-        id: warehouse_id.clone(),
+        id: warehouse_id,
         name: warehouse.warehouse_name,
         project_id: ProjectIdent::from(warehouse.project_id),
         storage_profile: warehouse.storage_profile.deref().clone(),
@@ -267,7 +267,7 @@ pub(crate) async fn list_projects(catalog_state: CatalogState) -> Result<HashSet
 }
 
 pub(crate) async fn delete_warehouse<'a>(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
     let row_count = sqlx::query_scalar!(
@@ -280,7 +280,7 @@ pub(crate) async fn delete_warehouse<'a>(
 
         SELECT count(*) FROM deleted
         "#,
-        **warehouse_id
+        *warehouse_id
     )
     .fetch_one(&mut **transaction)
     .await
@@ -312,7 +312,7 @@ pub(crate) async fn delete_warehouse<'a>(
 }
 
 pub(crate) async fn rename_warehouse<'a>(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     new_name: &str,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
@@ -331,7 +331,7 @@ pub(crate) async fn rename_warehouse<'a>(
         SELECT count(*) FROM update
         "#,
         new_name,
-        **warehouse_id
+        *warehouse_id
     )
     .fetch_one(&mut **transaction)
     .await
@@ -350,7 +350,7 @@ pub(crate) async fn rename_warehouse<'a>(
 }
 
 pub(crate) async fn set_warehouse_status<'a>(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     status: WarehouseStatus,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
@@ -366,7 +366,7 @@ pub(crate) async fn set_warehouse_status<'a>(
         SELECT count(*) FROM update
         "#,
         status as WarehouseStatus,
-        **warehouse_id
+        *warehouse_id
     )
     .fetch_one(&mut **transaction)
     .await
@@ -385,7 +385,7 @@ pub(crate) async fn set_warehouse_status<'a>(
 }
 
 pub(crate) async fn update_storage_profile<'a>(
-    warehouse_id: &WarehouseIdent,
+    warehouse_id: WarehouseIdent,
     storage_profile: StorageProfile,
     storage_secret_id: Option<SecretIdent>,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -413,7 +413,7 @@ pub(crate) async fn update_storage_profile<'a>(
         "#,
         storage_profile_ser,
         storage_secret_id.map(|id| id.into_uuid()),
-        **warehouse_id
+        *warehouse_id
     )
     .fetch_one(&mut **transaction)
     .await
@@ -497,7 +497,7 @@ pub(crate) mod test {
 
         let fetched_warehouse_id = Catalog::get_warehouse_by_name(
             "test_warehouse",
-            &ProjectIdent::from(uuid::Uuid::nil()),
+            ProjectIdent::from(uuid::Uuid::nil()),
             state.clone(),
         )
         .await
@@ -537,7 +537,7 @@ pub(crate) mod test {
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
         let warehouse_id_1 = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
 
-        let warehouses = Catalog::list_warehouses(&project_id, None, None, state.clone())
+        let warehouses = Catalog::list_warehouses(project_id, None, None, state.clone())
             .await
             .unwrap();
         assert_eq!(warehouses.len(), 1);
@@ -558,11 +558,11 @@ pub(crate) mod test {
         let mut transaction = PostgresTransaction::begin_write(state.clone())
             .await
             .unwrap();
-        Catalog::rename_warehouse(&warehouse_id_1, "new_name", transaction.transaction())
+        Catalog::rename_warehouse(warehouse_id_1, "new_name", transaction.transaction())
             .await
             .unwrap();
         Catalog::set_warehouse_status(
-            &warehouse_id_1,
+            warehouse_id_1,
             WarehouseStatus::Inactive,
             transaction.transaction(),
         )
@@ -575,7 +575,7 @@ pub(crate) mod test {
 
         // Assert active whs
         let warehouses = Catalog::list_warehouses(
-            &project_id,
+            project_id,
             Some(vec![WarehouseStatus::Active, WarehouseStatus::Inactive]),
             None,
             state.clone(),
@@ -587,7 +587,7 @@ pub(crate) mod test {
         assert!(warehouses.iter().any(|w| w.id == warehouse_id_2));
 
         // Assert only active whs
-        let warehouses = Catalog::list_warehouses(&project_id, None, None, state.clone())
+        let warehouses = Catalog::list_warehouses(project_id, None, None, state.clone())
             .await
             .unwrap();
         assert_eq!(warehouses.len(), 1);
@@ -606,7 +606,7 @@ pub(crate) mod test {
         let mut transaction = PostgresTransaction::begin_write(state.clone())
             .await
             .unwrap();
-        Catalog::rename_warehouse(&warehouse_id, "new_name", transaction.transaction())
+        Catalog::rename_warehouse(warehouse_id, "new_name", transaction.transaction())
             .await
             .unwrap();
         transaction.commit().await.unwrap();
@@ -614,7 +614,7 @@ pub(crate) mod test {
         let mut read_transaction = PostgresTransaction::begin_read(state.clone())
             .await
             .unwrap();
-        let warehouse = Catalog::get_warehouse(&warehouse_id, read_transaction.transaction())
+        let warehouse = Catalog::get_warehouse(warehouse_id, read_transaction.transaction())
             .await
             .unwrap();
         assert_eq!(warehouse.name, "new_name");

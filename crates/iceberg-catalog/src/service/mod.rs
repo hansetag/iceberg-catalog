@@ -70,17 +70,13 @@ pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
 
 impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 pub struct NamespaceIdentUuid(uuid::Uuid);
 
-impl NamespaceIdentUuid {
-    #[must_use]
-    pub fn into_uuid(&self) -> uuid::Uuid {
-        self.0
-    }
+impl Deref for NamespaceIdentUuid {
+    type Target = uuid::Uuid;
 
-    #[must_use]
-    pub fn as_uuid(&self) -> &uuid::Uuid {
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
@@ -131,18 +127,6 @@ impl Deref for TableIdentUuid {
     }
 }
 
-impl TableIdentUuid {
-    #[must_use]
-    pub fn to_uuid(&self) -> uuid::Uuid {
-        **self
-    }
-
-    #[must_use]
-    pub fn as_uuid(&self) -> &uuid::Uuid {
-        self
-    }
-}
-
 impl From<uuid::Uuid> for TableIdentUuid {
     fn from(uuid: uuid::Uuid) -> Self {
         Self(uuid)
@@ -165,11 +149,40 @@ impl FromStr for TableIdentUuid {
 }
 
 // ---------------- Identifier ----------------
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
 // Is UUID here too strict?
 pub struct ProjectIdent(uuid::Uuid);
+
+impl Deref for ProjectIdent {
+    type Target = uuid::Uuid;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ProjectIdent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for ProjectIdent {
+    type Err = IcebergErrorResponse;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(ProjectIdent(uuid::Uuid::from_str(s).map_err(|e| {
+            ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message("Provided project id is not a valid UUID".to_string())
+                .r#type("ProjectIDIsNotUUID".to_string())
+                .stack(Some(vec![e.to_string()]))
+                .build()
+        })?))
+    }
+}
 
 /// Status of a warehouse
 #[derive(
@@ -240,41 +253,6 @@ impl From<uuid::Uuid> for WarehouseIdent {
 impl std::fmt::Display for WarehouseIdent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl ProjectIdent {
-    #[must_use]
-    #[inline]
-    pub fn into_uuid(&self) -> uuid::Uuid {
-        self.0
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn as_uuid(&self) -> &uuid::Uuid {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for ProjectIdent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl FromStr for ProjectIdent {
-    type Err = IcebergErrorResponse;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(ProjectIdent(uuid::Uuid::from_str(s).map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Provided project id is not a valid UUID".to_string())
-                .r#type("ProjectIDIsNotUUID".to_string())
-                .stack(Some(vec![e.to_string()]))
-                .build()
-        })?))
     }
 }
 
