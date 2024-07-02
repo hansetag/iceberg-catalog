@@ -1,6 +1,7 @@
 import conftest
 import pandas as pd
 import pytest
+import sys
 
 
 def test_create_namespace(spark, warehouse: conftest.Warehouse):
