@@ -229,7 +229,7 @@ pub(crate) mod test {
 
     #[sqlx::test]
     async fn test_create_view(pool: PgPool) {
-        let (api_context, namespace, whi) = crate::catalog::views::test::setup(pool).await;
+        let (api_context, namespace, whi) = crate::catalog::views::test::setup(pool, None).await;
 
         let mut rq = create_view_request(None, None);
 

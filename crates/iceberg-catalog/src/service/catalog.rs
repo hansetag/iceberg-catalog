@@ -345,6 +345,14 @@ where
         view_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
+
+    async fn rename_view(
+        warehouse_id: WarehouseIdent,
+        source_id: TableIdentUuid,
+        source: &TableIdent,
+        destination: &TableIdent,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<()>;
 }
 
 #[derive(Debug, Clone)]

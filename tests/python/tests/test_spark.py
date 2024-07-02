@@ -86,6 +86,25 @@ def test_create_replace_view(spark, warehouse: conftest.Warehouse):
     assert list(df.columns) == ["my_floats", "my_ints"]
 
 
+def test_rename_view(spark, warehouse: conftest.Warehouse):
+    spark.sql("CREATE NAMESPACE test_rename_view_spark")
+    spark.sql(
+        "CREATE TABLE test_rename_view_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(
+        "CREATE VIEW test_rename_view_spark.my_view AS SELECT my_ints, my_floats FROM test_rename_view_spark.my_table")
+
+    spark.sql("SELECT * from test_rename_view_spark.my_view")
+    df = spark.sql("SHOW VIEWS IN test_rename_view_spark").toPandas()
+    assert df.shape[0] == 1
+    assert df["viewName"].values[0] == "my_view"
+
+    spark.sql("ALTER VIEW test_rename_view_spark.my_view RENAME TO test_rename_view_spark.my_view_renamed")
+    df = spark.sql("SHOW VIEWS IN test_rename_view_spark").toPandas()
+    assert df.shape[0] == 1
+    assert df["viewName"].values[0] == "my_view_renamed"
+
+
 def test_create_drop_view(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_drop_view_spark")
     spark.sql(

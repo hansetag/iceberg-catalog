@@ -15,7 +15,7 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::implementations::postgres::tabular::view::{
-    create_view, drop_view, list_views, load_view, view_ident_to_id,
+    create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
 use crate::service::{
     CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
@@ -341,10 +341,20 @@ impl Catalog for super::Catalog {
         .await
     }
 
+    async fn rename_view(
+        warehouse_id: WarehouseIdent,
+        source_id: TableIdentUuid,
+        source: &TableIdent,
+        destination: &TableIdent,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<()> {
+        rename_view(warehouse_id, source_id, source, destination, transaction).await
+    }
+
     async fn drop_view<'a>(
-        view_id: TableIdentUuid,
+        table_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()> {
-        drop_view(view_id, transaction).await
+        drop_view(table_id, transaction).await
     }
 }

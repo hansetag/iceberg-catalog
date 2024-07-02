@@ -3,6 +3,7 @@ mod create;
 mod drop;
 mod list;
 mod load;
+mod rename;
 
 use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, CreateViewRequest, DataAccess, ErrorModel, ListTablesResponse,
@@ -113,44 +114,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<()> {
-        // ------------------- VALIDATIONS -------------------
-        let warehouse_id = require_warehouse_id(prefix.clone())?;
-
-        let RenameTableRequest {
-            source,
-            destination,
-        } = request;
-        validate_table_or_view_ident(&source)?;
-        validate_table_or_view_ident(&destination)?;
-
-        // ------------------- AUTHZ -------------------
-        let source_id = C::view_ident_to_id(warehouse_id, &source, state.v1_state.catalog.clone())
-            .await
-            // We can't fail before AuthZ.
-            .ok()
-            .flatten();
-
-        // We need to be allowed to delete the old table and create the new one
-        let rename_check = A::check_rename_view(
-            &request_metadata,
-            warehouse_id,
-            source_id.as_ref(),
-            state.v1_state.auth.clone(),
-        );
-        let create_check = A::check_create_view(
-            &request_metadata,
-            warehouse_id,
-            &destination.namespace,
-            state.v1_state.auth,
-        );
-        futures::try_join!(rename_check, create_check)?;
-
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Views are not implemented".to_string())
-            .r#type("RenameViewNotSupported".to_string())
-            .build()
-            .into());
+        rename::rename_view(prefix, request, state, request_metadata).await
     }
 }
 
@@ -212,6 +176,7 @@ mod test {
 
     pub(crate) async fn setup(
         pool: PgPool,
+        namespace_name: Option<Vec<String>>,
     ) -> (
         ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,
         NamespaceIdent,
@@ -222,7 +187,7 @@ mod test {
         let warehouse_id =
             initialize_warehouse(state.clone(), Some(StorageProfile::Test(TestProfile)), None)
                 .await;
-        let namespace = new_namespace(state, warehouse_id, None).await;
+        let namespace = new_namespace(state, warehouse_id, namespace_name).await;
         (api_context, namespace, warehouse_id)
     }
 
