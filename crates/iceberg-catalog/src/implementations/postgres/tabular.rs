@@ -357,7 +357,7 @@ pub(crate) async fn rename_tabular(
             r#"
             UPDATE tabular ti
             SET name = $1
-            WHERE tabular_id = $2 AND typ = $3
+            WHERE tabular_id = $2 AND typ = $3 AND metadata_location IS NOT NULL
             AND $4 IN (
                 SELECT warehouse_id FROM warehouse WHERE status = 'active'
             )
@@ -387,7 +387,7 @@ pub(crate) async fn rename_tabular(
                 FROM namespace
                 WHERE warehouse_id = $2 AND namespace_name = $3
             )
-            WHERE tabular_id = $4 AND typ = $5
+            WHERE tabular_id = $4 AND typ = $5 AND metadata_location IS NOT NULL
             AND ti.name = $6
             AND $2 IN (
                 SELECT warehouse_id FROM warehouse WHERE status = 'active'
