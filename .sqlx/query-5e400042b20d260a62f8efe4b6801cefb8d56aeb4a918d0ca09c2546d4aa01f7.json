@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO view (view_id, view_format_version, location, metadata_location)\n        VALUES ($1, $2, $3, $4)\n        returning view_id\n        ",
+  "query": "\n        INSERT INTO view (view_id, view_format_version)\n        VALUES ($1, $2)\n        returning view_id\n        ",
   "describe": {
     "columns": [
       {
@@ -21,14 +21,12 @@
               ]
             }
           }
-        },
-        "Text",
-        "Text"
+        }
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "70c553b988b97c29f6f2b7e15e3d76aab8770ec8c941095af087e55f77974527"
+  "hash": "5e400042b20d260a62f8efe4b6801cefb8d56aeb4a918d0ca09c2546d4aa01f7"
 }

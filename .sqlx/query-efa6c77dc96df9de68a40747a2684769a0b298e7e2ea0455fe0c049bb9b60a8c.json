@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO metadata_summary (summary_tuple_id, view_version_unique_id, key, value)\n            VALUES ($1, $2, $3, $4)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "efa6c77dc96df9de68a40747a2684769a0b298e7e2ea0455fe0c049bb9b60a8c"
+}

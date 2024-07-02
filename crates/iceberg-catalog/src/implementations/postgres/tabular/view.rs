@@ -144,7 +144,7 @@ pub(crate) async fn create_view(
 
     let ViewVersionResponse {
         version_id,
-        view_version_uuid,
+        view_version_unique_id,
     } = create_view_version(
         view_id,
         CreateViewVersion::AsCurrent(metadata.current_version().clone()),
@@ -153,9 +153,9 @@ pub(crate) async fn create_view(
     .await?;
 
     tracing::debug!(
-        "Created view version with id: '{}' and version_uuid: '{}'",
+        "Created view version with id: '{}' and version_unique_id: '{}'",
         version_id,
-        view_version_uuid
+        view_version_unique_id
     );
 
     insert_view_properties(metadata.properties(), view_id, transaction).await?;
@@ -247,11 +247,10 @@ pub(crate) async fn create_view_schema(
     })?;
     Ok(sqlx::query_scalar!(
         r#"
-        INSERT INTO view_schema (schema_uuid, view_id, schema_id, schema)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO view_schema (view_id, schema_id, schema)
+        VALUES ($1, $2, $3)
         RETURNING schema_id
         "#,
-        Uuid::now_v7(),
         view_id,
         schema.schema_id(),
         schema_as_value
@@ -272,7 +271,7 @@ pub(crate) async fn create_view_schema(
 #[derive(Debug, FromRow)]
 pub(crate) struct ViewVersionResponse {
     pub(crate) version_id: i64,
-    pub(crate) view_version_uuid: Uuid,
+    pub(crate) view_version_unique_id: Uuid,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -307,9 +306,9 @@ pub(crate) async fn create_view_version(
 
     let insert_response = sqlx::query_as!(ViewVersionResponse,
                 r#"
-                    INSERT INTO view_version (view_version_uuid, view_id, version_id, schema_id, timestamp, default_namespace_id, default_catalog)
+                    INSERT INTO view_version (view_version_unique_id, view_id, version_id, schema_id, timestamp, default_namespace_id, default_catalog)
                     VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    returning view_version_uuid, version_id
+                    returning view_version_unique_id, version_id
                 "#,
                 Uuid::now_v7(),
                 view_id,
@@ -345,11 +344,11 @@ pub(crate) async fn create_view_version(
     for (k, v) in view_version.summary() {
         sqlx::query!(
             r#"
-            INSERT INTO metadata_summary (summary_tuple_id, view_version_uuid, key, value)
+            INSERT INTO metadata_summary (summary_tuple_id, view_version_unique_id, key, value)
             VALUES ($1, $2, $3, $4)
             "#,
             Uuid::now_v7(),
-            insert_response.view_version_uuid,
+            insert_response.view_version_unique_id,
             k,
             v
         )
@@ -363,7 +362,7 @@ pub(crate) async fn create_view_version(
     }
 
     for rep in view_version.representations() {
-        insert_representation(rep, transaction, insert_response.view_version_uuid).await?;
+        insert_representation(rep, transaction, insert_response.view_version_unique_id).await?;
     }
 
     let CreateViewVersion::AsCurrent(_) = view_version_request;
@@ -372,7 +371,7 @@ pub(crate) async fn create_view_version(
 
     tracing::debug!(
         "Inserted version: '{}'/'{}' as current view metadata version for '{}'",
-        insert_response.view_version_uuid,
+        insert_response.view_version_unique_id,
         version_id,
         view_id
     );
@@ -385,28 +384,15 @@ pub(crate) async fn set_current_view_metadata_version(
     view_id: Uuid,
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), IcebergErrorResponse> {
-    let r = sqlx::query!(
-        r#"select view_version_uuid from view_version where view_id = $1 AND version_id=$2"#,
-        view_id,
-        version_id
-    )
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(|e| {
-        let message = "Error fetching current view metadata version".to_string();
-        tracing::warn!("{}", message);
-        e.into_error_model(message)
-    })?;
     sqlx::query!(
         r#"
-        INSERT INTO current_view_metadata_version (version_id, version_uuid, view_id)
-        VALUES ($1, $2, $3)
+        INSERT INTO current_view_metadata_version (version_id, view_id)
+        VALUES ($1, $2)
         ON CONFLICT (view_id)
-        DO UPDATE SET version_id = $1, version_uuid = $2
-        WHERE current_view_metadata_version.view_id = $3
+        DO UPDATE SET version_id = $1
+        WHERE current_view_metadata_version.view_id = $2
         "#,
         version_id,
-        r.view_version_uuid,
         view_id
     )
     .execute(&mut **transaction)
@@ -427,15 +413,15 @@ pub(crate) async fn set_current_view_metadata_version(
 async fn insert_representation(
     rep: &ViewRepresentation,
     transaction: &mut Transaction<'_, Postgres>,
-    view_version_uuid: Uuid,
+    view_version_unique_id: Uuid,
 ) -> Result<(), IcebergErrorResponse> {
     let ViewRepresentation::SqlViewRepresentation(repr) = rep;
     sqlx::query!(
             r#"
-            INSERT INTO view_representation (view_version_uuid, view_representation_id, typ, sql, dialect)
+            INSERT INTO view_representation (view_version_unique_id, view_representation_id, typ, sql, dialect)
             VALUES ($1, $2, $3, $4, $5)
             "#,
-            view_version_uuid,
+            view_version_unique_id,
             Uuid::now_v7(),
             ViewRepresentationType::from(rep) as _,
             repr.sql.as_str(),
