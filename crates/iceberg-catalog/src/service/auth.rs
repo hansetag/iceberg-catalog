@@ -20,21 +20,21 @@ where
 
     async fn check_list_namespace(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         parent: Option<&NamespaceIdent>,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_create_namespace(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         parent: Option<&NamespaceIdent>,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_load_namespace_metadata(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
     ) -> Result<()>;
@@ -43,35 +43,35 @@ where
     /// not check if the namespace exists.
     async fn check_namespace_exists(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_drop_namespace(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_update_namespace_properties(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_create_table(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_list_tables(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         state: Self::State,
     ) -> Result<()>;
@@ -89,9 +89,9 @@ where
     ///
     async fn check_load_table(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: Option<&NamespaceIdent>,
-        table: Option<&TableIdentUuid>,
+        table: Option<TableIdentUuid>,
         state: Self::State,
     ) -> Result<()>;
 
@@ -100,30 +100,30 @@ where
     /// for the destination namespace.
     async fn check_rename_table(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
-        source: Option<&TableIdentUuid>,
+        warehouse_id: WarehouseIdent,
+        source: Option<TableIdentUuid>,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_table_exists(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         namespace: Option<&NamespaceIdent>,
-        table: Option<&TableIdentUuid>,
+        table: Option<TableIdentUuid>,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_drop_table(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
-        table: Option<&TableIdentUuid>,
+        warehouse_id: WarehouseIdent,
+        table: Option<TableIdentUuid>,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_commit_table(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
-        table: Option<&TableIdentUuid>,
+        warehouse_id: WarehouseIdent,
+        table: Option<TableIdentUuid>,
         namespace: Option<&NamespaceIdent>,
         state: Self::State,
     ) -> Result<()>;
@@ -146,43 +146,43 @@ where
 
     async fn check_list_warehouse_in_project(
         metadata: &RequestMetadata,
-        project_id: &ProjectIdent,
+        project_id: ProjectIdent,
         state: Self::State,
     ) -> Result<Option<HashSet<WarehouseIdent>>>;
 
     async fn check_delete_warehouse(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_get_warehouse(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_rename_warehouse(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_deactivate_warehouse(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_activate_warehouse(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         state: Self::State,
     ) -> Result<()>;
 
     async fn check_update_storage(
         metadata: &RequestMetadata,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         state: Self::State,
     ) -> Result<()>;
 }
@@ -227,7 +227,7 @@ where
         state: A::State,
         previous_request_metadata: &RequestMetadata,
         project_id: &ProjectIdent,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
     ) -> Result<Option<String>>;
 
     // // Used for all endpoints
@@ -243,7 +243,7 @@ where
     /// Check if the user is allowed to get the config for a warehouse.
     async fn check_user_get_config_for_warehouse(
         state: A::State,
-        warehouse_id: &WarehouseIdent,
+        warehouse_id: WarehouseIdent,
         metadata: &RequestMetadata,
     ) -> Result<()>;
 }

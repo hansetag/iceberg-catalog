@@ -109,13 +109,13 @@ impl Default for DynAppConfig {
 }
 
 impl DynAppConfig {
-    pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: &WarehouseIdent) -> url::Url {
+    pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: WarehouseIdent) -> url::Url {
         self.base_uri
             .join(&format!("v1/{warehouse_id}"))
             .expect("Valid URL")
     }
 
-    pub fn warehouse_prefix(&self, warehouse_id: &WarehouseIdent) -> String {
+    pub fn warehouse_prefix(&self, warehouse_id: WarehouseIdent) -> String {
         self.prefix_template
             .replace("{warehouse_id}", warehouse_id.to_string().as_str())
     }

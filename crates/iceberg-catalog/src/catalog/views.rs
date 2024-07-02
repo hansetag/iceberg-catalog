@@ -32,7 +32,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         A::check_list_tables(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             &namespace,
             state.v1_state.auth,
         )
@@ -73,7 +73,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         A::check_create_table(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             &namespace,
             state.v1_state.auth,
         )

@@ -20,6 +20,7 @@ use super::{
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::StorageCredential;
+use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
@@ -45,7 +46,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         A::check_list_tables(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             &namespace,
             state.v1_state.auth,
         )
@@ -54,7 +55,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- BUSINESS LOGIC -------------------
         let include_staged = false;
         let tables = C::list_tables(
-            &warehouse_id,
+            warehouse_id,
             &namespace,
             include_staged,
             state.v1_state.catalog,
@@ -90,7 +91,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         A::check_create_table(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             &namespace,
             state.v1_state.auth,
         )
@@ -98,7 +99,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
         let namespace_id =
-            C::namespace_ident_to_id(&warehouse_id, &namespace, state.v1_state.catalog.clone())
+            C::namespace_ident_to_id(warehouse_id, &namespace, state.v1_state.catalog.clone())
                 .await?
                 .ok_or(
                     ErrorModel::builder()
@@ -116,11 +117,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             storage_profile,
             storage_secret_id,
             status,
-        } = C::get_warehouse(&warehouse_id, transaction.transaction()).await?;
+        } = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
         require_active_warehouse(status)?;
 
-        let table_id: TableIdentUuid = uuid::Uuid::now_v7().into();
-        let table_location = storage_profile.table_location(&namespace_id, &table_id);
+        let table_id: TabularIdentUuid = TabularIdentUuid::Table(uuid::Uuid::now_v7());
+        let table_location = storage_profile.tabular_location(namespace_id, table_id);
 
         // This is the only place where we change request
         request.location = Some(table_location.clone());
@@ -138,9 +139,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let body = maybe_body_to_json(&request);
 
         let CreateTableResponse { table_metadata } = C::create_table(
-            &namespace_id,
+            namespace_id,
             &table,
-            &table_id,
+            TableIdentUuid::from(*table_id),
             request,
             metadata_location.as_ref(),
             transaction.transaction(),
@@ -171,9 +172,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // is a stage-create, we still fetch the secret.
         let config = storage_profile
             .generate_table_config(
-                &warehouse_id,
-                &namespace_id,
-                &table_id,
+                warehouse_id,
+                namespace_id,
+                TableIdentUuid::from(*table_id),
                 &data_access,
                 storage_secret.as_ref(),
             )
@@ -189,8 +190,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         emit_change_event(
             EventMetadata {
-                table_id: *table_id.as_uuid(),
-                warehouse_id: *warehouse_id.as_uuid(),
+                tabular_id: TabularIdentUuid::Table(*table_id),
+                warehouse_id: *warehouse_id,
                 name: table.name.clone(),
                 namespace: table.namespace.encode_in_url(),
                 prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
@@ -252,7 +253,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_stage = false;
         let table_id = C::table_ident_to_id(
-            &warehouse_id,
+            warehouse_id,
             &table,
             include_stage,
             state.v1_state.catalog.clone(),
@@ -264,9 +265,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         A::check_load_table(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             Some(&table.namespace),
-            table_id.as_ref(),
+            table_id,
             state.v1_state.auth,
         )
         .await?;
@@ -279,7 +280,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             metadata_location,
             storage_secret_ident,
             storage_profile,
-        } = C::load_table(&warehouse_id, &table, state.v1_state.catalog).await?;
+        } = C::load_table(warehouse_id, &table, state.v1_state.catalog).await?;
 
         // ToDo: This is a small inefficiency: We fetch the secret even if it might
         // not be required based on the `data_access` parameter.
@@ -299,9 +300,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             config: Some(
                 storage_profile
                     .generate_table_config(
-                        &warehouse_id,
-                        &namespace_id,
-                        &table_id,
+                        warehouse_id,
+                        namespace_id,
+                        table_id,
                         &data_access,
                         storage_secret.as_ref(),
                     )
@@ -393,7 +394,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_staged = true;
         let table_id = C::table_ident_to_id(
-            &warehouse_id,
+            warehouse_id,
             &parameters.table,
             include_staged,
             state.v1_state.catalog.clone(),
@@ -405,8 +406,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         A::check_commit_table(
             &request_metadata,
-            &warehouse_id,
-            table_id.as_ref(),
+            warehouse_id,
+            table_id,
             Some(&parameters.table.namespace),
             state.v1_state.auth,
         )
@@ -432,7 +433,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         };
         let table_ids = HashMap::from_iter(vec![(parameters.table.clone(), table_id)]);
         let result = C::commit_table_transaction(
-            &warehouse_id,
+            warehouse_id,
             transaction_request,
             &table_ids,
             transaction.transaction(),
@@ -458,7 +459,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state
             .v1_state
             .contract_verifiers
-            .check(&updates, &result.previous_table_metadata)
+            .check_table_updates(&updates, &result.previous_table_metadata)
             .await?
             .into_result()?;
         // We don't commit the transaction yet, first we need to write the metadata file.
@@ -487,8 +488,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         transaction.commit().await?;
         emit_change_event(
             EventMetadata {
-                table_id: *table_id.as_uuid(),
-                warehouse_id: *warehouse_id.as_uuid(),
+                tabular_id: TabularIdentUuid::Table(*table_id),
+                warehouse_id: *warehouse_id,
                 name: parameters.table.name,
                 namespace: parameters.table.namespace.encode_in_url(),
                 prefix: parameters
@@ -523,7 +524,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_staged = true;
         let table_id = C::table_ident_to_id(
-            &warehouse_id,
+            warehouse_id,
             &table,
             include_staged,
             state.v1_state.catalog.clone(),
@@ -535,8 +536,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         A::check_drop_table(
             &request_metadata,
-            &warehouse_id,
-            table_id.as_ref(),
+            warehouse_id,
+            table_id,
             state.v1_state.auth,
         )
         .await?;
@@ -551,13 +552,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .r#type("TableNotFound".to_string())
                 .build()
         })?;
-        C::drop_table(&warehouse_id, &table_id, transaction.transaction()).await?;
+        C::drop_table(table_id, transaction.transaction()).await?;
 
         // ToDo: Delete metadata files
         state
             .v1_state
             .contract_verifiers
-            .check_drop(table_id)
+            .check_drop(TabularIdentUuid::Table(*table_id))
             .await?
             .into_result()?;
 
@@ -565,8 +566,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         emit_change_event(
             EventMetadata {
-                table_id: *table_id.as_uuid(),
-                warehouse_id: *warehouse_id.as_uuid(),
+                tabular_id: TabularIdentUuid::Table(*table_id),
+                warehouse_id: *warehouse_id,
                 name: table.name,
                 namespace: table.namespace.encode_in_url(),
                 prefix: prefix
@@ -599,46 +600,34 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_staged = false;
         let table_id = C::table_ident_to_id(
-            &warehouse_id,
+            warehouse_id,
             &table,
             include_staged,
             state.v1_state.catalog.clone(),
         )
         .await
+        .transpose();
         // We can't fail before AuthZ.
-        .ok()
-        .flatten();
-
         A::check_table_exists(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             Some(&table.namespace),
-            table_id.as_ref(),
+            table_id.as_ref().and_then(|x| x.as_ref().ok()).copied(),
             state.v1_state.auth,
         )
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let include_staged = false;
-        C::table_ident_to_id(
-            &warehouse_id,
-            &table,
-            include_staged,
-            state.v1_state.catalog,
-        )
-        .await
-        .map(|r| {
-            if r.is_some() {
-                Ok(())
-            } else {
-                Err(ErrorModel::builder()
-                    .code(StatusCode::NOT_FOUND.into())
-                    .message(format!("Table does not exist in warehouse {warehouse_id}"))
-                    .r#type("TableNotFound".to_string())
-                    .build()
-                    .into())
-            }
-        })?
+        if table_id.transpose()?.is_some() {
+            Ok(())
+        } else {
+            Err(ErrorModel::builder()
+                .code(StatusCode::NOT_FOUND.into())
+                .message(format!("Table does not exist in warehouse {warehouse_id}"))
+                .r#type("TableNotFound".to_string())
+                .build()
+                .into())
+        }
     }
 
     /// Rename a table
@@ -661,7 +650,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_staged = false;
         let source_id = C::table_ident_to_id(
-            &warehouse_id,
+            warehouse_id,
             &source,
             include_staged,
             state.v1_state.catalog.clone(),
@@ -674,13 +663,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // We need to be allowed to delete the old table and create the new one
         let rename_check = A::check_rename_table(
             &request_metadata,
-            &warehouse_id,
-            source_id.as_ref(),
+            warehouse_id,
+            source_id,
             state.v1_state.auth.clone(),
         );
         let create_check = A::check_create_table(
             &request_metadata,
-            &warehouse_id,
+            warehouse_id,
             &destination.namespace,
             state.v1_state.auth,
         );
@@ -705,8 +694,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
         C::rename_table(
-            &warehouse_id,
-            &source_id,
+            warehouse_id,
+            source_id,
             &source,
             &destination,
             transaction.transaction(),
@@ -716,7 +705,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state
             .v1_state
             .contract_verifiers
-            .check_rename(source_id, &destination)
+            .check_rename(TabularIdentUuid::Table(*source_id), &destination)
             .await?
             .into_result()?;
 
@@ -724,8 +713,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         emit_change_event(
             EventMetadata {
-                table_id: *source_id.as_uuid(),
-                warehouse_id: *warehouse_id.as_uuid(),
+                tabular_id: TabularIdentUuid::Table(*source_id),
+                warehouse_id: *warehouse_id,
                 name: source.name,
                 namespace: source.namespace.encode_in_url(),
                 prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
@@ -790,7 +779,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .collect::<HashSet<_>>();
 
         let table_ids = C::table_idents_to_ids(
-            &warehouse_id,
+            warehouse_id,
             identifiers,
             include_staged,
             state.v1_state.catalog.clone(),
@@ -815,8 +804,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .map(|(table_ident, table_id)| {
                 A::check_commit_table(
                     &request_metadata,
-                    &warehouse_id,
-                    table_id.as_ref(),
+                    warehouse_id,
+                    *table_id,
                     Some(&table_ident.namespace),
                     state.v1_state.auth.clone(),
                 )
@@ -861,7 +850,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         let commit_response = C::commit_table_transaction(
-            &warehouse_id,
+            warehouse_id,
             request,
             &table_ids,
             transaction.transaction(),
@@ -874,7 +863,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 state
                     .v1_state
                     .contract_verifiers
-                    .check(update, &response.previous_table_metadata)
+                    .check_table_updates(update, &response.previous_table_metadata)
             });
 
         futures::future::try_join_all(futures)
@@ -939,8 +928,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         {
             emit_change_event(
                 EventMetadata {
-                    table_id: *table_id.as_uuid(),
-                    warehouse_id: *warehouse_id.as_uuid(),
+                    tabular_id: TabularIdentUuid::Table(*table_id),
+                    warehouse_id: *warehouse_id,
                     name: table_ident.name,
                     namespace: table_ident.namespace.encode_in_url(),
                     prefix: prefix

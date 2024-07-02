@@ -1,5 +1,5 @@
 #![allow(clippy::module_name_repetitions)]
-use crate::service::TableIdentUuid;
+use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
 use iceberg::spec::TableMetadata;
 use iceberg::{TableIdent, TableUpdate};
@@ -19,8 +19,7 @@ use std::sync::Arc;
 ///     use async_trait::async_trait;
 ///     use iceberg::spec::TableMetadata;
 ///     use iceberg::{TableIdent, TableUpdate};
-///     use iceberg_catalog::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
-///     use iceberg_catalog::service::TableIdentUuid;
+///     use iceberg_catalog::service::{tabular_idents::TabularIdentUuid, contract_verification::{ContractVerification, ContractVerificationOutcome}};
 ///     use iceberg_ext::catalog::rest::ErrorModel;
 ///
 ///     #[derive(Debug)]
@@ -31,7 +30,7 @@ use std::sync::Arc;
 ///         fn name(&self) -> &'static str {
 ///             "AllowAllChecker"
 ///         }
-///         async fn check(
+///         async fn check_table_updates(
 ///             &self,
 ///             _table_updates: &[TableUpdate],
 ///             _current_metadata: &TableMetadata,
@@ -41,12 +40,12 @@ use std::sync::Arc;
 ///
 ///         async fn check_drop(
 ///             &self,
-///             _table_ident_uuid: TableIdentUuid,
+///             _table_ident_uuid: TabularIdentUuid,
 ///         ) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Clear {})
 ///         }
 ///
-///         async fn check_rename(&self, source: TableIdentUuid, destination: &TableIdent) -> Result<ContractVerificationOutcome, ErrorModel> {
+///         async fn check_rename(&self, source: TabularIdentUuid, destination: &TableIdent) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Clear {})
 ///         }
 ///     }
@@ -59,7 +58,7 @@ use std::sync::Arc;
 ///         fn name(&self) -> &'static str {
 ///             "DenyAllChecker"
 ///         }
-///         async fn check(
+///         async fn check_table_updates(
 ///             &self,
 ///             _table_updates: &[TableUpdate],
 ///             _current_metadata: &TableMetadata,
@@ -76,7 +75,7 @@ use std::sync::Arc;
 ///
 ///         async fn check_drop(
 ///             &self,
-///             _table_ident_uuid: TableIdentUuid,
+///             _table_ident_uuid: TabularIdentUuid,
 ///         ) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Violation {
 ///                 error_model: ErrorModel::builder()
@@ -88,7 +87,7 @@ use std::sync::Arc;
 ///             })
 ///         }
 ///
-///         async fn check_rename(&self, source: TableIdentUuid, destination: &TableIdent) -> Result<ContractVerificationOutcome, ErrorModel> {
+///         async fn check_rename(&self, source: TabularIdentUuid, destination: &TableIdent) -> Result<ContractVerificationOutcome, ErrorModel> {
 ///             Ok(ContractVerificationOutcome::Violation {
 ///                 error_model: ErrorModel::builder()
 ///                     .code(409)
@@ -104,7 +103,7 @@ use std::sync::Arc;
 pub trait ContractVerification: Debug {
     fn name(&self) -> &'static str;
 
-    async fn check(
+    async fn check_table_updates(
         &self,
         table_updates: &[TableUpdate],
         current_metadata: &TableMetadata,
@@ -112,12 +111,12 @@ pub trait ContractVerification: Debug {
 
     async fn check_drop(
         &self,
-        table_ident_uuid: TableIdentUuid,
+        table_ident_uuid: TabularIdentUuid,
     ) -> Result<ContractVerificationOutcome, ErrorModel>;
 
     async fn check_rename(
         &self,
-        source: TableIdentUuid,
+        source: TabularIdentUuid,
         destination: &TableIdent,
     ) -> Result<ContractVerificationOutcome, ErrorModel>;
 }
@@ -181,13 +180,16 @@ impl ContractVerification for ContractVerifiers {
         "ContractVerifiers"
     }
 
-    async fn check(
+    async fn check_table_updates(
         &self,
         table_updates: &[TableUpdate],
         current_metadata: &TableMetadata,
     ) -> Result<ContractVerificationOutcome, ErrorModel> {
         for checker in &self.checkers {
-            match checker.check(table_updates, current_metadata).await {
+            match checker
+                .check_table_updates(table_updates, current_metadata)
+                .await
+            {
                 Ok(ContractVerificationOutcome::Clear {}) => {}
                 Ok(block_result @ ContractVerificationOutcome::Violation { error_model: _ }) => {
                     tracing::info!(
@@ -206,9 +208,10 @@ impl ContractVerification for ContractVerifiers {
 
         Ok(ContractVerificationOutcome::Clear {})
     }
+
     async fn check_drop(
         &self,
-        table_ident_uuid: TableIdentUuid,
+        table_ident_uuid: TabularIdentUuid,
     ) -> Result<ContractVerificationOutcome, ErrorModel> {
         for checker in &self.checkers {
             match checker.check_drop(table_ident_uuid).await {
@@ -232,7 +235,7 @@ impl ContractVerification for ContractVerifiers {
 
     async fn check_rename(
         &self,
-        source: TableIdentUuid,
+        source: TabularIdentUuid,
         destination: &TableIdent,
     ) -> Result<ContractVerificationOutcome, ErrorModel> {
         for checker in &self.checkers {

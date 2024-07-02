@@ -5,6 +5,7 @@ use crate::{
 use http::StatusCode;
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
+use crate::service::tabular_idents::TabularIdentUuid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use veil::Redact;
@@ -160,8 +161,10 @@ impl S3Profile {
         }
 
         let file_io = self.file_io(credential)?;
-        let test_location =
-            self.table_location(&uuid::Uuid::now_v7().into(), &uuid::Uuid::now_v7().into());
+        let test_location = self.tabular_location(
+            uuid::Uuid::now_v7().into(),
+            TabularIdentUuid::Table(uuid::Uuid::now_v7()),
+        );
 
         validate_file_io(&file_io, &test_location)
             .await
@@ -276,7 +279,7 @@ impl S3Profile {
     }
 
     #[must_use]
-    pub fn generate_catalog_config(&self, warehouse_id: &WarehouseIdent) -> CatalogConfig {
+    pub fn generate_catalog_config(&self, warehouse_id: WarehouseIdent) -> CatalogConfig {
         CatalogConfig {
             // ToDo: s3.delete-enabled?
             defaults: HashMap::default(),
@@ -288,19 +291,19 @@ impl S3Profile {
     }
 
     #[must_use]
-    pub fn table_location(
+    pub fn tabular_location(
         &self,
-        namespace_id: &NamespaceIdentUuid,
-        table_id: &TableIdentUuid,
+        namespace_id: NamespaceIdentUuid,
+        tabular_id: TabularIdentUuid,
     ) -> String {
         // s3://bucket-name/<path_prefix>/<namespace-uuid>/<table-uuid>/
         if let Some(key_prefix) = &self.key_prefix {
             format!(
-                "s3://{}/{key_prefix}/{namespace_id}/{table_id}",
+                "s3://{}/{key_prefix}/{namespace_id}/{tabular_id}",
                 &self.bucket
             )
         } else {
-            format!("s3://{}/{namespace_id}/{table_id}", &self.bucket)
+            format!("s3://{}/{namespace_id}/{tabular_id}", &self.bucket)
         }
     }
 
@@ -312,9 +315,9 @@ impl S3Profile {
     /// Fails if vended credentials are used - currently not supported.
     pub async fn generate_table_config(
         &self,
-        _: &WarehouseIdent,
-        _: &TableIdentUuid,
-        _: &NamespaceIdentUuid,
+        _: WarehouseIdent,
+        _: TableIdentUuid,
+        _: NamespaceIdentUuid,
         data_access: &DataAccess,
         _: Option<&S3Credential>,
     ) -> Result<HashMap<String, String>> {
@@ -489,6 +492,7 @@ async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) ->
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::service::tabular_idents::TabularIdentUuid;
 
     #[test]
     fn test_is_valid_bucket_name() {
@@ -534,9 +538,9 @@ mod test {
         };
 
         let namespace_id = NamespaceIdentUuid::from(uuid::Uuid::now_v7());
-        let table_id = TableIdentUuid::from(uuid::Uuid::now_v7());
+        let table_id = TabularIdentUuid::Table(uuid::Uuid::now_v7());
 
-        let location = profile.table_location(&namespace_id, &table_id);
+        let location = profile.tabular_location(namespace_id, table_id);
         assert_eq!(
             location,
             format!("s3://test_bucket/test_prefix/{namespace_id}/{table_id}")
@@ -545,7 +549,7 @@ mod test {
         let mut profile = profile.clone();
         profile.key_prefix = None;
 
-        let location = profile.table_location(&namespace_id, &table_id);
+        let location = profile.tabular_location(namespace_id, table_id);
         assert_eq!(
             location,
             format!("s3://test_bucket/{namespace_id}/{table_id}")

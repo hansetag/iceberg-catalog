@@ -88,7 +88,7 @@ impl<
         let warehouse_id = if let Some(warehouse_from_arg) = warehouse_from_arg {
             C::get_warehouse_by_name(
                 &warehouse_from_arg,
-                &project_id,
+                project_id,
                 api_context.v1_state.catalog.clone(),
             )
             .await?
@@ -106,20 +106,20 @@ impl<
 
         T::check_user_get_config_for_warehouse(
             api_context.v1_state.auth.clone(),
-            &warehouse_id,
+            warehouse_id,
             &request_metadata,
         )
         .await?;
 
         // Get config from DB and new token from AuthHandler simultaneously
-        let config = C::get_config_for_warehouse(&warehouse_id, api_context.v1_state.catalog);
+        let config = C::get_config_for_warehouse(warehouse_id, api_context.v1_state.catalog);
 
         // Give the auth-handler a chance to exchange / enrich the token
         let new_token = T::exchange_token_for_warehouse(
             api_context.v1_state.auth.clone(),
             &request_metadata,
             &project_id,
-            &warehouse_id,
+            warehouse_id,
         );
 
         let (config, new_token) = futures::join!(config, new_token);
@@ -132,7 +132,7 @@ impl<
 
         config
             .overrides
-            .insert("prefix".to_string(), CONFIG.warehouse_prefix(&warehouse_id));
+            .insert("prefix".to_string(), CONFIG.warehouse_prefix(warehouse_id));
 
         config
             .overrides

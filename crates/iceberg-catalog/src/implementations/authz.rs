@@ -38,7 +38,7 @@ impl AuthConfigHandler<AllowAllAuthZHandler> for AllowAllAuthZHandler {
         _: AllowAllAuthState,
         _: &RequestMetadata,
         _: &ProjectIdent,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
     ) -> Result<Option<String>> {
         Ok(None)
     }
@@ -53,7 +53,7 @@ impl AuthConfigHandler<AllowAllAuthZHandler> for AllowAllAuthZHandler {
 
     async fn check_user_get_config_for_warehouse(
         _: AllowAllAuthState,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: &RequestMetadata,
     ) -> Result<()> {
         Ok(())
@@ -66,7 +66,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_list_namespace(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: Option<&NamespaceIdent>,
         _: AllowAllAuthState,
     ) -> Result<()> {
@@ -75,7 +75,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_create_namespace(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: Option<&NamespaceIdent>,
         _: AllowAllAuthState,
     ) -> Result<()> {
@@ -84,7 +84,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_load_namespace_metadata(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
     ) -> Result<()> {
@@ -95,7 +95,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
     // not check if the namespace exists.
     async fn check_namespace_exists(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
     ) -> Result<()> {
@@ -104,7 +104,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_drop_namespace(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
     ) -> Result<()> {
@@ -113,7 +113,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_update_namespace_properties(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
     ) -> Result<()> {
@@ -122,7 +122,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_create_table(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
     ) -> Result<()> {
@@ -131,7 +131,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_list_tables(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: &NamespaceIdent,
         _: AllowAllAuthState,
     ) -> Result<()> {
@@ -140,8 +140,8 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_rename_table(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
-        _: Option<&TableIdentUuid>,
+        _: WarehouseIdent,
+        _: Option<TableIdentUuid>,
         _: AllowAllAuthState,
     ) -> Result<()> {
         Ok(())
@@ -149,9 +149,9 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_load_table(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: Option<&NamespaceIdent>,
-        _: Option<&TableIdentUuid>,
+        _: Option<TableIdentUuid>,
         _: AllowAllAuthState,
     ) -> Result<()> {
         Ok(())
@@ -159,9 +159,9 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_table_exists(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: Option<&NamespaceIdent>,
-        _: Option<&TableIdentUuid>,
+        _: Option<TableIdentUuid>,
         _: AllowAllAuthState,
     ) -> Result<()> {
         Ok(())
@@ -169,8 +169,8 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_drop_table(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
-        _: Option<&TableIdentUuid>,
+        _: WarehouseIdent,
+        _: Option<TableIdentUuid>,
         _: AllowAllAuthState,
     ) -> Result<()> {
         Ok(())
@@ -178,8 +178,8 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_commit_table(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
-        _: Option<&TableIdentUuid>,
+        _: WarehouseIdent,
+        _: Option<TableIdentUuid>,
         _: Option<&NamespaceIdent>,
         _: Self::State,
     ) -> Result<()> {
@@ -208,7 +208,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_list_warehouse_in_project(
         _: &RequestMetadata,
-        _: &ProjectIdent,
+        _: ProjectIdent,
         _: Self::State,
     ) -> Result<Option<HashSet<WarehouseIdent>>> {
         Ok(None)
@@ -216,7 +216,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_delete_warehouse(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: Self::State,
     ) -> Result<()> {
         Ok(())
@@ -224,7 +224,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_get_warehouse(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: Self::State,
     ) -> Result<()> {
         Ok(())
@@ -232,7 +232,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_rename_warehouse(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: Self::State,
     ) -> Result<()> {
         Ok(())
@@ -240,7 +240,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_deactivate_warehouse(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: Self::State,
     ) -> Result<()> {
         Ok(())
@@ -248,7 +248,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_activate_warehouse(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: Self::State,
     ) -> Result<()> {
         Ok(())
@@ -256,7 +256,7 @@ impl AuthZHandler for AllowAllAuthZHandler {
 
     async fn check_update_storage(
         _: &RequestMetadata,
-        _: &WarehouseIdent,
+        _: WarehouseIdent,
         _: Self::State,
     ) -> Result<()> {
         Ok(())

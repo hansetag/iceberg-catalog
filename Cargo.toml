@@ -45,7 +45,7 @@ headers = { version = "^0.4" }
 hostname = "0.4.0"
 http-body-util = "^0.1"
 jwks_client_rs = "0.5.1"
-strum = "^0.26"
+strum = { version = "^0.26", features = ["derive"] }
 sqlx = { version = "^0.7", features = [
     "runtime-tokio",
     "tls-rustls",

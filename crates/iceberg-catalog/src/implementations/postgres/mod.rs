@@ -1,10 +1,11 @@
 mod catalog;
 pub(crate) mod dbutils;
 pub(crate) mod namespace;
-pub(crate) mod table;
+pub(crate) mod tabular;
 pub(crate) mod warehouse;
 
 pub(crate) mod secrets;
+
 use crate::CONFIG;
 
 pub use secrets::Server as SecretsStore;

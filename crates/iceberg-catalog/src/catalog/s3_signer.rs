@@ -68,7 +68,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             // Ideally we could get rid of this else clause.
             let location = parse_s3_url_to_location(&request_url)?;
             let table_metadata = C::get_table_metadata_by_s3_location(
-                &warehouse_id,
+                warehouse_id,
                 &location,
                 include_staged,
                 state.v1_state.catalog.clone(),
@@ -94,8 +94,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         validate_table_method::<A>(
             &request_method,
             &request_metadata,
-            &warehouse_id,
-            &table_id,
+            warehouse_id,
+            table_id,
             state.v1_state.auth,
         )
         .await?;
@@ -115,8 +115,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             table_metadata
         } else {
             C::get_table_metadata_by_id(
-                &warehouse_id,
-                &table_id,
+                warehouse_id,
+                table_id,
                 include_staged,
                 state.v1_state.catalog,
             )
@@ -322,8 +322,8 @@ fn validate_region(region: &str, storage_profile: &S3Profile) -> Result<()> {
 async fn validate_table_method<A: AuthZHandler>(
     method: &http::Method,
     metadata: &RequestMetadata,
-    warehouse_id: &WarehouseIdent,
-    table_id: &TableIdentUuid,
+    warehouse_id: WarehouseIdent,
+    table_id: TableIdentUuid,
     auth_state: A::State,
 ) -> Result<()> {
     // First check - fail fast if requested table is not allowed.
