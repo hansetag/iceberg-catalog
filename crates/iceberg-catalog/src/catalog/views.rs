@@ -1,5 +1,6 @@
 mod commit;
 mod create;
+mod drop;
 mod list;
 mod load;
 
@@ -14,6 +15,7 @@ use iceberg_ext::catalog::rest::ViewUpdate;
 
 use super::tables::{validate_table_or_view_ident, validate_table_properties};
 use super::{require_warehouse_id, CatalogServer};
+
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
 
 #[async_trait::async_trait]
@@ -68,32 +70,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<()> {
-        // ------------------- VALIDATIONS -------------------
-        let ViewParameters { prefix, view } = parameters;
-        let warehouse_id = require_warehouse_id(prefix.clone())?;
-        validate_table_or_view_ident(&view)?;
-
-        // ------------------- AUTHZ -------------------
-        let view_id = C::view_ident_to_id(warehouse_id, &view, state.v1_state.catalog.clone())
-            .await
-            // We can't fail before AuthZ.
-            .ok()
-            .flatten();
-
-        A::check_drop_view(
-            &request_metadata,
-            warehouse_id,
-            view_id.as_ref(),
-            state.v1_state.auth,
-        )
-        .await?;
-
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Views are not implemented".to_string())
-            .r#type("DropViewNotSupported".to_string())
-            .build()
-            .into());
+        drop::drop_view(parameters, state, request_metadata).await
     }
 
     /// Check if a view exists

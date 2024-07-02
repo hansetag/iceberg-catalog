@@ -9,8 +9,8 @@ use crate::{
 use http::StatusCode;
 
 use crate::implementations::postgres::tabular::{
-    create_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed, TabularIdentUuid,
-    TabularType,
+    create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed,
+    TabularIdentUuid, TabularType,
 };
 use crate::implementations::postgres::{tabular, CatalogState};
 use chrono::{DateTime, Utc};
@@ -171,6 +171,38 @@ pub(crate) async fn create_view(
     load_view(TableIdentUuid::from(view_id), transaction)
         .await
         .map(|metadata| metadata.metadata)
+}
+
+pub(crate) async fn drop_view<'a>(
+    view_id: TableIdentUuid,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<()> {
+    let _ = sqlx::query!(
+        r#"
+         DELETE FROM view
+         WHERE view_id = $1
+         AND view_id IN (select view_id from active_views)
+         RETURNING "view_id"
+         "#,
+        *view_id,
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::RowNotFound = e {
+            ErrorModel::builder()
+                .code(StatusCode::NOT_FOUND.into())
+                .message("View not found".to_string())
+                .r#type("NoSuchViewError".to_string())
+                .build()
+        } else {
+            tracing::warn!("Error dropping view: {}", e);
+            e.into_error_model("Error dropping view".to_string())
+        }
+    })?;
+
+    drop_tabular(TabularIdentUuid::View(*view_id), transaction).await?;
+    Ok(())
 }
 
 // TODO: do we wanna do this via a trigger?

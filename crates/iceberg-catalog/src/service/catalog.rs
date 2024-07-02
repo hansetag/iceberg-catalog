@@ -372,6 +372,11 @@ where
         metadata_location: &str,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()>;
+
+    async fn drop_view<'a>(
+        table_id: TableIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
 }
 
 #[derive(Debug, Clone)]
