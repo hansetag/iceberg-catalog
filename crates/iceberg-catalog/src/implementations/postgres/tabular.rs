@@ -248,6 +248,10 @@ pub(crate) async fn create_tabular<'a>(
     }: CreateTabular<'a>,
     conn: &mut PgConnection,
 ) -> Result<Uuid> {
+    // Tables with `metadata_location is NULL` are staged and not yet committed.
+    // They can be overwritten in a new create statement as if they wouldn't exist yet.
+    // Views do not require this distinction, as `metadata_location` is always set for them
+    // (validated by constraint).
     Ok(sqlx::query_scalar!(
         r#"
         INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location, location)
