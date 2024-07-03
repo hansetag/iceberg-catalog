@@ -456,16 +456,20 @@ impl From<iceberg::spec::ViewFormatVersion> for ViewFormatVersion {
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
+    use std::sync::Arc;
 
     use crate::implementations::postgres::tabular::view::load_view;
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use crate::implementations::postgres::CatalogState;
 
+    use crate::service::TableIdentUuid;
+
+    use iceberg::spec::ViewMetadata;
     use iceberg::{NamespaceIdent, TableIdent};
     use iceberg_ext::catalog::rest::CreateViewRequest;
+    use maplit::hashmap;
     use serde_json::json;
-
-    use crate::service::TableIdentUuid;
+    use sqlx::{Acquire, PgPool};
     use uuid::Uuid;
 
     fn view_request() -> CreateViewRequest {
@@ -583,5 +587,166 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(metadata.metadata, created_meta);
+    }
+
+    #[sqlx::test]
+    async fn create_view_add_schema(pool: sqlx::PgPool) {
+        let (state, created_meta) = prepare_view(pool).await;
+
+        let schema = created_meta
+            .current_schema()
+            .as_ref()
+            .clone()
+            .into_builder();
+
+        let schema_ref = Arc::new(schema.with_schema_id(2).build().unwrap());
+        let mut tx = state.read_pool.begin().await.unwrap();
+        let _ = super::create_view_schema(created_meta.view_uuid, schema_ref.clone(), &mut tx)
+            .await
+            .unwrap();
+
+        tx.commit().await.unwrap();
+
+        let mut conn = state.read_pool.acquire().await.unwrap();
+        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
+            .await
+            .unwrap();
+        assert_eq!(metadata.metadata.schemas.get(&2).unwrap(), &schema_ref);
+    }
+
+    #[sqlx::test]
+    async fn create_view_add_version_set_version(pool: sqlx::PgPool) {
+        let (state, created_meta) = prepare_view(pool).await;
+
+        let rep1 = iceberg::spec::ViewRepresentation::SqlViewRepresentation(
+            iceberg::spec::SqlViewRepresentation {
+                sql: "select * from my_table".to_string(),
+                dialect: "spark".to_string(),
+            },
+        );
+
+        let rep2 = iceberg::spec::ViewRepresentation::SqlViewRepresentation(
+            iceberg::spec::SqlViewRepresentation {
+                sql: "select * from my_table".to_string(),
+                dialect: "spark".to_string(),
+            },
+        );
+
+        let view_version = Arc::new(
+            iceberg::spec::ViewVersion::builder()
+                .with_version_id(2)
+                .with_schema_id(0)
+                .with_default_namespace(
+                    NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap(),
+                )
+                .with_default_catalog(Some("my_catalog".to_string()))
+                .with_summary(hashmap!(
+                    "engine-version".into() => "3.5.1".into(),
+                ))
+                .with_representations(vec![rep1, rep2])
+                .with_timestamp_ms(1_719_395_654_343_i64)
+                .build(),
+        );
+
+        let mut tx = state.read_pool.begin().await.unwrap();
+        let _ = super::create_view_version(
+            created_meta.view_uuid,
+            super::CreateViewVersion::AsCurrent(view_version.clone()),
+            &mut tx,
+        )
+        .await
+        .unwrap();
+
+        tx.commit().await.unwrap();
+
+        let mut conn = state.read_pool.acquire().await.unwrap();
+        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut *conn)
+            .await
+            .unwrap();
+        assert_eq!(*metadata.metadata.current_version(), view_version);
+        assert_eq!(metadata.metadata.version_log.len(), 2);
+        assert_eq!(
+            metadata.metadata.version_log.last().map(|e| e.version_id),
+            Some(2)
+        );
+
+        let mut tx = conn.begin().await.unwrap();
+        super::set_current_view_metadata_version(1, created_meta.view_uuid, &mut tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut *conn)
+            .await
+            .unwrap();
+        assert_eq!(metadata.metadata.current_version().version_id(), 1);
+        assert_eq!(metadata.metadata.version_log.len(), 3);
+        assert_eq!(
+            metadata.metadata.version_log.last().map(|e| e.version_id),
+            Some(1)
+        );
+    }
+
+    #[sqlx::test]
+    async fn create_view_add_prop(pool: sqlx::PgPool) {
+        let (state, created_meta) = prepare_view(pool).await;
+        let mut tx = state.read_pool.begin().await.unwrap();
+
+        super::insert_view_properties(
+            &hashmap!("foo".to_string() => "bar".to_string()),
+            created_meta.view_uuid,
+            &mut tx,
+        )
+        .await
+        .unwrap();
+
+        tx.commit().await.unwrap();
+
+        let mut conn = state.read_pool.acquire().await.unwrap();
+        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            *metadata.metadata.properties(),
+            hashmap!("foo".to_string() => "bar".to_string(),
+                     "create_engine_version".into()=> "Spark 3.5.1".into(),
+                     "engine_version".into()=> "Spark 3.5.1".into(),
+                     "spark.query-column-names".into()=> "id".into())
+        );
+    }
+
+    async fn prepare_view(pool: PgPool) -> (CatalogState, ViewMetadata) {
+        let state = CatalogState {
+            read_pool: pool.clone(),
+            write_pool: pool.clone(),
+        };
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
+        initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
+        let namespace_id =
+            crate::implementations::postgres::tabular::table::tests::get_namespace_id(
+                state.clone(),
+                warehouse_id,
+                &namespace,
+            )
+            .await;
+
+        let request = view_request();
+        let table_uuid = Uuid::now_v7().into();
+        let mut tx = pool.begin().await.unwrap();
+        let created_meta = super::create_view(
+            namespace_id,
+            &TableIdent {
+                namespace: namespace.clone(),
+                name: request.name.clone(),
+            },
+            table_uuid,
+            request.clone(),
+            "s3://my_bucket/my_table/metadata/bar",
+            &mut tx,
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        (state, created_meta)
     }
 }
