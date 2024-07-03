@@ -199,7 +199,7 @@ impl MetadataFetcher {
     ) -> crate::api::Result<HashMap<i64, ViewVersionRef>> {
         let mut versions = HashMap::new();
         let rows = sqlx::query!(
-                r#"SELECT version_id, schema_id, timestamp, default_namespace_id as "default_namespace_id?", default_catalog, view_version_unique_id
+                r#"SELECT version_id, schema_id, timestamp, default_namespace_id as "default_namespace_id?", default_catalog
                 FROM view_version
                 LEFT JOIN namespace ns on ns.namespace_id = view_version.default_namespace_id
                 WHERE view_id = $1
@@ -218,7 +218,6 @@ impl MetadataFetcher {
             let timestamp = r.timestamp;
             let dni: Option<Uuid> = r.default_namespace_id;
             let namespace_name = Self::get_namespace_ident_with_empty_support(conn, dni).await?;
-            let view_version_unique_id = r.view_version_unique_id;
             let version_id = r.version_id;
 
             let builder = ViewVersion::builder()
@@ -227,10 +226,8 @@ impl MetadataFetcher {
                 .with_default_namespace(namespace_name)
                 .with_default_catalog(r.default_catalog)
                 .with_schema_id(r.schema_id)
-                .with_summary(Self::fetch_metadata_summary(conn, view_version_unique_id).await?)
-                .with_representations(
-                    Self::fetch_view_representations(conn, view_version_unique_id).await?,
-                )
+                .with_summary(self.fetch_metadata_summary(conn, version_id).await?)
+                .with_representations(self.fetch_view_representations(conn, version_id).await?)
                 .build();
 
             versions.insert(version_id, Arc::new(builder));
@@ -239,16 +236,18 @@ impl MetadataFetcher {
     }
 
     async fn fetch_view_representations(
+        &self,
         conn: &mut PgConnection,
-        view_version_unique_id: Uuid,
+        version_id: i64,
     ) -> Result<Vec<ViewRepresentation>> {
         Ok(sqlx::query!(
             r#"
                 SELECT typ as "typ: ViewRepresentationType", sql, dialect
                 FROM view_representation
-                WHERE view_version_unique_id = $1
+                WHERE view_id = $1 AND view_version_id = $2
                 "#,
-            view_version_unique_id
+            self.view_id,
+            version_id
         )
         .fetch_all(&mut *conn)
         .await
@@ -270,16 +269,18 @@ impl MetadataFetcher {
     }
 
     async fn fetch_metadata_summary(
+        &self,
         conn: &mut PgConnection,
-        view_version_unique_id: Uuid,
+        version_id: i64,
     ) -> Result<HashMap<String, String>> {
         Ok(sqlx::query!(
             r#"
                 SELECT key, value
                 FROM metadata_summary
-                WHERE view_version_unique_id = $1
+                WHERE view_id = $1 AND view_version_id = $2
                 "#,
-            view_version_unique_id
+            self.view_id,
+            version_id
         )
         .fetch_all(&mut *conn)
         .await
