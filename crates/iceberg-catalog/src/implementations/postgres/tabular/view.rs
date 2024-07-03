@@ -15,6 +15,7 @@ use chrono::{DateTime, Utc};
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersion, ViewVersionRef};
 use iceberg_ext::catalog::rest::{CreateViewRequest, IcebergErrorResponse};
 use maplit::hashmap;
+use serde::Deserialize;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
 use std::default::Default;
@@ -301,13 +302,20 @@ pub(crate) async fn create_view_version(
         e.into_error_model(message)
     })?;
 
-    // TODO: does this relate to any warehouse id or similar?
     let default_cat = view_version.default_catalog();
+    let summary = serde_json::to_value(view_version.summary()).map_err(|e| {
+        ErrorModel::builder()
+            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+            .message("Error serializing view_version summary".to_string())
+            .r#type("ViewSummarySerializationFailed".to_string())
+            .stack(Some(vec![e.to_string()]))
+            .build()
+    })?;
 
     let insert_response = sqlx::query_as!(ViewVersionResponse,
                 r#"
-                    INSERT INTO view_version (view_id, version_id, schema_id, timestamp, default_namespace_id, default_catalog)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                    INSERT INTO view_version (view_id, version_id, schema_id, timestamp, default_namespace_id, default_catalog, summary)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
                     returning view_id, version_id
                 "#,
                 view_id,
@@ -315,7 +323,8 @@ pub(crate) async fn create_view_version(
                 schema_id,
                 view_version.timestamp(),
                 default_namespace_id,
-                default_cat
+                default_cat,
+                summary
             )
         .fetch_one(&mut **transaction)
         .await.map_err(|e| {
@@ -339,26 +348,6 @@ pub(crate) async fn create_view_version(
                 e.into_error_model(message.to_string())
             }
     })?;
-
-    for (k, v) in view_version.summary() {
-        sqlx::query!(
-            r#"
-            INSERT INTO metadata_summary (view_id, view_version_id, key, value)
-            VALUES ($1, $2, $3, $4)
-            "#,
-            insert_response.view_id,
-            insert_response.version_id,
-            k,
-            v
-        )
-        .execute(&mut **transaction)
-        .await
-        .map_err(|e| {
-            let message = "Error inserting metadata summary".to_string();
-            tracing::warn!("{}", message);
-            e.into_error_model(message)
-        })?;
-    }
 
     for rep in view_version.representations() {
         insert_representation(rep, transaction, insert_response).await?;
@@ -441,8 +430,9 @@ pub(crate) enum ViewFormatVersion {
     V1,
 }
 
-#[derive(sqlx::Type, Debug)]
+#[derive(sqlx::Type, Debug, Deserialize)]
 #[sqlx(type_name = "view_representation_type", rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub(crate) enum ViewRepresentationType {
     Sql,
 }

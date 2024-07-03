@@ -43,6 +43,7 @@ create table view_version
     timestamp            timestamptz not null,
     default_namespace_id uuid REFERENCES namespace (namespace_id),
     default_catalog      text,
+    summary              jsonb       not null,
     FOREIGN KEY (view_id, schema_id) REFERENCES view_schema (view_id, schema_id) ON DELETE CASCADE,
     constraint "unique_version_per_metadata" unique (view_id, version_id),
     PRIMARY KEY (view_id, version_id)
@@ -74,30 +75,20 @@ create index view_version_log_view_id_version_id_idx on view_version_log (view_i
 
 call add_time_columns('view_version_log');
 
-create table metadata_summary
-(
-    view_version_id bigint not null,
-    view_id         uuid   not null REFERENCES view (view_id) ON DELETE CASCADE,
-    key             text   not null,
-    value           text   not null,
-    FOREIGN KEY (view_id, view_version_id) REFERENCES view_version (view_id, version_id) ON DELETE CASCADE,
-    PRIMARY KEY (view_id, view_version_id, key)
-);
-
-call add_time_columns('metadata_summary');
-select trigger_updated_at('"metadata_summary"');
 
 create type view_representation_type as enum ('sql');
 create table view_representation
 (
-    view_version_id bigint                   not null,
-    view_id         uuid                     not null REFERENCES view (view_id) ON DELETE CASCADE,
-    typ             view_representation_type not null,
-    sql             text                     not null,
-    dialect         text                     not null,
-    FOREIGN KEY (view_id, view_version_id) REFERENCES view_version (view_id, version_id) ON DELETE CASCADE,
-    PRIMARY KEY (view_id, view_version_id)
+    view_representation_id uuid primary key default uuid_generate_v1mc(),
+    view_version_id        bigint                   not null,
+    view_id                uuid                     not null REFERENCES view (view_id) ON DELETE CASCADE,
+    typ                    view_representation_type not null,
+    sql                    text                     not null,
+    dialect                text                     not null,
+    FOREIGN KEY (view_id, view_version_id) REFERENCES view_version (view_id, version_id) ON DELETE CASCADE
 );
+
+create index view_representation_view_id_version_id_idx on view_representation (view_id, view_version_id);
 
 call add_time_columns('view_representation');
 select trigger_updated_at('"view_representation"');
