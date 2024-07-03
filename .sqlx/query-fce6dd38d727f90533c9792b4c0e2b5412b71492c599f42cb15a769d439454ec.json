@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO view_representation (view_version_unique_id, view_representation_id, typ, sql, dialect)\n            VALUES ($1, $2, $3, $4, $5)\n            ",
+  "query": "\n            INSERT INTO view_representation (view_id, view_version_id, typ, sql, dialect)\n            VALUES ($1, $2, $3, $4, $5)\n            ",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
+        "Int8",
         {
           "Custom": {
             "name": "view_representation_type",
@@ -23,5 +23,5 @@
     },
     "nullable": []
   },
-  "hash": "954810b1790ffdb79bbfbf33b78ff3ff67f9d1ba8925326281c08cfcdba768e9"
+  "hash": "fce6dd38d727f90533c9792b4c0e2b5412b71492c599f42cb15a769d439454ec"
 }

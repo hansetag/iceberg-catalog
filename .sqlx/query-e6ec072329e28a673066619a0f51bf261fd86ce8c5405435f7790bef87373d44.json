@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT typ as \"typ: ViewRepresentationType\", sql, dialect\n                FROM view_representation\n                WHERE view_version_unique_id = $1\n                ",
+  "query": "\n                SELECT typ as \"typ: ViewRepresentationType\", sql, dialect\n                FROM view_representation\n                WHERE view_id = $1 AND view_version_id = $2\n                ",
   "describe": {
     "columns": [
       {
@@ -30,7 +30,8 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -39,5 +40,5 @@
       false
     ]
   },
-  "hash": "37d9410cb18bf47cae6f3477cff5b60f89497ae2a0c97f8158ead335a514baa6"
+  "hash": "e6ec072329e28a673066619a0f51bf261fd86ce8c5405435f7790bef87373d44"
 }
