@@ -835,6 +835,33 @@ pub(crate) mod tests {
         );
     }
 
+    #[sqlx::test]
+    async fn drop_view(pool: sqlx::PgPool) {
+        let (state, created_meta) = prepare_view(pool).await;
+        let mut tx = state.read_pool.begin().await.unwrap();
+        super::drop_view(created_meta.view_uuid.into(), &mut tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        load_view(
+            created_meta.view_uuid.into(),
+            &mut state.read_pool.acquire().await.unwrap(),
+        )
+        .await
+        .expect_err("dropped view should not be loadable");
+    }
+
+    #[sqlx::test]
+    async fn drop_view_not_existing(pool: sqlx::PgPool) {
+        let (state, _) = prepare_view(pool).await;
+        let mut tx = state.read_pool.begin().await.unwrap();
+        let e = super::drop_view(Uuid::now_v7().into(), &mut tx)
+            .await
+            .expect_err("dropping random uuid should not succeed");
+        tx.commit().await.unwrap();
+        assert_eq!(e.error.code, 404);
+    }
+
     async fn prepare_view(pool: PgPool) -> (CatalogState, ViewMetadata) {
         let state = CatalogState {
             read_pool: pool.clone(),
