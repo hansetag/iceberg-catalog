@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM view_properties WHERE view_id = $1;",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3e8dafc5c58b1de0500cd17906e4d0393b6615c08a5cce4b849d41fd1427cf0c"
+}

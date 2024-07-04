@@ -19,9 +19,9 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::implementations::postgres::tabular::view::{
-    create_view, create_view_schema, create_view_version, delete_properties,
-    insert_view_properties, list_views, load_view, set_current_view_metadata_version,
-    update_metadata_location, view_ident_to_id, CreateViewVersion, ViewVersionResponse,
+    create_view, create_view_schema, create_view_version, delete_properties, list_views, load_view,
+    set_current_view_metadata_version, set_view_properties, update_metadata_location,
+    view_ident_to_id, CreateViewVersion, ViewVersionResponse,
 };
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
@@ -342,7 +342,7 @@ impl Catalog for super::Catalog {
         properties: &HashMap<String, String>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()> {
-        insert_view_properties(properties, *view_id, transaction).await
+        set_view_properties(properties, *view_id, transaction).await
     }
 
     async fn delete_view_properties(

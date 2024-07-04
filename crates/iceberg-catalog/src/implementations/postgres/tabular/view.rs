@@ -164,7 +164,7 @@ pub(crate) async fn create_view(
         view_id
     );
 
-    insert_view_properties(metadata.properties(), view_id, transaction).await?;
+    set_view_properties(metadata.properties(), view_id, transaction).await?;
 
     tracing::debug!("Inserted view properties for view",);
 
@@ -211,29 +211,40 @@ async fn insert_view_version_log(
     Ok(())
 }
 
-pub(crate) async fn insert_view_properties(
+pub(crate) async fn set_view_properties(
     properties: &HashMap<String, String>,
     view_id: Uuid,
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), IcebergErrorResponse> {
-    for (key, value) in properties {
-        sqlx::query!(
-            r#"
-            INSERT INTO view_properties (view_id, key, value)
-            VALUES ($1, $2, $3)
-            "#,
-            view_id,
-            key,
-            value
-        )
-        .execute(&mut **transaction)
-        .await
-        .map_err(|e| {
-            let message = "Error inserting view property".to_string();
-            tracing::warn!("{}", message);
-            e.into_error_model(message)
-        })?;
-    }
+    sqlx::query!(
+        r#"DELETE FROM view_properties WHERE view_id = $1;"#,
+        view_id
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|e| {
+        let message = "Error deleting existing view properties".to_string();
+        tracing::warn!("{}", message);
+        e.into_error_model(message)
+    })?;
+    let (keys, vals): (Vec<String>, Vec<String>) = properties
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .unzip();
+    sqlx::query!(
+        r#"INSERT INTO view_properties (view_id, key, value)
+           VALUES ($1, UNNEST($2::text[]), UNNEST($3::text[]));"#,
+        view_id,
+        &keys,
+        &vals
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|e| {
+        let message = "Error inserting view property".to_string();
+        tracing::warn!("{}", message);
+        e.into_error_model(message)
+    })?;
     Ok(())
 }
 
@@ -768,11 +779,11 @@ pub(crate) mod tests {
     }
 
     #[sqlx::test]
-    async fn create_view_add_prop(pool: sqlx::PgPool) {
+    async fn create_view_set_props(pool: sqlx::PgPool) {
         let (state, created_meta) = prepare_view(pool).await;
         let mut tx = state.read_pool.begin().await.unwrap();
 
-        super::insert_view_properties(
+        super::set_view_properties(
             &hashmap!("foo".to_string() => "bar".to_string()),
             created_meta.view_uuid,
             &mut tx,
@@ -788,10 +799,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(
             *metadata.metadata.properties(),
-            hashmap!("foo".to_string() => "bar".to_string(),
-                     "create_engine_version".into()=> "Spark 3.5.1".into(),
-                     "engine_version".into()=> "Spark 3.5.1".into(),
-                     "spark.query-column-names".into()=> "id".into())
+            hashmap!("foo".to_string() => "bar".to_string())
         );
     }
 

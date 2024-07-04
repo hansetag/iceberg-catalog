@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO view_properties (view_id, key, value)\n           VALUES ($1, UNNEST($2::text[]), UNNEST($3::text[]));",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "46905a4ea570ef38cc5c2c36b58c687d2012b6a0436a9b0873c7dcfe99ba91a7"
+}
