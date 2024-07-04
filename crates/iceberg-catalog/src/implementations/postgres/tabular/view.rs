@@ -12,6 +12,7 @@ use crate::implementations::postgres::tabular::{
     create_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed, TabularIdentUuid,
     TabularType,
 };
+use crate::implementations::postgres::{tabular, CatalogState};
 use chrono::{DateTime, Utc};
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersion, ViewVersionRef};
 use iceberg::NamespaceIdent;
@@ -23,7 +24,6 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::implementations::postgres::{tabular, CatalogState};
 
 pub(crate) use crate::service::ViewMetadataWithLocation;
 pub(crate) use load::load_view;
@@ -302,9 +302,9 @@ pub(crate) async fn create_view_schema(
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, FromRow, Clone, Copy)]
-pub(crate) struct ViewVersionResponse {
-    pub(crate) version_id: i64,
-    pub(crate) view_id: Uuid,
+pub struct ViewVersionResponse {
+    pub version_id: i64,
+    pub view_id: Uuid,
 }
 
 #[allow(clippy::too_many_lines)]
