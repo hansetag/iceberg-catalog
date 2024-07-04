@@ -94,11 +94,11 @@ def test_create_drop_view(spark, warehouse: conftest.Warehouse):
     spark.sql(
         "CREATE VIEW test_create_drop_view_spark.my_view AS SELECT my_ints, my_floats FROM test_create_drop_view_spark.my_table")
 
-    spark.sql("SELECT * from test_create_drop_view.my_view")
+    spark.sql("SELECT * from test_create_drop_view_spark.my_view")
     df = spark.sql("SHOW VIEWS IN test_create_drop_view_spark").toPandas()
     assert df.shape[0] == 1
 
-    spark.sql("DROP VIEW test_create_drop_view.my_view")
+    spark.sql("DROP VIEW test_create_drop_view_spark.my_view")
     df = spark.sql("SHOW VIEWS IN test_create_drop_view_spark").toPandas()
     assert df.shape[0] == 0
 
