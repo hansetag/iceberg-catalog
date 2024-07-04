@@ -273,7 +273,7 @@ pub(crate) async fn create_tabular<'a>(
     .await
     .map_err(|e| match &e {
         sqlx::Error::RowNotFound => {
-            eprintln!("conflicted out {id}, {namespace_id}, {typ}");
+            tracing::debug!("conflicted out {id}, {namespace_id}, {typ}");
             ErrorModel::builder()
                 .code(StatusCode::CONFLICT.into())
                 .message("Table or View with same name already exists in Namespace".to_string())

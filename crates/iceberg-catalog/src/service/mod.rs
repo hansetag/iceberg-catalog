@@ -14,6 +14,7 @@ pub use catalog::{
     GetNamespaceResponse, GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse,
     ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
     TableIdent, Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
+    ViewMetadataWithLocation,
 };
 use std::ops::Deref;
 

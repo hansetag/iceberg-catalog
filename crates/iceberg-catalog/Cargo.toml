@@ -41,6 +41,7 @@ itertools = { workspace = true }
 jsonwebtoken = "9.3.0"
 jwks_client_rs = { workspace = true }
 lazy_static = { workspace = true }
+maplit = { workspace = true }
 openssl = { version = '0.10', features = ["vendored"] }
 reqwest = { workspace = true }
 serde = { workspace = true }

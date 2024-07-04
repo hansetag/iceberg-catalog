@@ -1,3 +1,5 @@
+use iceberg::spec::ViewMetadata;
+use iceberg_ext::catalog::rest::CreateViewRequest;
 use std::collections::{HashMap, HashSet};
 
 use super::{
@@ -16,7 +18,8 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
-use crate::implementations::postgres::tabular::view::view_ident_to_id;
+use crate::implementations::postgres::tabular::view::{create_view, load_view, view_ident_to_id};
+use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
     GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
@@ -280,11 +283,37 @@ impl Catalog for super::Catalog {
         .await
     }
 
+    async fn create_view<'a>(
+        namespace_id: NamespaceIdentUuid,
+        view_id: TabularIdentUuid,
+        view: &TableIdent,
+        request: CreateViewRequest,
+        metadata_location: &str,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<ViewMetadata> {
+        create_view(
+            namespace_id,
+            view,
+            TableIdentUuid::from(*view_id),
+            request,
+            metadata_location,
+            transaction,
+        )
+        .await
+    }
+
     async fn view_ident_to_id(
         warehouse_id: WarehouseIdent,
         view: &TableIdent,
         catalog_state: Self::State,
     ) -> Result<Option<TableIdentUuid>> {
         view_ident_to_id(warehouse_id, view, &catalog_state.read_pool).await
+    }
+
+    async fn load_view<'a>(
+        view_id: TableIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<crate::implementations::postgres::tabular::view::ViewMetadataWithLocation> {
+        load_view(view_id, &mut *transaction).await
     }
 }
