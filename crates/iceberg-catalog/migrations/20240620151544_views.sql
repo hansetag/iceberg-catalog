@@ -27,7 +27,6 @@ create table view_schema
 (
     schema_id int   not null,
     view_id   uuid  not null REFERENCES view (view_id) ON DELETE CASCADE,
-    -- the schema object is quite complex and I'm not sure about the benefits of inviting that complexity into sql
     schema    jsonb not null,
     CONSTRAINT "unique_schema_per_view" unique (view_id, schema_id),
     PRIMARY KEY (view_id, schema_id)
