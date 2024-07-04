@@ -660,7 +660,7 @@ pub(crate) mod tests {
         tx.commit().await.unwrap();
 
         let mut conn = state.read_pool.acquire().await.unwrap();
-        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut *conn)
+        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
             .await
             .unwrap();
         assert_eq!(*metadata.metadata.current_version(), view_version);
@@ -675,7 +675,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         tx.commit().await.unwrap();
-        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut *conn)
+        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
             .await
             .unwrap();
         assert_eq!(metadata.metadata.current_version().version_id(), 1);

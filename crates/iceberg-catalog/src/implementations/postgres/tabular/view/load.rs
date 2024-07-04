@@ -169,8 +169,6 @@ async fn prepare_versions(
         unwrap_or_500(version_schema_ids, "Failed to read version_schema_ids")?;
     let version_timestamps =
         unwrap_or_500(version_timestamps, "Failed to read version_timestamps")?;
-    let version_default_namespace_ids = version_default_namespace_ids;
-    let version_default_catalogs = version_default_catalogs;
     let version_metadata_summary = unwrap_or_500(
         version_metadata_summaries,
         "Failed to read version_metadata_summaries",
@@ -216,7 +214,6 @@ async fn prepare_versions(
         let namespace_name =
             get_namespace_ident_with_empty_support(conn, version_default_ns).await?;
         let reps = izip!(typs, dialects, sqls)
-            .into_iter()
             .map(|(typ, dialect, sql)| match typ {
                 ViewRepresentationType::Sql => {
                     ViewRepresentation::SqlViewRepresentation(SqlViewRepresentation {
