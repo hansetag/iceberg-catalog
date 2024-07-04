@@ -343,7 +343,7 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<i32>;
 
-    async fn insert_view_properties(
+    async fn set_view_properties(
         view_id: TableIdentUuid,
         properties: &HashMap<String, String>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,

@@ -337,7 +337,7 @@ impl Catalog for super::Catalog {
         create_view_schema(*view_id, schema, transaction).await
     }
 
-    async fn insert_view_properties(
+    async fn set_view_properties(
         view_id: TableIdentUuid,
         properties: &HashMap<String, String>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,

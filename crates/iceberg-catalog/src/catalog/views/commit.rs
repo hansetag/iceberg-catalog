@@ -227,7 +227,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
                 last_added_schema_id = Some(new_id);
             }
             ViewUpdate::SetProperties(props) => {
-                C::insert_view_properties(view_id, &props.updates, transaction.transaction())
+                C::set_view_properties(view_id, &props.updates, transaction.transaction())
                     .await?;
             }
             ViewUpdate::RemoveProperties(props) => {
