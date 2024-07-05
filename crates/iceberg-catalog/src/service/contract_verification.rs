@@ -17,7 +17,7 @@ use std::sync::Arc;
 ///
 /// ```rust
 ///     use async_trait::async_trait;
-///     use iceberg::spec::TableMetadata;
+///     use iceberg::spec::{TableMetadata, ViewMetadata};
 ///     use iceberg::{TableIdent, TableUpdate};
 ///     use iceberg_catalog::service::{tabular_idents::TabularIdentUuid, contract_verification::{ContractVerification, ContractVerificationOutcome}};
 ///     use iceberg_ext::catalog::rest::{ErrorModel, ViewUpdate};

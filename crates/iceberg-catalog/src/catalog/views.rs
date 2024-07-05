@@ -191,8 +191,7 @@ fn validate_view_updates_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
             ViewUpdate::SetProperties { updates } => {
                 let compression = updates
                     .get(METADATA_COMPRESSION)
-                    .map(String::as_str)
-                    .unwrap_or(METADATA_COMPRESSION_DEFAULT);
+                    .map_or(METADATA_COMPRESSION_DEFAULT, String::as_str);
                 if compression != METADATA_COMPRESSION_DEFAULT {
                     return Err(ErrorModel::builder()
                         .code(StatusCode::BAD_REQUEST.into())
