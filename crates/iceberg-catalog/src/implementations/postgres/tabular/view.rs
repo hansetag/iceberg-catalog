@@ -117,7 +117,7 @@ pub(crate) async fn create_view(
     set_current_view_metadata_version(metadata.current_version_id, metadata.view_uuid, transaction)
         .await?;
 
-    for history in dbg!(&metadata.version_log) {
+    for history in &metadata.version_log {
         insert_view_version_log(
             view_id,
             history.version_id,

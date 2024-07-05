@@ -260,13 +260,13 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         view_id,
         &parameters.view,
         metadata_location.as_str(),
-        dbg!(m.build().map_err(|e| {
+        m.build().map_err(|e| {
             ErrorModel::builder()
                 .code(StatusCode::BAD_REQUEST.into())
                 .message(format!("Error building metadata: {e}"))
                 .r#type("BuildMetadataError".to_string())
                 .build()
-        })?),
+        })?,
         transaction.transaction(),
     )
     .await?;
@@ -355,14 +355,14 @@ mod test {
         let (api_context, namespace, whi) = setup(pool).await;
         let prefix = whi.to_string();
         let view_name = "myview";
-        let view = dbg!(create_view(
+        let view = create_view(
             api_context.clone(),
             namespace.clone(),
             create_view_request(Some(view_name), None),
             Some(prefix.clone()),
         )
         .await
-        .unwrap());
+        .unwrap();
 
         let rq: CommitViewRequest = spark_commit_update_request(Some(view.metadata.view_uuid));
 

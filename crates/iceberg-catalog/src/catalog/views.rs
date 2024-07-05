@@ -189,12 +189,16 @@ fn validate_view_updates_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
     for update in updates {
         match update {
             ViewUpdate::SetProperties { updates } => {
-                if updates.get(METADATA_COMPRESSION).map(String::as_str)
-                    != Some(METADATA_COMPRESSION_DEFAULT)
-                {
+                let compression = updates
+                    .get(METADATA_COMPRESSION)
+                    .map(String::as_str)
+                    .unwrap_or(METADATA_COMPRESSION_DEFAULT);
+                if compression != METADATA_COMPRESSION_DEFAULT {
                     return Err(ErrorModel::builder()
                         .code(StatusCode::BAD_REQUEST.into())
-                        .message("Only gzip compression is supported".to_string())
+                        .message(format!(
+                            "Only gzip compression is supported, got: '{compression:?}'"
+                        ))
                         .r#type("UnsupportedCompression".to_string())
                         .build()
                         .into());
