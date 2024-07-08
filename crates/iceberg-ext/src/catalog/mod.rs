@@ -11,11 +11,7 @@ pub mod rest {
     pub use s3_signer::{S3SignRequest, S3SignResponse};
 
     mod view_update;
-    pub use view_update::{
-        AddSchemaUpdate, AddViewVersionUpdate, AssignUuidUpdate, RemovePropertiesUpdate,
-        SetCurrentViewVersionUpdate, SetLocationUpdate, SetPropertiesUpdate,
-        UpgradeFormatVersionUpdate, ViewUpdate,
-    };
+    pub use view_update::ViewUpdate;
 
     mod auth;
     pub use auth::{

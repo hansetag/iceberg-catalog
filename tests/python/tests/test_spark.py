@@ -70,6 +70,39 @@ def test_create_view(spark, warehouse: conftest.Warehouse):
     spark.sql("SELECT * from test_create_view.my_view")
 
 
+def test_create_replace_view(spark, warehouse: conftest.Warehouse):
+    spark.sql("CREATE NAMESPACE test_create_replace_view_spark")
+    spark.sql(
+        "CREATE TABLE test_create_replace_view_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(
+        "CREATE VIEW test_create_replace_view_spark.my_view AS SELECT my_ints, my_floats FROM test_create_replace_view_spark.my_table")
+
+    df = spark.sql("SELECT * from test_create_replace_view_spark.my_view").toPandas()
+    assert list(df.columns) == ["my_ints", "my_floats"]
+    spark.sql(
+        "CREATE OR REPLACE VIEW test_create_replace_view_spark.my_view AS SELECT my_floats, my_ints FROM test_create_replace_view_spark.my_table")
+    df = spark.sql("SELECT * from test_create_replace_view_spark.my_view").toPandas()
+    assert list(df.columns) == ["my_floats", "my_ints"]
+
+
+def test_create_drop_view(spark, warehouse: conftest.Warehouse):
+    spark.sql("CREATE NAMESPACE test_create_drop_view_spark")
+    spark.sql(
+        "CREATE TABLE test_create_drop_view_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(
+        "CREATE VIEW test_create_drop_view_spark.my_view AS SELECT my_ints, my_floats FROM test_create_drop_view_spark.my_table")
+
+    spark.sql("SELECT * from test_create_drop_view_spark.my_view")
+    df = spark.sql("SHOW VIEWS IN test_create_drop_view_spark").toPandas()
+    assert df.shape[0] == 1
+
+    spark.sql("DROP VIEW test_create_drop_view_spark.my_view")
+    df = spark.sql("SHOW VIEWS IN test_create_drop_view_spark").toPandas()
+    assert df.shape[0] == 0
+
+
 def test_merge_into(spark):
     spark.sql("CREATE NAMESPACE test_merge_into")
     spark.sql(

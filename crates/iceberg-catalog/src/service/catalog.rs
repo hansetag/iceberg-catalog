@@ -1,11 +1,9 @@
+use crate::SecretIdent;
 use iceberg::spec::{TableMetadata, ViewMetadata};
-use iceberg_ext::catalog::rest::CreateViewRequest;
 pub use iceberg_ext::catalog::rest::{
     CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
 };
 use std::collections::{HashMap, HashSet};
-
-use crate::SecretIdent;
 
 use super::{
     storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent,
@@ -16,7 +14,6 @@ pub use crate::api::iceberg::v1::{
     NamespaceIdent, Result, TableIdent, UpdateNamespacePropertiesRequest,
     UpdateNamespacePropertiesResponse,
 };
-use crate::service::tabular_idents::TabularIdentUuid;
 
 #[async_trait::async_trait]
 pub trait Transaction<D>
@@ -318,9 +315,8 @@ where
 
     async fn create_view<'a>(
         namespace_id: NamespaceIdentUuid,
-        view_id: TabularIdentUuid,
         view: &TableIdent,
-        request: CreateViewRequest,
+        request: ViewMetadata,
         metadata_location: &str,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ViewMetadata>;
@@ -335,10 +331,24 @@ where
         namespace: &NamespaceIdent,
         catalog_state: Self::State,
     ) -> Result<HashMap<TableIdentUuid, TableIdent>>;
+
+    async fn update_view_metadata(
+        namespace_id: NamespaceIdentUuid,
+        view_id: TableIdentUuid,
+        view: &TableIdent,
+        metadata_location: &str,
+        metadata: ViewMetadata,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<ViewMetadata>;
+
+    async fn drop_view<'a>(
+        view_id: TableIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
 }
 
 #[derive(Debug, Clone)]
 pub struct ViewMetadataWithLocation {
-    pub view_location: String,
+    pub metadata_location: String,
     pub metadata: ViewMetadata,
 }

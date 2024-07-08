@@ -945,7 +945,7 @@ pub(crate) mod tests {
             &table_ident,
             table_id,
             request,
-            dbg!(metadata_location.as_ref()),
+            metadata_location.as_ref(),
             &mut transaction,
         )
         .await
@@ -1045,12 +1045,9 @@ pub(crate) mod tests {
         let table_2 = initialize_table(warehouse_id, state.clone(), false).await;
         tables.insert(&table_2.table_ident);
 
-        let exists =
-            dbg!(
-                table_idents_to_ids(warehouse_id, tables.clone(), false, &state.read_pool)
-                    .await
-                    .unwrap()
-            );
+        let exists = table_idents_to_ids(warehouse_id, tables.clone(), false, &state.read_pool)
+            .await
+            .unwrap();
         assert_eq!(exists.len(), 2);
         assert!(exists.get(&table_1.table_ident).unwrap().is_none());
         assert_eq!(

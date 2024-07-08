@@ -1160,7 +1160,7 @@ mod test {
         aggregate
             .add_schema(schema_1, None)
             .expect("Cannot add new schema.");
-        assert!(dbg!(aggregate.add_schema(schema_2, None)).is_err());
+        assert!(aggregate.add_schema(schema_2, None).is_err());
     }
 
     #[test]

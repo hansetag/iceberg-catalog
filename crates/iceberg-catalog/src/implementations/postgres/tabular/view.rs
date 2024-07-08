@@ -9,20 +9,18 @@ use crate::{
 use http::StatusCode;
 
 use crate::implementations::postgres::tabular::{
-    create_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed, TabularIdentUuid,
-    TabularType,
+    create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed,
+    TabularIdentUuid, TabularType,
 };
 use crate::implementations::postgres::CatalogState;
 use chrono::{DateTime, Utc};
-use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersion, ViewVersionRef};
+use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersionRef};
 use iceberg::NamespaceIdent;
-use iceberg_ext::catalog::rest::{CreateViewRequest, IcebergErrorResponse};
-use maplit::hashmap;
+use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use serde::Deserialize;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
 use std::default::Default;
-use std::sync::Arc;
 use uuid::Uuid;
 
 pub(crate) use crate::service::ViewMetadataWithLocation;
@@ -55,65 +53,22 @@ where
     .transpose()
 }
 
-pub(crate) enum CreateViewVersion {
-    AsCurrent(ViewVersionRef),
-}
-
-impl CreateViewVersion {
-    fn inner(&self) -> &ViewVersion {
-        match self {
-            Self::AsCurrent(v) => v.as_ref(),
-        }
-    }
-}
-
 pub(crate) async fn create_view(
     namespace_id: NamespaceIdentUuid,
-    view: &TableIdent,
-    view_id: TableIdentUuid,
-    request: CreateViewRequest,
     metadata_location: &str,
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    transaction: &mut Transaction<'_, Postgres>,
+    name: &str,
+    metadata: ViewMetadata,
 ) -> Result<ViewMetadata> {
-    let TableIdent { namespace: _, name } = view;
-    let CreateViewRequest {
-        name: _,
-        location,
-        schema,
-        view_version,
-        properties,
-    } = request;
-
-    let location = location.ok_or_else(|| {
-        // TODO: encode this in the request struct? I.e. decouple rest interface from db interface
-        tracing::error!("Server failed to set view location, this should not be possible.");
-        ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Server failed to set view location.".to_string())
-            .r#type("SetViewLocationFailed".to_string())
-            .build()
-    })?;
-
-    let metadata = ViewMetadata {
-        format_version: iceberg::spec::ViewFormatVersion::V1,
-        view_uuid: *view_id,
-        location: metadata_location.to_string(),
-        current_version_id: view_version.version_id,
-        versions: hashmap!(view_version.version_id => Arc::new(view_version)),
-        // we'll populate this on insert
-        version_log: vec![],
-        schemas: hashmap!(schema.schema_id() => Arc::new(schema)),
-        properties,
-    };
-
+    let location = metadata.location.as_str();
     let tabular_id = create_tabular(
         CreateTabular {
-            id: *view_id,
-            name: name.as_str(),
+            id: metadata.view_uuid,
+            name,
             namespace_id: *namespace_id,
             typ: TabularType::View,
             metadata_location: Some(metadata_location),
-            location: &location,
+            location,
         },
         &mut *transaction,
     )
@@ -141,35 +96,74 @@ pub(crate) async fn create_view(
     })?;
 
     tracing::debug!("Inserted base view and tabular.");
+    for schema in metadata.schemas.values() {
+        let schema_id = create_view_schema(view_id, schema.clone(), transaction).await?;
+        tracing::debug!("Inserted schema with id: '{}'", schema_id);
+    }
 
-    let schema_id =
-        create_view_schema(view_id, metadata.current_schema().clone(), transaction).await?;
+    for view_version in metadata.versions.values() {
+        let ViewVersionResponse {
+            version_id,
+            view_id,
+        } = create_view_version(view_id, view_version.clone(), transaction).await?;
 
-    tracing::debug!("Inserted schema with id: '{}'", schema_id);
+        tracing::debug!(
+            "Inserted view version with id: '{}' for view_id: '{}'",
+            version_id,
+            view_id
+        );
+    }
 
-    let ViewVersionResponse {
-        version_id,
-        view_id,
-    } = create_view_version(
-        view_id,
-        CreateViewVersion::AsCurrent(metadata.current_version().clone()),
-        transaction,
-    )
-    .await?;
+    set_current_view_metadata_version(metadata.current_version_id, metadata.view_uuid, transaction)
+        .await?;
 
-    tracing::debug!(
-        "Created view version with id: '{}' for view_id: '{}'",
-        version_id,
-        view_id
-    );
+    for history in &metadata.version_log {
+        insert_view_version_log(
+            view_id,
+            history.version_id,
+            Some(history.timestamp()),
+            transaction,
+        )
+        .await?;
+    }
 
-    insert_view_properties(metadata.properties(), view_id, transaction).await?;
+    set_view_properties(metadata.properties(), view_id, transaction).await?;
 
     tracing::debug!("Inserted view properties for view",);
 
-    load_view(TableIdentUuid::from(view_id), transaction)
-        .await
-        .map(|metadata| metadata.metadata)
+    Ok(metadata)
+}
+
+pub(crate) async fn drop_view<'a>(
+    view_id: TableIdentUuid,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<()> {
+    let _ = sqlx::query!(
+        r#"
+         DELETE FROM view
+         WHERE view_id = $1
+         AND view_id IN (select view_id from active_views)
+         RETURNING "view_id"
+         "#,
+        *view_id,
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::RowNotFound = e {
+            ErrorModel::builder()
+                .code(StatusCode::NOT_FOUND.into())
+                .message("View not found".to_string())
+                .r#type("NoSuchViewError".to_string())
+                .build()
+        } else {
+            tracing::warn!("Error dropping view: {}", e);
+            e.into_error_model("Error dropping view".to_string())
+        }
+    })?;
+
+    drop_tabular(TabularIdentUuid::View(*view_id), transaction).await?;
+    Ok(())
 }
 
 // TODO: do we wanna do this via a trigger?
@@ -210,29 +204,32 @@ async fn insert_view_version_log(
     Ok(())
 }
 
-pub(crate) async fn insert_view_properties(
+pub(crate) async fn set_view_properties(
     properties: &HashMap<String, String>,
     view_id: Uuid,
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), IcebergErrorResponse> {
-    for (key, value) in properties {
-        sqlx::query!(
-            r#"
-            INSERT INTO view_properties (view_id, key, value)
-            VALUES ($1, $2, $3)
-            "#,
-            view_id,
-            key,
-            value
-        )
-        .execute(&mut **transaction)
-        .await
-        .map_err(|e| {
-            let message = "Error inserting view property".to_string();
-            tracing::warn!("{}", message);
-            e.into_error_model(message)
-        })?;
-    }
+    let (keys, vals): (Vec<String>, Vec<String>) = properties
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .unzip();
+    sqlx::query!(
+        r#"INSERT INTO view_properties (view_id, key, value)
+           VALUES ($1, UNNEST($2::text[]), UNNEST($3::text[]))
+              ON CONFLICT (view_id, key)
+                DO UPDATE SET value = EXCLUDED.value
+           ;"#,
+        view_id,
+        &keys,
+        &vals
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|e| {
+        let message = "Error inserting view property".to_string();
+        tracing::warn!("{}", message);
+        e.into_error_model(message)
+    })?;
     Ok(())
 }
 
@@ -273,18 +270,18 @@ pub(crate) async fn create_view_schema(
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, FromRow, Clone, Copy)]
-pub(crate) struct ViewVersionResponse {
-    pub(crate) version_id: i64,
-    pub(crate) view_id: Uuid,
+struct ViewVersionResponse {
+    version_id: i64,
+    view_id: Uuid,
 }
 
 #[allow(clippy::too_many_lines)]
-pub(crate) async fn create_view_version(
+async fn create_view_version(
     view_id: Uuid,
-    view_version_request: CreateViewVersion,
+    view_version_request: ViewVersionRef,
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<ViewVersionResponse> {
-    let view_version = view_version_request.inner();
+    let view_version = view_version_request;
     let version_id = view_version.version_id();
     let schema_id = view_version.schema_id();
     let default_ns = view_version.default_namespace();
@@ -356,12 +353,8 @@ pub(crate) async fn create_view_version(
         insert_representation(rep, transaction, insert_response).await?;
     }
 
-    let CreateViewVersion::AsCurrent(_) = view_version_request;
-
-    set_current_view_metadata_version(version_id, view_id, transaction).await?;
-
     tracing::debug!(
-        "Inserted version: '{}' as current view metadata version for '{}'",
+        "Inserted version: '{}' view metadata version for '{}'",
         version_id,
         view_id
     );
@@ -393,10 +386,7 @@ pub(crate) async fn set_current_view_metadata_version(
         e.into_error_model(message)
     })?;
 
-    insert_view_version_log(view_id, version_id, None, transaction).await?;
-    tracing::debug!(
-        "Successfully set current view metadata version and inserted view version log."
-    );
+    tracing::debug!("Successfully set current view metadata version");
     Ok(())
 }
 
@@ -485,7 +475,6 @@ impl From<iceberg::spec::ViewFormatVersion> for ViewFormatVersion {
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
-    use std::sync::Arc;
 
     use crate::implementations::postgres::tabular::view::load_view;
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
@@ -493,54 +482,113 @@ pub(crate) mod tests {
 
     use crate::service::TableIdentUuid;
 
-    use iceberg::spec::ViewMetadata;
-    use iceberg::{NamespaceIdent, TableIdent};
-    use iceberg_ext::catalog::rest::CreateViewRequest;
-    use maplit::hashmap;
+    use iceberg::spec::{ViewMetadata, ViewMetadataBuilder};
+    use iceberg::NamespaceIdent;
+
     use serde_json::json;
-    use sqlx::{Acquire, PgPool};
+    use sqlx::PgPool;
     use uuid::Uuid;
 
-    fn view_request() -> CreateViewRequest {
+    fn view_request(view_id: Option<Uuid>) -> ViewMetadata {
+        // pub format_version: VersionNumber<1>,
+        // pub(super) view_uuid: Uuid,
+        // pub(super) location: String,
+        // pub(super) current_version_id: i64,
+        // pub(super) versions: Vec<ViewVersionV1>,
+        // pub(super) version_log: Vec<ViewVersionLog>,
+        // pub(super) schemas: Vec<SchemaV2>,
+        // pub(super) properties: Option<std::collections::HashMap<String, String>>,
         serde_json::from_value(json!({
-                                  "name": "myview",
-                                  "location": "s3://my_bucket/my_table/metadata/bar",
-                                  "schema": {
-                                    "schema-id": 0,
-                                    "type": "struct",
-                                    "fields": [
-                                      {
-                                        "id": 0,
-                                        "name": "id",
-                                        "required": false,
-                                        "type": "long"
-                                      }
-                                    ]
-                                  },
-                                  "view-version": {
-                                    "version-id": 1,
-                                    "schema-id": 0,
-                                    "timestamp-ms": 1_719_395_654_343_i64,
-                                    "summary": {
-                                      "engine-version": "3.5.1",
-                                      "iceberg-version": "Apache Iceberg 1.5.2 (commit cbb853073e681b4075d7c8707610dceecbee3a82)",
-                                      "engine-name": "spark",
-                                      "app-id": "local-1719395622847"
-                                    },
-                                    "representations": [
-                                      {
-                                        "type": "sql",
-                                        "sql": "select id from spark_demo.my_table",
-                                        "dialect": "spark"
-                                      }
-                                    ],
-                                    "default-namespace": []
-                                  },
-                                  "properties": {
-                                    "create_engine_version": "Spark 3.5.1",
-                                    "engine_version": "Spark 3.5.1",
-                                    "spark.query-column-names": "id"
-                                  }})).unwrap()
+  "format-version": 1,
+  "view-uuid": view_id.unwrap_or_else(Uuid::now_v7).to_string(),
+  "location": "s3://examples/initial-warehouse/86ebaeae-351e-11ef-92b0-f7afa1e3ea1a/01905db5-44b7-7582-80e0-e52cbccdfa0f/metadata/01905db5-4e2d-7691-af92-789507cca618.gz.metadata.json",
+  "current-version-id": 2,
+  "versions": [
+    {
+      "version-id": 1,
+      "schema-id": 0,
+      "timestamp-ms": 1_719_559_079_091_usize,
+      "summary": {
+        "engine-name": "spark",
+        "iceberg-version": "Apache Iceberg 1.5.2 (commit cbb853073e681b4075d7c8707610dceecbee3a82)",
+        "engine-version": "3.5.1",
+        "app-id": "local-1719559068458"
+      },
+      "representations": [
+        {
+          "type": "sql",
+          "sql": "select id, strings from spark_demo.my_table",
+          "dialect": "spark"
+        }
+      ],
+      "default-namespace": []
+    },
+    {
+      "version-id": 2,
+      "schema-id": 1,
+      "timestamp-ms": 1_719_559_081_510_usize,
+      "summary": {
+        "app-id": "local-1719559068458",
+        "engine-version": "3.5.1",
+        "iceberg-version": "Apache Iceberg 1.5.2 (commit cbb853073e681b4075d7c8707610dceecbee3a82)",
+        "engine-name": "spark"
+      },
+      "representations": [
+        {
+          "type": "sql",
+          "sql": "select id from spark_demo.my_table",
+          "dialect": "spark"
+        }
+      ],
+      "default-namespace": []
+    }
+  ],
+  "version-log": [
+    {
+      "version-id": 1,
+      "timestamp-ms": 1_719_559_079_095_usize
+    }
+  ],
+  "schemas": [
+    {
+      "schema-id": 1,
+      "type": "struct",
+      "fields": [
+        {
+          "id": 0,
+          "name": "id",
+          "required": false,
+          "type": "long",
+          "doc": "id of thing"
+        }
+      ]
+    },
+    {
+      "schema-id": 0,
+      "type": "struct",
+      "fields": [
+        {
+          "id": 0,
+          "name": "id",
+          "required": false,
+          "type": "long"
+        },
+        {
+          "id": 1,
+          "name": "strings",
+          "required": false,
+          "type": "string"
+        }
+      ]
+    }
+  ],
+  "properties": {
+    "create_engine_version": "Spark 3.5.1",
+    "spark.query-column-names": "id",
+    "engine_version": "Spark 3.5.1"
+  }
+}
+ )).unwrap()
     }
 
     #[sqlx::test]
@@ -559,20 +607,16 @@ pub(crate) mod tests {
                 &namespace,
             )
             .await;
+        let table_uuid = TableIdentUuid::from(Uuid::now_v7());
 
-        let request = view_request();
-        let table_uuid = Uuid::now_v7().into();
+        let request = view_request(Some(*table_uuid));
         let mut tx = pool.begin().await.unwrap();
         let created_meta = super::create_view(
             namespace_id,
-            &TableIdent {
-                namespace: namespace.clone(),
-                name: request.name.clone(),
-            },
-            table_uuid,
-            request.clone(),
             "s3://my_bucket/my_table/metadata/bar",
             &mut tx,
+            "myview",
+            request.clone(),
         )
         .await
         .unwrap();
@@ -580,30 +624,26 @@ pub(crate) mod tests {
         // recreate with same uuid should fail
         let created_view = super::create_view(
             namespace_id,
-            &TableIdent {
-                namespace: namespace.clone(),
-                name: request.name.clone(),
-            },
-            table_uuid,
-            request.clone(),
             "s3://my_bucket/my_table/metadata/bar",
             &mut tx,
+            "myview",
+            request.clone(),
         )
         .await
         .expect_err("recreation should fail");
         assert_eq!(created_view.error.code, 409);
 
         // recreate with other uuid should fail
+        let build = ViewMetadataBuilder::new(request)
+            .assign_uuid(Uuid::now_v7())
+            .build()
+            .unwrap();
         let created_view = super::create_view(
             namespace_id,
-            &TableIdent {
-                namespace: namespace.clone(),
-                name: request.name.clone(),
-            },
-            Uuid::now_v7().into(),
-            request.clone(),
             "s3://my_bucket/my_table/metadata/bar",
             &mut tx,
+            "myview",
+            build,
         )
         .await
         .expect_err("recreation should fail");
@@ -627,128 +667,30 @@ pub(crate) mod tests {
     }
 
     #[sqlx::test]
-    async fn create_view_add_schema(pool: sqlx::PgPool) {
+    async fn drop_view(pool: sqlx::PgPool) {
         let (state, created_meta) = prepare_view(pool).await;
-
-        let schema = created_meta
-            .current_schema()
-            .as_ref()
-            .clone()
-            .into_builder();
-
-        let schema_ref = Arc::new(schema.with_schema_id(2).build().unwrap());
         let mut tx = state.read_pool.begin().await.unwrap();
-        let _ = super::create_view_schema(created_meta.view_uuid, schema_ref.clone(), &mut tx)
+        super::drop_view(created_meta.view_uuid.into(), &mut tx)
             .await
             .unwrap();
-
         tx.commit().await.unwrap();
-
-        let mut conn = state.read_pool.acquire().await.unwrap();
-        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
-            .await
-            .unwrap();
-        assert_eq!(metadata.metadata.schemas.get(&2).unwrap(), &schema_ref);
+        load_view(
+            created_meta.view_uuid.into(),
+            &mut state.read_pool.acquire().await.unwrap(),
+        )
+        .await
+        .expect_err("dropped view should not be loadable");
     }
 
     #[sqlx::test]
-    async fn create_view_add_version_set_version(pool: sqlx::PgPool) {
-        let (state, created_meta) = prepare_view(pool).await;
-
-        let rep1 = iceberg::spec::ViewRepresentation::SqlViewRepresentation(
-            iceberg::spec::SqlViewRepresentation {
-                sql: "select * from my_table".to_string(),
-                dialect: "spark".to_string(),
-            },
-        );
-
-        let rep2 = iceberg::spec::ViewRepresentation::SqlViewRepresentation(
-            iceberg::spec::SqlViewRepresentation {
-                sql: "select * from my_table".to_string(),
-                dialect: "spark".to_string(),
-            },
-        );
-
-        let view_version = Arc::new(
-            iceberg::spec::ViewVersion::builder()
-                .with_version_id(2)
-                .with_schema_id(0)
-                .with_default_namespace(
-                    NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap(),
-                )
-                .with_default_catalog(Some("my_catalog".to_string()))
-                .with_summary(hashmap!(
-                    "engine-version".into() => "3.5.1".into(),
-                ))
-                .with_representations(vec![rep1, rep2])
-                .with_timestamp_ms(1_719_395_654_343_i64)
-                .build(),
-        );
-
+    async fn drop_view_not_existing(pool: sqlx::PgPool) {
+        let (state, _) = prepare_view(pool).await;
         let mut tx = state.read_pool.begin().await.unwrap();
-        let _ = super::create_view_version(
-            created_meta.view_uuid,
-            super::CreateViewVersion::AsCurrent(view_version.clone()),
-            &mut tx,
-        )
-        .await
-        .unwrap();
-
+        let e = super::drop_view(Uuid::now_v7().into(), &mut tx)
+            .await
+            .expect_err("dropping random uuid should not succeed");
         tx.commit().await.unwrap();
-
-        let mut conn = state.read_pool.acquire().await.unwrap();
-        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
-            .await
-            .unwrap();
-        assert_eq!(*metadata.metadata.current_version(), view_version);
-        assert_eq!(metadata.metadata.version_log.len(), 2);
-        assert_eq!(
-            metadata.metadata.version_log.last().map(|e| e.version_id),
-            Some(2)
-        );
-
-        let mut tx = conn.begin().await.unwrap();
-        super::set_current_view_metadata_version(1, created_meta.view_uuid, &mut tx)
-            .await
-            .unwrap();
-        tx.commit().await.unwrap();
-        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
-            .await
-            .unwrap();
-        assert_eq!(metadata.metadata.current_version().version_id(), 1);
-        assert_eq!(metadata.metadata.version_log.len(), 3);
-        assert_eq!(
-            metadata.metadata.version_log.last().map(|e| e.version_id),
-            Some(1)
-        );
-    }
-
-    #[sqlx::test]
-    async fn create_view_add_prop(pool: sqlx::PgPool) {
-        let (state, created_meta) = prepare_view(pool).await;
-        let mut tx = state.read_pool.begin().await.unwrap();
-
-        super::insert_view_properties(
-            &hashmap!("foo".to_string() => "bar".to_string()),
-            created_meta.view_uuid,
-            &mut tx,
-        )
-        .await
-        .unwrap();
-
-        tx.commit().await.unwrap();
-
-        let mut conn = state.read_pool.acquire().await.unwrap();
-        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
-            .await
-            .unwrap();
-        assert_eq!(
-            *metadata.metadata.properties(),
-            hashmap!("foo".to_string() => "bar".to_string(),
-                     "create_engine_version".into()=> "Spark 3.5.1".into(),
-                     "engine_version".into()=> "Spark 3.5.1".into(),
-                     "spark.query-column-names".into()=> "id".into())
-        );
+        assert_eq!(e.error.code, 404);
     }
 
     async fn prepare_view(pool: PgPool) -> (CatalogState, ViewMetadata) {
@@ -767,19 +709,15 @@ pub(crate) mod tests {
             )
             .await;
 
-        let request = view_request();
-        let table_uuid = Uuid::now_v7().into();
+        let request = view_request(None);
+
         let mut tx = pool.begin().await.unwrap();
         let created_meta = super::create_view(
             namespace_id,
-            &TableIdent {
-                namespace: namespace.clone(),
-                name: request.name.clone(),
-            },
-            table_uuid,
-            request.clone(),
             "s3://my_bucket/my_table/metadata/bar",
             &mut tx,
+            "myview",
+            request,
         )
         .await
         .unwrap();

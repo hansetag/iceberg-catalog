@@ -151,7 +151,7 @@ fn deserialize_reserved_namespaces<'de, D>(deserializer: D) -> Result<ReservedNa
 where
     D: Deserializer<'de>,
 {
-    let buf = dbg!(String::deserialize(deserializer))?;
+    let buf = String::deserialize(deserializer)?;
 
     ReservedNamespaces::from_str(&buf).map_err(serde::de::Error::custom)
 }
@@ -178,7 +178,7 @@ mod test {
 
     #[test]
     fn reserved_namespaces_should_contains_default_values() {
-        assert!(dbg!(&CONFIG.reserved_namespaces).contains("system"));
+        assert!(CONFIG.reserved_namespaces.contains("system"));
         assert!(CONFIG.reserved_namespaces.contains("examples"));
     }
 }

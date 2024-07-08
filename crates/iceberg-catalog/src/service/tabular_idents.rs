@@ -19,6 +19,14 @@ impl TabularIdentUuid {
     }
 }
 
+impl AsRef<Uuid> for TabularIdentUuid {
+    fn as_ref(&self) -> &Uuid {
+        match self {
+            TabularIdentUuid::Table(id) | TabularIdentUuid::View(id) => id,
+        }
+    }
+}
+
 impl Display for TabularIdentUuid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", &**self)
