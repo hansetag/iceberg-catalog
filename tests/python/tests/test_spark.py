@@ -123,6 +123,20 @@ def test_create_drop_view(spark, warehouse: conftest.Warehouse):
     assert df.shape[0] == 0
 
 
+def test_view_exists(spark, warehouse: conftest.Warehouse):
+    spark.sql("CREATE NAMESPACE test_view_exists_spark")
+    spark.sql(
+        "CREATE TABLE test_view_exists_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    spark.sql(
+        "CREATE VIEW IF NOT EXISTS test_view_exists_spark.my_view AS SELECT my_ints, my_floats FROM test_view_exists_spark.my_table")
+    assert spark.sql("SHOW VIEWS IN test_view_exists_spark").toPandas().shape[0] == 1
+
+    spark.sql(
+        "CREATE VIEW IF NOT EXISTS test_view_exists_spark.my_view AS SELECT my_ints, my_floats FROM test_view_exists_spark.my_table")
+    assert spark.sql("SHOW VIEWS IN test_view_exists_spark").toPandas().shape[0] == 1
+
+
 def test_merge_into(spark):
     spark.sql("CREATE NAMESPACE test_merge_into")
     spark.sql(
