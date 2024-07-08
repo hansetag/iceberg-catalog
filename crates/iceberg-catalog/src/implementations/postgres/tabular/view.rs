@@ -12,7 +12,7 @@ use crate::implementations::postgres::tabular::{
     create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed,
     TabularIdentUuid, TabularType,
 };
-use crate::implementations::postgres::CatalogState;
+use crate::implementations::postgres::{tabular, CatalogState};
 use chrono::{DateTime, Utc};
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersionRef};
 use iceberg::NamespaceIdent;
@@ -163,6 +163,26 @@ pub(crate) async fn drop_view<'a>(
     })?;
 
     drop_tabular(TabularIdentUuid::View(*view_id), transaction).await?;
+    Ok(())
+}
+
+/// Rename a table. Tables may be moved across namespaces.
+pub(crate) async fn rename_view(
+    warehouse_id: WarehouseIdent,
+    source_id: TableIdentUuid,
+    source: &TableIdent,
+    destination: &TableIdent,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<()> {
+    tabular::rename_tabular(
+        warehouse_id,
+        TabularIdentUuid::View(*source_id),
+        source,
+        destination,
+        transaction,
+    )
+    .await?;
+
     Ok(())
 }
 
