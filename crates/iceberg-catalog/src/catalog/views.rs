@@ -185,7 +185,7 @@ where
     validate_table_properties(properties)
 }
 
-fn validate_view_updates_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
+fn validate_view_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
     for update in updates {
         match update {
             ViewUpdate::SetProperties { updates } => {
