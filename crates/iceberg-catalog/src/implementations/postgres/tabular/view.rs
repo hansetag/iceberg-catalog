@@ -503,21 +503,14 @@ pub(crate) mod tests {
     use crate::service::TableIdentUuid;
 
     use iceberg::spec::{ViewMetadata, ViewMetadataBuilder};
-    use iceberg::NamespaceIdent;
+    use iceberg::{NamespaceIdent, TableIdent};
 
+    use crate::WarehouseIdent;
     use serde_json::json;
     use sqlx::PgPool;
     use uuid::Uuid;
 
     fn view_request(view_id: Option<Uuid>) -> ViewMetadata {
-        // pub format_version: VersionNumber<1>,
-        // pub(super) view_uuid: Uuid,
-        // pub(super) location: String,
-        // pub(super) current_version_id: i64,
-        // pub(super) versions: Vec<ViewVersionV1>,
-        // pub(super) version_log: Vec<ViewVersionLog>,
-        // pub(super) schemas: Vec<SchemaV2>,
-        // pub(super) properties: Option<std::collections::HashMap<String, String>>,
         serde_json::from_value(json!({
   "format-version": 1,
   "view-uuid": view_id.unwrap_or_else(Uuid::now_v7).to_string(),
@@ -688,7 +681,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn drop_view(pool: sqlx::PgPool) {
-        let (state, created_meta) = prepare_view(pool).await;
+        let (state, created_meta, _, _, _) = prepare_view(pool).await;
         let mut tx = state.read_pool.begin().await.unwrap();
         super::drop_view(created_meta.view_uuid.into(), &mut tx)
             .await
@@ -703,8 +696,43 @@ pub(crate) mod tests {
     }
 
     #[sqlx::test]
+    async fn view_exists(pool: sqlx::PgPool) {
+        let (state, created_meta, warehouse_ident, namespace, name) = prepare_view(pool).await;
+        let exists = super::view_ident_to_id(
+            warehouse_ident,
+            &TableIdent {
+                namespace: namespace.clone(),
+                name,
+            },
+            &state.read_pool,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            exists,
+            Some(created_meta.view_uuid.into()),
+            "view should exist"
+        );
+
+        assert_eq!(
+            super::view_ident_to_id(
+                warehouse_ident,
+                &TableIdent {
+                    namespace,
+                    name: "non_existing".to_string(),
+                },
+                &state.read_pool,
+            )
+            .await
+            .unwrap(),
+            None,
+            "non existing view should not exist"
+        );
+    }
+
+    #[sqlx::test]
     async fn drop_view_not_existing(pool: sqlx::PgPool) {
-        let (state, _) = prepare_view(pool).await;
+        let (state, _, _, _, _) = prepare_view(pool).await;
         let mut tx = state.read_pool.begin().await.unwrap();
         let e = super::drop_view(Uuid::now_v7().into(), &mut tx)
             .await
@@ -713,7 +741,15 @@ pub(crate) mod tests {
         assert_eq!(e.error.code, 404);
     }
 
-    async fn prepare_view(pool: PgPool) -> (CatalogState, ViewMetadata) {
+    async fn prepare_view(
+        pool: PgPool,
+    ) -> (
+        CatalogState,
+        ViewMetadata,
+        WarehouseIdent,
+        NamespaceIdent,
+        String,
+    ) {
         let state = CatalogState {
             read_pool: pool.clone(),
             write_pool: pool.clone(),
@@ -742,6 +778,12 @@ pub(crate) mod tests {
         .await
         .unwrap();
         tx.commit().await.unwrap();
-        (state, created_meta)
+        (
+            state,
+            created_meta,
+            warehouse_id,
+            namespace,
+            "myview".into(),
+        )
     }
 }

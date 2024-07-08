@@ -1,22 +1,23 @@
 mod commit;
 mod create;
 mod drop;
+mod exists;
 mod list;
 mod load;
 mod rename;
 
 use crate::api::iceberg::v1::{
-    ApiContext, CommitViewRequest, CreateViewRequest, DataAccess, ErrorModel, ListTablesResponse,
+    ApiContext, CommitViewRequest, CreateViewRequest, DataAccess, ListTablesResponse,
     LoadViewResult, NamespaceParameters, PaginationQuery, Prefix, RenameTableRequest, Result,
     ViewParameters,
 };
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::spec::view_properties::{METADATA_COMPRESSION, METADATA_COMPRESSION_DEFAULT};
-use iceberg_ext::catalog::rest::ViewUpdate;
+use iceberg_ext::catalog::rest::{ErrorModel, ViewUpdate};
 
-use super::tables::{validate_table_or_view_ident, validate_table_properties};
-use super::{require_warehouse_id, CatalogServer};
+use super::tables::validate_table_properties;
+use super::CatalogServer;
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
 
 #[async_trait::async_trait]
@@ -80,31 +81,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<()> {
-        // ------------------- VALIDATIONS -------------------
-        let ViewParameters { prefix, view } = parameters;
-        let warehouse_id = require_warehouse_id(prefix.clone())?;
-        validate_table_or_view_ident(&view)?;
-        // TODO: authz
-        let view_id = C::view_ident_to_id(warehouse_id, &view, state.v1_state.catalog.clone())
-            .await
-            .ok()
-            .flatten();
-
-        A::check_view_exists(
-            &request_metadata,
-            warehouse_id,
-            Some(&view.namespace),
-            view_id.as_ref(),
-            state.v1_state.auth,
-        )
-        .await?;
-
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Views are not implemented".to_string())
-            .r#type("ViewExistsNotSupported".to_string())
-            .build()
-            .into());
+        exists::view_exists(parameters, state, request_metadata).await
     }
 
     /// Rename a view
