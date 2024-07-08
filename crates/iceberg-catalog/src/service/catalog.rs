@@ -340,6 +340,11 @@ where
         metadata: ViewMetadata,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<ViewMetadata>;
+
+    async fn drop_view<'a>(
+        view_id: TableIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
 }
 
 #[derive(Debug, Clone)]

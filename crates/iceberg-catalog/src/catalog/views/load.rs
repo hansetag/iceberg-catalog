@@ -38,14 +38,13 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let view_id = C::view_ident_to_id(warehouse_id, &view, state.v1_state.catalog.clone())
         .await
         // We can't fail before AuthZ.
-        .ok()
-        .flatten();
+        .transpose();
 
     A::check_load_view(
         &request_metadata,
         warehouse_id,
         Some(&view.namespace),
-        view_id.as_ref(),
+        view_id.as_ref().and_then(|id| id.as_ref().ok()),
         state.v1_state.auth,
     )
     .await?;
@@ -65,14 +64,14 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             .build(),
     )?;
 
-    let Some(view_id) = view_id else {
-        return Err(ErrorModel::builder()
+    let view_id = view_id.transpose()?.ok_or_else(|| {
+        tracing::debug!("View does not exist.");
+        ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
             .message(format!("View does not exist in warehouse {warehouse_id}"))
             .r#type("ViewNotFound".to_string())
             .build()
-            .into());
-    };
+    })?;
     let mut transaction = C::Transaction::begin_read(state.v1_state.catalog).await?;
 
     let GetWarehouseResponse {

@@ -101,20 +101,19 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     }
 
     // ------------------- AUTHZ -------------------
-    let table_id = C::view_ident_to_id(
+    let view_id = C::view_ident_to_id(
         warehouse_id,
         &parameters.view,
         state.v1_state.catalog.clone(),
     )
     .await
     // We can't fail before AuthZ.
-    .ok()
-    .flatten();
+    .transpose();
 
     A::check_commit_view(
         &request_metadata,
         warehouse_id,
-        table_id.as_ref(),
+        view_id.as_ref().and_then(|id| id.as_ref().ok()),
         Some(&parameters.view.namespace),
         state.v1_state.auth,
     )
@@ -135,11 +134,12 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             .build(),
     )?;
 
-    let view_id = table_id.ok_or_else(|| {
+    let view_id = view_id.transpose()?.ok_or_else(|| {
+        tracing::debug!("View does not exist.");
         ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
-            .message(format!("Table does not exist in warehouse {warehouse_id}"))
-            .r#type("TableNotFound".to_string())
+            .message(format!("View does not exist in warehouse {warehouse_id}"))
+            .r#type("ViewNotFound".to_string())
             .build()
     })?;
 

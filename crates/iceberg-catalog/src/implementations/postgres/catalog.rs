@@ -340,4 +340,11 @@ impl Catalog for super::Catalog {
         )
         .await
     }
+
+    async fn drop_view<'a>(
+        view_id: TableIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()> {
+        drop_view(view_id, transaction).await
+    }
 }
