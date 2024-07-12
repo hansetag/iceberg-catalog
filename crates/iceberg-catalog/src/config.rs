@@ -1,4 +1,5 @@
 //! Contains Configuration of the service Module
+use anyhow::anyhow;
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::ops::{Deref, DerefMut};
@@ -22,6 +23,7 @@ lazy_static::lazy_static! {
             .merge(figment::providers::Env::prefixed("ICEBERG_REST__"))
             .extract::<DynAppConfig>()
             .expect("Valid Configuration");
+
         config.reserved_namespaces.extend(DEFAULT_RESERVED_NAMESPACES.into_iter().map(str::to_string));
 
         config
@@ -60,8 +62,20 @@ pub struct DynAppConfig {
     // ------------- POSTGRES IMPLEMENTATION -------------
     #[redact]
     pub(crate) pg_encryption_key: String,
-    pub(crate) pg_database_url_read: String,
-    pub(crate) pg_database_url_write: String,
+    pub(crate) pg_database_url_read: Option<String>,
+    pub(crate) pg_database_url_write: Option<String>,
+    pub(crate) pg_host_r: Option<String>,
+    pub(crate) pg_host_w: Option<String>,
+    pub(crate) pg_port: Option<u16>,
+    pub(crate) pg_user: Option<String>,
+    #[redact]
+    pub(crate) pg_password: Option<String>,
+    pub(crate) pg_database: Option<String>,
+    pub(crate) pg_ssl_mode: Option<PgSslMode>,
+    pub(crate) pg_ssl_root_cert: Option<PathBuf>,
+    pub(crate) pg_enable_statement_logging: bool,
+    pub(crate) pg_test_before_acquire: bool,
+    pub(crate) pg_connection_max_lifetime: Option<u64>,
     pub pg_read_pool_connections: u32,
     pub pg_write_pool_connections: u32,
 
@@ -92,9 +106,23 @@ impl Default for DynAppConfig {
                 "examples".to_string(),
             ])),
             pg_encryption_key: "<This is unsafe, please set a proper key>".to_string(),
-            pg_database_url_read: "postgres://postgres:password@localhost:5432/iceberg".to_string(),
-            pg_database_url_write: "postgres://postgres:password@localhost:5432/iceberg"
-                .to_string(),
+            pg_database_url_read: Some(
+                "postgres://postgres:password@localhost:5432/iceberg".to_string(),
+            ),
+            pg_database_url_write: Some(
+                "postgres://postgres:password@localhost:5432/iceberg".to_string(),
+            ),
+            pg_host_r: None,
+            pg_host_w: None,
+            pg_port: None,
+            pg_user: None,
+            pg_password: None,
+            pg_database: None,
+            pg_ssl_mode: None,
+            pg_ssl_root_cert: None,
+            pg_enable_statement_logging: false,
+            pg_test_before_acquire: false,
+            pg_connection_max_lifetime: None,
             pg_read_pool_connections: 10,
             pg_write_pool_connections: 5,
             nats_address: None,
@@ -118,6 +146,45 @@ impl DynAppConfig {
     pub fn warehouse_prefix(&self, warehouse_id: WarehouseIdent) -> String {
         self.prefix_template
             .replace("{warehouse_id}", warehouse_id.to_string().as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum PgSslMode {
+    Disable,
+    Allow,
+    Prefer,
+    Require,
+    VerifyCa,
+    VerifyFull,
+}
+
+impl From<PgSslMode> for sqlx::postgres::PgSslMode {
+    fn from(value: PgSslMode) -> Self {
+        match value {
+            PgSslMode::Disable => sqlx::postgres::PgSslMode::Disable,
+            PgSslMode::Allow => sqlx::postgres::PgSslMode::Allow,
+            PgSslMode::Prefer => sqlx::postgres::PgSslMode::Prefer,
+            PgSslMode::Require => sqlx::postgres::PgSslMode::Require,
+            PgSslMode::VerifyCa => sqlx::postgres::PgSslMode::VerifyCa,
+            PgSslMode::VerifyFull => sqlx::postgres::PgSslMode::VerifyFull,
+        }
+    }
+}
+
+impl FromStr for PgSslMode {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_ref() {
+            "disabled" => Ok(Self::Disable),
+            "allow" => Ok(Self::Allow),
+            "prefer" => Ok(Self::Prefer),
+            "require" => Ok(Self::Require),
+            "verifyca" => Ok(Self::VerifyCa),
+            "verifyfull" => Ok(Self::VerifyFull),
+            _ => Err(anyhow!("PgSslMode not supported: '{}'", s)),
+        }
     }
 }
 
