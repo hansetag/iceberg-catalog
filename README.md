@@ -1,4 +1,4 @@
-# Iceberg Catalog - The TIP of the Iceberg
+# Iceberg Catalog - The TIP of the Iceberg Iceberg
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Unittests](https://github.com/hansetag/iceberg-catalog/actions/workflows/unittests.yml/badge.svg)](https://github.com/hansetag/iceberg-catalog/actions/workflows/unittests.yml)
