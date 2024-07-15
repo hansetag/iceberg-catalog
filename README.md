@@ -47,7 +47,7 @@ Then open your browser and head to `localhost:8888`.
 |-----------|:-------:|--------------------------------------------------------------------------|
 | Namespace | ![done] | All operations implemented                                               |
 | Table     | ![done] | All operations implemented - additional integration tests in development |
-| Views     | ![open] | Remove unused files and log entries                                      |
+| Views     | ![done] | Remove unused files and log entries                                      |
 | Metrics   | ![open] | Endpoint is available but doesn't store the metrics                      |
 
 ### Storage Profile Support
