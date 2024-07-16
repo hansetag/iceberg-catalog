@@ -89,6 +89,10 @@ impl ErrorModel {
         Self::new(message, r#type, StatusCode::CONFLICT.as_u16())
     }
 
+    pub fn not_found(message: impl Into<String>, r#type: impl Into<String>) -> Self {
+        Self::new(message, r#type, StatusCode::NOT_FOUND.as_u16())
+    }
+
     pub fn new(message: impl Into<String>, r#type: impl Into<String>, code: u16) -> Self {
         Self::builder()
             .message(message)
@@ -103,7 +107,6 @@ impl ErrorModel {
         } else {
             self.stack = Some(vec![message.into()]);
         }
-
         self
     }
 }

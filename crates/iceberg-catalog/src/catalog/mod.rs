@@ -30,39 +30,28 @@ pub struct CatalogServer<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
 fn require_warehouse_id(prefix: Option<Prefix>) -> Result<WarehouseIdent> {
     prefix
-        .ok_or(
-            ErrorModel::builder()
-                .code(http::StatusCode::BAD_REQUEST.into())
-                .message(
-                    "No prefix specified. The warehouse-id must be provided as prefix in the URL."
-                        .to_string(),
-                )
-                .r#type("NoPrefixProvided".to_string())
-                .build(),
-        )?
+        .ok_or(ErrorModel::bad_request(
+            "No prefix specified. The warehouse-id must be provided as prefix in the URL."
+                .to_string(),
+            "NoPrefixProvided",
+        ))?
         .try_into()
 }
 
 fn require_no_location_specified(location: &Option<String>) -> Result<()> {
     if location.is_some() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Specifying a Table `location` is not supported. Location is managed by the Catalog.".to_string())
-            .r#type("LocationNotSupported".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "Specifying a Table `location` is not supported. Location is managed by the Catalog.",
+            "LocationNotSupported",
+        )
+        .into());
     }
     Ok(())
 }
 
 fn require_active_warehouse(status: WarehouseStatus) -> Result<()> {
     if status != WarehouseStatus::Active {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Warehouse is not active".to_string())
-            .r#type("WarehouseNotActive".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::not_found("Warehouse is not active.", "WarehouseNotActive").into());
     }
     Ok(())
 }
