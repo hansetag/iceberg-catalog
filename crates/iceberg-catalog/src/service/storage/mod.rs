@@ -1,69 +1,17 @@
+pub mod error;
 mod s3;
 
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
-use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel};
+use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
-use iceberg_ext::catalog::rest::IcebergErrorResponse;
+pub use error::Error;
 pub use s3::{Error as S3Error, S3Credential, S3Profile};
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error(transparent)]
-    S3Error(#[from] S3Error),
-    #[error("{message}")]
-    InvalidStorageProfile {
-        message: String,
-        origin: UserOrInternal,
-        storage_type: StorageType,
-    },
-    #[cfg(test)]
-    #[error(transparent)]
-    FileIOCreationFailed(#[from] iceberg::Error),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum UserOrInternal {
-    User,
-    Internal,
-}
-
 type Result<T> = std::result::Result<T, Error>;
-
-impl From<Error> for IcebergErrorResponse {
-    fn from(value: Error) -> Self {
-        ErrorModel::from(value).into()
-    }
-}
-
-impl From<Error> for ErrorModel {
-    fn from(value: Error) -> Self {
-        match value {
-            Error::S3Error(e) => e.into(),
-            Error::InvalidStorageProfile {
-                message,
-                origin,
-                storage_type,
-            } => {
-                let mut m = match origin {
-                    UserOrInternal::User => ErrorModel::conflict(message, "InvalidStorageProfile"),
-                    UserOrInternal::Internal => {
-                        ErrorModel::internal(message, "InvalidStorageProfile")
-                    }
-                };
-                m.push_to_stack(format!("Storage type: {storage_type}"));
-                m
-            }
-            #[cfg(test)]
-            Error::FileIOCreationFailed(_) => ErrorModel::internal(
-                "Failed to create file IO".to_string(),
-                "FileIOCreationFailed",
-            ),
-        }
-    }
-}
 
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
@@ -235,6 +183,12 @@ impl StorageProfile {
             }),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum UserOrInternal {
+    User,
+    Internal,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

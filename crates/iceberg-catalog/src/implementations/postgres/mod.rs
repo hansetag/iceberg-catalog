@@ -65,7 +65,7 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
             .write_pool
             .begin()
             .await
-            .map_err(|e| e.into_error_model("Error starting transaction".to_string()))?;
+            .map_err(|e| e.into_internal_error("Error starting transaction".to_string()))?;
 
         Ok(Self { transaction })
     }
@@ -75,7 +75,7 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
             .read_pool
             .begin()
             .await
-            .map_err(|e| e.into_error_model("Error starting transaction".to_string()))?;
+            .map_err(|e| e.into_internal_error("Error starting transaction".to_string()))?;
 
         Ok(Self { transaction })
     }
@@ -84,7 +84,7 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
         self.transaction
             .commit()
             .await
-            .map_err(|e| e.into_error_model("Error committing transaction".to_string()))?;
+            .map_err(|e| e.into_internal_error("Error committing transaction".to_string()))?;
         Ok(())
     }
 
@@ -92,7 +92,7 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
         self.transaction
             .rollback()
             .await
-            .map_err(|e| e.into_error_model("Error rolling back transaction".to_string()))?;
+            .map_err(|e| e.into_internal_error("Error rolling back transaction".to_string()))?;
         Ok(())
     }
 

@@ -3,102 +3,22 @@ use crate::{
     WarehouseIdent, CONFIG,
 };
 
+use crate::api::IcebergErrorResponse;
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel};
 use crate::service::tabular_idents::TabularIdentUuid;
-use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use veil::Redact;
-
-#[derive(thiserror::Error, strum::IntoStaticStr, Debug)]
-pub enum Error {
-    #[error("Invalid bucket name: {0}")]
-    InvalidBucketName(String),
-    #[error("Storage Profile `{0}` cannot be updated to prevent data loss")]
-    InvalidStorageProfileUpdate(String),
-    #[error("Invalid region: {0}")]
-    InvalidRegion(String),
-    #[error("Invalid key prefix: {0}")]
-    InvalidKeyPrefix(String),
-    #[error("Invalid s3 endpoint: {message}")]
-    InvalidS3Endpoint {
-        #[source]
-        source: Option<url::ParseError>,
-        message: String,
-    },
-    #[error("S3 Assume role ARN not supported.")]
-    S3AssumeRoleNotSupported,
-    #[error("Missing storage credentials.")]
-    MissingStorageCredential,
-    #[error("Error creating S3 filesystem.")]
-    S3FileIOError {
-        #[source]
-        source: iceberg::Error,
-    },
-    #[error("Error validating S3 Storage Profile.")]
-    S3ValidationError {
-        #[source]
-        source: iceberg::Error,
-        kind: ValidationErrorKind,
-    },
-}
-
-#[derive(Debug, Clone, Copy, strum::Display)]
-pub enum ValidationErrorKind {
-    S3TestFileCreationError,
-    S3TestFileWriterError,
-    S3TestFileCloseError,
-    S3TestFileDeleteError,
-}
-
-impl From<Error> for IcebergErrorResponse {
-    fn from(value: Error) -> Self {
-        ErrorModel::from(value).into()
-    }
-}
-
-impl From<Error> for ErrorModel {
-    #[track_caller]
-    fn from(e: Error) -> Self {
-        let location = std::panic::Location::caller();
-        tracing::debug!(line_number=location.line(), file_name=location.file(), error = ?e, "S3 error occurred: {e}");
-        let typ: &'static str = (&e).into();
-        match e {
-            Error::InvalidStorageProfileUpdate(_)
-            | Error::MissingStorageCredential
-            | Error::InvalidBucketName(_)
-            | Error::InvalidRegion(_)
-            | Error::InvalidKeyPrefix(_) => ErrorModel::bad_request(e.to_string(), typ),
-            Error::InvalidS3Endpoint { source, message } => {
-                let mut model = ErrorModel::bad_request(message, typ);
-                if let Some(source) = source {
-                    model.push_to_stack(source.to_string());
-                };
-                model
-            }
-            Error::S3AssumeRoleNotSupported => ErrorModel::not_implemented(e.to_string(), typ),
-            Error::S3FileIOError { ref source } => {
-                let mut model = ErrorModel::precondition_failed(e.to_string(), typ);
-                model.push_to_stack(source.to_string());
-                model
-            }
-            Error::S3ValidationError { ref source, kind } => {
-                let mut model = ErrorModel::bad_request(e.to_string(), kind.to_string());
-                model.push_to_stack(source.to_string());
-                model
-            }
-        }
-    }
-}
 
 pub(crate) type Result<T, E = Error> = std::result::Result<T, E>;
 
 fn is_valid_bucket_name(bucket: &str) -> Result<()> {
     // Bucket names must be between 3 (min) and 63 (max) characters long.
     if bucket.len() < 3 || bucket.len() > 63 {
-        return Err(Error::InvalidBucketName(
-            "Bucket name must be between 3 and 63 characters long.".to_string(),
-        ));
+        return Err(Error::InputError {
+            message: "Bucket name must be between 3 and 63 characters long.".to_string(),
+            kind: InputErrorKind::InvalidBucketName,
+        });
     }
 
     // Bucket names can consist only of lowercase letters, numbers, dots (.), and hyphens (-).
@@ -106,10 +26,11 @@ fn is_valid_bucket_name(bucket: &str) -> Result<()> {
         .chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
     {
-        return Err(Error::InvalidBucketName(
-            "Bucket name can consist only of lowercase letters, numbers, dots (.), and hyphens (-)."
+        return Err(Error::InputError {
+            message: "Bucket name can consist only of lowercase letters, numbers, dots (.), and hyphens (-)."
                 .to_string(),
-        ));
+            kind: InputErrorKind::InvalidBucketName
+        });
     }
 
     // Bucket names must begin and end with a letter or number.
@@ -117,16 +38,18 @@ fn is_valid_bucket_name(bucket: &str) -> Result<()> {
     if !bucket.chars().next().unwrap().is_ascii_alphanumeric()
         || !bucket.chars().last().unwrap().is_ascii_alphanumeric()
     {
-        return Err(Error::InvalidBucketName(
-            "Bucket name must begin and end with a letter or number.".to_string(),
-        ));
+        return Err(Error::InputError {
+            message: "Bucket name must begin and end with a letter or number.".to_string(),
+            kind: InputErrorKind::InvalidBucketName,
+        });
     }
 
     // Bucket names must not contain two adjacent periods.
     if bucket.contains("..") {
-        return Err(Error::InvalidBucketName(
-            "Bucket name must not contain two adjacent periods.".to_string(),
-        ));
+        return Err(Error::InputError {
+            message: "Bucket name must not contain two adjacent periods.".to_string(),
+            kind: InputErrorKind::InvalidBucketName,
+        });
     }
 
     Ok(())
@@ -186,17 +109,20 @@ impl S3Profile {
         is_valid_bucket_name(bucket)?;
 
         if region.len() > 128 {
-            return Err(Error::InvalidRegion(
-                "Storage Profile `region` must be less than 128 characters.".to_string(),
-            ));
+            return Err(Error::InputError {
+                message: "Storage Profile `region` must be less than 128 characters.".to_string(),
+                kind: InputErrorKind::InvalidRegion,
+            });
         }
 
         // Aws supports a max of 1024 chars and we need some buffer for tables.
         if let Some(key_prefix) = key_prefix {
             if key_prefix.len() > 512 {
-                return Err(Error::InvalidKeyPrefix(
-                    "Storage Profile `key_prefix` must be less than 512 characters.".to_string(),
-                ));
+                return Err(Error::InputError {
+                    message: "Storage Profile `key_prefix` must be less than 512 characters."
+                        .to_string(),
+                    kind: InputErrorKind::InvalidKeyPrefix,
+                });
             }
         }
 
@@ -224,8 +150,10 @@ impl S3Profile {
 
         validate_file_io(&file_io, &test_location)
             .await
-            .map_err(|e| {
-                tracing::error!(error = ?e, profile=?self, "Failed to validate file_io");
+            .map_err(|mut e| {
+                if let Error::S3ValidationError { details, .. } = &mut e {
+                    *details = Some(format!("Profile: {self:?}"));
+                }
                 e
             })?;
 
@@ -449,15 +377,19 @@ async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) ->
     let test_file = file_io
         .new_output(test_location)
         .map_err(|e| Error::S3ValidationError {
+            message: "Error creating S3 test file.".to_string(),
             source: e,
             kind: ValidationErrorKind::S3TestFileCreationError,
+            details: None,
         })?;
     let mut writer = test_file
         .writer()
         .await
         .map_err(|e| Error::S3ValidationError {
+            message: "Error creating S3 test file writer.".to_string(),
             source: e,
             kind: ValidationErrorKind::S3TestFileWriterError,
+            details: None,
         })?;
 
     let buf: &[u8; 4] = b"test";
@@ -465,24 +397,118 @@ async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) ->
         .write(buf.to_vec().into())
         .await
         .map_err(|e| Error::S3ValidationError {
+            message: "Error writing to S3 test file.".to_string(),
             source: e,
             kind: ValidationErrorKind::S3TestFileWriterError,
+            details: None,
         })?;
 
     writer.close().await.map_err(|e| Error::S3ValidationError {
+        message: "Error closing S3 test file.".to_string(),
         source: e,
         kind: ValidationErrorKind::S3TestFileCloseError,
+        details: None,
     })?;
 
     file_io
         .delete(test_location)
         .await
         .map_err(|e| Error::S3ValidationError {
+            message: "Error deleting S3 test file.".to_string(),
             source: e,
             kind: ValidationErrorKind::S3TestFileDeleteError,
+            details: None,
         })?;
 
     Ok(())
+}
+
+#[derive(thiserror::Error, strum::IntoStaticStr, Debug)]
+pub enum Error {
+    #[error("{kind}: {message}")]
+    InputError {
+        kind: InputErrorKind,
+        message: String,
+    },
+
+    #[error("Storage Profile `{0}` cannot be updated to prevent data loss")]
+    InvalidStorageProfileUpdate(String),
+    #[error("Invalid s3 endpoint: {message}")]
+    InvalidS3Endpoint {
+        #[source]
+        source: Option<url::ParseError>,
+        message: String,
+    },
+    #[error("S3 Assume role ARN not supported.")]
+    S3AssumeRoleNotSupported,
+    #[error("Missing storage credentials.")]
+    MissingStorageCredential,
+    #[error("Error creating S3 filesystem.")]
+    S3FileIOError {
+        #[source]
+        source: iceberg::Error,
+    },
+    #[error("{message}. {details:?}")]
+    S3ValidationError {
+        message: String,
+        #[source]
+        source: iceberg::Error,
+        kind: ValidationErrorKind,
+        details: Option<String>,
+    },
+}
+
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Copy, strum::Display)]
+pub enum InputErrorKind {
+    InvalidBucketName,
+    InvalidRegion,
+    InvalidKeyPrefix,
+}
+
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Copy, strum::Display)]
+pub enum ValidationErrorKind {
+    S3TestFileCreationError,
+    S3TestFileWriterError,
+    S3TestFileCloseError,
+    S3TestFileDeleteError,
+}
+
+impl From<Error> for IcebergErrorResponse {
+    fn from(value: Error) -> Self {
+        ErrorModel::from(value).into()
+    }
+}
+
+impl From<Error> for ErrorModel {
+    fn from(e: Error) -> Self {
+        let typ: &'static str = (&e).into();
+        let message = e.to_string();
+        match &e {
+            Error::InvalidStorageProfileUpdate(_) | Error::MissingStorageCredential => {
+                ErrorModel::bad_request(message, typ, Some(Box::new(e)))
+            }
+            Error::InputError { kind, message } => {
+                ErrorModel::bad_request(message.clone(), kind.to_string(), Some(Box::new(e)))
+            }
+            Error::InvalidS3Endpoint { source: _, message } => {
+                ErrorModel::bad_request(message.clone(), typ, Some(Box::new(e)))
+            }
+            Error::S3AssumeRoleNotSupported => {
+                ErrorModel::not_implemented(message, typ, Some(Box::new(e)))
+            }
+            Error::S3FileIOError { source: _ } => {
+                ErrorModel::precondition_failed(message, typ, Some(Box::new(e)))
+            }
+            Error::S3ValidationError {
+                message,
+                source: _,
+                kind,
+                details: _,
+            } => ErrorModel::bad_request(message.clone(), kind.to_string(), Some(Box::new(e))),
+        }
+    }
 }
 
 #[cfg(test)]

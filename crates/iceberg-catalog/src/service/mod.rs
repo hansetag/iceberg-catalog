@@ -21,7 +21,6 @@ use std::ops::Deref;
 use crate::api::iceberg::v1::Prefix;
 use crate::api::ThreadSafe as ServiceState;
 pub use crate::api::{ErrorModel, IcebergErrorResponse};
-use http::StatusCode;
 use std::str::FromStr;
 
 use crate::service::contract_verification::ContractVerifiers;
@@ -89,17 +88,15 @@ impl std::fmt::Display for NamespaceIdentUuid {
 }
 
 impl FromStr for NamespaceIdentUuid {
-    type Err = IcebergErrorResponse;
+    type Err = InvalidIdentifierError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(NamespaceIdentUuid(uuid::Uuid::from_str(s).map_err(
-            |e| {
-                ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message("Provided namespace id is not a valid UUID".to_string())
-                    .r#type("NamespaceIDIsNotUUID".to_string())
-                    .stack(Some(vec![e.to_string()]))
-                    .build()
+            |e| InvalidIdentifierError {
+                thing: "namespace_id".to_string(),
+                is_not: "valid UUID".to_string(),
+                value: s.to_string(),
+                source: Box::new(e),
             },
         )?))
     }
@@ -135,16 +132,16 @@ impl From<uuid::Uuid> for TableIdentUuid {
 }
 
 impl FromStr for TableIdentUuid {
-    type Err = IcebergErrorResponse;
+    type Err = InvalidIdentifierError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(TableIdentUuid(uuid::Uuid::from_str(s).map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Provided table id is not a valid UUID".to_string())
-                .r#type("TableIDIsNotUUID".to_string())
-                .stack(Some(vec![e.to_string()]))
-                .build()
+            InvalidIdentifierError {
+                thing: "table_id".to_string(),
+                is_not: "valid UUID".to_string(),
+                value: s.to_string(),
+                source: Box::new(e),
+            }
         })?))
     }
 }
@@ -171,16 +168,16 @@ impl std::fmt::Display for ProjectIdent {
 }
 
 impl FromStr for ProjectIdent {
-    type Err = IcebergErrorResponse;
+    type Err = InvalidIdentifierError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(ProjectIdent(uuid::Uuid::from_str(s).map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Provided project id is not a valid UUID".to_string())
-                .r#type("ProjectIDIsNotUUID".to_string())
-                .stack(Some(vec![e.to_string()]))
-                .build()
+            InvalidIdentifierError {
+                thing: "project_id".to_string(),
+                is_not: "valid UUID".to_string(),
+                value: s.to_string(),
+                source: Box::new(e),
+            }
         })?))
     }
 }
@@ -258,16 +255,16 @@ impl std::fmt::Display for WarehouseIdent {
 }
 
 impl FromStr for WarehouseIdent {
-    type Err = IcebergErrorResponse;
+    type Err = InvalidIdentifierError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(WarehouseIdent(uuid::Uuid::from_str(s).map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Provided warehouse id is not a valid UUID".to_string())
-                .r#type("WarehouseIDIsNotUUID".to_string())
-                .stack(Some(vec![e.to_string()]))
-                .build()
+            InvalidIdentifierError {
+                thing: "warehouse_id".to_string(),
+                is_not: "valid UUID".to_string(),
+                value: s.to_string(),
+                source: Box::new(e),
+            }
         })?))
     }
 }
@@ -278,20 +275,31 @@ impl From<uuid::Uuid> for ProjectIdent {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("Provided {thing} is not a {is_not}. Got: '{value}'")]
+pub struct InvalidIdentifierError {
+    thing: String,
+    is_not: String,
+    value: String,
+    #[source]
+    source: Box<dyn std::error::Error + Send + Sync + 'static>,
+}
+
+impl From<InvalidIdentifierError> for ErrorModel {
+    fn from(slf: InvalidIdentifierError) -> Self {
+        ErrorModel::bad_request(slf.to_string(), "InvalidIdentifier", Some(Box::new(slf)))
+    }
+}
+
 impl TryFrom<Prefix> for WarehouseIdent {
-    type Error = IcebergErrorResponse;
+    type Error = InvalidIdentifierError;
 
     fn try_from(value: Prefix) -> Result<Self, Self::Error> {
-        let prefix = uuid::Uuid::parse_str(value.as_str()).map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(format!(
-                    "Provided prefix is not a warehouse id. Expected UUID, got: {}",
-                    value.as_str()
-                ))
-                .r#type("PrefixIsNotWarehouseID".to_string())
-                .stack(Some(vec![e.to_string()]))
-                .build()
+        let prefix = uuid::Uuid::parse_str(value.as_str()).map_err(|e| InvalidIdentifierError {
+            thing: "Prefix".to_string(),
+            is_not: "valid warehouse id (UUID)".to_string(),
+            value: value.as_str().to_string(),
+            source: Box::new(e),
         })?;
         Ok(WarehouseIdent(prefix))
     }

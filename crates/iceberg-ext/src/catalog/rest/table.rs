@@ -93,6 +93,7 @@ impl TableRequirementExt for TableRequirement {
     #[allow(clippy::too_many_lines)]
     fn assert(&self, metadata: &TableMetadata, exists: bool) -> Result<(), IcebergErrorResponse> {
         match self {
+            // TODO: proper error type
             TableRequirement::NotExist => {
                 if exists {
                     return Err(ErrorModel::builder()
@@ -109,10 +110,10 @@ impl TableRequirementExt for TableRequirement {
                         .code(StatusCode::CONFLICT.as_u16())
                         .message("assert-table-uuid Table Requirement violated".to_string())
                         .r#type("TableRequirementUuidMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {uuid}, Found: {}",
-                            metadata.uuid()
-                        )]))
+                        // .stack(Some(vec![format!(
+                        //     "Expected: {uuid}, Found: {}",
+                        //     metadata.uuid()
+                        // )]))
                         .build()
                         .into());
                 }
@@ -124,10 +125,10 @@ impl TableRequirementExt for TableRequirement {
                         .code(StatusCode::CONFLICT.as_u16())
                         .message("assert-current-schema-id Table Requirement violated".to_string())
                         .r#type("TableRequirementCurrentSchemaIdMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {current_schema_id}, Found: {}",
-                            metadata.current_schema_id
-                        )]))
+                        // .stack(Some(vec![format!(
+                        //     "Expected: {current_schema_id}, Found: {}",
+                        //     metadata.current_schema_id
+                        // )]))
                         .build()
                         .into());
                 }
@@ -142,10 +143,10 @@ impl TableRequirementExt for TableRequirement {
                             "assert-default-sort-order-id Table Requirement violated".to_string(),
                         )
                         .r#type("TableRequirementDefaultSortOrderIdMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {default_sort_order_id}, Found: {}",
-                            metadata.default_sort_order_id
-                        )]))
+                        // .stack(Some(vec![format!(
+                        //     "Expected: {default_sort_order_id}, Found: {}",
+                        //     metadata.default_sort_order_id
+                        // )]))
                         .build()
                         .into());
                 }
@@ -167,10 +168,10 @@ impl TableRequirementExt for TableRequirement {
                                     .to_string(),
                             )
                             .r#type("TableRequirementRefSnapshotIdMatch".to_string())
-                            .stack(Some(vec![format!(
-                                "Expected: {snapshot_id}, Found: {}",
-                                snapshot_ref.snapshot_id
-                            )]))
+                            // .stack(Some(vec![format!(
+                            //     "Expected: {snapshot_id}, Found: {}",
+                            //     snapshot_ref.snapshot_id
+                            // )]))
                             .build()
                             .into());
                     }
@@ -179,10 +180,10 @@ impl TableRequirementExt for TableRequirement {
                         .code(StatusCode::CONFLICT.as_u16())
                         .message("assert-ref-snapshot-id Branch points a snapshot.".to_string())
                         .r#type("TableRequirementRefSnapshotExists".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: None, Found: {}",
-                            metadata.refs.get(r#ref).unwrap().snapshot_id
-                        )]))
+                        // .stack(Some(vec![format!(
+                        //     "Expected: None, Found: {}",
+                        //     metadata.refs.get(r#ref).unwrap().snapshot_id
+                        // )]))
                         .build()
                         .into());
                 }
@@ -194,10 +195,10 @@ impl TableRequirementExt for TableRequirement {
                         .code(StatusCode::CONFLICT.as_u16())
                         .message("assert-default-spec-id Table Requirement violated".to_string())
                         .r#type("TableRequirementDefaultSpecIdMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {default_spec_id}, Found: {}",
-                            metadata.default_spec_id
-                        )]))
+                        // .stack(Some(vec![format!(
+                        //     "Expected: {default_spec_id}, Found: {}",
+                        //     metadata.default_spec_id
+                        // )]))
                         .build()
                         .into());
                 }
@@ -213,10 +214,10 @@ impl TableRequirementExt for TableRequirement {
                                 .to_string(),
                         )
                         .r#type("TableRequirementLastAssignedPartitionIdMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {last_assigned_partition_id}, Found: {}",
-                            metadata.last_partition_id
-                        )]))
+                        // .stack(Some(vec![format!(
+                        //     "Expected: {last_assigned_partition_id}, Found: {}",
+                        //     metadata.last_partition_id
+                        // )]))
                         .build()
                         .into());
                 }
@@ -234,10 +235,10 @@ impl TableRequirementExt for TableRequirement {
                             "assert-last-assigned-field-id Table Requirement violated".to_string(),
                         )
                         .r#type("TableRequirementLastAssignedFieldIdMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {last_assigned_field_id}, Found: {}",
-                            metadata.last_column_id
-                        )]))
+                        // .stack(Some(vec![format!(
+                        //     "Expected: {last_assigned_field_id}, Found: {}",
+                        //     metadata.last_column_id
+                        // )]))
                         .build()
                         .into());
                 }

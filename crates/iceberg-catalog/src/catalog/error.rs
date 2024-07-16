@@ -1,6 +1,6 @@
 pub(crate) mod warehouse {
     use iceberg_ext::catalog::rest::ErrorModel;
-
+    #[allow(clippy::enum_variant_names)]
     #[derive(thiserror::Error, Debug, strum::IntoStaticStr)]
     pub enum Error {
         #[error("Error fetching warehouse")]
@@ -27,7 +27,7 @@ pub(crate) mod warehouse {
     impl From<Error> for ErrorModel {
         fn from(value: Error) -> Self {
             let typ: &'static str = (&value).into();
-            ErrorModel::internal(value.to_string(), typ)
+            ErrorModel::internal(value.to_string(), typ, Some(Box::new(value)))
         }
     }
 }

@@ -42,7 +42,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Error fetching warehouse".to_string())
                 .r#type("WarehouseFetchError".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build(),
         })?;
 
@@ -75,7 +75,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Error fetching warehouse".to_string())
                 .r#type("WarehouseFetchError".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build(),
         })?;
 
@@ -96,7 +96,7 @@ pub(crate) async fn create_warehouse<'a>(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing storage profile".to_string())
             .r#type("StorageProfileSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -121,14 +121,14 @@ pub(crate) async fn create_warehouse<'a>(
                 .message("Warehouse with this name already exists in the project.".to_string())
                 .r#type("WarehouseNameAlreadyExists".to_string())
                 .build(),
-            _ => e.into_error_model("Error creating Warehouse".into()),
+            _ => e.into_internal_error("Error creating Warehouse".into()),
         },
         sqlx::Error::RowNotFound => ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
             .message("Error creating Warehouse.".to_string())
             .r#type("WarehouseNotReturnedAfterCreation".to_string())
             .build(),
-        _ => e.into_error_model("Error creating Warehouse".into()),
+        _ => e.into_internal_error("Error creating Warehouse".into()),
     })?;
 
     Ok(warehouse_id.into())
@@ -174,7 +174,7 @@ pub(crate) async fn list_warehouses(
         )
         .fetch_all(&catalog_state.read_pool)
         .await
-        .map_err(|e| e.into_error_model("Error fetching warehouses".into()))?
+        .map_err(|e| e.into_internal_error("Error fetching warehouses".into()))?
     } else {
         sqlx::query_as!(
             WarehouseRecord,
@@ -194,7 +194,7 @@ pub(crate) async fn list_warehouses(
         )
         .fetch_all(&catalog_state.read_pool)
         .await
-        .map_err(|e| e.into_error_model("Error fetching warehouses".into()))?
+        .map_err(|e| e.into_internal_error("Error fetching warehouses".into()))?
     };
 
     Ok(warehouses
@@ -235,7 +235,7 @@ pub(crate) async fn get_warehouse<'a>(
             .message("Warehouse not found".to_string())
             .r#type("WarehouseNotFound".to_string())
             .build(),
-        _ => e.into_error_model("Error fetching warehouse".into()),
+        _ => e.into_internal_error("Error fetching warehouse".into()),
     })?;
 
     Ok(GetWarehouseResponse {
@@ -258,7 +258,7 @@ pub(crate) async fn list_projects(catalog_state: CatalogState) -> Result<HashSet
     )
     .fetch_all(&catalog_state.read_pool)
     .await
-    .map_err(|e| e.into_error_model("Error fetching projects".into()))?;
+    .map_err(|e| e.into_internal_error("Error fetching projects".into()))?;
 
     Ok(projects
         .into_iter()
@@ -293,10 +293,10 @@ pub(crate) async fn delete_warehouse<'a>(
                     .r#type("WarehouseNotEmpty".to_string())
                     .build()
             } else {
-                e.into_error_model("Error deleting warehouse".into())
+                e.into_internal_error("Error deleting warehouse".into())
             }
         }
-        _ => e.into_error_model("Error deleting warehouse".into()),
+        _ => e.into_internal_error("Error deleting warehouse".into()),
     })?;
 
     if row_count == Some(0) {
@@ -335,7 +335,7 @@ pub(crate) async fn rename_warehouse<'a>(
     )
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|e| e.into_error_model("Error renaming warehouse".into()))?;
+    .map_err(|e| e.into_internal_error("Error renaming warehouse".into()))?;
 
     if row_count == Some(0) {
         return Err(ErrorModel::builder()
@@ -370,7 +370,7 @@ pub(crate) async fn set_warehouse_status<'a>(
     )
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|e| e.into_error_model("Error setting warehouse status".into()))?;
+    .map_err(|e| e.into_internal_error("Error setting warehouse status".into()))?;
 
     if row_count == Some(0) {
         return Err(ErrorModel::builder()
@@ -395,7 +395,7 @@ pub(crate) async fn update_storage_profile<'a>(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing storage profile".to_string())
             .r#type("StorageProfileSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -417,7 +417,7 @@ pub(crate) async fn update_storage_profile<'a>(
     )
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|e| e.into_error_model("Error updating storage profile".into()))?;
+    .map_err(|e| e.into_internal_error("Error updating storage profile".into()))?;
 
     if row_count == Some(0) {
         return Err(ErrorModel::builder()

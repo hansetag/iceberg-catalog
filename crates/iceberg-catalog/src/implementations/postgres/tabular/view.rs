@@ -16,13 +16,13 @@ use crate::implementations::postgres::{tabular, CatalogState};
 use chrono::{DateTime, Utc};
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersionRef};
 use iceberg::NamespaceIdent;
-use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use serde::Deserialize;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
 use std::default::Default;
 use uuid::Uuid;
 
+use crate::api::IcebergErrorResponse;
 pub(crate) use crate::service::ViewMetadataWithLocation;
 pub(crate) use load::load_view;
 
@@ -92,7 +92,7 @@ pub(crate) async fn create_view(
             .r#type("InternalDatabaseError".to_string())
             .build(),
 
-        _ => e.into_error_model("Error creating view".to_string()),
+        _ => e.into_internal_error("Error creating view".to_string()),
     })?;
 
     tracing::debug!("Inserted base view and tabular.");
@@ -158,7 +158,7 @@ pub(crate) async fn drop_view<'a>(
                 .build()
         } else {
             tracing::warn!("Error dropping view: {}", e);
-            e.into_error_model("Error dropping view".to_string())
+            e.into_internal_error("Error dropping view".to_string())
         }
     })?;
 
@@ -218,7 +218,7 @@ async fn insert_view_version_log(
     .map_err(|e| {
         let message = "Error inserting view version log".to_string();
         tracing::warn!("{}", message);
-        e.into_error_model(message)
+        e.into_internal_error(message)
     })?;
     tracing::debug!("Inserted view version log");
     Ok(())
@@ -248,7 +248,7 @@ pub(crate) async fn set_view_properties(
     .map_err(|e| {
         let message = "Error inserting view property".to_string();
         tracing::warn!("{}", message);
-        e.into_error_model(message)
+        e.into_internal_error(message)
     })?;
     Ok(())
 }
@@ -263,7 +263,7 @@ pub(crate) async fn create_view_schema(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing view schema".to_string())
             .r#type("ViewSchemaSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
     Ok(sqlx::query_scalar!(
@@ -284,7 +284,7 @@ pub(crate) async fn create_view_schema(
             .message("View schema already exists".to_string())
             .r#type("ViewSchemaAlreadyExists".to_string())
             .build(),
-        _ => e.into_error_model("Error creating view schema".to_string()),
+        _ => e.into_internal_error("Error creating view schema".to_string()),
     })?)
 }
 
@@ -319,7 +319,7 @@ async fn create_view_version(
     .map_err(|e| {
         let message = "Error fetching namespace_id".to_string();
         tracing::warn!("{}", message);
-        e.into_error_model(message)
+        e.into_internal_error(message)
     })?;
 
     let default_cat = view_version.default_catalog();
@@ -328,7 +328,7 @@ async fn create_view_version(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing view_version summary".to_string())
             .r#type("ViewSummarySerializationFailed".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -365,7 +365,7 @@ async fn create_view_version(
                 schema_id,
                 e
             );
-                e.into_error_model(message.to_string())
+                e.into_internal_error(message.to_string())
             }
     })?;
 
@@ -403,7 +403,7 @@ pub(crate) async fn set_current_view_metadata_version(
     .map_err(|e| {
         let message = "Error setting current view metadata version".to_string();
         tracing::warn!("{}", message);
-        e.into_error_model(message)
+        e.into_internal_error(message)
     })?;
 
     tracing::debug!("Successfully set current view metadata version");
@@ -458,7 +458,7 @@ async fn insert_representation(
     .map_err(|e| {
         let message = "Error inserting view_representation".to_string();
         tracing::warn!(?e, "{}", message);
-        e.into_error_model(message)
+        e.into_internal_error(message)
     })?;
     Ok(())
 }

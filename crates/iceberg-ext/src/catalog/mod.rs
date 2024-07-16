@@ -21,7 +21,7 @@ pub mod rest {
 
     mod error;
     pub(crate) use error::impl_into_response;
-    pub use error::{Error, ErrorModel, IcebergErrorResponse};
+    pub use error::{ApiError, Error, ErrorModel, IcebergErrorResponse};
 
     mod table;
     pub use table::{

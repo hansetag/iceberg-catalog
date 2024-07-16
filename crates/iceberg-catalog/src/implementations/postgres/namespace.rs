@@ -38,7 +38,7 @@ pub(crate) async fn get_namespace(
             .message(format!("Namespace not found: {:?}", namespace.as_ref()))
             .r#type("NamespaceNotFound".to_string())
             .build(),
-        _ => e.into_error_model("Error fetching namespace".to_string()),
+        _ => e.into_internal_error("Error fetching namespace".to_string()),
     })?;
 
     Ok(GetNamespaceResponse {
@@ -91,7 +91,7 @@ pub(crate) async fn list_namespaces(
         )
         .fetch_all(&catalog_state.read_pool)
         .await
-        .map_err(|e| e.into_error_model("Error fetching Namespace".into()))?
+        .map_err(|e| e.into_internal_error("Error fetching Namespace".into()))?
         .into_iter()
         .flatten()
         .collect()
@@ -109,7 +109,7 @@ pub(crate) async fn list_namespaces(
         )
         .fetch_all(&catalog_state.read_pool)
         .await
-        .map_err(|e| e.into_error_model("Error fetching Namespace".into()))?
+        .map_err(|e| e.into_internal_error("Error fetching Namespace".into()))?
     };
 
     // Convert Vec<Vec<String>> to Vec<NamespaceIdent>
@@ -121,7 +121,7 @@ pub(crate) async fn list_namespaces(
                     .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                     .message("Error converting namespace".to_string())
                     .r#type("NamespaceConversionError".to_string())
-                    .stack(Some(vec![e.to_string()]))
+                    .source(Some(Box::new(e)))
                     .build()
                     .into()
             })
@@ -164,32 +164,34 @@ pub(crate) async fn create_namespace(
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Error serializing namespace properties".to_string())
                 .r#type("NamespacePropertiesSerializationError".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?
     )
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| match e {
-        sqlx::Error::Database(db_error) => {
+        sqlx::Error::Database(ref db_error) => {
             if db_error.is_unique_violation() {
                 ErrorModel::builder()
                     .code(StatusCode::CONFLICT.into())
                     .message("Namespace already exists".to_string())
                     .r#type("NamespaceAlreadyExists".to_string())
+                    .source(Some(Box::new(e)))
                     .build()
             } else if db_error.is_foreign_key_violation() {
                 ErrorModel::builder()
                     .code(StatusCode::NOT_FOUND.into())
                     .message("Warehouse not found".to_string())
                     .r#type("WarehouseNotFound".to_string())
+                    .source(Some(Box::new(e)))
                     .build()
             } else {
                 ErrorModel::builder()
                     .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                     .message("Error creating namespace".to_string())
                     .r#type("NamespaceCreateError".to_string())
-                    .stack(Some(vec![db_error.to_string()]))
+                    .source(Some(Box::new(e)))
                     .build()
             }
         }
@@ -197,8 +199,9 @@ pub(crate) async fn create_namespace(
             .code(StatusCode::NOT_FOUND.into())
             .message("Warehouse not found".to_string())
             .r#type("WarehouseNotFound".to_string())
+            .source(Some(Box::new(e)))
             .build(),
-        _ => e.into_error_model("Error creating Namespace".into()),
+        _ => e.into_internal_error("Error creating Namespace".into()),
     })?;
 
     // If inner is empty, return None
@@ -230,7 +233,7 @@ pub(crate) async fn namespace_ident_to_id(
     .await
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => None,
-        _ => Some(e.into_error_model("Error fetching namespace".to_string())),
+        _ => Some(e.into_internal_error("Error fetching namespace".to_string())),
     });
 
     match namespace_id {
@@ -278,10 +281,10 @@ pub(crate) async fn drop_namespace(
                     .r#type("NamespaceNotEmpty".to_string())
                     .build()
             } else {
-                e.into_error_model("Error deleting namespace".to_string())
+                e.into_internal_error("Error deleting namespace".to_string())
             }
         }
-        _ => e.into_error_model("Error deleting namespace".to_string()),
+        _ => e.into_internal_error("Error deleting namespace".to_string()),
     })?;
 
     if row_count == Some(0) {
@@ -338,7 +341,7 @@ pub(crate) async fn update_namespace_properties(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing namespace properties".to_string())
             .r#type("NamespacePropertiesSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -357,7 +360,7 @@ pub(crate) async fn update_namespace_properties(
     )
     .execute(&mut **transaction)
     .await
-    .map_err(|e| e.into_error_model("Error updating namespace properties".to_string()))?;
+    .map_err(|e| e.into_internal_error("Error updating namespace properties".to_string()))?;
 
     Ok(UpdateNamespacePropertiesResponse {
         updated,

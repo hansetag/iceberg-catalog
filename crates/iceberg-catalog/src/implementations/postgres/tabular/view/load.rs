@@ -1,4 +1,5 @@
 use crate::api::Result;
+use crate::api::{ErrorModel, IcebergErrorResponse};
 use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::view::{ViewFormatVersion, ViewRepresentationType};
 use crate::service::{TableIdentUuid, ViewMetadataWithLocation};
@@ -7,7 +8,6 @@ use iceberg::spec::{
     Schema, SqlViewRepresentation, ViewMetadata, ViewRepresentation, ViewVersion, ViewVersionLog,
 };
 use iceberg::NamespaceIdent;
-use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
 use itertools::izip;
 use sqlx::types::Json;
 use sqlx::{FromRow, PgConnection};
@@ -145,7 +145,7 @@ FROM view v
         .await.map_err(|e| {
         let message = "Failed to fetch view metadata".to_string();
         tracing::warn!("{}", message);
-        e.into_error_model(message)
+        e.into_internal_error(message)
     })?;
     Ok(rs)
 }
@@ -291,13 +291,7 @@ fn prepare_schemas(
 }
 
 fn unwrap_or_500<T>(val: Option<T>, message: &str) -> crate::api::Result<T> {
-    Ok(val.ok_or_else(|| {
-        ErrorModel::builder()
-            .code(500)
-            .message(message.to_string())
-            .r#type("DatabaseError".to_string())
-            .build()
-    })?)
+    Ok(val.ok_or_else(|| ErrorModel::internal(message, "DatabaseError", None))?)
 }
 
 // this is a horrible function, and it's only here because NamespaceIdent doesn't allow constructing
@@ -321,7 +315,7 @@ async fn get_namespace_ident_with_empty_support(
             .map_err(|e| {
                 let message = "Error fetching namespace_name".to_string();
                 tracing::warn!("{}", message);
-                e.into_error_model(message)
+                e.into_internal_error(message)
             })?
             .into_iter()
             .map(serde_json::Value::String)
@@ -339,7 +333,7 @@ async fn get_namespace_ident_with_empty_support(
             .code(500)
             .message(message)
             .r#type("DatabaseError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 

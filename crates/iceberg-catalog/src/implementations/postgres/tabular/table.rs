@@ -141,7 +141,7 @@ pub(crate) async fn create_table(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing table metadata".to_string())
             .r#type("TableMetadataSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -177,7 +177,7 @@ pub(crate) async fn create_table(
     .await
     .map_err(|e| {
         tracing::warn!("Error creating table: {}", e);
-        e.as_error_model("Error creating table".to_string())
+        e.into_internal_error("Error creating table".to_string())
     })?;
 
     Ok(CreateTableResponse { table_metadata })
@@ -220,7 +220,7 @@ pub(crate) async fn load_table(
             .message("Table not found".to_string())
             .r#type("NoSuchTableError".to_string())
             .build(),
-        _ => e.into_error_model("Error fetching table".to_string()),
+        _ => e.into_internal_error("Error fetching table".to_string()),
     })?;
 
     Ok(LoadTableResponse {
@@ -295,7 +295,7 @@ pub(crate) async fn get_table_metadata_by_id(
             .message("Table not found".to_string())
             .r#type("NoSuchTableError".to_string())
             .build(),
-        _ => e.into_error_model("Error fetching table".to_string()),
+        _ => e.into_internal_error("Error fetching table".to_string()),
     })?;
 
     if !include_staged && table.metadata_location.is_none() {
@@ -362,12 +362,13 @@ pub(crate) async fn get_table_metadata_by_s3_location(
             .code(StatusCode::NOT_FOUND.into())
             .message("Table not found".to_string())
             .r#type("NoSuchTableError".to_string())
-            .stack(Some(vec![
-                location.to_string(),
-                format!("Warehouse: {}", warehouse_id),
-            ]))
+            // TODO: source
+            // .stack(Some(vec![
+            //     location.to_string(),
+            //     format!("Warehouse: {}", warehouse_id),
+            // ]))
             .build(),
-        _ => e.into_error_model("Error fetching table".to_string()),
+        _ => e.into_internal_error("Error fetching table".to_string()),
     })?;
 
     if !include_staged && table.metadata_location.is_none() {
@@ -432,7 +433,7 @@ pub(crate) async fn drop_table<'a>(
     .await
     .map_err(|e| {
         tracing::warn!("Error dropping tabular: {}", e);
-        e.into_error_model("Error dropping table".to_string())
+        e.into_internal_error("Error dropping table".to_string())
     })?;
 
     drop_tabular(TabularIdentUuid::Table(*table_id), transaction).await?;
@@ -478,7 +479,7 @@ async fn get_commit_context<'a>(
     )
     .fetch_all(&mut **transaction)
     .await
-    .map_err(|e| e.into_error_model("Error fetching table metadata for commit".to_string()))?;
+    .map_err(|e| e.into_internal_error("Error fetching table metadata for commit".to_string()))?;
 
     let mut contexts = vec![];
     for change in table_changes {
@@ -494,7 +495,8 @@ async fn get_commit_context<'a>(
                 .code(StatusCode::BAD_REQUEST.into())
                 .message("Table identifier not found".to_string())
                 .r#type("TableIdentifierNotFound".to_string())
-                .stack(Some(vec![format!("{:?}", table_ident)]))
+                // TODO: proper error
+                // .stack(Some(vec![format!("{:?}", table_ident)]))
                 .build()
         })?;
 
@@ -506,7 +508,8 @@ async fn get_commit_context<'a>(
                     .code(StatusCode::NOT_FOUND.into())
                     .message("Table not found".to_string())
                     .r#type("NoSuchTableError".to_string())
-                    .stack(Some(vec![format!("Table Ident {:?}", table_ident)]))
+                    // TODO: proper error
+                    // .stack(Some(vec![format!("Table Ident {:?}", table_ident)]))
                     .build()
             })?;
 
@@ -634,7 +637,7 @@ pub(crate) async fn commit_table_transaction<'a>(
                     .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                     .message("Error serializing table metadata".to_string())
                     .r#type("TableMetadataSerializationError".to_string())
-                    .stack(Some(vec![e.to_string()]))
+                    .source(Some(Box::new(e)))
                     .build()
             })?;
 
@@ -672,13 +675,13 @@ pub(crate) async fn commit_table_transaction<'a>(
     let updated_meta = query_meta_update
         .fetch_all(&mut **transaction)
         .await
-        .map_err(|e| e.into_error_model("Error committing tablemetadata updates".to_string()))?;
+        .map_err(|e| e.into_internal_error("Error committing tablemetadata updates".to_string()))?;
 
     let updated_meta_location = query_meta_location_update
         .fetch_all(&mut **transaction)
         .await
         .map_err(|e| {
-            e.into_error_model("Error committing tablemetadata location updates".to_string())
+            e.into_internal_error("Error committing tablemetadata location updates".to_string())
         })?;
 
     if updated_meta.len() != responses.len() || updated_meta_location.len() != responses.len() {

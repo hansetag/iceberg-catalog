@@ -14,7 +14,7 @@ keywords = ["iceberg", "rest", "extension"]
 
 [features]
 all = ['axum']
-axum = ['dep:axum']
+axum = ['dep:axum', 'dep:tracing']
 
 [dependencies]
 axum = { workspace = true, optional = true }
@@ -31,6 +31,9 @@ strum_macros = { workspace = true }
 typed-builder = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
+tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
 lazy_static = { workspace = true }
+futures-util = "0.3.30"
+tokio = { workspace = true }

@@ -17,7 +17,7 @@ pub(crate) async fn write_metadata_file(
                 "Failed to create metadata file. Please check the storage credentials.".to_string(),
             )
             .r#type("MetadataFileCreationFailed".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -29,7 +29,7 @@ pub(crate) async fn write_metadata_file(
                     .to_string(),
             )
             .r#type("MetadataFileWriterCreationFailed".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -39,7 +39,7 @@ pub(crate) async fn write_metadata_file(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Failed to serialize table metadata.".to_string())
             .r#type("TableMetadataSerializationFailed".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -48,7 +48,7 @@ pub(crate) async fn write_metadata_file(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message(format!("Failed to compress metadata file: {e}"))
             .r#type("MetadataFileCompressionFailed".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -57,7 +57,7 @@ pub(crate) async fn write_metadata_file(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message(format!("Failed to finish compressing metadata file: {e}"))
             .r#type("MetadataFileCompressionFailed".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -69,7 +69,7 @@ pub(crate) async fn write_metadata_file(
                 .code(StatusCode::FAILED_DEPENDENCY.into())
                 .message(format!("Failed to write metadata file: {e}"))
                 .r#type("MetadataFileWriteFailed".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?;
 
@@ -78,7 +78,7 @@ pub(crate) async fn write_metadata_file(
             .code(StatusCode::FAILED_DEPENDENCY.into())
             .message(format!("Failed to close metadata file: {e}"))
             .r#type("MetadataFileCloseFailed".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 

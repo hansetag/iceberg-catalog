@@ -65,6 +65,7 @@ utoipa-swagger-ui = { workspace = true }
 uuid = { workspace = true }
 veil = { workspace = true }
 tracing-subscriber = { workspace = true }
+typed-builder = { workspace = true }
 thiserror = "1.0.61"
 
 [dev-dependencies]

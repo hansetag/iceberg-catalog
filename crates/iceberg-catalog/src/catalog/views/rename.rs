@@ -1,5 +1,6 @@
 use crate::api::iceberg::types::Prefix;
 use crate::api::ApiContext;
+use crate::api::ErrorModel;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{maybe_body_to_json, validate_table_or_view_ident};
 use crate::request_metadata::RequestMetadata;
@@ -10,7 +11,7 @@ use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::Result;
 use crate::service::{Catalog, SecretStore, State, Transaction};
 use http::StatusCode;
-use iceberg_ext::catalog::rest::{ErrorModel, RenameTableRequest};
+use iceberg_ext::catalog::rest::RenameTableRequest;
 use uuid::Uuid;
 
 pub(crate) async fn rename_view<C: Catalog, A: AuthZHandler, S: SecretStore>(

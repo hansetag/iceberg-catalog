@@ -291,7 +291,7 @@ impl TableMetadataAggregate {
                         .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                         .message("Failed to assign new schema id")
                         .r#type("FailedToAssignSchemaId")
-                        .stack(Some(vec![e.to_string()]))
+                        .source(Some(Box::new(e)))
                         .build()
                 })?
         };
@@ -398,7 +398,7 @@ impl TableMetadataAggregate {
                             .message(e.message())
                             .code(StatusCode::CONFLICT.into())
                             .r#type(e.kind().into_static())
-                            .stack(Some(vec![e.to_string()]))
+                            .source(Some(Box::new(e)))
                             .build()
                     })
             })
@@ -561,7 +561,7 @@ impl TableMetadataAggregate {
                     .message("Failed to bind 'SortOrder'")
                     .code(StatusCode::CONFLICT.into())
                     .r#type("FailedToBindSortOrder")
-                    .stack(Some(vec![e.to_string()]))
+                    .source(Some(Box::new(e)))
                     .build()
             })?;
 

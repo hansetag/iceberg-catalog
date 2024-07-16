@@ -161,7 +161,7 @@ impl ContractVerificationOutcome {
     /// # Example
     ///
     /// ```rust
-    ///     use iceberg_catalog::service::contract_verification::ContractVerificationOutcome;
+    ///     use iceberg_catalog::service::contract_verification::ContractVerificationOutcome;    ///
     ///     use iceberg_ext::catalog::rest::ErrorModel;
     ///
     ///     fn my_handler() -> Result<(), ErrorModel> {

@@ -69,7 +69,7 @@ where
         Err(e) => match e {
             sqlx::Error::RowNotFound => Ok(None),
             _ => Err(e
-                .into_error_model(format!("Error fetching {}", table.typ_str()))
+                .into_internal_error(format!("Error fetching {}", table.typ_str()))
                 .into()),
         },
         Ok(Some((table_id, staged))) => {
@@ -156,7 +156,7 @@ where
     let rows: Vec<TabularRow> = sqlx::query_as_with(query.sql(), args)
         .fetch_all(catalog_state)
         .await
-        .map_err(|e| e.into_error_model("Error fetching tables or views".to_string()))?;
+        .map_err(|e| e.into_internal_error("Error fetching tables or views".to_string()))?;
 
     let mut table_map = HashMap::with_capacity(tables.len());
     for TabularRow {
@@ -280,7 +280,7 @@ pub(crate) async fn create_tabular<'a>(
                 .r#type("TableOrViewAlreadyExists".to_string())
                 .build()
         }
-        _ => e.as_error_model(format!("Error creating {typ}")),
+        _ => e.into_internal_error(format!("Error creating {typ}")),
     })?)
 }
 
@@ -314,7 +314,7 @@ pub(crate) async fn list_tabulars(
     )
     .fetch_all(&catalog_state.read_pool)
     .await
-    .map_err(|e| e.into_error_model("Error fetching tables or views".to_string()))?;
+    .map_err(|e| e.into_internal_error("Error fetching tables or views".to_string()))?;
 
     let mut table_map = HashMap::new();
     for table in tables {
@@ -381,7 +381,7 @@ pub(crate) async fn rename_tabular(
                 .message(format!("ID of {} to rename not found", source_id.typ_str()))
                 .r#type(format!("Rename{}IdNotFound", source_id.typ_str()))
                 .build(),
-            _ => e.into_error_model(format!("Error renaming {}", source_id.typ_str())),
+            _ => e.into_internal_error(format!("Error renaming {}", source_id.typ_str())),
         })?;
     } else {
         let _ = sqlx::query_scalar!(
@@ -420,7 +420,7 @@ pub(crate) async fn rename_tabular(
                     source_id.typ_str()
                 ))
                 .build(),
-            _ => e.into_error_model(format!("Error renaming {}", source_id.typ_str())),
+            _ => e.into_internal_error(format!("Error renaming {}", source_id.typ_str())),
         })?;
     };
 
@@ -453,7 +453,7 @@ pub(crate) async fn drop_tabular<'a>(
                 .build()
         } else {
             tracing::warn!("Error dropping tabular: {}", e);
-            e.into_error_model(format!("Error dropping {}", tabular_id.typ_str()))
+            e.into_internal_error(format!("Error dropping {}", tabular_id.typ_str()))
         }
     })?;
 
@@ -466,7 +466,7 @@ fn try_parse_namespace_ident(namespace: Vec<String>) -> Result<NamespaceIdent> {
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error parsing namespace".to_string())
             .r#type("NamespaceParseError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
             .into()
     })

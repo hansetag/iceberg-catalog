@@ -790,12 +790,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Error fetching table ids".to_string())
                 .r#type("TableIdsFetchError".to_string())
-                .stack(Some(
-                    vec![e.error.message, e.error.r#type]
-                        .into_iter()
-                        .chain(e.error.stack.unwrap_or_default().into_iter())
-                        .collect(),
-                ))
+                .source(Some(Box::new(e.error)))
                 .build()
         })?;
 

@@ -1,7 +1,9 @@
+use std::error::Error as StdError;
+use std::fmt::{Display, Formatter};
 // macro to implement IntoResponse
-
 use http::StatusCode;
 pub use iceberg::Error;
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "axum")]
 macro_rules! impl_into_response {
@@ -20,7 +22,7 @@ pub(crate) use impl_into_response;
 use typed_builder::TypedBuilder;
 
 /// JSON wrapper for all error responses (non-2xx)
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug)]
 pub struct IcebergErrorResponse {
     pub error: ErrorModel,
 }
@@ -33,16 +35,23 @@ impl From<IcebergErrorResponse> for iceberg::Error {
 
 impl From<ErrorModel> for iceberg::Error {
     fn from(value: ErrorModel) -> Self {
-        let mut error = iceberg::Error::new(iceberg::ErrorKind::DataInvalid, value.message)
-            .with_context("type", value.r#type)
+        let mut error = iceberg::Error::new(iceberg::ErrorKind::DataInvalid, &value.message)
+            .with_context("type", &value.r#type)
             .with_context("code", format!("{}", value.code));
-
-        if let Some(stack) = value.stack {
-            error = error.with_context("stack", stack.join("\n"));
-        }
+        error = error.with_context("stack", value.to_string());
 
         error
     }
+}
+
+fn error_chain_fmt(e: impl std::error::Error, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    writeln!(f, "{e}\n")?;
+    let mut current = e.source();
+    while let Some(cause) = current {
+        writeln!(f, "Caused by:\n\t{cause}")?;
+        current = cause.source();
+    }
+    Ok(())
 }
 
 impl From<ErrorModel> for IcebergErrorResponse {
@@ -53,7 +62,19 @@ impl From<ErrorModel> for IcebergErrorResponse {
 
 /// JSON error payload returned in a response with further details on the error
 #[allow(clippy::module_name_repetitions)]
-#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize, TypedBuilder)]
+#[derive(Deserialize, Serialize, Debug)]
+pub struct ApiError {
+    /// Human-readable error message
+    pub message: String,
+    /// Internal type definition of the error
+    pub r#type: String,
+    /// HTTP response code
+    pub code: u16,
+}
+
+/// JSON error payload returned in a response with further details on the error
+#[allow(clippy::module_name_repetitions)]
+#[derive(Default, Debug, TypedBuilder)]
 pub struct ErrorModel {
     /// Human-readable error message
     #[builder(setter(into))]
@@ -63,78 +84,151 @@ pub struct ErrorModel {
     pub r#type: String,
     /// HTTP response code
     pub code: u16,
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(default)]
-    pub stack: Option<Vec<String>>,
+    pub source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+}
+
+impl StdError for ErrorModel {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        self.source
+            .as_ref()
+            .map(|s| &**s as &(dyn StdError + 'static))
+    }
+}
+
+impl Display for ErrorModel {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if let Some(source) = self.source.as_ref() {
+            writeln!(f, "{}", self.message)?;
+            // Dereference `source` to get `dyn StdError` and then take a reference to pass
+            error_chain_fmt(&**source, f)?;
+        } else {
+            write!(f, "{}", self.message)?;
+        }
+        Ok(())
+    }
 }
 
 impl ErrorModel {
-    pub fn bad_request(message: impl Into<String>, r#type: impl Into<String>) -> Self {
-        Self::new(message, r#type, StatusCode::BAD_REQUEST.as_u16())
+    pub fn bad_request(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self::new(message, r#type, StatusCode::BAD_REQUEST.as_u16(), source)
     }
 
-    pub fn not_implemented(message: impl Into<String>, r#type: impl Into<String>) -> Self {
-        Self::new(message, r#type, StatusCode::NOT_IMPLEMENTED.as_u16())
+    pub fn not_implemented(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self::new(
+            message,
+            r#type,
+            StatusCode::NOT_IMPLEMENTED.as_u16(),
+            source,
+        )
     }
 
-    pub fn precondition_failed(message: impl Into<String>, r#type: impl Into<String>) -> Self {
-        Self::new(message, r#type, StatusCode::PRECONDITION_FAILED.as_u16())
+    pub fn precondition_failed(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self::new(
+            message,
+            r#type,
+            StatusCode::PRECONDITION_FAILED.as_u16(),
+            source,
+        )
     }
 
-    pub fn internal(message: impl Into<String>, r#type: impl Into<String>) -> Self {
-        Self::new(message, r#type, StatusCode::INTERNAL_SERVER_ERROR.as_u16())
+    pub fn internal(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self::new(
+            message,
+            r#type,
+            StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+            source,
+        )
     }
 
-    pub fn conflict(message: impl Into<String>, r#type: impl Into<String>) -> Self {
-        Self::new(message, r#type, StatusCode::CONFLICT.as_u16())
+    pub fn conflict(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self::new(message, r#type, StatusCode::CONFLICT.as_u16(), source)
     }
 
-    pub fn not_found(message: impl Into<String>, r#type: impl Into<String>) -> Self {
-        Self::new(message, r#type, StatusCode::NOT_FOUND.as_u16())
+    pub fn not_found(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self::new(message, r#type, StatusCode::NOT_FOUND.as_u16(), source)
     }
 
-    pub fn new(message: impl Into<String>, r#type: impl Into<String>, code: u16) -> Self {
+    pub fn not_allowed(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self::new(
+            message,
+            r#type,
+            StatusCode::METHOD_NOT_ALLOWED.as_u16(),
+            source,
+        )
+    }
+
+    pub fn forbidden(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self::new(message, r#type, StatusCode::FORBIDDEN.as_u16(), source)
+    }
+
+    pub fn new(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        code: u16,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
         Self::builder()
             .message(message)
             .r#type(r#type)
             .code(code)
+            .source(source)
             .build()
-    }
-
-    pub fn push_to_stack(&mut self, message: impl Into<String>) -> &mut Self {
-        if let Some(stack) = &mut self.stack {
-            stack.push(message.into());
-        } else {
-            self.stack = Some(vec![message.into()]);
-        }
-        self
     }
 }
 
 #[cfg(feature = "axum")]
 impl axum::response::IntoResponse for IcebergErrorResponse {
-    fn into_response(mut self) -> axum::http::Response<axum::body::Body> {
-        // ToDo: Better Log handling. kv-log-macro?
-        let error_id = uuid::Uuid::now_v7();
+    fn into_response(self) -> axum::http::Response<axum::body::Body> {
+        let Self { error } = self;
+        let stack = error.to_string();
+        let ErrorModel {
+            message,
+            r#type,
+            code,
+            source: _,
+        } = error;
 
-        let console_log = serde_json::json!(
-            {
-                "error_id": error_id.to_string(),
-                "message": self.error.message,
-                "type": self.error.r#type,
-                "code": self.error.code,
-                "stack": self.error.stack
-            }
-        );
-        let code = self.error.code;
+        tracing::info!(%stack, %message, %r#type, %code, "Error response");
 
-        // Exchange stack for error_id. We don't want the stack
-        // to be exposed to the client
-        self.error.stack = Some(vec![format!("Error ID: {}", error_id)]);
-
-        let mut response = axum::Json(self).into_response();
-
-        log::info!("{}", console_log.to_string());
+        let mut response = axum::Json(ApiError {
+            message,
+            r#type,
+            code,
+        })
+        .into_response();
 
         *response.status_mut() = axum::http::StatusCode::from_u16(code)
             .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
@@ -145,17 +239,39 @@ impl axum::response::IntoResponse for IcebergErrorResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::stream::StreamExt;
 
-    #[test]
-    fn test_iceberg_error_response_serialization() {
+    #[tokio::test]
+    async fn test_iceberg_error_response_serialization() {
+        let val = IcebergErrorResponse {
+            error: ErrorModel {
+                message: "The server does not support this operation".to_string(),
+                r#type: "UnsupportedOperationException".to_string(),
+                code: 406,
+                source: None,
+            },
+        };
+        let resp = axum::response::IntoResponse::into_response(val);
+        assert_eq!(resp.status(), StatusCode::NOT_ACCEPTABLE);
+
+        // Not sure how we'd get the body otherwise
+        let mut b = resp.into_body().into_data_stream();
+        let mut buf = Vec::with_capacity(1024);
+        while let Some(d) = b.next().await {
+            buf.extend_from_slice(d.unwrap().as_ref());
+        }
+        let resp: ApiError = serde_json::from_slice(&buf).unwrap();
+        assert_eq!(resp.message, "The server does not support this operation");
+        assert_eq!(resp.r#type, "UnsupportedOperationException");
+        assert_eq!(resp.code, 406);
+
         let json = serde_json::json!({
-        "error": {
             "message": "The server does not support this operation",
             "type": "UnsupportedOperationException",
-            "code": 406}
+            "code": 406
         });
 
-        let resp: IcebergErrorResponse = serde_json::from_value(json.clone()).unwrap();
+        let resp: ApiError = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(serde_json::to_value(resp).unwrap(), json);
     }
 }

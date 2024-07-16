@@ -1,25 +1,16 @@
-use crate::api::ErrorModel;
 use http::StatusCode;
+use iceberg_ext::catalog::rest::ErrorModel;
 
 pub(crate) trait DBErrorHandler
 where
-    Self: ToString + Sized,
+    Self: ToString + Sized + std::error::Error + 'static + Send + Sync,
 {
-    fn into_error_model(self, message: String) -> ErrorModel {
+    fn into_internal_error(self, message: String) -> ErrorModel {
         ErrorModel::builder()
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message(message)
             .r#type("DatabaseError".to_string())
-            .stack(Some(vec![self.to_string()]))
-            .build()
-    }
-
-    fn as_error_model(&self, message: String) -> ErrorModel {
-        ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message(message)
-            .r#type("DatabaseError".to_string())
-            .stack(Some(vec![self.to_string()]))
+            .source(Some(Box::new(self)))
             .build()
     }
 }

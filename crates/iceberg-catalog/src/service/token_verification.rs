@@ -7,16 +7,16 @@ use axum_extra::{
     TypedHeader,
 };
 use http::StatusCode;
-use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
 use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use jwks_client_rs::source::WebSource;
 use jwks_client_rs::{JsonWebKey, JwksClient};
 
+use crate::api::{ErrorModel, IcebergErrorResponse};
 use crate::request_metadata::RequestMetadata;
 use axum::Extension;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::str::FromStr;
 use url::Url;
 
@@ -115,7 +115,7 @@ impl Verifier {
                 .message("Failed to decode auth token header.")
                 .code(StatusCode::UNAUTHORIZED.into())
                 .r#type("UnauthorizedError")
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?;
 
@@ -143,7 +143,7 @@ impl Verifier {
                         .message("Failed to decode token.")
                         .code(StatusCode::UNAUTHORIZED.into())
                         .r#type("UnauthorizedError")
-                        .stack(Some(vec![e.to_string()]))
+                        .source(Some(Box::new(e)))
                         .build()
                 })?
                 .claims);
@@ -200,12 +200,15 @@ impl Verifier {
         Ok(validation)
     }
 
-    fn internal_error(e: impl Display, message: &str) -> ErrorModel {
+    fn internal_error(
+        e: impl std::error::Error + Send + Sync + 'static,
+        message: &str,
+    ) -> ErrorModel {
         ErrorModel::builder()
             .message(message)
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .r#type("InternalServerError")
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     }
 }

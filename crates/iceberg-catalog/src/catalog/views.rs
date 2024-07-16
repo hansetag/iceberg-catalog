@@ -6,19 +6,19 @@ mod list;
 mod load;
 mod rename;
 
+use super::tables::validate_table_properties;
+use super::CatalogServer;
 use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, CreateViewRequest, DataAccess, ListTablesResponse,
     LoadViewResult, NamespaceParameters, PaginationQuery, Prefix, RenameTableRequest, Result,
     ViewParameters,
 };
+use crate::api::ErrorModel;
 use crate::request_metadata::RequestMetadata;
+use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
 use http::StatusCode;
 use iceberg::spec::view_properties::{METADATA_COMPRESSION, METADATA_COMPRESSION_DEFAULT};
-use iceberg_ext::catalog::rest::{ErrorModel, ViewUpdate};
-
-use super::tables::validate_table_properties;
-use super::CatalogServer;
-use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
+use iceberg_ext::catalog::rest::ViewUpdate;
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>

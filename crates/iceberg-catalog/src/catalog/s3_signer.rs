@@ -3,14 +3,10 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use std::vec;
 
+use super::CatalogServer;
 use crate::api::iceberg::types::Prefix;
 use crate::api::{ApiContext, Result};
 use crate::api::{ErrorModel, S3SignRequest, S3SignResponse};
-use aws_sigv4::http_request::{sign as aws_sign, SignableBody, SignableRequest, SigningSettings};
-use aws_sigv4::sign::v4;
-use aws_sigv4::{self};
-
-use super::CatalogServer;
 use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
 use crate::service::secrets::SecretStore;
@@ -18,6 +14,10 @@ use crate::service::storage::{S3Profile, StorageCredential, UserOrInternal};
 use crate::service::{auth::AuthZHandler, Catalog, State};
 use crate::service::{GetTableMetadataResponse, TableIdentUuid};
 use crate::WarehouseIdent;
+use aws_sigv4::http_request::{sign as aws_sign, SignableBody, SignableRequest, SigningSettings};
+use aws_sigv4::sign::v4;
+use aws_sigv4::{self};
+use iceberg_ext::catalog::rest::IcebergErrorResponse;
 
 const READ_METHODS: &[&str] = &["GET", "HEAD"];
 const WRITE_METHODS: &[&str] = &["PUT", "POST", "DELETE"];
@@ -80,7 +80,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     .code(http::StatusCode::UNAUTHORIZED.into())
                     .message("Unauthorized".to_string())
                     .r#type("InvalidLocation".to_string())
-                    .stack(Some(vec![format!("{e:?}")]))
+                    .source(Some(Box::new(e.error)))
                     .build()
             })?;
 
@@ -123,6 +123,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             )
             .await?
         };
+
         let current_span = tracing::Span::current();
         current_span
             .record("table_id", table_id.to_string().as_str())
@@ -201,7 +202,7 @@ fn sign(
                 .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Failed to create signing params".to_string())
                 .r#type("FailedToCreateSigningParams".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?
         .into();
@@ -231,7 +232,7 @@ fn sign(
             .code(http::StatusCode::BAD_REQUEST.into())
             .message("Request is not signable".to_string())
             .r#type("FailedToCreateSignableRequest".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -241,7 +242,7 @@ fn sign(
                 .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Failed to sign request".to_string())
                 .r#type("FailedToSignRequest".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?
         .into_parts();
@@ -281,7 +282,7 @@ fn partially_decode_uri(uri: &url::Url) -> Result<url::Url> {
                         .code(http::StatusCode::BAD_REQUEST.into())
                         .message("Failed to decode URI segment".to_string())
                         .r#type("FailedToDecodeURISegment".to_string())
-                        .stack(Some(vec![e.to_string()]))
+                        .source(Some(Box::new(e)))
                         .build()
                 })?,
         );
@@ -294,24 +295,28 @@ fn partially_decode_uri(uri: &url::Url) -> Result<url::Url> {
 fn require_table_id(table_id: Option<String>) -> Result<TableIdentUuid> {
     table_id
         .ok_or(
-            ErrorModel::builder()
-                .code(http::StatusCode::BAD_REQUEST.into())
-                .message("A Table ID is required as part of the URL path".to_string())
-                .r#type("TableIdRequired".to_string())
-                .build()
-                .into(),
+            ErrorModel::bad_request(
+                "A Table ID is required as part of the URL path",
+                "TableIdRequired",
+                None,
+            )
+            .into(),
         )
-        .and_then(|table_id| TableIdentUuid::from_str(&table_id).map_err(Into::into))
+        .and_then(|table_id| {
+            TableIdentUuid::from_str(&table_id)
+                .map_err(ErrorModel::from)
+                .map_err(Into::into)
+        })
 }
 
 fn validate_region(region: &str, storage_profile: &S3Profile) -> Result<()> {
     if region != storage_profile.region {
-        return Err(ErrorModel::builder()
-            .code(http::StatusCode::BAD_REQUEST.into())
-            .message("Region does not match storage profile".to_string())
-            .r#type("RegionMismatch".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "Region does not match storage profile",
+            "RegionMismatch",
+            None,
+        )
+        .into());
     }
 
     Ok(())
@@ -333,18 +338,52 @@ async fn validate_table_method<A: AuthZHandler>(
     } else if READ_METHODS.contains(&method.as_str()) {
         A::check_load_table(metadata, warehouse_id, None, Some(table_id), auth_state).await?;
     } else {
-        return Err(ErrorModel::builder()
-            .code(http::StatusCode::METHOD_NOT_ALLOWED.into())
-            .message("Method not allowed".to_string())
-            .r#type("MethodNotAllowed".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::not_allowed("Method not allowed", "MethodNotAllowed", None).into());
     }
 
     Ok(())
 }
 
 const AWS_S3_ACCESS_POINTS: &[&str] = &["s3", "s3.dualstack", "s3-fips.dualstack", "s3-fips"];
+
+#[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
+pub enum UriValidationError {
+    #[error("Table location does not have a bucket")]
+    TableLocationNoBucket,
+    #[error("Table location does not have a key")]
+    TableLocationNoKey,
+    #[error("Storage profile endpoint does not have a host")]
+    StorageProfileNoHost,
+    #[error("{1} due to {0}")]
+    ParseError(#[source] url::ParseError, String),
+    #[error("{message}. Expected Key: {expected:?}, Actual Key: {actual:?}")]
+    RequestUriMismatch {
+        message: String,
+        expected: Option<String>,
+        actual: Option<String>,
+    },
+}
+
+impl From<UriValidationError> for IcebergErrorResponse {
+    fn from(e: UriValidationError) -> Self {
+        let typ: &'static str = (&e).into();
+        match &e {
+            UriValidationError::StorageProfileNoHost
+            | UriValidationError::TableLocationNoKey
+            | UriValidationError::TableLocationNoBucket => {
+                ErrorModel::internal(e.to_string(), typ, Some(Box::new(e))).into()
+            }
+            UriValidationError::ParseError(_, message) => {
+                ErrorModel::internal(message.clone(), typ, Some(Box::new(e))).into()
+            }
+            UriValidationError::RequestUriMismatch {
+                message,
+                expected: _,
+                actual: _,
+            } => ErrorModel::forbidden(message.clone(), typ, Some(Box::new(e))).into(),
+        }
+    }
+}
 
 #[allow(clippy::too_many_lines)]
 fn validate_uri(
@@ -353,32 +392,18 @@ fn validate_uri(
     // i.e. s3://bucket/key
     table_location: &str,
     storage_profile: &S3Profile,
-) -> Result<()> {
-    let table_location = url::Url::parse(table_location.trim_end_matches('/')).map_err(|e| {
-        ErrorModel::builder()
-            .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Failed to parse table location".to_string())
-            .r#type("FailedToParseTableLocation".to_string())
-            .stack(Some(vec![e.to_string()]))
-            .build()
-    })?;
-    let table_bucket = table_location.host_str().ok_or_else(|| {
-        ErrorModel::builder()
-            .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Table location does not have a bucket".to_string())
-            .r#type("TableLocationNoBucket".to_string())
-            .build()
-    })?;
+) -> Result<(), UriValidationError> {
+    let table_location =
+        url::Url::parse(table_location.trim_end_matches('/')).map_err(|parse_error| {
+            UriValidationError::ParseError(parse_error, "table location".into())
+        })?;
+    let table_bucket = table_location
+        .host_str()
+        .ok_or(UriValidationError::TableLocationNoBucket)?;
     let table_key_virtual_host: Vec<_> = table_location
         .path_segments()
         .map(std::iter::Iterator::collect)
-        .ok_or(
-            ErrorModel::builder()
-                .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("Table location does not have a key".to_string())
-                .r#type("TableLocationNoKey".to_string())
-                .build(),
-        )?;
+        .ok_or(UriValidationError::TableLocationNoKey)?;
     let table_key_path_style = vec![table_bucket]
         .into_iter()
         .chain(table_key_virtual_host.clone())
@@ -392,26 +417,14 @@ fn validate_uri(
     // Obtain tuples of (scheme, host) for the endpoint candidates.
     // We need multiple candidates only for AWS S3, as there are multiple access points such as s3, s3.dualstack, etc.
     let table_endpoint_candidates = if let Some(endpoint) = &storage_profile.endpoint {
-        let endpoint = url::Url::parse(endpoint).map_err(|e| {
-            ErrorModel::builder()
-                .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("Failed to parse storage profile endpoint".to_string())
-                .r#type("FailedToParseStorageProfileEndpoint".to_string())
-                .stack(Some(vec![e.to_string()]))
-                .build()
-        })?;
+        let endpoint = url::Url::parse(endpoint)
+            .map_err(|e| UriValidationError::ParseError(e, "storage profile endpoint".into()))?;
 
         vec![(
             endpoint.scheme().to_string(),
             endpoint
                 .host()
-                .ok_or(
-                    ErrorModel::builder()
-                        .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-                        .message("Storage profile endpoint does not have a host".to_string())
-                        .r#type("StorageProfileNoHost".to_string())
-                        .build(),
-                )?
+                .ok_or(UriValidationError::StorageProfileNoHost)?
                 .to_string(),
         )]
     } else {
@@ -448,16 +461,11 @@ fn validate_uri(
         // Case 1: Virtual Host style
         let len = table_key_virtual_host.len();
         if request_key.len() < len || request_key[..len] != table_key_virtual_host {
-            Err(ErrorModel::builder()
-                .code(http::StatusCode::FORBIDDEN.into())
-                .message("Request URI does not match table location".to_string())
-                .r#type("VirtualHostURIMismatch".to_string())
-                .stack(Some(vec![
-                    format!("Expected Key: {table_key_virtual_host:?}"),
-                    format!("Actual Key: {request_key:?}"),
-                ]))
-                .build()
-                .into())
+            Err(UriValidationError::RequestUriMismatch {
+                message: "Request URI does not match table location".to_string(),
+                expected: Some(format!("{table_key_virtual_host:?}")),
+                actual: Some(format!("{request_key:?}")),
+            })
         } else {
             Ok(())
         }
@@ -467,26 +475,20 @@ fn validate_uri(
         // Case 2: Path style
         let len = table_key_path_style.len();
         if request_key.len() < len || request_key[..len] != table_key_path_style {
-            Err(ErrorModel::builder()
-                .code(http::StatusCode::FORBIDDEN.into())
-                .message("Request URI does not match table location".to_string())
-                .r#type("PathStyleHostMismatch".to_string())
-                .stack(Some(vec![
-                    format!("Expected Key: {table_key_path_style:?}"),
-                    format!("Actual Key: {request_key:?}"),
-                ]))
-                .build()
-                .into())
+            Err(UriValidationError::RequestUriMismatch {
+                message: "Request URI does not match table location".to_string(),
+                expected: Some(format!("{table_key_path_style:?}")),
+                actual: Some(format!("{request_key:?}")),
+            })
         } else {
             Ok(())
         }
     } else {
-        Err(ErrorModel::builder()
-            .code(http::StatusCode::FORBIDDEN.into())
-            .message("Request URI does not match table location".to_string())
-            .r#type("RequestUriMismatch".to_string())
-            .build()
-            .into())
+        Err(UriValidationError::RequestUriMismatch {
+            message: "Request URI does not match table location".to_string(),
+            expected: None,
+            actual: None,
+        })
     }
 }
 
