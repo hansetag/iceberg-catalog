@@ -472,6 +472,8 @@ impl From<crate::service::GetWarehouseResponse> for GetWarehouseResponse {
 
 #[cfg(test)]
 mod test {
+    use crate::service::storage::UserOrInternal;
+
     #[test]
     fn test_de_create_warehouse_request() {
         let request = serde_json::json!({
@@ -498,7 +500,10 @@ mod test {
             request.project_id,
             uuid::Uuid::parse_str("f47ac10b-58cc-4372-a567-0e02b2c3d479").unwrap()
         );
-        let s3_profile = request.storage_profile.try_into_s3(409).unwrap();
+        let s3_profile = request
+            .storage_profile
+            .try_into_s3(UserOrInternal::User)
+            .unwrap();
         assert_eq!(s3_profile.bucket, "test");
         assert_eq!(s3_profile.region, "dummy");
         assert_eq!(s3_profile.path_style_access, Some(true));

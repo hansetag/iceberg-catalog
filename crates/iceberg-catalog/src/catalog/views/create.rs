@@ -2,12 +2,11 @@ use crate::api::iceberg::types::Prefix;
 use crate::api::iceberg::v1::{DataAccess, NamespaceParameters};
 use crate::api::ApiContext;
 use crate::catalog::io::write_metadata_file;
-use crate::catalog::require_warehouse_id;
-use crate::catalog::tables::{
-    maybe_body_to_json, require_active_warehouse, require_no_location_specified,
-    validate_table_or_view_ident,
-};
+use crate::catalog::tables::{maybe_body_to_json, validate_table_or_view_ident};
 use crate::catalog::views::validate_view_properties;
+use crate::catalog::{
+    require_active_warehouse, require_no_location_specified, require_warehouse_id,
+};
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
 use crate::service::event_publisher::EventMetadata;

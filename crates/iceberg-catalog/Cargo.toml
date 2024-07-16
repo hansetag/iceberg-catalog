@@ -13,6 +13,7 @@ Implementation of the Iceberg REST Catalog server.
 
 [features]
 all = ["sqlx-postgres", "s3-signer", "router", "nats"]
+default = ["sqlx-postgres", "s3-signer", "router"]
 sqlx-postgres = ["sqlx"]
 sqlx = ["dep:sqlx"]
 s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]
@@ -63,6 +64,8 @@ utoipa = { workspace = true, features = ["uuid"] }
 utoipa-swagger-ui = { workspace = true }
 uuid = { workspace = true }
 veil = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = "1.0.61"
 
 [dev-dependencies]
 http-body-util = { workspace = true }

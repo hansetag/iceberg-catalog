@@ -3,11 +3,9 @@ use crate::api::iceberg::v1::{
     TableIdent, ViewParameters,
 };
 use crate::catalog::io::write_metadata_file;
-use crate::catalog::require_warehouse_id;
-use crate::catalog::tables::{
-    maybe_body_to_json, require_active_warehouse, validate_table_or_view_ident,
-};
+use crate::catalog::tables::{maybe_body_to_json, validate_table_or_view_ident};
 use crate::catalog::views::validate_view_updates;
+use crate::catalog::{require_active_warehouse, require_warehouse_id};
 use crate::request_metadata::RequestMetadata;
 use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;

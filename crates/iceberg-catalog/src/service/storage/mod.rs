@@ -1,15 +1,69 @@
 mod s3;
 
+use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
+use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel};
+use crate::service::tabular_idents::TabularIdentUuid;
+use crate::WarehouseIdent;
+use iceberg_ext::catalog::rest::IcebergErrorResponse;
+pub use s3::{Error as S3Error, S3Credential, S3Profile};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
-use crate::service::tabular_idents::TabularIdentUuid;
-pub use s3::{S3Credential, S3Profile};
-use serde::{Deserialize, Serialize};
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error(transparent)]
+    S3Error(#[from] S3Error),
+    #[error("{message}")]
+    InvalidStorageProfile {
+        message: String,
+        origin: UserOrInternal,
+        storage_type: StorageType,
+    },
+    #[cfg(test)]
+    #[error(transparent)]
+    FileIOCreationFailed(#[from] iceberg::Error),
+}
 
-use crate::WarehouseIdent;
+#[derive(Debug, Clone, Copy)]
+pub enum UserOrInternal {
+    User,
+    Internal,
+}
 
-use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
+type Result<T> = std::result::Result<T, Error>;
+
+impl From<Error> for IcebergErrorResponse {
+    fn from(value: Error) -> Self {
+        ErrorModel::from(value).into()
+    }
+}
+
+impl From<Error> for ErrorModel {
+    fn from(value: Error) -> Self {
+        match value {
+            Error::S3Error(e) => e.into(),
+            Error::InvalidStorageProfile {
+                message,
+                origin,
+                storage_type,
+            } => {
+                let mut m = match origin {
+                    UserOrInternal::User => ErrorModel::conflict(message, "InvalidStorageProfile"),
+                    UserOrInternal::Internal => {
+                        ErrorModel::internal(message, "InvalidStorageProfile")
+                    }
+                };
+                m.push_to_stack(format!("Storage type: {storage_type}"));
+                m
+            }
+            #[cfg(test)]
+            Error::FileIOCreationFailed(_) => ErrorModel::internal(
+                "Failed to create file IO".to_string(),
+                "FileIOCreationFailed",
+            ),
+        }
+    }
+}
 
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
@@ -57,7 +111,7 @@ impl StorageProfile {
     pub fn can_be_updated_with(&self, other: &Self) -> Result<()> {
         match (self, other) {
             (StorageProfile::S3(this_profile), StorageProfile::S3(other_profile)) => {
-                this_profile.can_be_updated_with(other_profile)
+                Ok(this_profile.can_be_updated_with(other_profile)?)
             }
             #[cfg(test)]
             (StorageProfile::Test(_), _) => Ok(()),
@@ -72,21 +126,14 @@ impl StorageProfile {
     /// Fails if the underlying storage profile's file IO creation fails.
     pub fn file_io(&self, secret: Option<&StorageCredential>) -> Result<iceberg::io::FileIO> {
         match self {
-            StorageProfile::S3(profile) => profile.file_io(secret.map(|s| match s {
+            StorageProfile::S3(profile) => Ok(profile.file_io(secret.map(|s| match s {
                 StorageCredential::S3(s) => s,
-            })),
+            }))?),
             #[cfg(test)]
             StorageProfile::Test(_) => {
                 let file_io = iceberg::io::FileIOBuilder::new("file")
                     .build()
-                    .map_err(|e| {
-                        ErrorModel::builder()
-                            .code(500)
-                            .message("Failed to create file IO".to_string())
-                            .r#type("FileIOCreationFailed".to_string())
-                            .stack(Some(vec![format!("{:?}", e)]))
-                            .build()
-                    })?;
+                    .map_err(Error::FileIOCreationFailed)?;
                 Ok(file_io)
             }
         }
@@ -135,19 +182,17 @@ impl StorageProfile {
         secret: Option<&StorageCredential>,
     ) -> Result<HashMap<String, String>> {
         match self {
-            StorageProfile::S3(profile) => {
-                profile
-                    .generate_table_config(
-                        warehouse_id,
-                        table_id,
-                        namespace_id,
-                        data_access,
-                        secret.map(|s| match s {
-                            StorageCredential::S3(s) => s,
-                        }),
-                    )
-                    .await
-            }
+            StorageProfile::S3(profile) => Ok(profile
+                .generate_table_config(
+                    warehouse_id,
+                    table_id,
+                    namespace_id,
+                    data_access,
+                    secret.map(|s| match s {
+                        StorageCredential::S3(s) => s,
+                    }),
+                )
+                .await),
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(HashMap::default()),
         }
@@ -159,13 +204,11 @@ impl StorageProfile {
     /// Fails if the underlying storage profile's validation fails.
     pub async fn validate(&mut self, secret: Option<&StorageCredential>) -> Result<()> {
         match self {
-            StorageProfile::S3(profile) => {
-                profile
-                    .validate(secret.map(|s| match s {
-                        StorageCredential::S3(s) => s,
-                    }))
-                    .await
-            }
+            StorageProfile::S3(profile) => Ok(profile
+                .validate(secret.map(|s| match s {
+                    StorageCredential::S3(s) => s,
+                }))
+                .await?),
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(()),
         }
@@ -175,25 +218,21 @@ impl StorageProfile {
     ///
     /// # Errors
     /// Fails if the profile is not an S3 profile.
-    pub fn try_into_s3(self, code: u16) -> Result<S3Profile> {
+    pub fn try_into_s3(self, origin: UserOrInternal) -> Result<S3Profile> {
         match self {
             Self::S3(profile) => Ok(profile),
             #[cfg(test)]
-            Self::Test(_) => Err(ErrorModel::builder()
-                .code(code)
-                .message("Storage profile is not S3".to_string())
-                .r#type("StorageProfileNotS3".to_string())
-                .stack(Some(vec![format!("Storage Type: {}", self.storage_type())]))
-                .build()
-                .into()),
+            Self::Test(_) => Err(Error::InvalidStorageProfile {
+                message: "Storage credential is not S3".to_string(),
+                origin,
+                storage_type: self.storage_type(),
+            }),
             #[allow(unreachable_patterns)] // More profiles will be added in the future
-            _ => Err(ErrorModel::builder()
-                .code(code)
-                .message("Storage profile is not S3".to_string())
-                .r#type("StorageProfileNotS3".to_string())
-                .stack(Some(vec![format!("Storage Type: {}", self.storage_type())]))
-                .build()
-                .into()),
+            _ => Err(Error::InvalidStorageProfile {
+                message: "Storage credential is not S3".to_string(),
+                origin,
+                storage_type: self.storage_type(),
+            }),
         }
     }
 }
@@ -226,17 +265,15 @@ impl StorageCredential {
     ///
     /// # Errors
     /// Fails if the credential is not an S3 credential.
-    pub fn try_into_s3(self, code: u16) -> Result<S3Credential> {
+    pub fn try_into_s3(self, origin: UserOrInternal) -> Result<S3Credential> {
         match self {
             Self::S3(profile) => Ok(profile),
             #[allow(unreachable_patterns)] // More profiles will be added in the future
-            _ => Err(ErrorModel::builder()
-                .code(code)
-                .message("Storage profile is not S3".to_string())
-                .r#type("StorageProfileNotS3".to_string())
-                .stack(Some(vec![format!("Storage Type: {}", self.storage_type())]))
-                .build()
-                .into()),
+            _ => Err(Error::InvalidStorageProfile {
+                message: "Storage credential is not S3".to_string(),
+                origin,
+                storage_type: self.storage_type(),
+            }),
         }
     }
 }

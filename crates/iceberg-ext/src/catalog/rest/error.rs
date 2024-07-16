@@ -1,5 +1,6 @@
 // macro to implement IntoResponse
 
+use http::StatusCode;
 pub use iceberg::Error;
 
 #[cfg(feature = "axum")]
@@ -68,6 +69,34 @@ pub struct ErrorModel {
 }
 
 impl ErrorModel {
+    pub fn bad_request(message: impl Into<String>, r#type: impl Into<String>) -> Self {
+        Self::new(message, r#type, StatusCode::BAD_REQUEST.as_u16())
+    }
+
+    pub fn not_implemented(message: impl Into<String>, r#type: impl Into<String>) -> Self {
+        Self::new(message, r#type, StatusCode::NOT_IMPLEMENTED.as_u16())
+    }
+
+    pub fn precondition_failed(message: impl Into<String>, r#type: impl Into<String>) -> Self {
+        Self::new(message, r#type, StatusCode::PRECONDITION_FAILED.as_u16())
+    }
+
+    pub fn internal(message: impl Into<String>, r#type: impl Into<String>) -> Self {
+        Self::new(message, r#type, StatusCode::INTERNAL_SERVER_ERROR.as_u16())
+    }
+
+    pub fn conflict(message: impl Into<String>, r#type: impl Into<String>) -> Self {
+        Self::new(message, r#type, StatusCode::CONFLICT.as_u16())
+    }
+
+    pub fn new(message: impl Into<String>, r#type: impl Into<String>, code: u16) -> Self {
+        Self::builder()
+            .message(message)
+            .r#type(r#type)
+            .code(code)
+            .build()
+    }
+
     pub fn push_to_stack(&mut self, message: impl Into<String>) -> &mut Self {
         if let Some(stack) = &mut self.stack {
             stack.push(message.into());

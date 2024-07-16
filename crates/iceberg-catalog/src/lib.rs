@@ -15,8 +15,8 @@ pub use service::{ProjectIdent, SecretIdent, WarehouseIdent};
 
 pub use config::CONFIG;
 
+mod error;
 pub mod implementations;
-#[cfg(feature = "router")]
 mod request_metadata;
 #[cfg(feature = "router")]
 pub(crate) mod tracing;

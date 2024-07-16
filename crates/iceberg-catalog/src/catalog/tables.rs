@@ -1,22 +1,18 @@
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
+use super::{
+    io::write_metadata_file, namespace::validate_namespace_ident, require_warehouse_id,
+    CatalogServer,
+};
 use crate::api::iceberg::v1::{
     ApiContext, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
     CreateTableRequest, DataAccess, ErrorModel, ListTablesResponse, LoadTableResult,
     NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
     TableIdent, TableParameters,
 };
+use crate::catalog;
 use crate::request_metadata::RequestMetadata;
-use http::StatusCode;
-use iceberg::{NamespaceIdent, TableUpdate};
-use serde::Serialize;
-use uuid::Uuid;
-
-use super::{
-    io::write_metadata_file, namespace::validate_namespace_ident, require_warehouse_id,
-    CatalogServer,
-};
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::StorageCredential;
@@ -25,7 +21,11 @@ use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
-use crate::service::{GetWarehouseResponse, TableIdentUuid, WarehouseStatus};
+use crate::service::{GetWarehouseResponse, TableIdentUuid};
+use http::StatusCode;
+use iceberg::{NamespaceIdent, TableUpdate};
+use serde::Serialize;
+use uuid::Uuid;
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -82,7 +82,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let warehouse_id = require_warehouse_id(prefix.clone())?;
         let table = TableIdent::new(namespace.clone(), request.name.clone());
         validate_table_or_view_ident(&table)?;
-        require_no_location_specified(&request.location)?;
+        catalog::require_no_location_specified(&request.location)?;
 
         if let Some(properties) = &request.properties {
             validate_table_properties(properties.keys())?;
@@ -118,7 +118,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             storage_secret_id,
             status,
         } = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
-        require_active_warehouse(status)?;
+        catalog::require_active_warehouse(status)?;
 
         let table_id: TabularIdentUuid = TabularIdentUuid::Table(uuid::Uuid::now_v7());
         let table_location = storage_profile.tabular_location(namespace_id, table_id);
@@ -904,7 +904,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     .storage_profile
                     .file_io(storage_secret.as_ref())
                     .map(|io| (r, io));
-                file_io
+                Ok(file_io?)
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -949,30 +949,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         Ok(())
     }
-}
-
-pub(crate) fn require_no_location_specified(location: &Option<String>) -> Result<()> {
-    if location.is_some() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Specifying a Table `location` is not supported. Location is managed by the Catalog.".to_string())
-            .r#type("LocationNotSupported".to_string())
-            .build()
-            .into());
-    }
-    Ok(())
-}
-
-pub(crate) fn require_active_warehouse(status: WarehouseStatus) -> Result<()> {
-    if status != WarehouseStatus::Active {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Warehouse is not active".to_string())
-            .r#type("WarehouseNotActive".to_string())
-            .build()
-            .into());
-    }
-    Ok(())
 }
 
 async fn emit_change_event(

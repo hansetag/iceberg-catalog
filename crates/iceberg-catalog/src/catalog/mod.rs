@@ -1,4 +1,5 @@
 mod config;
+mod error;
 pub(crate) mod io;
 mod metrics;
 pub(crate) mod namespace;
@@ -11,10 +12,12 @@ pub use config::Server as ConfigServer;
 pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
 
 use crate::api::{iceberg::v1::Prefix, ErrorModel, Result};
+use crate::service::WarehouseStatus;
 use crate::{
     service::{auth::AuthZHandler, secrets::SecretStore, Catalog},
     WarehouseIdent,
 };
+use http::StatusCode;
 use std::marker::PhantomData;
 
 #[derive(Clone, Debug)]
@@ -38,4 +41,28 @@ fn require_warehouse_id(prefix: Option<Prefix>) -> Result<WarehouseIdent> {
                 .build(),
         )?
         .try_into()
+}
+
+fn require_no_location_specified(location: &Option<String>) -> Result<()> {
+    if location.is_some() {
+        return Err(ErrorModel::builder()
+            .code(StatusCode::BAD_REQUEST.into())
+            .message("Specifying a Table `location` is not supported. Location is managed by the Catalog.".to_string())
+            .r#type("LocationNotSupported".to_string())
+            .build()
+            .into());
+    }
+    Ok(())
+}
+
+fn require_active_warehouse(status: WarehouseStatus) -> Result<()> {
+    if status != WarehouseStatus::Active {
+        return Err(ErrorModel::builder()
+            .code(StatusCode::NOT_FOUND.into())
+            .message("Warehouse is not active".to_string())
+            .r#type("WarehouseNotActive".to_string())
+            .build()
+            .into());
+    }
+    Ok(())
 }

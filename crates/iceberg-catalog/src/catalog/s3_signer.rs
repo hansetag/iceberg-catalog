@@ -5,7 +5,7 @@ use std::vec;
 
 use crate::api::iceberg::types::Prefix;
 use crate::api::{ApiContext, Result};
-use crate::api::{ErrorModel, IcebergErrorResponse, S3SignRequest, S3SignResponse};
+use crate::api::{ErrorModel, S3SignRequest, S3SignResponse};
 use aws_sigv4::http_request::{sign as aws_sign, SignableBody, SignableRequest, SigningSettings};
 use aws_sigv4::sign::v4;
 use aws_sigv4::{self};
@@ -14,7 +14,7 @@ use super::CatalogServer;
 use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
 use crate::service::secrets::SecretStore;
-use crate::service::storage::{S3Profile, StorageCredential};
+use crate::service::storage::{S3Profile, StorageCredential, UserOrInternal};
 use crate::service::{auth::AuthZHandler, Catalog, State};
 use crate::service::{GetTableMetadataResponse, TableIdentUuid};
 use crate::WarehouseIdent;
@@ -75,6 +75,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             )
             .await
             .map_err(|e| {
+                // TODO: why is this unauthorized?
                 ErrorModel::builder()
                     .code(http::StatusCode::UNAUTHORIZED.into())
                     .message("Unauthorized".to_string())
@@ -122,20 +123,17 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             )
             .await?
         };
-
-        let extend_err = |mut e: IcebergErrorResponse| {
-            e.error.push_to_stack(format!("Table ID: {table_id}"));
-            e.error.push_to_stack(format!("Request URI: {request_url}"));
-            e.error.push_to_stack(format!("Table Location: {location}"));
-            e
-        };
+        let current_span = tracing::Span::current();
+        current_span
+            .record("table_id", table_id.to_string().as_str())
+            .record("table_location", location.as_str());
 
         let storage_profile = storage_profile
-            .try_into_s3(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-            .map_err(extend_err)?;
+            .try_into_s3(UserOrInternal::Internal)
+            .map_err(log_error)?;
 
-        validate_uri(&request_url, &location, &storage_profile).map_err(extend_err)?;
-        validate_region(&request_region, &storage_profile).map_err(extend_err)?;
+        validate_uri(&request_url, &location, &storage_profile).map_err(log_error)?;
+        validate_region(&request_region, &storage_profile).map_err(log_error)?;
 
         // If all is good, we need the storage secret
         let storage_secret = if let Some(storage_secret_ident) = storage_secret_ident {
@@ -152,14 +150,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
         .map(|secret| {
             secret
-                .try_into_s3(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-                .map_err(extend_err)
+                .try_into_s3(UserOrInternal::Internal)
+                .map_err(log_error)
         })
         .transpose()?;
 
         let credentials: aws_credential_types::Credentials = storage_profile
             .get_aws_sdk_credentials(storage_secret.as_ref())
-            .map_err(extend_err)?;
+            .map_err(log_error)?;
 
         sign(
             credentials,
@@ -169,7 +167,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             &request_method,
             &request_headers,
         )
-        .map_err(extend_err)
+        .map_err(log_error)
     }
 }
 
@@ -525,6 +523,14 @@ fn parse_s3_url_to_location(uri: &url::Url) -> Result<String> {
         }
         url::Host::Ipv4(_) | url::Host::Ipv6(_) => Ok(format!("s3://{path}")),
     }
+}
+
+fn log_error<T>(e: T) -> T
+where
+    T: std::fmt::Debug,
+{
+    tracing::warn!(error = ?e, "Failed to sign request");
+    e
 }
 
 #[cfg(test)]
