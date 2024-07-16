@@ -7,11 +7,10 @@ pub(crate) mod warehouse;
 
 use crate::CONFIG;
 use anyhow::anyhow;
+pub use secrets::Server as SecretsStore;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::ConnectOptions;
 use std::str::FromStr;
-
-pub use secrets::Server as SecretsStore;
 
 use self::dbutils::DBErrorHandler;
 use crate::api::Result;
@@ -194,5 +193,8 @@ fn build_connect_ops(typ: ConnectionType) -> anyhow::Result<PgConnectOptions> {
     } else {
         opts.disable_statement_logging()
     };
-    Ok(opts)
+
+    Ok(dbg!(
+        opts.options([("idle_in_transaction_session_timeout", "1s")])
+    ))
 }

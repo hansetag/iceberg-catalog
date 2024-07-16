@@ -428,9 +428,9 @@ pub(crate) async fn rename_tabular(
 }
 
 // ToDo: Switch to a soft delete
-pub(crate) async fn drop_tabular<'a>(
+pub(crate) async fn drop_tabular(
     tabular_id: TabularIdentUuid,
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    transaction: &mut PgConnection,
 ) -> Result<()> {
     let _ = sqlx::query!(
         r#"
@@ -442,7 +442,7 @@ pub(crate) async fn drop_tabular<'a>(
         *tabular_id,
         TabularType::from(tabular_id) as _
     )
-    .fetch_one(&mut **transaction)
+    .fetch_one(transaction)
     .await
     .map_err(|e| {
         if let sqlx::Error::RowNotFound = e {

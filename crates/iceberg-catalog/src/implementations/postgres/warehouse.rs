@@ -123,6 +123,7 @@ pub(crate) async fn create_warehouse<'a>(
                 .build(),
             _ => e.into_error_model("Error creating Warehouse".into()),
         },
+        // TODO: shouldn't this be an internal error?
         sqlx::Error::RowNotFound => ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
             .message("Error creating Warehouse.".to_string())

@@ -18,7 +18,7 @@ use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersionRef}
 use iceberg::NamespaceIdent;
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use serde::Deserialize;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{FromRow, PgConnection};
 use std::collections::HashMap;
 use std::default::Default;
 use uuid::Uuid;
@@ -56,7 +56,7 @@ where
 pub(crate) async fn create_view(
     namespace_id: NamespaceIdentUuid,
     metadata_location: &str,
-    transaction: &mut Transaction<'_, Postgres>,
+    transaction: &mut PgConnection,
     name: &str,
     metadata: ViewMetadata,
 ) -> Result<ViewMetadata> {
@@ -70,7 +70,7 @@ pub(crate) async fn create_view(
             metadata_location: Some(metadata_location),
             location,
         },
-        &mut *transaction,
+        transaction,
     )
     .await?;
 
@@ -83,7 +83,7 @@ pub(crate) async fn create_view(
         tabular_id,
         ViewFormatVersion::from(metadata.format_version()) as _,
     )
-    .fetch_one(&mut **transaction)
+    .fetch_one(&mut *transaction)
     .await
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => ErrorModel::builder()
@@ -134,9 +134,9 @@ pub(crate) async fn create_view(
     Ok(metadata)
 }
 
-pub(crate) async fn drop_view<'a>(
+pub(crate) async fn drop_view(
     view_id: TableIdentUuid,
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    transaction: &mut PgConnection,
 ) -> Result<()> {
     let _ = sqlx::query!(
         r#"
@@ -147,7 +147,7 @@ pub(crate) async fn drop_view<'a>(
          "#,
         *view_id,
     )
-    .fetch_one(&mut **transaction)
+    .fetch_one(&mut *transaction)
     .await
     .map_err(|e| {
         if let sqlx::Error::RowNotFound = e {
@@ -191,7 +191,7 @@ async fn insert_view_version_log(
     view_id: Uuid,
     version_id: i64,
     timestamp_ms: Option<DateTime<Utc>>,
-    transaction: &mut Transaction<'_, Postgres>,
+    transaction: &mut PgConnection,
 ) -> Result<(), IcebergErrorResponse> {
     if let Some(ts) = timestamp_ms {
         sqlx::query!(
@@ -213,7 +213,7 @@ async fn insert_view_version_log(
             version_id,
         )
     }
-    .execute(&mut **transaction)
+    .execute(transaction)
     .await
     .map_err(|e| {
         let message = "Error inserting view version log".to_string();
@@ -227,7 +227,7 @@ async fn insert_view_version_log(
 pub(crate) async fn set_view_properties(
     properties: &HashMap<String, String>,
     view_id: Uuid,
-    transaction: &mut Transaction<'_, Postgres>,
+    transaction: &mut PgConnection,
 ) -> Result<(), IcebergErrorResponse> {
     let (keys, vals): (Vec<String>, Vec<String>) = properties
         .iter()
@@ -243,7 +243,7 @@ pub(crate) async fn set_view_properties(
         &keys,
         &vals
     )
-    .execute(&mut **transaction)
+    .execute(&mut *transaction)
     .await
     .map_err(|e| {
         let message = "Error inserting view property".to_string();
@@ -256,7 +256,7 @@ pub(crate) async fn set_view_properties(
 pub(crate) async fn create_view_schema(
     view_id: Uuid,
     schema: SchemaRef,
-    transaction: &mut Transaction<'_, Postgres>,
+    transaction: &mut PgConnection,
 ) -> Result<i32> {
     let schema_as_value = serde_json::to_value(&schema).map_err(|e| {
         ErrorModel::builder()
@@ -276,7 +276,7 @@ pub(crate) async fn create_view_schema(
         schema.schema_id(),
         schema_as_value
     )
-    .fetch_one(&mut **transaction)
+    .fetch_one(transaction)
     .await
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => ErrorModel::builder()
@@ -299,7 +299,7 @@ struct ViewVersionResponse {
 async fn create_view_version(
     view_id: Uuid,
     view_version_request: ViewVersionRef,
-    transaction: &mut Transaction<'_, Postgres>,
+    transaction: &mut PgConnection,
 ) -> Result<ViewVersionResponse> {
     let view_version = view_version_request;
     let version_id = view_version.version_id();
@@ -314,7 +314,7 @@ async fn create_view_version(
         "#,
         &default_ns
     )
-    .fetch_optional(&mut **transaction)
+    .fetch_optional(&mut *transaction)
     .await
     .map_err(|e| {
         let message = "Error fetching namespace_id".to_string();
@@ -346,7 +346,7 @@ async fn create_view_version(
                 default_cat,
                 summary
             )
-        .fetch_one(&mut **transaction)
+        .fetch_one(&mut *transaction)
         .await.map_err(|e| {
             if let sqlx::Error::RowNotFound = e {
                 let message = "View version already exists";
@@ -385,7 +385,7 @@ async fn create_view_version(
 pub(crate) async fn set_current_view_metadata_version(
     version_id: i64,
     view_id: Uuid,
-    transaction: &mut Transaction<'_, Postgres>,
+    transaction: &mut PgConnection,
 ) -> Result<(), IcebergErrorResponse> {
     sqlx::query!(
         r#"
@@ -398,7 +398,7 @@ pub(crate) async fn set_current_view_metadata_version(
         version_id,
         view_id
     )
-    .execute(&mut **transaction)
+    .execute(transaction)
     .await
     .map_err(|e| {
         let message = "Error setting current view metadata version".to_string();
@@ -438,7 +438,7 @@ pub(crate) async fn list_views(
 
 async fn insert_representation(
     rep: &ViewRepresentation,
-    transaction: &mut Transaction<'_, Postgres>,
+    transaction: &mut PgConnection,
     view_version_response: ViewVersionResponse,
 ) -> Result<(), IcebergErrorResponse> {
     let ViewRepresentation::SqlViewRepresentation(repr) = rep;
@@ -453,7 +453,7 @@ async fn insert_representation(
         repr.sql.as_str(),
         repr.dialect.as_str()
     )
-    .execute(&mut **transaction)
+    .execute(&mut *transaction)
     .await
     .map_err(|e| {
         let message = "Error inserting view_representation".to_string();
@@ -500,7 +500,7 @@ pub(crate) mod tests {
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use crate::implementations::postgres::CatalogState;
 
-    use crate::service::TableIdentUuid;
+    use crate::service::{NamespaceIdentUuid, TableIdentUuid};
 
     use iceberg::spec::{ViewMetadata, ViewMetadataBuilder};
     use iceberg::{NamespaceIdent, TableIdent};
@@ -681,7 +681,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn drop_view(pool: sqlx::PgPool) {
-        let (state, created_meta, _, _, _) = prepare_view(pool).await;
+        let (state, created_meta, _, _, _, _) = prepare_view(pool).await;
         let mut tx = state.read_pool.begin().await.unwrap();
         super::drop_view(created_meta.view_uuid.into(), &mut tx)
             .await
@@ -697,7 +697,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn view_exists(pool: sqlx::PgPool) {
-        let (state, created_meta, warehouse_ident, namespace, name) = prepare_view(pool).await;
+        let (state, created_meta, warehouse_ident, namespace, name, _) = prepare_view(pool).await;
         let exists = super::view_ident_to_id(
             warehouse_ident,
             &TableIdent {
@@ -732,7 +732,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn drop_view_not_existing(pool: sqlx::PgPool) {
-        let (state, _, _, _, _) = prepare_view(pool).await;
+        let (state, ..) = prepare_view(pool).await;
         let mut tx = state.read_pool.begin().await.unwrap();
         let e = super::drop_view(Uuid::now_v7().into(), &mut tx)
             .await
@@ -749,6 +749,7 @@ pub(crate) mod tests {
         WarehouseIdent,
         NamespaceIdent,
         String,
+        NamespaceIdentUuid,
     ) {
         let state = CatalogState {
             read_pool: pool.clone(),
@@ -784,6 +785,7 @@ pub(crate) mod tests {
             warehouse_id,
             namespace,
             "myview".into(),
+            namespace_id,
         )
     }
 }
