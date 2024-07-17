@@ -7,4 +7,4 @@ ARG BIN
 COPY ${BIN} /home/nonroot/iceberg-catalog
 
 # # set the startup command to run your binary
-CMD ["/home/nonroot/iceberg-catalog"]
+ENTRYPOINT ["/home/nonroot/iceberg-catalog"]
