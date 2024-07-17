@@ -46,7 +46,7 @@ services:
       - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:postgres@db:2345/postgres
       - RUST_LOG=trace,axum=trace
     restart: "no"
-    entrypoint: [ "/home/nonroot/iceberg-catalog", "migrate" ]
+    command: [ "migrate" ]
     depends_on:
       db:
         condition: service_healthy
@@ -63,7 +63,7 @@ services:
       - ICEBERG_REST__NATS_PASSWORD=test
       - ICEBERG_REST__OPENID_PROVIDER_URI=http://keycloak:8080/realms/test/
       - RUST_LOG=trace,axum=trace,reqwest=trace
-    entrypoint: [ "/home/nonroot/iceberg-catalog", "serve" ]
+    command: [ "serve" ]
     healthcheck:
       test: [ "CMD", "/home/nonroot/iceberg-catalog", "healthcheck" ]
       interval: 2s
