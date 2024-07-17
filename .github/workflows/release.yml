@@ -290,6 +290,8 @@ jobs:
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-amd64.tar
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-arm64.tar
           docker images
+          docker inspect localhost/iceberg-catalog-local:amd64
+          docker inspect localhost/iceberg-catalog-local:arm64
       
       - name: Release Please
         run: echo ${{ needs.release_please.outputs.tag_name }}
@@ -327,7 +329,7 @@ jobs:
           docker push quay.io/hansetag/iceberg-catalog:latest-main-arm64
           docker manifest create quay.io/hansetag/iceberg-catalog:latest-main quay.io/hansetag/iceberg-catalog:latest-main-amd64 quay.io/hansetag/iceberg-catalog:latest-main-arm64
           docker manifest push quay.io/hansetag/iceberg-catalog:latest-main
-      
+
   # Create GitHub release with Rust build targets and release notes
   publish-binary:
     name: Publish Binary
