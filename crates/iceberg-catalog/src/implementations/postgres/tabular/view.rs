@@ -16,7 +16,6 @@ use crate::implementations::postgres::{tabular, CatalogState};
 use chrono::{DateTime, Utc};
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersionRef};
 use iceberg::NamespaceIdent;
-use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use serde::Deserialize;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
@@ -192,7 +191,7 @@ async fn insert_view_version_log(
     version_id: i64,
     timestamp_ms: Option<DateTime<Utc>>,
     transaction: &mut Transaction<'_, Postgres>,
-) -> Result<(), IcebergErrorResponse> {
+) -> Result<()> {
     if let Some(ts) = timestamp_ms {
         sqlx::query!(
             r#"
@@ -228,7 +227,7 @@ pub(crate) async fn set_view_properties(
     properties: &HashMap<String, String>,
     view_id: Uuid,
     transaction: &mut Transaction<'_, Postgres>,
-) -> Result<(), IcebergErrorResponse> {
+) -> Result<()> {
     let (keys, vals): (Vec<String>, Vec<String>) = properties
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -263,7 +262,7 @@ pub(crate) async fn create_view_schema(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing view schema".to_string())
             .r#type("ViewSchemaSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
     Ok(sqlx::query_scalar!(
@@ -328,7 +327,7 @@ async fn create_view_version(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing view_version summary".to_string())
             .r#type("ViewSummarySerializationFailed".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -386,7 +385,7 @@ pub(crate) async fn set_current_view_metadata_version(
     version_id: i64,
     view_id: Uuid,
     transaction: &mut Transaction<'_, Postgres>,
-) -> Result<(), IcebergErrorResponse> {
+) -> Result<()> {
     sqlx::query!(
         r#"
         INSERT INTO current_view_metadata_version (version_id, view_id)
@@ -440,7 +439,7 @@ async fn insert_representation(
     rep: &ViewRepresentation,
     transaction: &mut Transaction<'_, Postgres>,
     view_version_response: ViewVersionResponse,
-) -> Result<(), IcebergErrorResponse> {
+) -> Result<()> {
     let ViewRepresentation::SqlViewRepresentation(repr) = rep;
     sqlx::query!(
         r#"

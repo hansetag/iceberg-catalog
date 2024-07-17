@@ -79,7 +79,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     .code(http::StatusCode::UNAUTHORIZED.into())
                     .message("Unauthorized".to_string())
                     .r#type("InvalidLocation".to_string())
-                    .stack(Some(vec![format!("{e:?}")]))
+                    .source(Some(Box::new(e.error)))
                     .build()
             })?;
 
@@ -124,9 +124,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         };
 
         let extend_err = |mut e: IcebergErrorResponse| {
-            e.error.push_to_stack(format!("Table ID: {table_id}"));
-            e.error.push_to_stack(format!("Request URI: {request_url}"));
-            e.error.push_to_stack(format!("Table Location: {location}"));
+            e.error = e
+                .error
+                .append_detail(format!("Table ID: {table_id}"))
+                .append_detail(format!("Request URI: {request_url}"))
+                .append_detail(format!("Table Location: {location}"));
             e
         };
 
@@ -203,7 +205,7 @@ fn sign(
                 .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Failed to create signing params".to_string())
                 .r#type("FailedToCreateSigningParams".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?
         .into();
@@ -233,7 +235,7 @@ fn sign(
             .code(http::StatusCode::BAD_REQUEST.into())
             .message("Request is not signable".to_string())
             .r#type("FailedToCreateSignableRequest".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -243,7 +245,7 @@ fn sign(
                 .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Failed to sign request".to_string())
                 .r#type("FailedToSignRequest".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?
         .into_parts();
@@ -283,7 +285,7 @@ fn partially_decode_uri(uri: &url::Url) -> Result<url::Url> {
                         .code(http::StatusCode::BAD_REQUEST.into())
                         .message("Failed to decode URI segment".to_string())
                         .r#type("FailedToDecodeURISegment".to_string())
-                        .stack(Some(vec![e.to_string()]))
+                        .source(Some(Box::new(e)))
                         .build()
                 })?,
         );
@@ -361,7 +363,7 @@ fn validate_uri(
             .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Failed to parse table location".to_string())
             .r#type("FailedToParseTableLocation".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
     let table_bucket = table_location.host_str().ok_or_else(|| {
@@ -399,7 +401,7 @@ fn validate_uri(
                 .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Failed to parse storage profile endpoint".to_string())
                 .r#type("FailedToParseStorageProfileEndpoint".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?;
 
@@ -454,10 +456,10 @@ fn validate_uri(
                 .code(http::StatusCode::FORBIDDEN.into())
                 .message("Request URI does not match table location".to_string())
                 .r#type("VirtualHostURIMismatch".to_string())
-                .stack(Some(vec![
+                .stack(vec![
                     format!("Expected Key: {table_key_virtual_host:?}"),
                     format!("Actual Key: {request_key:?}"),
-                ]))
+                ])
                 .build()
                 .into())
         } else {
@@ -473,10 +475,10 @@ fn validate_uri(
                 .code(http::StatusCode::FORBIDDEN.into())
                 .message("Request URI does not match table location".to_string())
                 .r#type("PathStyleHostMismatch".to_string())
-                .stack(Some(vec![
+                .stack(vec![
                     format!("Expected Key: {table_key_path_style:?}"),
                     format!("Actual Key: {request_key:?}"),
-                ]))
+                ])
                 .build()
                 .into())
         } else {

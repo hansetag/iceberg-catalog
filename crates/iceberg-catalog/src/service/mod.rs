@@ -98,7 +98,7 @@ impl FromStr for NamespaceIdentUuid {
                     .code(StatusCode::BAD_REQUEST.into())
                     .message("Provided namespace id is not a valid UUID".to_string())
                     .r#type("NamespaceIDIsNotUUID".to_string())
-                    .stack(Some(vec![e.to_string()]))
+                    .source(Some(Box::new(e)))
                     .build()
             },
         )?))
@@ -143,7 +143,7 @@ impl FromStr for TableIdentUuid {
                 .code(StatusCode::BAD_REQUEST.into())
                 .message("Provided table id is not a valid UUID".to_string())
                 .r#type("TableIDIsNotUUID".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?))
     }
@@ -179,7 +179,7 @@ impl FromStr for ProjectIdent {
                 .code(StatusCode::BAD_REQUEST.into())
                 .message("Provided project id is not a valid UUID".to_string())
                 .r#type("ProjectIDIsNotUUID".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?))
     }
@@ -266,7 +266,7 @@ impl FromStr for WarehouseIdent {
                 .code(StatusCode::BAD_REQUEST.into())
                 .message("Provided warehouse id is not a valid UUID".to_string())
                 .r#type("WarehouseIDIsNotUUID".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?))
     }
@@ -290,7 +290,7 @@ impl TryFrom<Prefix> for WarehouseIdent {
                     value.as_str()
                 ))
                 .r#type("PrefixIsNotWarehouseID".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?;
         Ok(WarehouseIdent(prefix))

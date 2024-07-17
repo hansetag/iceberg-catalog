@@ -42,7 +42,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Error fetching warehouse".to_string())
                 .r#type("WarehouseFetchError".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build(),
         })?;
 
@@ -75,7 +75,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Error fetching warehouse".to_string())
                 .r#type("WarehouseFetchError".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build(),
         })?;
 
@@ -96,7 +96,7 @@ pub(crate) async fn create_warehouse<'a>(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing storage profile".to_string())
             .r#type("StorageProfileSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -395,7 +395,7 @@ pub(crate) async fn update_storage_profile<'a>(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing storage profile".to_string())
             .r#type("StorageProfileSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 

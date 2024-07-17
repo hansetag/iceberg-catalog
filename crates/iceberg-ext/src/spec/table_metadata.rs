@@ -287,12 +287,11 @@ impl TableMetadataAggregate {
                 .with_schema_id(new_schema_id)
                 .build()
                 .map_err(|e| {
-                    ErrorModel::builder()
-                        .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                        .message("Failed to assign new schema id")
-                        .r#type("FailedToAssignSchemaId")
-                        .stack(Some(vec![e.to_string()]))
-                        .build()
+                    ErrorModel::internal(
+                        "Failed to assign new schema id",
+                        "FailedToAssignSchemaId",
+                        Some(Box::new(e)),
+                    )
                 })?
         };
 
@@ -394,12 +393,11 @@ impl TableMetadataAggregate {
                     .with_fields(sort_order.fields.clone())
                     .build_unbound()
                     .map_err(|e| {
-                        ErrorModel::builder()
-                            .message(e.message())
-                            .code(StatusCode::CONFLICT.into())
-                            .r#type(e.kind().into_static())
-                            .stack(Some(vec![e.to_string()]))
-                            .build()
+                        ErrorModel::conflict(
+                            e.message().to_string(),
+                            e.kind().into_static(),
+                            Some(Box::new(e)),
+                        )
                     })
             })
             .collect::<Result<Vec<SortOrder>>>()?
@@ -557,12 +555,11 @@ impl TableMetadataAggregate {
             .with_fields(sort_order.fields)
             .build(schema)
             .map_err(|e| {
-                ErrorModel::builder()
-                    .message("Failed to bind 'SortOrder'")
-                    .code(StatusCode::CONFLICT.into())
-                    .r#type("FailedToBindSortOrder")
-                    .stack(Some(vec![e.to_string()]))
-                    .build()
+                ErrorModel::conflict(
+                    "Failed to bind 'SortOrder'",
+                    "FailedToBindSortOrder",
+                    Some(Box::new(e)),
+                )
             })?;
 
         sort_order.order_id = self.reuse_or_create_new_sort_id(&sort_order);
