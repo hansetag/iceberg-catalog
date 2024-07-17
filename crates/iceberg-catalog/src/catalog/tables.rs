@@ -32,6 +32,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     crate::api::iceberg::v1::tables::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     /// List all table identifiers underneath a given namespace
+    #[allow(clippy::too_many_lines)]
     async fn list_tables(
         parameters: NamespaceParameters,
         _query: PaginationQuery,
@@ -68,6 +69,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Create a table in the given namespace
     async fn create_table(
         parameters: NamespaceParameters,
@@ -161,7 +163,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         if let Some(metadata_location) = &metadata_location {
             let file_io = storage_profile.file_io(storage_secret.as_ref())?;
-            write_metadata_file(metadata_location, &table_metadata, &file_io).await?;
+            write_metadata_file(metadata_location, &table_metadata, &file_io)
+                .await
+                .map_err(ErrorModel::from)?;
         }
 
         // Generate the storage profile. This requires the storage secret
@@ -483,7 +487,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             &result.commit_response.metadata,
             &file_io,
         )
-        .await?;
+        .await
+        .map_err(ErrorModel::from)?;
 
         transaction.commit().await?;
         emit_change_event(
@@ -913,7 +918,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             ));
         }
 
-        futures::future::try_join_all(write_futures).await?;
+        futures::future::try_join_all(write_futures)
+            .await
+            .map_err(ErrorModel::from)?;
 
         transaction.commit().await?;
         let number_of_events = events.len();

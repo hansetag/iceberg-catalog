@@ -144,7 +144,7 @@ pub(crate) mod test {
         api_context: ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,
         params: ViewParameters,
     ) -> crate::api::Result<LoadViewResult> {
-        <CatalogServer<Catalog, AllowAllAuthZHandler, Server> as views::Service<
+        <CatalogServer<Catalog, AllowAllAuthZHandler, Server> as views::ViewService<
             State<AllowAllAuthZHandler, Catalog, Server>,
         >>::load_view(
             params,

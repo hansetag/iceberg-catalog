@@ -1,5 +1,5 @@
 mod config;
-mod error;
+
 pub(crate) mod io;
 mod metrics;
 pub(crate) mod namespace;

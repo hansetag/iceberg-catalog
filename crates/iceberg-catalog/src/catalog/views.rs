@@ -22,7 +22,7 @@ use iceberg_ext::catalog::rest::ViewUpdate;
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
-    crate::api::iceberg::v1::views::Service<State<A, C, S>> for CatalogServer<C, A, S>
+    crate::api::iceberg::v1::views::ViewService<State<A, C, S>> for CatalogServer<C, A, S>
 {
     /// List all view identifiers underneath a given namespace
     async fn list_views(

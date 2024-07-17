@@ -201,15 +201,11 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<ListWarehousesResponse> {
         // ------------------- AuthZ -------------------
-        let project_id = ProjectIdent::from(
-            request.project_id.ok_or(
-                ErrorModel::builder()
-                    .code(http::StatusCode::BAD_REQUEST.into())
-                    .message("project-id is required".to_string())
-                    .r#type("MissingProjectId".to_string())
-                    .build(),
-            )?,
-        );
+        let project_id = ProjectIdent::from(request.project_id.ok_or(ErrorModel::bad_request(
+            "project-id is required".to_string(),
+            "MissingProjectId".to_string(),
+            None,
+        ))?);
         let warehouses = A::check_list_warehouse_in_project(
             &request_metadata,
             project_id,

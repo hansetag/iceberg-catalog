@@ -194,6 +194,19 @@ impl ErrorModel {
         Self::new(message, r#type, StatusCode::FORBIDDEN.as_u16(), source)
     }
 
+    pub fn failed_dependency(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self::new(
+            message,
+            r#type,
+            StatusCode::FAILED_DEPENDENCY.as_u16(),
+            source,
+        )
+    }
+
     pub fn new(
         message: impl Into<String>,
         r#type: impl Into<String>,

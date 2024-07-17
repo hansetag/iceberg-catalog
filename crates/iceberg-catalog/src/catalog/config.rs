@@ -49,13 +49,11 @@ impl<
         } = auth_info;
 
         if query.warehouse.is_none() && warehouse_from_auth.is_none() {
-            let e: IcebergErrorResponse = ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("No warehouse specified. Please specify the 'warehouse' parameter in the GET /config request.".to_string())
-                .r#type("GetConfigNoWarehouseProvided".to_string())
-                .build()
-                .into();
-            return Err(e);
+            return Err(ErrorModel::bad_request(
+                "No warehouse specified. Please specify the 'warehouse' parameter in the GET /config request.",
+                "GetConfigNoWarehouseProvided",
+                None,
+            ).into());
         }
 
         let (project_from_arg, warehouse_from_arg) = query
@@ -76,13 +74,7 @@ impl<
             .or(project_from_auth)
             .or(CONFIG.default_project_id.map(std::convert::Into::into))
             .ok_or_else(|| {
-                let e: IcebergErrorResponse = ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message("No project provided".to_string())
-                    .r#type("GetConfigNoProjectProvided".to_string())
-                    .build()
-                    .into();
-                e
+                ErrorModel::bad_request("No project provided", "GetConfigNoProjectProvided", None)
             })?;
 
         let warehouse_id = if let Some(warehouse_from_arg) = warehouse_from_arg {
@@ -94,13 +86,11 @@ impl<
             .await?
         } else {
             warehouse_from_auth.ok_or_else(|| {
-                let e: IcebergErrorResponse = ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message("No warehouse provided".to_string())
-                    .r#type("GetConfigNoWarehouseProvided".to_string())
-                    .build()
-                    .into();
-                e
+                ErrorModel::bad_request(
+                    "No warehouse provided",
+                    "GetConfigNoWarehouseProvided",
+                    None,
+                )
             })?
         };
 
