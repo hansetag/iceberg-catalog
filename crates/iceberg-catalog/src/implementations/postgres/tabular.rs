@@ -280,7 +280,7 @@ pub(crate) async fn create_tabular<'a>(
                 .r#type("TableOrViewAlreadyExists".to_string())
                 .build()
         }
-        _ => e.as_error_model(format!("Error creating {typ}")),
+        _ => e.into_error_model(format!("Error creating {typ}")),
     })?)
 }
 
@@ -466,7 +466,7 @@ fn try_parse_namespace_ident(namespace: Vec<String>) -> Result<NamespaceIdent> {
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error parsing namespace".to_string())
             .r#type("NamespaceParseError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
             .into()
     })

@@ -32,4 +32,4 @@ FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=builder /app/target/release/iceberg-catalog /home/nonroot/iceberg-catalog
 
 # # set the startup command to run your binary
-CMD ["/home/nonroot/iceberg-catalog"]
+ENTRYPOINT ["/home/nonroot/iceberg-catalog"]

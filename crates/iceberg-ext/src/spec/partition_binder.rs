@@ -127,7 +127,8 @@ impl PartitionSpecBinder {
             message: message.into(),
             r#type: "FailedToBuildPartitionSpec".to_owned(),
             code: StatusCode::CONFLICT.into(),
-            stack: None,
+            stack: vec![],
+            source: None,
         }
     }
 

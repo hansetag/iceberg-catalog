@@ -1,5 +1,3 @@
-use http::StatusCode;
-
 use crate::catalog::{TableIdent, TableRequirement, TableUpdate};
 use crate::spec::{Schema, SortOrder, TableMetadata, TableMetadataAggregate, UnboundPartitionSpec};
 
@@ -95,130 +93,117 @@ impl TableRequirementExt for TableRequirement {
         match self {
             TableRequirement::NotExist => {
                 if exists {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.as_u16())
-                        .message("assert-create Table Requirement violated".to_string())
-                        .r#type("TableRequirementNotExist".to_string())
-                        .build()
-                        .into());
+                    return Err(ErrorModel::conflict(
+                        "assert-not-exist Table Requirement violated",
+                        "TableRequirementNotExist",
+                        None,
+                    )
+                    .into());
                 }
             }
             TableRequirement::UuidMatch { uuid } => {
                 if &metadata.uuid() != uuid {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.as_u16())
-                        .message("assert-table-uuid Table Requirement violated".to_string())
-                        .r#type("TableRequirementUuidMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {uuid}, Found: {}",
-                            metadata.uuid()
-                        )]))
-                        .build()
-                        .into());
+                    return Err(ErrorModel::conflict(
+                        "assert-uuid Table Requirement violated",
+                        "TableRequirementUuidMatch",
+                        None,
+                    )
+                    .append_detail(format!("Expected: {uuid}, Found: {}", metadata.uuid()))
+                    .into());
                 }
             }
             TableRequirement::CurrentSchemaIdMatch { current_schema_id } => {
                 // ToDo: Harmonize the types of current_schema_id
                 if i64::from(metadata.current_schema_id) != *current_schema_id {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.as_u16())
-                        .message("assert-current-schema-id Table Requirement violated".to_string())
-                        .r#type("TableRequirementCurrentSchemaIdMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {current_schema_id}, Found: {}",
-                            metadata.current_schema_id
-                        )]))
-                        .build()
-                        .into());
+                    return Err(ErrorModel::conflict(
+                        "assert-current-schema-id Table Requirement violated",
+                        "TableRequirementCurrentSchemaIdMatch",
+                        None,
+                    )
+                    .append_detail(format!(
+                        "Expected: {current_schema_id}, Found: {}",
+                        metadata.current_schema_id
+                    ))
+                    .into());
                 }
             }
             TableRequirement::DefaultSortOrderIdMatch {
                 default_sort_order_id,
             } => {
                 if metadata.default_sort_order_id != *default_sort_order_id {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.as_u16())
-                        .message(
-                            "assert-default-sort-order-id Table Requirement violated".to_string(),
-                        )
-                        .r#type("TableRequirementDefaultSortOrderIdMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {default_sort_order_id}, Found: {}",
-                            metadata.default_sort_order_id
-                        )]))
-                        .build()
-                        .into());
+                    return Err(ErrorModel::conflict(
+                        "assert-default-sort-order-id Table Requirement violated",
+                        "TableRequirementDefaultSortOrderIdMatch",
+                        None,
+                    )
+                    .append_detail(format!(
+                        "Expected: {default_sort_order_id}, Found: {}",
+                        metadata.default_sort_order_id
+                    ))
+                    .into());
                 }
             }
             TableRequirement::RefSnapshotIdMatch { r#ref, snapshot_id } => {
                 if let Some(snapshot_id) = snapshot_id {
-                    let snapshot_ref = metadata.refs.get(r#ref).ok_or(
-                        ErrorModel::builder()
-                            .code(StatusCode::NOT_FOUND.as_u16())
-                            .message("Snapshot reference not found".to_string())
-                            .r#type("TableRequirementRefSnapshotIdMatch".to_string())
-                            .build(),
-                    )?;
+                    let snapshot_ref = metadata.refs.get(r#ref).ok_or(ErrorModel::not_found(
+                        "Snapshot reference not found",
+                        "TableRequirementRefSnapshotIdMatch",
+                        None,
+                    ))?;
                     if snapshot_ref.snapshot_id != *snapshot_id {
-                        return Err(ErrorModel::builder()
-                            .code(StatusCode::CONFLICT.as_u16())
-                            .message(
-                                "assert-ref-snapshot-id Branch points to different snapshot."
-                                    .to_string(),
-                            )
-                            .r#type("TableRequirementRefSnapshotIdMatch".to_string())
-                            .stack(Some(vec![format!(
-                                "Expected: {snapshot_id}, Found: {}",
-                                snapshot_ref.snapshot_id
-                            )]))
-                            .build()
-                            .into());
+                        return Err(ErrorModel::conflict(
+                            "assert-ref-snapshot-id Branch points to different snapshot.",
+                            "TableRequirementRefSnapshotIdMatch",
+                            None,
+                        )
+                        .append_detail(format!(
+                            "Expected: {snapshot_id}, Found: {}",
+                            snapshot_ref.snapshot_id
+                        ))
+                        .into());
                     }
                 } else if metadata.refs.contains_key(r#ref) {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.as_u16())
-                        .message("assert-ref-snapshot-id Branch points a snapshot.".to_string())
-                        .r#type("TableRequirementRefSnapshotExists".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: None, Found: {}",
-                            metadata.refs.get(r#ref).unwrap().snapshot_id
-                        )]))
-                        .build()
-                        .into());
+                    return Err(ErrorModel::conflict(
+                        "assert-ref-snapshot-id Branch points a snapshot.",
+                        "TableRequirementRefSnapshotIdMatch",
+                        None,
+                    )
+                    .append_detail(format!(
+                        "Expected: None, Found: {}",
+                        metadata.refs.get(r#ref).unwrap().snapshot_id
+                    ))
+                    .into());
                 }
             }
             TableRequirement::DefaultSpecIdMatch { default_spec_id } => {
                 // ToDo: Harmonize the types of default_spec_id
                 if i64::from(metadata.default_spec_id) != *default_spec_id {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.as_u16())
-                        .message("assert-default-spec-id Table Requirement violated".to_string())
-                        .r#type("TableRequirementDefaultSpecIdMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {default_spec_id}, Found: {}",
-                            metadata.default_spec_id
-                        )]))
-                        .build()
-                        .into());
+                    return Err(ErrorModel::conflict(
+                        "assert-default-spec-id Table Requirement violated",
+                        "TableRequirementDefaultSpecIdMatch",
+                        None,
+                    )
+                    .append_detail(format!(
+                        "Expected: {default_spec_id}, Found: {}",
+                        metadata.default_spec_id
+                    ))
+                    .into());
                 }
             }
             TableRequirement::LastAssignedPartitionIdMatch {
                 last_assigned_partition_id,
             } => {
                 if i64::from(metadata.last_partition_id) != *last_assigned_partition_id {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.as_u16())
-                        .message(
-                            "assert-last-assigned-partition-id Table Requirement violated"
-                                .to_string(),
-                        )
-                        .r#type("TableRequirementLastAssignedPartitionIdMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {last_assigned_partition_id}, Found: {}",
-                            metadata.last_partition_id
-                        )]))
-                        .build()
-                        .into());
+                    return Err(ErrorModel::conflict(
+                        "assert-last-assigned-partition-id Table Requirement violated",
+                        "TableRequirementLastAssignedPartitionIdMatch",
+                        None,
+                    )
+                    .append_detail(format!(
+                        "Expected: {last_assigned_partition_id}, Found: {}",
+                        metadata.last_partition_id
+                    ))
+                    .into());
                 }
             }
             TableRequirement::LastAssignedFieldIdMatch {
@@ -228,18 +213,16 @@ impl TableRequirementExt for TableRequirement {
                 // and metadata i32
                 let last_column_id: i64 = metadata.last_column_id.into();
                 if &last_column_id != last_assigned_field_id {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::CONFLICT.as_u16())
-                        .message(
-                            "assert-last-assigned-field-id Table Requirement violated".to_string(),
-                        )
-                        .r#type("TableRequirementLastAssignedFieldIdMatch".to_string())
-                        .stack(Some(vec![format!(
-                            "Expected: {last_assigned_field_id}, Found: {}",
-                            metadata.last_column_id
-                        )]))
-                        .build()
-                        .into());
+                    return Err(ErrorModel::conflict(
+                        "assert-last-assigned-field-id Table Requirement violated",
+                        "TableRequirementLastAssignedFieldIdMatch",
+                        None,
+                    )
+                    .append_detail(format!(
+                        "Expected: {last_assigned_field_id}, Found: {}",
+                        metadata.last_column_id
+                    ))
+                    .into());
                 }
             }
         };
