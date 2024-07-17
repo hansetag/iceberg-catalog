@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use axum::extract::{Query, State};
 use axum::routing::get;
 use axum::{Extension, Router};
-use iceberg_ext::catalog::rest::CatalogConfig;
+use iceberg_ext::catalog::rest::{CatalogConfig, IcebergErrorResponse};
 
 #[async_trait]
 pub trait Service<S: crate::api::ThreadSafe>
@@ -16,7 +16,7 @@ where
         query: GetConfigQueryParams,
         api_context: ApiContext<S>,
         request_metadata: RequestMetadata,
-    ) -> Result<CatalogConfig>;
+    ) -> Result<CatalogConfig, IcebergErrorResponse>;
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -2,7 +2,6 @@ use crate::{
     service::{NamespaceIdentUuid, TableIdentUuid},
     WarehouseIdent, CONFIG,
 };
-use http::StatusCode;
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
 use crate::service::tabular_idents::TabularIdentUuid;
@@ -13,12 +12,12 @@ use veil::Redact;
 fn is_valid_bucket_name(bucket: &str) -> Result<()> {
     // Bucket names must be between 3 (min) and 63 (max) characters long.
     if bucket.len() < 3 || bucket.len() > 63 {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Bucket name must be between 3 and 63 characters long.".to_string())
-            .r#type("InvalidBucketName".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "Bucket name must be between 3 and 63 characters long.",
+            "InvalidBucketName",
+            None,
+        )
+        .into());
     }
 
     // Bucket names can consist only of lowercase letters, numbers, dots (.), and hyphens (-).
@@ -26,12 +25,11 @@ fn is_valid_bucket_name(bucket: &str) -> Result<()> {
         .chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
     {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Bucket name can consist only of lowercase letters, numbers, dots (.), and hyphens (-).".to_string())
-            .r#type("InvalidBucketName".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "Bucket name can consist only of lowercase letters, numbers, dots (.), and hyphens (-).",
+            "InvalidBucketName",
+            None,
+        ).into());
     }
 
     // Bucket names must begin and end with a letter or number.
@@ -39,22 +37,22 @@ fn is_valid_bucket_name(bucket: &str) -> Result<()> {
     if !bucket.chars().next().unwrap().is_ascii_alphanumeric()
         || !bucket.chars().last().unwrap().is_ascii_alphanumeric()
     {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Bucket name must begin and end with a letter or number.".to_string())
-            .r#type("InvalidBucketName".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "Bucket name must begin and end with a letter or number.",
+            "InvalidBucketName",
+            None,
+        )
+        .into());
     }
 
     // Bucket names must not contain two adjacent periods.
     if bucket.contains("..") {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Bucket name must not contain two adjacent periods.".to_string())
-            .r#type("InvalidBucketName".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "Bucket name must not contain two adjacent periods.",
+            "InvalidBucketName",
+            None,
+        )
+        .into());
     }
 
     Ok(())
@@ -114,49 +112,43 @@ impl S3Profile {
         is_valid_bucket_name(bucket)?;
 
         if region.len() > 128 {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Storage Profile `region` must be less than 128 characters.".to_string())
-                .r#type("InvalidRegion".to_string())
-                .build()
-                .into());
+            return Err(ErrorModel::bad_request(
+                "Storage Profile `region` must be less than 128 characters.",
+                "InvalidRegion",
+                None,
+            )
+            .into());
         }
 
         // Aws supports a max of 1024 chars and we need some buffer for tables.
         if let Some(key_prefix) = key_prefix {
             if key_prefix.len() > 512 {
-                return Err(ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message(
-                        "Storage Profile `key_prefix` must be less than 512 characters."
-                            .to_string(),
-                    )
-                    .r#type("InvalidKeyPrefix".to_string())
-                    .build()
-                    .into());
+                return Err(ErrorModel::bad_request(
+                    "Storage Profile `key_prefix` must be less than 512 characters.",
+                    "InvalidKeyPrefix",
+                    None,
+                )
+                .into());
             }
         }
 
         if let Some(endpoint) = endpoint {
             let endpoint = url::Url::parse(endpoint).map_err(|e| {
-                ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message("Storage Profile `endpoint` is not a valid URL.".to_string())
-                    .stack(Some(vec![e.to_string()]))
-                    .r#type("InvalidS3Endpoint".to_string())
-                    .build()
+                ErrorModel::bad_request(
+                    "Storage Profile `endpoint` is not a valid URL.",
+                    "InvalidS3Endpoint",
+                    Some(Box::new(e)),
+                )
             })?;
 
             // Protocol must be http or https
             if endpoint.scheme() != "http" && endpoint.scheme() != "https" {
-                return Err(ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message(
-                        "Storage Profile `endpoint` must have http or https protocol.".to_string(),
-                    )
-                    .r#type("InvalidS3Endpoint".to_string())
-                    .build()
-                    .into());
+                return Err(ErrorModel::bad_request(
+                    "Storage Profile `endpoint` must have http or https protocol.",
+                    "InvalidS3Endpoint",
+                    None,
+                )
+                .into());
             }
         }
 
@@ -168,10 +160,7 @@ impl S3Profile {
 
         validate_file_io(&file_io, &test_location)
             .await
-            .map_err(|mut e| {
-                e.error.push_to_stack(format!("Profile: {self:?}"));
-                e
-            })?;
+            .map_err(|e| e.error.append_detail(format!("Profile: {self:?}")))?;
 
         Ok(())
     }
@@ -186,37 +175,30 @@ impl S3Profile {
     /// Fails if the `bucket`, `region` or `key_prefix` is different.
     pub fn can_be_updated_with(&self, other: &Self) -> Result<()> {
         if self.bucket != other.bucket {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(
-                    "Storage Profile `bucket` cannot be updated to prevent data loss.".to_string(),
-                )
-                .r#type("InvalidBucket".to_string())
-                .build()
-                .into());
+            return Err(ErrorModel::bad_request(
+                "Storage Profile `bucket` cannot be updated to prevent data loss.",
+                "InvalidBucket",
+                None,
+            )
+            .into());
         }
 
         if self.region != other.region {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(
-                    "Storage Profile `region` cannot be updated to prevent data loss.".to_string(),
-                )
-                .r#type("InvalidRegion".to_string())
-                .build()
-                .into());
+            return Err(ErrorModel::bad_request(
+                "Storage Profile `region` cannot be updated to prevent data loss.",
+                "InvalidRegion",
+                None,
+            )
+            .into());
         }
 
         if self.key_prefix != other.key_prefix {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(
-                    "Storage Profile `key_prefix` cannot be updated to prevent data loss."
-                        .to_string(),
-                )
-                .r#type("InvalidKeyPrefix".to_string())
-                .build()
-                .into());
+            return Err(ErrorModel::bad_request(
+                "Storage Profile `key_prefix` cannot be updated to prevent data loss.",
+                "InvalidKeyPrefix",
+                None,
+            )
+            .into());
         }
 
         Ok(())
@@ -243,12 +225,12 @@ impl S3Profile {
 
         // assume_role_arn is not supported currently
         if let Some(_assume_role_arn) = assume_role_arn {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::NOT_IMPLEMENTED.into())
-                .message("S3 Assume role ARN not supported.".to_string())
-                .r#type("S3AssumeRoleNotSupported".to_string())
-                .build()
-                .into());
+            return Err(ErrorModel::not_implemented(
+                "S3 Assume role ARN not supported.",
+                "S3AssumeRoleNotSupported",
+                None,
+            )
+            .into());
         }
 
         // Currently there is no supported configuration without Credential
@@ -269,12 +251,12 @@ impl S3Profile {
                 }
             }
         } else {
-            Err(ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Storage Credentials missing.".to_string())
-                .r#type("MissingStorageCredential".to_string())
-                .build()
-                .into())
+            Err(ErrorModel::bad_request(
+                "Storage Credentials missing.",
+                "MissingStorageCredential",
+                None,
+            )
+            .into())
         }
     }
 
@@ -392,12 +374,12 @@ impl S3Profile {
             builder = builder.with_prop(iceberg::io::S3_ENDPOINT, endpoint);
         }
         if let Some(_assume_role_arn) = &self.assume_role_arn {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::NOT_IMPLEMENTED.into())
-                .message("Assume role ARN not supported.".to_string())
-                .r#type("AssumeRoleNotSupported".to_string())
-                .build()
-                .into());
+            return Err(ErrorModel::not_implemented(
+                "S3 Assume role ARN not supported.",
+                "S3AssumeRoleNotSupported",
+                None,
+            )
+            .into());
         }
         if let Some(credential) = credential {
             match credential {
@@ -413,13 +395,12 @@ impl S3Profile {
         }
 
         builder.build().map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::PRECONDITION_FAILED.into())
-                .message("Error creating S3 filesystem.".to_string())
-                .stack(Some(vec![e.to_string()]))
-                .r#type("S3FileIOError".to_string())
-                .build()
-                .into()
+            ErrorModel::precondition_failed(
+                "Error creating S3 filesystem.",
+                "S3FileIOError",
+                Some(Box::new(e)),
+            )
+            .into()
         })
     }
 }
@@ -442,48 +423,43 @@ async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) ->
     // Validate the file_io instance by creating a test file.
 
     let test_file = file_io.new_output(test_location).map_err(|e| {
-        ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message(format!("Error validating S3 Storage Profile: {e}").to_string())
-            .stack(Some(vec![e.to_string()]))
-            .r#type("S3TestFileCreationError".to_string())
-            .build()
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileCreationError",
+            Some(Box::new(e)),
+        )
     })?;
     let mut writer = test_file.writer().await.map_err(|e| {
-        ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message(format!("Error validating S3 Storage Profile: {e}").to_string())
-            .stack(Some(vec![e.to_string()]))
-            .r#type("S3TestFileWriterError".to_string())
-            .build()
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileWriterError",
+            Some(Box::new(e)),
+        )
     })?;
 
     let buf: &[u8; 4] = b"test";
     writer.write(buf.to_vec().into()).await.map_err(|e| {
-        ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message(format!("Error validating S3 Storage Profile: {e}").to_string())
-            .stack(Some(vec![e.to_string()]))
-            .r#type("S3TestFileWriteError".to_string())
-            .build()
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileWriterError",
+            Some(Box::new(e)),
+        )
     })?;
 
     writer.close().await.map_err(|e| {
-        ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message(format!("Error validating S3 Storage Profile: {e}").to_string())
-            .stack(Some(vec![e.to_string()]))
-            .r#type("S3TestFileCloseError".to_string())
-            .build()
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileCloseError",
+            Some(Box::new(e)),
+        )
     })?;
 
     file_io.delete(test_location).await.map_err(|e| {
-        ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message(format!("Error validating S3 Storage Profile: {e}").to_string())
-            .stack(Some(vec![e.to_string()]))
-            .r#type("S3TestFileDeleteError".to_string())
-            .build()
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileDeleteError",
+            Some(Box::new(e)),
+        )
     })?;
 
     Ok(())

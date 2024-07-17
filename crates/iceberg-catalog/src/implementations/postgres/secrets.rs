@@ -43,19 +43,13 @@ impl SecretStore for Server {
                 .code(StatusCode::NOT_FOUND.into())
                 .message("Secret not found".to_string())
                 .r#type("SecretNotFound".to_string())
-                .stack(Some(vec![
-                    format!("secret_id: {}", secret_id),
-                    e.to_string(),
-                ]))
+                .details(vec![format!("secret_id: {}", secret_id), e.to_string()])
                 .build(),
             _ => ErrorModel::builder()
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Error fetching secret".to_string())
                 .r#type("SecretFetchError".to_string())
-                .stack(Some(vec![
-                    format!("secret_id: {}", secret_id),
-                    e.to_string(),
-                ]))
+                .details(vec![format!("secret_id: {}", secret_id), e.to_string()])
                 .build(),
         })?;
 
@@ -66,7 +60,7 @@ impl SecretStore for Server {
                     .message("Error parsing secret".to_string())
                     .r#type("SecretParseError".to_string())
                     // We do not add the error here as it might contain sensitive information
-                    .stack(Some(vec![format!("Secret ID: {}", secret_id)]))
+                    .details(vec![format!("Secret ID: {}", secret_id)])
                     .build()
             })?;
 
@@ -89,7 +83,7 @@ impl SecretStore for Server {
                 .message("Error serializing secret".to_string())
                 .r#type("SecretSerializeError".to_string())
                 // Redacted by veil
-                .stack(Some(vec![format!("secret: {:?}", secret)]))
+                .details(vec![format!("secret: {:?}", secret)])
                 .build()
         })?;
 
@@ -109,7 +103,7 @@ impl SecretStore for Server {
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Error creating secret".to_string())
                 .r#type("SecretCreateError".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?;
 
@@ -132,10 +126,8 @@ impl SecretStore for Server {
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Error deleting secret".to_string())
                 .r#type("SecretDeleteError".to_string())
-                .stack(Some(vec![
-                    format!("secret_id: {}", secret_id),
-                    e.to_string(),
-                ]))
+                .details(vec![format!("secret_id: {}", secret_id)])
+                .source(Some(Box::new(e)))
                 .build()
         })?;
 

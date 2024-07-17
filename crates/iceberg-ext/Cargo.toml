@@ -28,9 +28,12 @@ serde_derive = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
 serde_with = { workspace = true }
 strum_macros = { workspace = true }
+tracing = { workspace = true }
 typed-builder = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 lazy_static = { workspace = true }
+tokio = { workspace = true }
+futures-util = { version = "^0.3" }

@@ -141,7 +141,7 @@ pub(crate) async fn create_table(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing table metadata".to_string())
             .r#type("TableMetadataSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
@@ -177,7 +177,7 @@ pub(crate) async fn create_table(
     .await
     .map_err(|e| {
         tracing::warn!("Error creating table: {}", e);
-        e.as_error_model("Error creating table".to_string())
+        e.into_error_model("Error creating table".to_string())
     })?;
 
     Ok(CreateTableResponse { table_metadata })
@@ -362,10 +362,10 @@ pub(crate) async fn get_table_metadata_by_s3_location(
             .code(StatusCode::NOT_FOUND.into())
             .message("Table not found".to_string())
             .r#type("NoSuchTableError".to_string())
-            .stack(Some(vec![
+            .details(vec![
                 location.to_string(),
                 format!("Warehouse: {}", warehouse_id),
-            ]))
+            ])
             .build(),
         _ => e.into_error_model("Error fetching table".to_string()),
     })?;
@@ -494,7 +494,7 @@ async fn get_commit_context<'a>(
                 .code(StatusCode::BAD_REQUEST.into())
                 .message("Table identifier not found".to_string())
                 .r#type("TableIdentifierNotFound".to_string())
-                .stack(Some(vec![format!("{:?}", table_ident)]))
+                .details(vec![format!("{:?}", table_ident)])
                 .build()
         })?;
 
@@ -506,7 +506,7 @@ async fn get_commit_context<'a>(
                     .code(StatusCode::NOT_FOUND.into())
                     .message("Table not found".to_string())
                     .r#type("NoSuchTableError".to_string())
-                    .stack(Some(vec![format!("Table Ident {:?}", table_ident)]))
+                    .details(vec![format!("Table Ident {:?}", table_ident)])
                     .build()
             })?;
 
@@ -634,7 +634,7 @@ pub(crate) async fn commit_table_transaction<'a>(
                     .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                     .message("Error serializing table metadata".to_string())
                     .r#type("TableMetadataSerializationError".to_string())
-                    .stack(Some(vec![e.to_string()]))
+                    .source(Some(Box::new(e)))
                     .build()
             })?;
 

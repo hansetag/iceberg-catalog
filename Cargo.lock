@@ -2016,6 +2016,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
+ "futures-util",
  "http 1.1.0",
  "iceberg",
  "lazy_static",
@@ -2026,6 +2027,8 @@ dependencies = [
  "serde_json",
  "serde_with",
  "strum_macros 0.26.4",
+ "tokio",
+ "tracing",
  "typed-builder 0.18.2",
  "url",
  "uuid",

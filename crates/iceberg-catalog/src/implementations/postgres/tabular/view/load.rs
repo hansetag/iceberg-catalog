@@ -339,7 +339,7 @@ async fn get_namespace_ident_with_empty_support(
             .code(500)
             .message(message)
             .r#type("DatabaseError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 

@@ -121,7 +121,7 @@ pub(crate) async fn list_namespaces(
                     .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                     .message("Error converting namespace".to_string())
                     .r#type("NamespaceConversionError".to_string())
-                    .stack(Some(vec![e.to_string()]))
+                    .source(Some(Box::new(e)))
                     .build()
                     .into()
             })
@@ -164,7 +164,7 @@ pub(crate) async fn create_namespace(
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("Error serializing namespace properties".to_string())
                 .r#type("NamespacePropertiesSerializationError".to_string())
-                .stack(Some(vec![e.to_string()]))
+                .source(Some(Box::new(e)))
                 .build()
         })?
     )
@@ -189,7 +189,7 @@ pub(crate) async fn create_namespace(
                     .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                     .message("Error creating namespace".to_string())
                     .r#type("NamespaceCreateError".to_string())
-                    .stack(Some(vec![db_error.to_string()]))
+                    .source(Some(Box::new(db_error)))
                     .build()
             }
         }
@@ -338,7 +338,7 @@ pub(crate) async fn update_namespace_properties(
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error serializing namespace properties".to_string())
             .r#type("NamespacePropertiesSerializationError".to_string())
-            .stack(Some(vec![e.to_string()]))
+            .source(Some(Box::new(e)))
             .build()
     })?;
 
