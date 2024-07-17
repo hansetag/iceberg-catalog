@@ -323,11 +323,12 @@ jobs:
       
       - name: Push Full Tag to quay.io
         run: |
-          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:latest-main-amd64
-          docker tag localhost/iceberg-catalog-local:arm64 quay.io/hansetag/iceberg-catalog:latest-main-arm64
-          docker push quay.io/hansetag/iceberg-catalog:latest-main-amd64
-          docker push quay.io/hansetag/iceberg-catalog:latest-main-arm64
-          docker manifest create quay.io/hansetag/iceberg-catalog:latest-main quay.io/hansetag/iceberg-catalog:latest-main-amd64 quay.io/hansetag/iceberg-catalog:latest-main-arm64
+          COMMIT_SHA=${GITHUB_SHA::8}  # Get the first 8 characters of the commit SHA
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-amd64
+          docker tag localhost/iceberg-catalog-local:arm64 quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-arm64
+          docker push quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-amd64
+          docker push quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-arm64
+          docker manifest create quay.io/hansetag/iceberg-catalog:latest-main quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-amd64 quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-arm64
           docker manifest push quay.io/hansetag/iceberg-catalog:latest-main
 
   # Create GitHub release with Rust build targets and release notes

@@ -27,7 +27,7 @@ RUN cargo build --release --bin iceberg-catalog
 # our final base
 FROM gcr.io/distroless/cc-debian12:nonroot
 ARG EXPIRES=Never
-LABEL maintainer="moderation@hansetag.com" quay.expires.after=${EXPIRES}
+LABEL maintainer="moderation@hansetag.com" quay.expires-after=${EXPIRES}
 
 
 # copy the build artifact from the build stage
