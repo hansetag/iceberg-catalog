@@ -84,7 +84,7 @@ impl StorageProfile {
                             .code(500)
                             .message("Failed to create file IO".to_string())
                             .r#type("FileIOCreationFailed".to_string())
-                            .details(vec![format!("{:?}", e)])
+                            .stack(vec![format!("{:?}", e)])
                             .build()
                     })?;
                 Ok(file_io)
@@ -183,7 +183,7 @@ impl StorageProfile {
                 .code(code)
                 .message("Storage profile is not S3".to_string())
                 .r#type("StorageProfileNotS3".to_string())
-                .details(vec![format!("Storage Type: {}", self.storage_type())])
+                .stack(vec![format!("Storage Type: {}", self.storage_type())])
                 .build()
                 .into()),
             #[allow(unreachable_patterns)] // More profiles will be added in the future
@@ -191,7 +191,7 @@ impl StorageProfile {
                 .code(code)
                 .message("Storage profile is not S3".to_string())
                 .r#type("StorageProfileNotS3".to_string())
-                .details(vec![format!("Storage Type: {}", self.storage_type())])
+                .stack(vec![format!("Storage Type: {}", self.storage_type())])
                 .build()
                 .into()),
         }
@@ -234,7 +234,7 @@ impl StorageCredential {
                 .code(code)
                 .message("Storage profile is not S3".to_string())
                 .r#type("StorageProfileNotS3".to_string())
-                .details(vec![format!("Storage Type: {}", self.storage_type())])
+                .stack(vec![format!("Storage Type: {}", self.storage_type())])
                 .build()
                 .into()),
         }

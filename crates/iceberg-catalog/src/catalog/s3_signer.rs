@@ -456,7 +456,7 @@ fn validate_uri(
                 .code(http::StatusCode::FORBIDDEN.into())
                 .message("Request URI does not match table location".to_string())
                 .r#type("VirtualHostURIMismatch".to_string())
-                .details(vec![
+                .stack(vec![
                     format!("Expected Key: {table_key_virtual_host:?}"),
                     format!("Actual Key: {request_key:?}"),
                 ])
@@ -475,7 +475,7 @@ fn validate_uri(
                 .code(http::StatusCode::FORBIDDEN.into())
                 .message("Request URI does not match table location".to_string())
                 .r#type("PathStyleHostMismatch".to_string())
-                .details(vec![
+                .stack(vec![
                     format!("Expected Key: {table_key_path_style:?}"),
                     format!("Actual Key: {request_key:?}"),
                 ])

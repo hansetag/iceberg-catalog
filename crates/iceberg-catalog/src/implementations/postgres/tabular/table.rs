@@ -362,7 +362,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
             .code(StatusCode::NOT_FOUND.into())
             .message("Table not found".to_string())
             .r#type("NoSuchTableError".to_string())
-            .details(vec![
+            .stack(vec![
                 location.to_string(),
                 format!("Warehouse: {}", warehouse_id),
             ])
@@ -494,7 +494,7 @@ async fn get_commit_context<'a>(
                 .code(StatusCode::BAD_REQUEST.into())
                 .message("Table identifier not found".to_string())
                 .r#type("TableIdentifierNotFound".to_string())
-                .details(vec![format!("{:?}", table_ident)])
+                .stack(vec![format!("{:?}", table_ident)])
                 .build()
         })?;
 
@@ -506,7 +506,7 @@ async fn get_commit_context<'a>(
                     .code(StatusCode::NOT_FOUND.into())
                     .message("Table not found".to_string())
                     .r#type("NoSuchTableError".to_string())
-                    .details(vec![format!("Table Ident {:?}", table_ident)])
+                    .stack(vec![format!("Table Ident {:?}", table_ident)])
                     .build()
             })?;
 

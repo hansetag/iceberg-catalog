@@ -293,7 +293,7 @@ mod tests {
     use crate::request_metadata::RequestMetadata;
     use axum::async_trait;
     use http_body_util::BodyExt;
-    use iceberg_ext::catalog::rest::{ApiIcebergErrorResponse, ErrorModel};
+    use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
 
     #[tokio::test]
     async fn test_namespace_params() {
@@ -497,7 +497,7 @@ mod tests {
         assert_eq!(r.status().as_u16(), 406);
         let bytes = r.collect().await.unwrap().to_bytes();
         let r = String::from_utf8(bytes.to_vec()).unwrap();
-        let error = serde_json::from_str::<ApiIcebergErrorResponse>(&r).unwrap();
+        let error = serde_json::from_str::<IcebergErrorResponse>(&r).unwrap();
         assert_eq!(error.error.message, "[\"this-namespace\"]");
 
         // Test 2: Composed identifier
@@ -511,7 +511,7 @@ mod tests {
         assert_eq!(r.status().as_u16(), 406);
         let bytes = r.collect().await.unwrap().to_bytes();
         let r = String::from_utf8(bytes.to_vec()).unwrap();
-        let error = serde_json::from_str::<ApiIcebergErrorResponse>(&r).unwrap();
+        let error = serde_json::from_str::<IcebergErrorResponse>(&r).unwrap();
         assert_eq!(error.error.message, "[\"accounting\",\"tax\"]");
     }
 }

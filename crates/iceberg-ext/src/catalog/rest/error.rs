@@ -21,12 +21,6 @@ macro_rules! impl_into_response {
 pub(crate) use impl_into_response;
 use typed_builder::TypedBuilder;
 
-/// JSON wrapper for all error responses (non-2xx)
-#[derive(Default, Debug)]
-pub struct IcebergErrorResponse {
-    pub error: ErrorModel,
-}
-
 impl From<IcebergErrorResponse> for iceberg::Error {
     fn from(resp: IcebergErrorResponse) -> iceberg::Error {
         resp.error.into()
@@ -62,25 +56,13 @@ impl From<ErrorModel> for IcebergErrorResponse {
 
 /// JSON wrapper for all error responses (non-2xx)
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ApiIcebergErrorResponse {
-    pub error: ApiError,
+pub struct IcebergErrorResponse {
+    pub error: ErrorModel,
 }
 
 /// JSON error payload returned in a response with further details on the error
 #[allow(clippy::module_name_repetitions)]
-#[derive(Deserialize, Serialize, Debug)]
-pub struct ApiError {
-    /// Human-readable error message
-    pub message: String,
-    /// Internal type definition of the error
-    pub r#type: String,
-    /// HTTP response code
-    pub code: u16,
-}
-
-/// JSON error payload returned in a response with further details on the error
-#[allow(clippy::module_name_repetitions)]
-#[derive(Default, Debug, TypedBuilder)]
+#[derive(Default, Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct ErrorModel {
     /// Human-readable error message
     #[builder(setter(into))]
@@ -90,10 +72,12 @@ pub struct ErrorModel {
     pub r#type: String,
     /// HTTP response code
     pub code: u16,
+    #[serde(skip)]
     #[builder(default)]
     pub source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     #[builder(default)]
-    pub details: Vec<String>,
+    pub stack: Vec<String>,
 }
 
 impl StdError for ErrorModel {
@@ -231,13 +215,13 @@ impl ErrorModel {
 
     #[must_use]
     pub fn append_details(mut self, details: &[String]) -> Self {
-        self.details.extend_from_slice(details);
+        self.stack.extend_from_slice(details);
         self
     }
 
     #[must_use]
     pub fn append_detail(mut self, detail: impl Into<String>) -> Self {
-        self.details.push(detail.into());
+        self.stack.push(detail.into());
         self
     }
 }
@@ -246,22 +230,24 @@ impl ErrorModel {
 impl axum::response::IntoResponse for IcebergErrorResponse {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
         let Self { error } = self;
-        let stack = error.to_string();
+        let stack_s = error.to_string();
         let ErrorModel {
             message,
             r#type,
             code,
             source: _,
-            details,
+            stack: details,
         } = error;
+        let error_id = uuid::Uuid::now_v7();
+        tracing::info!(%error_id, %stack_s, ?details, %message, %r#type, %code, "Error response");
 
-        tracing::info!(%stack, ?details, %message, %r#type, %code, "Error response");
-
-        let mut response = axum::Json(ApiIcebergErrorResponse {
-            error: ApiError {
+        let mut response = axum::Json(IcebergErrorResponse {
+            error: ErrorModel {
                 message,
                 r#type,
                 code,
+                stack: vec![error_id.to_string()],
+                source: None,
             },
         })
         .into_response();
@@ -285,7 +271,7 @@ mod tests {
                 r#type: "UnsupportedOperationException".to_string(),
                 code: 406,
                 source: None,
-                details: vec![],
+                stack: vec![],
             },
         };
         let resp = axum::response::IntoResponse::into_response(val);
@@ -297,7 +283,7 @@ mod tests {
         while let Some(d) = b.next().await {
             buf.extend_from_slice(d.unwrap().as_ref());
         }
-        let resp: ApiIcebergErrorResponse = serde_json::from_slice(&buf).unwrap();
+        let resp: IcebergErrorResponse = serde_json::from_slice(&buf).unwrap();
         assert_eq!(
             resp.error.message,
             "The server does not support this operation"
@@ -311,7 +297,7 @@ mod tests {
             "code": 406
         }});
 
-        let resp: ApiIcebergErrorResponse = serde_json::from_value(json.clone()).unwrap();
+        let resp: IcebergErrorResponse = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(serde_json::to_value(resp).unwrap(), json);
     }
 }
