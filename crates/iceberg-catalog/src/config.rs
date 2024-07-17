@@ -106,12 +106,8 @@ impl Default for DynAppConfig {
                 "examples".to_string(),
             ])),
             pg_encryption_key: "<This is unsafe, please set a proper key>".to_string(),
-            pg_database_url_read: Some(
-                "postgres://postgres:password@localhost:5432/iceberg".to_string(),
-            ),
-            pg_database_url_write: Some(
-                "postgres://postgres:password@localhost:5432/iceberg".to_string(),
-            ),
+            pg_database_url_read: None,
+            pg_database_url_write: None,
             pg_host_r: None,
             pg_host_w: None,
             pg_port: None,

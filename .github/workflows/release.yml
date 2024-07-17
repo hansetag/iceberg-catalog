@@ -43,7 +43,6 @@ jobs:
     name: Build Binary
     needs:
       - release_please
-    if: ${{ needs.release_please.outputs.releases_created == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' }}
     # not supported by windows nor macos
     # services:
     #   postgres:
@@ -181,7 +180,9 @@ jobs:
   build-docker:
     name: Build Docker
     runs-on: ubuntu-latest
-    needs: build-binary
+    needs: 
+      - build-binary
+      - release_please
     services:
       postgres:
         image: postgres:16
@@ -226,6 +227,7 @@ jobs:
           DOCKER_BUILDKIT=1 docker build -t localhost/iceberg-catalog-local:amd64 \
             -f docker/bin.Dockerfile \
             --build-arg "ARCH=amd64" \
+            --build-arg "EXPIRES=${{ needs.release_please.outputs.releases_created == 'true' && 'Never' || '4w' }}" \
             --build-arg "BIN=bin-iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz/iceberg-catalog" .
           docker save -o /tmp/docker-iceberg-catalog-amd64.tar localhost/iceberg-catalog-local:amd64
 
@@ -235,6 +237,7 @@ jobs:
             --platform linux/arm64 -t localhost/iceberg-catalog-local:arm64 \
             -f docker/bin.Dockerfile \
             --build-arg "ARCH=arm64" \
+            --build-arg "EXPIRES=${{ needs.release_please.outputs.releases_created == 'true' && 'Never' || '4w' }}" \
             --build-arg "BIN=bin-iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
           docker save -o /tmp/docker-iceberg-catalog-arm64.tar localhost/iceberg-catalog-local:arm64
 
@@ -247,7 +250,7 @@ jobs:
           ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
           ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
 
-      - name: Test Docker image (arm64)
+      - name: Test Docker (arm64)
         run: |
           cd tests
           docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_pyiceberg_and_spark.sh"
@@ -287,9 +290,46 @@ jobs:
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-amd64.tar
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-arm64.tar
           docker images
+          docker inspect localhost/iceberg-catalog-local:amd64
+          docker inspect localhost/iceberg-catalog-local:arm64
       
       - name: Release Please
         run: echo ${{ needs.release_please.outputs.tag_name }}
+
+  publish-container-main:
+    name: Publish Container (main branch)
+    runs-on: ubuntu-latest
+    needs:
+      - build-docker
+      - build-binary
+      - release_please
+    if: ${{ needs.release_please.outputs.releases_created != 'true' }}
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: hansetag+githubicebergcatalog
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Load Docker
+        run: |
+          docker load -i docker-iceberg-catalog/docker-iceberg-catalog-amd64.tar
+          docker load -i docker-iceberg-catalog/docker-iceberg-catalog-arm64.tar
+          docker images
+      
+      - name: Push Full Tag to quay.io
+        run: |
+          COMMIT_SHA=${GITHUB_SHA::8}  # Get the first 8 characters of the commit SHA
+          docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-amd64
+          docker tag localhost/iceberg-catalog-local:arm64 quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-arm64
+          docker push quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-amd64
+          docker push quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-arm64
+          docker manifest create quay.io/hansetag/iceberg-catalog:latest-main quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-amd64 quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-arm64
+          docker manifest push quay.io/hansetag/iceberg-catalog:latest-main
 
   # Create GitHub release with Rust build targets and release notes
   publish-binary:
@@ -382,4 +422,3 @@ jobs:
           docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}
           docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}
           docker manifest push quay.io/hansetag/iceberg-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}
-      
