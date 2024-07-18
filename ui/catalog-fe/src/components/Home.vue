@@ -1,19 +1,12 @@
 <template>
   <v-container class="fill-height">
-    <v-responsive
-      class="align-centerfill-height mx-auto"
-      max-width="900"
-    >
-      <v-img
-        class="mb-4"
-        height="150"
-        src="@/assets/logo.png"
-      />
+    <v-responsive class="align-centerfill-height mx-auto" max-width="900">
+      <v-img class="mb-4" height="150" src="@/assets/logo.png" />
 
       <div class="text-center">
         <div class="text-body-2 font-weight-light mb-n1">Welcome to</div>
 
-        <h1 class="text-h2 font-weight-bold">Vuetify</h1>
+        <h1 class="text-h2 font-weight-bold">Home</h1>
       </div>
 
       <div class="py-4" />
@@ -38,7 +31,9 @@
 
             <template #subtitle>
               <div class="text-subtitle-1">
-                Replace this page by removing <v-kbd>{{ `<HelloWorld />` }}</v-kbd> in <v-kbd>pages/index.vue</v-kbd>.
+                Replace this page by removing
+                <v-kbd>{{ `<HelloWorld />` }}</v-kbd> in
+                <v-kbd>pages/index.vue</v-kbd>.
               </div>
             </template>
 
@@ -153,5 +148,5 @@
 </template>
 
 <script setup lang="ts">
-  //
+//
 </script>
