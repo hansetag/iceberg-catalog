@@ -708,6 +708,7 @@ pub(crate) mod tests {
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
+    use std::sync::Arc;
 
     use super::*;
 
@@ -829,6 +830,7 @@ pub(crate) mod tests {
         let state = CatalogState {
             read_pool: pool.clone(),
             write_pool: pool.clone(),
+            health: Arc::new(Default::default()),
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
@@ -887,6 +889,7 @@ pub(crate) mod tests {
         let state = CatalogState {
             read_pool: pool.clone(),
             write_pool: pool.clone(),
+            health: Arc::new(Default::default()),
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
@@ -960,10 +963,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_to_id(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
@@ -996,10 +996,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_to_ids(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
@@ -1071,10 +1068,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_rename_without_namespace(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false).await;
@@ -1110,10 +1104,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_rename_with_namespace(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false).await;
@@ -1151,10 +1142,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_list_tables(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
@@ -1186,10 +1174,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_commit_transaction(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table1 = initialize_table(warehouse_id, state.clone(), true).await;
@@ -1271,10 +1256,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_get_metadata_by_location(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false).await;
@@ -1319,10 +1301,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_cannot_get_table_of_inactive_warehouse(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false).await;
@@ -1340,10 +1319,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_drop_table_works(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false).await;

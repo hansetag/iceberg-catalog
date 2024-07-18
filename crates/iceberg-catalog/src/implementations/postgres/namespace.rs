@@ -374,6 +374,7 @@ pub(crate) async fn update_namespace_properties(
 pub(crate) mod tests {
     use crate::implementations::postgres::PostgresTransaction;
     use crate::service::{Catalog as _, Transaction as _};
+    use std::sync::Arc;
 
     use super::super::warehouse::test::initialize_warehouse;
     use super::super::Catalog;
@@ -411,6 +412,7 @@ pub(crate) mod tests {
         let state = CatalogState {
             read_pool: pool.clone(),
             write_pool: pool.clone(),
+            health: Arc::new(Default::default()),
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
@@ -505,6 +507,7 @@ pub(crate) mod tests {
         let state = CatalogState {
             read_pool: pool.clone(),
             write_pool: pool.clone(),
+            health: Arc::new(Default::default()),
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
@@ -526,6 +529,7 @@ pub(crate) mod tests {
         let state = CatalogState {
             read_pool: pool.clone(),
             write_pool: pool.clone(),
+            health: Arc::new(Default::default()),
         };
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;

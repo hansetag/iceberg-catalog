@@ -605,10 +605,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn create_view(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
@@ -749,10 +746,7 @@ pub(crate) mod tests {
         NamespaceIdent,
         String,
     ) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;

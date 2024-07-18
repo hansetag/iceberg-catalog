@@ -45,6 +45,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
     let catalog_state = CatalogState {
         read_pool: read_pool.clone(),
         write_pool: write_pool.clone(),
+        health: Arc::new(Default::default()),
     };
     let secrets_state = SecretsState {
         read_pool,
@@ -135,7 +136,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Serve {}) => {
             print_info();
             println!("Starting server on 0.0.0.0:8080...");
-            let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
+            let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8081));
             serve(bind_addr).await?;
         }
         Some(Commands::Healthcheck {}) => {

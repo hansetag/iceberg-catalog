@@ -3,6 +3,7 @@ mod catalog;
 pub mod config;
 pub mod contract_verification;
 pub mod event_publisher;
+pub mod health;
 pub mod secrets;
 pub mod storage;
 pub mod tabular_idents;

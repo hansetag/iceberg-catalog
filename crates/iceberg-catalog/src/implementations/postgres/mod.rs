@@ -5,17 +5,19 @@ pub(crate) mod secrets;
 pub(crate) mod tabular;
 pub(crate) mod warehouse;
 
-use crate::CONFIG;
-use anyhow::anyhow;
-use sqlx::postgres::PgConnectOptions;
-use sqlx::ConnectOptions;
-use std::str::FromStr;
-
-pub use secrets::Server as SecretsStore;
-
 use self::dbutils::DBErrorHandler;
 use crate::api::Result;
 use crate::config::PgSslMode;
+use crate::service::health::{HealthExt, HealthStatus};
+use crate::CONFIG;
+use anyhow::anyhow;
+use async_trait::async_trait;
+pub use secrets::Server as SecretsStore;
+use sqlx::postgres::PgConnectOptions;
+use sqlx::{ConnectOptions, PgPool};
+use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::{Mutex, RwLock};
 
 /// # Errors
 /// Returns an error if the pool creation fails.
@@ -108,6 +110,60 @@ pub struct CatalogState {
     pub read_pool: sqlx::PgPool,
     #[cfg(feature = "sqlx-postgres")]
     pub write_pool: sqlx::PgPool,
+    pub health: Arc<RwLock<Vec<(&'static str, HealthStatus)>>>,
+}
+
+#[async_trait]
+impl HealthExt for CatalogState {
+    async fn health(&self) -> Vec<(&'static str, HealthStatus)> {
+        self.health.read().await.clone()
+    }
+
+    async fn update_health(&self) {
+        let read = self.read_health().await;
+        let write = self.write_health().await;
+        let mut lock = self.health.write().await;
+        lock.clear();
+        lock.extend([("read", read), ("write", write)].into_iter());
+    }
+}
+
+impl CatalogState {
+    pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
+        let state = Self {
+            #[cfg(feature = "sqlx-postgres")]
+            read_pool,
+            #[cfg(feature = "sqlx-postgres")]
+            write_pool,
+            health: Arc::new(Default::default()),
+        };
+        state
+    }
+
+    #[cfg(feature = "sqlx-postgres")]
+    async fn health(pool: PgPool) -> HealthStatus {
+        macro_rules! unwrap_or_unhealthy {
+            ($e:expr) => {
+                match $e {
+                    Ok(_) => HealthStatus::Healthy,
+                    Err(e) => {
+                        tracing::warn!(?e, ?pool, "Pool is unhealthy");
+                        HealthStatus::Unhealthy
+                    }
+                }
+            };
+        }
+        unwrap_or_unhealthy!(sqlx::query("SELECT 1").fetch_one(&pool).await);
+        HealthStatus::Healthy
+    }
+
+    async fn write_health(&self) -> HealthStatus {
+        Self::health(self.write_pool.clone()).await
+    }
+
+    async fn read_health(&self) -> HealthStatus {
+        Self::health(self.read_pool.clone()).await
+    }
 }
 
 #[derive(Clone, Debug)]

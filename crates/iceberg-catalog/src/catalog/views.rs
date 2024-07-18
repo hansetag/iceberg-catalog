@@ -133,8 +133,8 @@ fn validate_view_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
 
 #[cfg(test)]
 mod test {
-
     use crate::api::ApiContext;
+    use std::sync::Arc;
 
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
     use crate::implementations::postgres::secrets::Server;
@@ -191,6 +191,7 @@ mod test {
                 catalog: CatalogState {
                     read_pool: pool.clone(),
                     write_pool: pool.clone(),
+                    health: Arc::new(Default::default()),
                 },
                 secrets: SecretsState {
                     read_pool: pool.clone(),

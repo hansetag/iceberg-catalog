@@ -489,10 +489,7 @@ pub(crate) mod test {
 
     #[sqlx::test]
     async fn test_get_warehouse_by_name(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
 
         let fetched_warehouse_id = Catalog::get_warehouse_by_name(
@@ -508,10 +505,7 @@ pub(crate) mod test {
 
     #[sqlx::test]
     async fn test_list_projects(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id_1 = ProjectIdent::from(uuid::Uuid::new_v4());
         initialize_warehouse(state.clone(), None, Some(&project_id_1)).await;
 
@@ -530,10 +524,7 @@ pub(crate) mod test {
 
     #[sqlx::test]
     async fn test_list_warehouses(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
         let warehouse_id_1 = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
 
@@ -547,10 +538,7 @@ pub(crate) mod test {
 
     #[sqlx::test]
     async fn test_list_warehouses_active_filter(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
         let warehouse_id_1 = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
 
@@ -596,10 +584,7 @@ pub(crate) mod test {
 
     #[sqlx::test]
     async fn test_rename_warehouse(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
         let warehouse_id = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
 
