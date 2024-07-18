@@ -17,7 +17,6 @@ use sqlx::migrate::Migrate;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::{ConnectOptions, Executor, PgPool};
 use std::collections::HashSet;
-use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -52,25 +51,27 @@ pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// # Errors
+/// Returns an error if db connection fails or if migrations are missing.
 pub async fn ensure_migrations_applied(pool: &sqlx::PgPool) -> anyhow::Result<()> {
     let mut conn = pool.acquire().await?;
     let m = sqlx::migrate!();
     let applied_migrations = conn.list_applied_migrations().await?;
     let to_be_applied = m
         .migrations
-        .into_iter()
-        .map(|mig| (mig.version, mig.checksum.deref()))
+        .iter()
+        .map(|mig| (mig.version, &*mig.checksum))
         .collect::<HashSet<_>>();
     let applied = applied_migrations
         .iter()
-        .map(|mig| (mig.version, mig.checksum.deref()))
+        .map(|mig| (mig.version, &*mig.checksum))
         .collect::<HashSet<_>>();
     let missing = to_be_applied.difference(&applied).collect::<HashSet<_>>();
 
-    if !missing.is_empty() {
-        return Err(anyhow!("Missing migrations: {:?}", missing));
-    } else {
+    if missing.is_empty() {
         Ok(())
+    } else {
+        Err(anyhow!("Missing migrations: {:?}", missing))
     }
 }
 
