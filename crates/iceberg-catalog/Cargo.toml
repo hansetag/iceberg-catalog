@@ -63,6 +63,7 @@ utoipa = { workspace = true, features = ["uuid"] }
 utoipa-swagger-ui = { workspace = true }
 uuid = { workspace = true }
 veil = { workspace = true }
+rand = "0.8.5"
 
 [dev-dependencies]
 http-body-util = { workspace = true }

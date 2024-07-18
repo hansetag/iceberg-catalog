@@ -30,7 +30,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
             warehouse_name.to_string(),
             *project_id
         )
-        .fetch_one(&catalog_state.read_pool)
+        .fetch_one(&catalog_state.read_pool())
         .await
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => ErrorModel::builder()
@@ -63,7 +63,7 @@ impl ConfigProvider<Catalog> for super::Catalog {
             "#,
             *warehouse_id
         )
-        .fetch_one(&catalog_state.read_pool)
+        .fetch_one(&catalog_state.read_pool())
         .await
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => ErrorModel::builder()
@@ -172,7 +172,7 @@ pub(crate) async fn list_warehouses(
             &warehouse_ids,
             include_status as Vec<WarehouseStatus>
         )
-        .fetch_all(&catalog_state.read_pool)
+        .fetch_all(&catalog_state.read_pool())
         .await
         .map_err(|e| e.into_error_model("Error fetching warehouses".into()))?
     } else {
@@ -192,7 +192,7 @@ pub(crate) async fn list_warehouses(
             *project_id,
             include_status as Vec<WarehouseStatus>
         )
-        .fetch_all(&catalog_state.read_pool)
+        .fetch_all(&catalog_state.read_pool())
         .await
         .map_err(|e| e.into_error_model("Error fetching warehouses".into()))?
     };
@@ -256,7 +256,7 @@ pub(crate) async fn list_projects(catalog_state: CatalogState) -> Result<HashSet
         FROM warehouse
         "#,
     )
-    .fetch_all(&catalog_state.read_pool)
+    .fetch_all(&catalog_state.read_pool())
     .await
     .map_err(|e| e.into_error_model("Error fetching projects".into()))?;
 
@@ -489,7 +489,7 @@ pub(crate) mod test {
 
     #[sqlx::test]
     async fn test_get_warehouse_by_name(pool: sqlx::PgPool) {
-let state = CatalogState::from_pools(pool.clone(), pool.clone());
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
 
         let fetched_warehouse_id = Catalog::get_warehouse_by_name(
@@ -505,7 +505,7 @@ let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
     #[sqlx::test]
     async fn test_list_projects(pool: sqlx::PgPool) {
-let state = CatalogState::from_pools(pool.clone(), pool.clone());
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id_1 = ProjectIdent::from(uuid::Uuid::new_v4());
         initialize_warehouse(state.clone(), None, Some(&project_id_1)).await;
 
@@ -524,7 +524,7 @@ let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
     #[sqlx::test]
     async fn test_list_warehouses(pool: sqlx::PgPool) {
-let state = CatalogState::from_pools(pool.clone(), pool.clone());
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
         let warehouse_id_1 = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
 
@@ -538,7 +538,7 @@ let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
     #[sqlx::test]
     async fn test_list_warehouses_active_filter(pool: sqlx::PgPool) {
-let state = CatalogState::from_pools(pool.clone(), pool.clone());
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
         let warehouse_id_1 = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
 
@@ -584,7 +584,7 @@ let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
     #[sqlx::test]
     async fn test_rename_warehouse(pool: sqlx::PgPool) {
-let state = CatalogState::from_pools(pool.clone(), pool.clone());
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
         let warehouse_id = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
 

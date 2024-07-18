@@ -605,7 +605,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn create_view(pool: sqlx::PgPool) {
-let state = CatalogState::from_pools(pool.clone(), pool.clone());
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
@@ -668,7 +668,7 @@ let state = CatalogState::from_pools(pool.clone(), pool.clone());
         assert_eq!(view_id, table_uuid);
         assert_eq!(view.name, "myview");
 
-        let mut conn = state.read_pool.acquire().await.unwrap();
+        let mut conn = state.read_pool().acquire().await.unwrap();
         let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
             .await
             .unwrap();
@@ -678,14 +678,14 @@ let state = CatalogState::from_pools(pool.clone(), pool.clone());
     #[sqlx::test]
     async fn drop_view(pool: sqlx::PgPool) {
         let (state, created_meta, _, _, _) = prepare_view(pool).await;
-        let mut tx = state.read_pool.begin().await.unwrap();
+        let mut tx = state.write_pool().begin().await.unwrap();
         super::drop_view(created_meta.view_uuid.into(), &mut tx)
             .await
             .unwrap();
         tx.commit().await.unwrap();
         load_view(
             created_meta.view_uuid.into(),
-            &mut state.read_pool.acquire().await.unwrap(),
+            &mut state.write_pool().acquire().await.unwrap(),
         )
         .await
         .expect_err("dropped view should not be loadable");
@@ -700,7 +700,7 @@ let state = CatalogState::from_pools(pool.clone(), pool.clone());
                 namespace: namespace.clone(),
                 name,
             },
-            &state.read_pool,
+            &state.read_pool(),
         )
         .await
         .unwrap();
@@ -717,7 +717,7 @@ let state = CatalogState::from_pools(pool.clone(), pool.clone());
                     namespace,
                     name: "non_existing".to_string(),
                 },
-                &state.read_pool,
+                &state.read_pool(),
             )
             .await
             .unwrap(),
@@ -729,7 +729,7 @@ let state = CatalogState::from_pools(pool.clone(), pool.clone());
     #[sqlx::test]
     async fn drop_view_not_existing(pool: sqlx::PgPool) {
         let (state, _, _, _, _) = prepare_view(pool).await;
-        let mut tx = state.read_pool.begin().await.unwrap();
+        let mut tx = state.write_pool().begin().await.unwrap();
         let e = super::drop_view(Uuid::now_v7().into(), &mut tx)
             .await
             .expect_err("dropping random uuid should not succeed");
@@ -746,7 +746,7 @@ let state = CatalogState::from_pools(pool.clone(), pool.clone());
         NamespaceIdent,
         String,
     ) {
-let state = CatalogState::from_pools(pool.clone(), pool.clone());
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;

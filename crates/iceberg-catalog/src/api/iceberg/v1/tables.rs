@@ -6,7 +6,6 @@ use crate::api::{
     RenameTableRequest, Result,
 };
 use crate::request_metadata::RequestMetadata;
-use crate::service::health::HealthExt;
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};

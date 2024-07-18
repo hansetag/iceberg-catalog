@@ -11,7 +11,6 @@ pub use config::Server as ConfigServer;
 pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
 
 use crate::api::{iceberg::v1::Prefix, ErrorModel, Result};
-use crate::service::health::{HealthExt, HealthStatus};
 use crate::{
     service::{auth::AuthZHandler, secrets::SecretStore, Catalog},
     WarehouseIdent,

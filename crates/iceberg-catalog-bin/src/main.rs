@@ -5,6 +5,7 @@ use iceberg_catalog::service::event_publisher::{
     CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
     NatsBackend,
 };
+use iceberg_catalog::service::health::ServiceHealthProvider;
 use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{
     api::router::{new_full_router, serve as service_serve},
@@ -42,15 +43,20 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
     let read_pool = iceberg_catalog::implementations::postgres::get_reader_pool().await?;
     let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool().await?;
 
-    let catalog_state = CatalogState {
-        read_pool: read_pool.clone(),
-        write_pool: write_pool.clone(),
-        health: Arc::new(Default::default()),
-    };
-    let secrets_state = SecretsState {
-        read_pool,
-        write_pool,
-    };
+    let catalog_state = CatalogState::from_pools(read_pool.clone(), write_pool.clone());
+    let secrets_state = SecretsState::from_pools(read_pool, write_pool);
+    let auth_state = AllowAllAuthState;
+
+    let health_provider = ServiceHealthProvider::new(
+        vec![
+            ("catalog", Arc::new(catalog_state.clone())),
+            ("secrets", Arc::new(secrets_state.clone())),
+            ("auth", Arc::new(auth_state.clone())),
+        ],
+        CONFIG.health_check_frequency_seconds,
+        CONFIG.health_check_jitter_millis,
+    );
+    health_provider.spawn_health_checks().await;
 
     let mut cloud_event_sinks = vec![];
 
@@ -77,7 +83,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         AllowAllAuthZHandler,
         SecretsStore,
     >(
-        AllowAllAuthState,
+        auth_state,
         catalog_state,
         secrets_state,
         CloudEventsPublisher::new(tx.clone()),
@@ -87,6 +93,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         } else {
             None
         },
+        health_provider,
     );
 
     let publisher_handle = tokio::task::spawn(async move {

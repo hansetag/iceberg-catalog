@@ -8,16 +8,16 @@ pub(crate) mod warehouse;
 use self::dbutils::DBErrorHandler;
 use crate::api::Result;
 use crate::config::PgSslMode;
-use crate::service::health::{HealthExt, HealthStatus};
+use crate::service::health::{Health, HealthExt, HealthStatus};
 use crate::CONFIG;
 use anyhow::anyhow;
 use async_trait::async_trait;
 pub use secrets::Server as SecretsStore;
 use sqlx::postgres::PgConnectOptions;
-use sqlx::{ConnectOptions, PgPool};
+use sqlx::{ConnectOptions, Executor, PgPool};
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 /// # Errors
 /// Returns an error if the pool creation fails.
@@ -64,7 +64,7 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
 
     async fn begin_write(db_state: CatalogState) -> Result<Self> {
         let transaction = db_state
-            .write_pool
+            .write_pool()
             .begin()
             .await
             .map_err(|e| e.into_error_model("Error starting transaction".to_string()))?;
@@ -73,12 +73,18 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
     }
 
     async fn begin_read(db_state: CatalogState) -> Result<Self> {
-        let transaction = db_state
-            .read_pool
+        let mut transaction = db_state
+            .read_pool()
             .begin()
             .await
             .map_err(|e| e.into_error_model("Error starting transaction".to_string()))?;
 
+        transaction
+            .execute("SET TRANSACTION READ ONLY")
+            .await
+            .map_err(|e| {
+                e.into_error_model("Error setting transaction to read-only".to_string())
+            })?;
         Ok(Self { transaction })
     }
 
@@ -104,18 +110,15 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
 }
 
 #[derive(Clone, Debug)]
-#[allow(clippy::module_name_repetitions)]
-pub struct CatalogState {
-    #[cfg(feature = "sqlx-postgres")]
+pub struct ReadWrite {
     pub read_pool: sqlx::PgPool,
-    #[cfg(feature = "sqlx-postgres")]
     pub write_pool: sqlx::PgPool,
-    pub health: Arc<RwLock<Vec<(&'static str, HealthStatus)>>>,
+    pub health: Arc<RwLock<Vec<Health>>>,
 }
 
 #[async_trait]
-impl HealthExt for CatalogState {
-    async fn health(&self) -> Vec<(&'static str, HealthStatus)> {
+impl HealthExt for ReadWrite {
+    async fn health(&self) -> Vec<Health> {
         self.health.read().await.clone()
     }
 
@@ -124,20 +127,26 @@ impl HealthExt for CatalogState {
         let write = self.write_health().await;
         let mut lock = self.health.write().await;
         lock.clear();
-        lock.extend([("read", read), ("write", write)].into_iter());
+        lock.extend([
+            Health::now("read_pool", read),
+            Health::now("write_pool", write),
+        ]);
     }
 }
 
-impl CatalogState {
+impl ReadWrite {
+    #[must_use]
     pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
-        let state = Self {
+        Self {
             #[cfg(feature = "sqlx-postgres")]
             read_pool,
             #[cfg(feature = "sqlx-postgres")]
             write_pool,
-            health: Arc::new(Default::default()),
-        };
-        state
+            health: Arc::new(RwLock::new(vec![
+                Health::now("read_pool", HealthStatus::Unknown),
+                Health::now("write_pool", HealthStatus::Unknown),
+            ])),
+        }
     }
 
     #[cfg(feature = "sqlx-postgres")]
@@ -168,11 +177,74 @@ impl CatalogState {
 
 #[derive(Clone, Debug)]
 #[allow(clippy::module_name_repetitions)]
+pub struct CatalogState {
+    pub read_write: ReadWrite,
+}
+
+#[async_trait]
+impl HealthExt for CatalogState {
+    async fn health(&self) -> Vec<Health> {
+        self.read_write.health().await
+    }
+
+    async fn update_health(&self) {
+        self.read_write.update_health().await;
+    }
+}
+
+impl CatalogState {
+    #[must_use]
+    pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
+        Self {
+            read_write: ReadWrite::from_pools(read_pool, write_pool),
+        }
+    }
+
+    #[must_use]
+    pub fn read_pool(&self) -> PgPool {
+        self.read_write.read_pool.clone()
+    }
+
+    #[must_use]
+    pub fn write_pool(&self) -> PgPool {
+        self.read_write.write_pool.clone()
+    }
+}
+
+#[derive(Clone, Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct SecretsState {
-    #[cfg(feature = "sqlx-postgres")]
-    pub read_pool: sqlx::PgPool,
-    #[cfg(feature = "sqlx-postgres")]
-    pub write_pool: sqlx::PgPool,
+    pub read_write: ReadWrite,
+}
+
+#[async_trait]
+impl HealthExt for SecretsState {
+    async fn health(&self) -> Vec<Health> {
+        self.read_write.health().await
+    }
+
+    async fn update_health(&self) {
+        self.read_write.update_health().await;
+    }
+}
+
+impl SecretsState {
+    #[must_use]
+    pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
+        Self {
+            read_write: ReadWrite::from_pools(read_pool, write_pool),
+        }
+    }
+
+    #[must_use]
+    pub fn read_pool(&self) -> PgPool {
+        self.read_write.read_pool.clone()
+    }
+
+    #[must_use]
+    pub fn write_pool(&self) -> PgPool {
+        self.read_write.write_pool.clone()
+    }
 }
 
 fn build_opts() -> sqlx::pool::PoolOptions<sqlx::Postgres> {

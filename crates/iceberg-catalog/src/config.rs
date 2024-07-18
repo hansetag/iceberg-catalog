@@ -91,6 +91,10 @@ pub struct DynAppConfig {
 
     // ------------- AUTHORIZATION -------------
     pub openid_provider_uri: Option<Url>,
+
+    // ------------- Health -------------
+    pub health_check_frequency_seconds: u64,
+    pub health_check_jitter_millis: u64,
 }
 
 impl Default for DynAppConfig {
@@ -128,6 +132,8 @@ impl Default for DynAppConfig {
             nats_password: None,
             nats_token: None,
             openid_provider_uri: None,
+            health_check_frequency_seconds: 10,
+            health_check_jitter_millis: 500,
         }
     }
 }

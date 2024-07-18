@@ -1,14 +1,12 @@
 use crate::service::event_publisher::CloudEventsPublisher;
 use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
-use std::sync::Arc;
 
 use crate::api::management::v1::ApiServer;
-use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext, ThreadSafe};
+use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
 use crate::service::contract_verification::ContractVerifiers;
 use crate::service::token_verification::Verifier;
 use axum::response::IntoResponse;
 use axum::{routing::get, Json, Router};
-use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer,
@@ -18,7 +16,7 @@ use tower_http::{
 use utoipa::OpenApi;
 
 use super::management::v1::ManagementApiDoc;
-use crate::service::health::{HealthExt, HealthStatus};
+use crate::service::health::ServiceHealthProvider;
 use crate::service::{
     auth::{AuthConfigHandler, AuthZHandler},
     config::ConfigProvider,
@@ -39,6 +37,7 @@ pub fn new_full_router<
     publisher: CloudEventsPublisher,
     table_change_checkers: ContractVerifiers,
     token_verifier: Option<Verifier>,
+    svhp: ServiceHealthProvider,
 ) -> Router {
     let v1_routes = new_v1_full_router::<
         crate::catalog::ConfigServer<CP, C, AH, A>,
@@ -46,8 +45,7 @@ pub fn new_full_router<
         State<A, C, S>,
     >();
     let management_routes = Router::new().merge(ApiServer::new_v1_router());
-    let c_state = catalog_state.clone();
-    let c_health = tokio::task::spawn(async move { c_state.update_health_task().await });
+
     maybe_add_auth(
         token_verifier,
         Router::new()
@@ -56,17 +54,10 @@ pub fn new_full_router<
     )
     .route(
         "/health",
-        get(
-            |axum::extract::State(api_context): axum::extract::State<
-                ApiContext<State<A, C, S>>,
-            >| async move {
-                let catalog_health = api_context.v1_state.clone().catalog.health().await;
-                Json(serde_json::json!({
-                    "catalog": catalog_health,
-                }))
-                .into_response()
-            },
-        ),
+        get(|| async move {
+            let health = svhp.collect_health().await;
+            Json(health).into_response()
+        }),
     )
     .merge(utoipa_swagger_ui::SwaggerUi::new("/swagger-ui").url(
         "/api-docs/management/v1/openapi.json",
