@@ -1,11 +1,14 @@
-use anyhow::Error;
+use anyhow::{Context, Error};
 use clap::{Parser, Subcommand};
+use iceberg_catalog::implementations::postgres::{get_reader_pool, get_writer_pool, ReadWrite};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
     CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
     NatsBackend,
 };
-use iceberg_catalog::service::health::ServiceHealthProvider;
+use iceberg_catalog::service::health::{
+    HealthExt, HealthState, HealthStatus, ServiceHealthProvider,
+};
 use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{
     api::router::{new_full_router, serve as service_serve},
@@ -34,7 +37,28 @@ enum Commands {
     /// Run the server - The database must be migrated before running the server
     Serve {},
     /// Check the health of the server
-    Healthcheck {},
+    Healthcheck {
+        #[clap(
+            default_value = "false",
+            short = 'a',
+            help = "Check all services, implies -d and -s."
+        )]
+        check_all: bool,
+        #[clap(
+            default_value = "false",
+            short = 'd',
+            help = "Only test DB connection, requires postgres env values.",
+            conflicts_with("check_all")
+        )]
+        check_db: bool,
+        #[clap(
+            default_value = "false",
+            short = 's',
+            help = "Check health endpoint.",
+            conflicts_with("check_all")
+        )]
+        check_server: bool,
+    },
     /// Print the version of the server
     Version {},
 }
@@ -143,20 +167,47 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Serve {}) => {
             print_info();
             println!("Starting server on 0.0.0.0:8080...");
-            let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8081));
+            let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
             serve(bind_addr).await?;
         }
-        Some(Commands::Healthcheck {}) => {
-            println!("Checking health...");
-            let client = reqwest::Client::new();
-            let response = client.get("http://localhost:8080/health").send().await?;
-            let status = response.status();
-            // Fail with an error if the server is not healthy
-            if !status.is_success() {
-                eprintln!("Server is not healthy: {}", status);
-                std::process::exit(1);
-            } else {
-                println!("Server is healthy.");
+        Some(Commands::Healthcheck {
+            check_all,
+            mut check_db,
+            mut check_server,
+        }) => {
+            check_db |= check_all;
+            check_server |= check_all;
+
+            tracing::info!("Checking health...");
+            if check_db {
+                match db_health_check().await {
+                    Ok(_) => {
+                        tracing::info!("Database is healthy.");
+                    }
+                    Err(details) => {
+                        tracing::info!(?details, "Database is not healthy.");
+                        std::process::exit(1);
+                    }
+                };
+            };
+
+            if check_server {
+                let client = reqwest::Client::new();
+                let response = client.get("http://localhost:8080/health").send().await?;
+
+                let status = response.status();
+                if !status.is_success() {
+                    tracing::info!("Server is not healthy: StatusCode: '{}'", status);
+                    std::process::exit(1);
+                }
+                let body = response.json::<HealthState>().await?;
+                // Fail with an error if the server is not healthy
+                if !matches!(body.health, HealthStatus::Healthy) {
+                    tracing::info!(?body, "Server is not healthy: StatusCode: '{}'", status,);
+                    std::process::exit(1);
+                } else {
+                    tracing::info!("Server is healthy.");
+                }
             }
         }
         Some(Commands::Version {}) => {
@@ -169,6 +220,30 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn db_health_check() -> anyhow::Result<()> {
+    let reader = get_reader_pool()
+        .await
+        .with_context(|| "Read pool failed.")?;
+    let writer = get_writer_pool()
+        .await
+        .with_context(|| "Write pool failed.")?;
+
+    let db = ReadWrite::from_pools(reader.clone(), writer.clone());
+    db.update_health().await;
+    db.health().await;
+    let mut db_healthy = true;
+
+    for h in db.health().await {
+        tracing::info!("{:?}", h);
+        db_healthy = db_healthy && matches!(h.status(), HealthStatus::Healthy);
+    }
+    if db_healthy {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("Database is not healthy."))
+    }
 }
 
 fn print_info() {

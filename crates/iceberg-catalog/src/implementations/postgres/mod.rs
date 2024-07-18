@@ -151,19 +151,13 @@ impl ReadWrite {
 
     #[cfg(feature = "sqlx-postgres")]
     async fn health(pool: PgPool) -> HealthStatus {
-        macro_rules! unwrap_or_unhealthy {
-            ($e:expr) => {
-                match $e {
-                    Ok(_) => HealthStatus::Healthy,
-                    Err(e) => {
-                        tracing::warn!(?e, ?pool, "Pool is unhealthy");
-                        HealthStatus::Unhealthy
-                    }
-                }
-            };
+        match sqlx::query("SELECT 1").fetch_one(&pool).await {
+            Ok(_) => HealthStatus::Healthy,
+            Err(e) => {
+                tracing::warn!(?e, ?pool, "Pool is unhealthy");
+                HealthStatus::Unhealthy
+            }
         }
-        unwrap_or_unhealthy!(sqlx::query("SELECT 1").fetch_one(&pool).await);
-        HealthStatus::Healthy
     }
 
     async fn write_health(&self) -> HealthStatus {

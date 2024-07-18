@@ -1,7 +1,7 @@
 #![allow(clippy::module_name_repetitions)]
 use itertools::{FoldWhile, Itertools};
 use rand::RngCore;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Formatter;
 use std::sync::Arc;
@@ -27,7 +27,7 @@ pub trait HealthExt: Send + Sync + 'static {
     }
 }
 
-#[derive(Clone, Debug, Copy, strum::Display, Serialize)]
+#[derive(Clone, Debug, Copy, strum::Display, Deserialize, Serialize)]
 pub enum HealthStatus {
     #[serde(rename = "ok")]
     Healthy,
@@ -37,11 +37,11 @@ pub enum HealthStatus {
     Unknown,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Health {
-    name: &'static str,
+    name: String,
     #[serde(with = "chrono::serde::ts_milliseconds", rename = "lastCheck")]
-    created_at: chrono::DateTime<chrono::Utc>,
+    checked_at: chrono::DateTime<chrono::Utc>,
     status: HealthStatus,
 }
 
@@ -49,10 +49,15 @@ impl Health {
     #[must_use]
     pub fn now(name: &'static str, status: HealthStatus) -> Self {
         Self {
-            name,
-            created_at: chrono::Utc::now(),
+            name: name.into(),
+            checked_at: chrono::Utc::now(),
             status,
         }
+    }
+
+    #[must_use]
+    pub fn status(&self) -> HealthStatus {
+        self.status
     }
 }
 
@@ -89,8 +94,8 @@ impl ServiceHealthProvider {
     ) -> Self {
         Self {
             providers,
-            check_frequency_seconds,
             check_jitter_millis,
+            check_frequency_seconds,
         }
     }
 
@@ -124,7 +129,7 @@ impl ServiceHealthProvider {
                         }
                     })
                     .into_inner();
-            services.insert(*name, provider_health);
+            services.insert((*name).to_string(), provider_health);
         }
 
         HealthState {
@@ -138,8 +143,8 @@ impl ServiceHealthProvider {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HealthState {
     pub health: HealthStatus,
-    pub services: HashMap<&'static str, Vec<Health>>,
+    pub services: HashMap<String, Vec<Health>>,
 }
