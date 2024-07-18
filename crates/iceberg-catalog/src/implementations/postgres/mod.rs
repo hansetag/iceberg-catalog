@@ -13,8 +13,11 @@ use crate::CONFIG;
 use anyhow::anyhow;
 use async_trait::async_trait;
 pub use secrets::Server as SecretsStore;
+use sqlx::migrate::Migrate;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::{ConnectOptions, Executor, PgPool};
+use std::collections::HashSet;
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -47,6 +50,28 @@ pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!(e).context("Error migrating database."))?;
     Ok(())
+}
+
+pub async fn ensure_migrations_applied(pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    let mut conn = pool.acquire().await?;
+    let m = sqlx::migrate!();
+    let applied_migrations = conn.list_applied_migrations().await?;
+    let to_be_applied = m
+        .migrations
+        .into_iter()
+        .map(|mig| (mig.version, mig.checksum.deref()))
+        .collect::<HashSet<_>>();
+    let applied = applied_migrations
+        .iter()
+        .map(|mig| (mig.version, mig.checksum.deref()))
+        .collect::<HashSet<_>>();
+    let missing = to_be_applied.difference(&applied).collect::<HashSet<_>>();
+
+    if !missing.is_empty() {
+        return Err(anyhow!("Missing migrations: {:?}", missing));
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -34,6 +34,8 @@ struct Cli {
 enum Commands {
     /// Migrate the database
     Migrate {},
+    /// Migrate the database
+    EnsureMigrate {},
     /// Run the server - The database must be migrated before running the server
     Serve {},
     /// Check the health of the server
@@ -161,6 +163,7 @@ async fn main() -> anyhow::Result<()> {
 
             // This embeds database migrations in the application binary so we can ensure the database
             // is migrated correctly on startup
+
             iceberg_catalog::implementations::postgres::migrate(&write_pool).await?;
             println!("Database migration complete.");
         }
@@ -216,6 +219,16 @@ async fn main() -> anyhow::Result<()> {
         None => {
             // Error out if no subcommand is provided.
             eprintln!("No subcommand provided. Use --help for more information.");
+        }
+        Some(Commands::EnsureMigrate {}) => {
+            print_info();
+            tracing::info!("Checking if database is migrated...");
+
+            let read_pool = iceberg_catalog::implementations::postgres::get_reader_pool().await?;
+            iceberg_catalog::implementations::postgres::ensure_migrations_applied(&read_pool)
+                .await?;
+
+            tracing::info!("Database migration complete.");
         }
     }
 
