@@ -5,16 +5,13 @@
     </template>
 
     <v-app-bar-title>TIP Iceberg Catalog</v-app-bar-title>
-    <template v-slot:append>
-      <v-switch
-        inset
-        v-model="themeLight"
-        @click="toggleTheme"
-        :append-icon="
-          themeLight ? 'mdi-moon-waning-sunny' : 'mdi-white-balance-crescent'
-        "
-      ></v-switch>
-    </template>
+    <v-spacer></v-spacer>
+
+    <v-btn
+      @click="toggleTheme"
+      :icon="themeLight ? 'mdi-lightbulb-off' : 'mdi-lightbulb-on'"
+      variant="text"
+    ></v-btn>
   </v-app-bar>
 </template>
 
