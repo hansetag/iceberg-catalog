@@ -134,14 +134,17 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Serve {}) => {
             print_info();
-            println!("Starting server on 0.0.0.0:8080...");
-            let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
+            tracing::info!("Starting server on 0.0.0.0:{}...", CONFIG.listen_port);
+            let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], CONFIG.listen_port));
             serve(bind_addr).await?;
         }
         Some(Commands::Healthcheck {}) => {
             println!("Checking health...");
             let client = reqwest::Client::new();
-            let response = client.get("http://localhost:8080/health").send().await?;
+            let response = client
+                .get(format!("http://localhost:{}/health", CONFIG.listen_port))
+                .send()
+                .await?;
             let status = response.status();
             // Fail with an error if the server is not healthy
             if !status.is_success() {
