@@ -14,5 +14,8 @@ pub use iceberg::{
     NamespaceIdent, TableCommit, TableCreation, TableIdent, TableRequirement, TableUpdate,
 };
 
+pub use iceberg;
+pub use iceberg_datafusion;
+
 #[macro_use]
 extern crate serde_derive;

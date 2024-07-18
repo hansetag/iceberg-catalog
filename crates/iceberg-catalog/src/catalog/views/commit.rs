@@ -316,7 +316,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
                 tabular_id: TabularIdentUuid::View(*view_id),
                 warehouse_id: *warehouse_id,
                 name: parameters.view.name,
-                namespace: parameters.view.namespace.encode_in_url(),
+                namespace: parameters.view.namespace.to_url_string(),
                 prefix: parameters
                     .prefix
                     .map(Prefix::into_string)

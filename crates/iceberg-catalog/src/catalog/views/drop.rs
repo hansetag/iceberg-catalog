@@ -73,7 +73,7 @@ pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
                 tabular_id: TabularIdentUuid::View(*view_id),
                 warehouse_id: *warehouse_id,
                 name: view.name.clone(),
-                namespace: view.namespace.encode_in_url(),
+                namespace: view.namespace.to_url_string(),
                 prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
                 num_events: 1,
                 sequence_number: 0,
