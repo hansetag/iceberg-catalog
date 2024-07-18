@@ -89,7 +89,7 @@ pub(crate) async fn list_namespaces(
             parent_len,
             &*parent
         )
-        .fetch_all(&catalog_state.read_pool)
+        .fetch_all(&catalog_state.read_pool())
         .await
         .map_err(|e| e.into_error_model("Error fetching Namespace".into()))?
         .into_iter()
@@ -107,7 +107,7 @@ pub(crate) async fn list_namespaces(
             "#,
             *warehouse_id
         )
-        .fetch_all(&catalog_state.read_pool)
+        .fetch_all(&catalog_state.read_pool())
         .await
         .map_err(|e| e.into_error_model("Error fetching Namespace".into()))?
     };
@@ -226,7 +226,7 @@ pub(crate) async fn namespace_ident_to_id(
         *warehouse_id,
         &**namespace
     )
-    .fetch_one(&catalog_state.read_pool)
+    .fetch_one(&catalog_state.read_pool())
     .await
     .map_err(|e| match e {
         sqlx::Error::RowNotFound => None,
@@ -408,10 +408,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_namespace_lifecycle(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
 
@@ -502,10 +499,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_cannot_drop_nonempty_namespace(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let staged = false;
@@ -523,10 +517,7 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_case_insensitive_but_preserve_case(pool: sqlx::PgPool) {
-        let state = CatalogState {
-            read_pool: pool.clone(),
-            write_pool: pool.clone(),
-        };
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace_1 = NamespaceIdent::from_vec(vec!["Test".to_string()]).unwrap();

@@ -312,7 +312,7 @@ pub(crate) async fn list_tabulars(
         include_staged,
         typ as _
     )
-    .fetch_all(&catalog_state.read_pool)
+    .fetch_all(&catalog_state.read_pool())
     .await
     .map_err(|e| e.into_error_model("Error fetching tables or views".to_string()))?;
 

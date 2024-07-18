@@ -14,6 +14,7 @@ pub use crate::api::iceberg::v1::{
     NamespaceIdent, Result, TableIdent, UpdateNamespacePropertiesRequest,
     UpdateNamespacePropertiesResponse,
 };
+use crate::service::health::HealthExt;
 
 #[async_trait::async_trait]
 pub trait Transaction<D>
@@ -107,7 +108,7 @@ where
     Self: Clone + Send + Sync + 'static,
 {
     type Transaction: Transaction<Self::State>;
-    type State: Clone + Send + Sync + 'static;
+    type State: Clone + Send + Sync + 'static + HealthExt;
 
     // Should only return namespaces if the warehouse is active.
     async fn list_namespaces(

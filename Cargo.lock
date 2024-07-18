@@ -1971,6 +1971,7 @@ dependencies = [
  "lazy_static",
  "maplit",
  "openssl",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",
