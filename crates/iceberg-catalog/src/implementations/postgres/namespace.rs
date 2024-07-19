@@ -94,7 +94,7 @@ pub(crate) async fn list_namespaces(
                 FROM namespace
                 WHERE namespace_id = $4
             ) OR $4 IS NULL)
-            ORDER BY n.created_at ASC
+            ORDER BY n.created_at, n.namespace_id ASC
             LIMIT $5
             "#,
             *warehouse_id,
@@ -127,7 +127,7 @@ pub(crate) async fn list_namespaces(
                 FROM namespace
                 WHERE namespace_id = $2
             ) OR $2 IS NULL)
-            ORDER BY n.created_at ASC
+            ORDER BY n.created_at, n.namespace_id ASC
             LIMIT $3
             "#,
             *warehouse_id,
