@@ -18,6 +18,7 @@ sqlx = ["dep:sqlx"]
 s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]
 router = ["dep:tower-http"]
 nats = ["dep:async-nats"]
+default = ["sqlx-postgres", "s3-signer", "router"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -63,6 +64,7 @@ utoipa = { workspace = true, features = ["uuid"] }
 utoipa-swagger-ui = { workspace = true }
 uuid = { workspace = true }
 veil = { workspace = true }
+rand = "0.8.5"
 
 [dev-dependencies]
 http-body-util = { workspace = true }

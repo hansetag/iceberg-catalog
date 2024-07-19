@@ -178,7 +178,7 @@ impl Catalog for super::Catalog {
             warehouse_id,
             table,
             include_staged,
-            &catalog_state.read_pool,
+            &catalog_state.read_pool(),
         )
         .await
     }
@@ -210,7 +210,7 @@ impl Catalog for super::Catalog {
             warehouse_id,
             tables,
             include_staged,
-            &catalog_state.read_pool,
+            &catalog_state.read_pool(),
         )
         .await
     }
@@ -304,7 +304,7 @@ impl Catalog for super::Catalog {
         view: &TableIdent,
         catalog_state: Self::State,
     ) -> Result<Option<TableIdentUuid>> {
-        view_ident_to_id(warehouse_id, view, &catalog_state.read_pool).await
+        view_ident_to_id(warehouse_id, view, &catalog_state.read_pool()).await
     }
 
     async fn load_view<'a>(

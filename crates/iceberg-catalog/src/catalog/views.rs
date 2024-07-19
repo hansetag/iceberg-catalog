@@ -133,7 +133,6 @@ fn validate_view_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
 
 #[cfg(test)]
 mod test {
-
     use crate::api::ApiContext;
 
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
@@ -188,14 +187,8 @@ mod test {
         ApiContext {
             v1_state: State {
                 auth: AllowAllAuthState,
-                catalog: CatalogState {
-                    read_pool: pool.clone(),
-                    write_pool: pool.clone(),
-                },
-                secrets: SecretsState {
-                    read_pool: pool.clone(),
-                    write_pool: pool,
-                },
+                catalog: CatalogState::from_pools(pool.clone(), pool.clone()),
+                secrets: SecretsState::from_pools(pool.clone(), pool),
                 publisher: CloudEventsPublisher::new(tx.clone()),
                 contract_verifiers: ContractVerifiers::new(vec![]),
             },

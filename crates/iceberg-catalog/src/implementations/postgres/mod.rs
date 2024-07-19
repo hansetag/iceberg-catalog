@@ -5,17 +5,21 @@ pub(crate) mod secrets;
 pub(crate) mod tabular;
 pub(crate) mod warehouse;
 
-use crate::CONFIG;
-use anyhow::anyhow;
-use sqlx::postgres::PgConnectOptions;
-use sqlx::ConnectOptions;
-use std::str::FromStr;
-
-pub use secrets::Server as SecretsStore;
-
 use self::dbutils::DBErrorHandler;
 use crate::api::Result;
 use crate::config::PgSslMode;
+use crate::service::health::{Health, HealthExt, HealthStatus};
+use crate::CONFIG;
+use anyhow::anyhow;
+use async_trait::async_trait;
+pub use secrets::Server as SecretsStore;
+use sqlx::migrate::Migrate;
+use sqlx::postgres::PgConnectOptions;
+use sqlx::{ConnectOptions, Executor, PgPool};
+use std::collections::HashSet;
+use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// # Errors
 /// Returns an error if the pool creation fails.
@@ -47,6 +51,30 @@ pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// # Errors
+/// Returns an error if db connection fails or if migrations are missing.
+pub async fn ensure_migrations_applied(pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    let mut conn = pool.acquire().await?;
+    let m = sqlx::migrate!();
+    let applied_migrations = conn.list_applied_migrations().await?;
+    let to_be_applied = m
+        .migrations
+        .iter()
+        .map(|mig| (mig.version, &*mig.checksum))
+        .collect::<HashSet<_>>();
+    let applied = applied_migrations
+        .iter()
+        .map(|mig| (mig.version, &*mig.checksum))
+        .collect::<HashSet<_>>();
+    let missing = to_be_applied.difference(&applied).collect::<HashSet<_>>();
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(anyhow!("Missing migrations: {:?}", missing))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Catalog {}
 
@@ -62,7 +90,7 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
 
     async fn begin_write(db_state: CatalogState) -> Result<Self> {
         let transaction = db_state
-            .write_pool
+            .write_pool()
             .begin()
             .await
             .map_err(|e| e.into_error_model("Error starting transaction".to_string()))?;
@@ -71,12 +99,18 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
     }
 
     async fn begin_read(db_state: CatalogState) -> Result<Self> {
-        let transaction = db_state
-            .read_pool
+        let mut transaction = db_state
+            .read_pool()
             .begin()
             .await
             .map_err(|e| e.into_error_model("Error starting transaction".to_string()))?;
 
+        transaction
+            .execute("SET TRANSACTION READ ONLY")
+            .await
+            .map_err(|e| {
+                e.into_error_model("Error setting transaction to read-only".to_string())
+            })?;
         Ok(Self { transaction })
     }
 
@@ -102,21 +136,135 @@ impl crate::service::Transaction<CatalogState> for PostgresTransaction {
 }
 
 #[derive(Clone, Debug)]
+pub struct ReadWrite {
+    pub read_pool: sqlx::PgPool,
+    pub write_pool: sqlx::PgPool,
+    pub health: Arc<RwLock<Vec<Health>>>,
+}
+
+#[async_trait]
+impl HealthExt for ReadWrite {
+    async fn health(&self) -> Vec<Health> {
+        self.health.read().await.clone()
+    }
+
+    async fn update_health(&self) {
+        let read = self.read_health().await;
+        let write = self.write_health().await;
+        let mut lock = self.health.write().await;
+        lock.clear();
+        lock.extend([
+            Health::now("read_pool", read),
+            Health::now("write_pool", write),
+        ]);
+    }
+}
+
+impl ReadWrite {
+    #[must_use]
+    pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
+        Self {
+            #[cfg(feature = "sqlx-postgres")]
+            read_pool,
+            #[cfg(feature = "sqlx-postgres")]
+            write_pool,
+            health: Arc::new(RwLock::new(vec![
+                Health::now("read_pool", HealthStatus::Unknown),
+                Health::now("write_pool", HealthStatus::Unknown),
+            ])),
+        }
+    }
+
+    #[cfg(feature = "sqlx-postgres")]
+    async fn health(pool: PgPool) -> HealthStatus {
+        match sqlx::query("SELECT 1").fetch_one(&pool).await {
+            Ok(_) => HealthStatus::Healthy,
+            Err(e) => {
+                tracing::warn!(?e, ?pool, "Pool is unhealthy");
+                HealthStatus::Unhealthy
+            }
+        }
+    }
+
+    async fn write_health(&self) -> HealthStatus {
+        Self::health(self.write_pool.clone()).await
+    }
+
+    async fn read_health(&self) -> HealthStatus {
+        Self::health(self.read_pool.clone()).await
+    }
+}
+
+#[derive(Clone, Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct CatalogState {
-    #[cfg(feature = "sqlx-postgres")]
-    pub read_pool: sqlx::PgPool,
-    #[cfg(feature = "sqlx-postgres")]
-    pub write_pool: sqlx::PgPool,
+    pub read_write: ReadWrite,
+}
+
+#[async_trait]
+impl HealthExt for CatalogState {
+    async fn health(&self) -> Vec<Health> {
+        self.read_write.health().await
+    }
+
+    async fn update_health(&self) {
+        self.read_write.update_health().await;
+    }
+}
+
+impl CatalogState {
+    #[must_use]
+    pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
+        Self {
+            read_write: ReadWrite::from_pools(read_pool, write_pool),
+        }
+    }
+
+    #[must_use]
+    pub fn read_pool(&self) -> PgPool {
+        self.read_write.read_pool.clone()
+    }
+
+    #[must_use]
+    pub fn write_pool(&self) -> PgPool {
+        self.read_write.write_pool.clone()
+    }
 }
 
 #[derive(Clone, Debug)]
 #[allow(clippy::module_name_repetitions)]
 pub struct SecretsState {
-    #[cfg(feature = "sqlx-postgres")]
-    pub read_pool: sqlx::PgPool,
-    #[cfg(feature = "sqlx-postgres")]
-    pub write_pool: sqlx::PgPool,
+    pub read_write: ReadWrite,
+}
+
+#[async_trait]
+impl HealthExt for SecretsState {
+    async fn health(&self) -> Vec<Health> {
+        self.read_write.health().await
+    }
+
+    async fn update_health(&self) {
+        self.read_write.update_health().await;
+    }
+}
+
+impl SecretsState {
+    #[must_use]
+    pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
+        Self {
+            read_write: ReadWrite::from_pools(read_pool, write_pool),
+        }
+    }
+
+    #[must_use]
+    pub fn read_pool(&self) -> PgPool {
+        self.read_write.read_pool.clone()
+    }
+
+    #[must_use]
+    pub fn write_pool(&self) -> PgPool {
+        self.read_write.write_pool.clone()
+    }
 }
 
 fn build_opts() -> sqlx::pool::PoolOptions<sqlx::Postgres> {

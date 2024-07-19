@@ -1,7 +1,6 @@
-use std::collections::HashSet;
-
 use crate::api::{iceberg::v1::NamespaceIdent, Result};
 use crate::request_metadata::RequestMetadata;
+use crate::service::health::HealthExt;
 use crate::{
     implementations::DEFAULT_PROJECT_ID,
     service::{
@@ -10,9 +9,20 @@ use crate::{
     },
     ProjectIdent, WarehouseIdent,
 };
+use async_trait::async_trait;
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, Default)]
 pub struct AllowAllAuthState;
+
+#[async_trait]
+impl HealthExt for AllowAllAuthState {
+    async fn health(&self) -> Vec<crate::service::health::Health> {
+        vec![]
+    }
+
+    async fn update_health(&self) {}
+}
 
 #[derive(Clone, Debug, Default)]
 /// Allow absolutely, gloriously, everything.

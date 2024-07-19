@@ -5,7 +5,8 @@ use crate::api::management::v1::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
 use crate::service::contract_verification::ContractVerifiers;
 use crate::service::token_verification::Verifier;
-use axum::{routing::get, Router};
+use axum::response::IntoResponse;
+use axum::{routing::get, Json, Router};
 use tower::ServiceBuilder;
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer,
@@ -14,13 +15,13 @@ use tower_http::{
 };
 use utoipa::OpenApi;
 
+use super::management::v1::ManagementApiDoc;
+use crate::service::health::ServiceHealthProvider;
 use crate::service::{
     auth::{AuthConfigHandler, AuthZHandler},
     config::ConfigProvider,
     Catalog, SecretStore, State,
 };
-
-use super::management::v1::ManagementApiDoc;
 
 #[allow(clippy::module_name_repetitions)]
 pub fn new_full_router<
@@ -36,6 +37,7 @@ pub fn new_full_router<
     publisher: CloudEventsPublisher,
     table_change_checkers: ContractVerifiers,
     token_verifier: Option<Verifier>,
+    svhp: ServiceHealthProvider,
 ) -> Router {
     let v1_routes = new_v1_full_router::<
         crate::catalog::ConfigServer<CP, C, AH, A>,
@@ -50,7 +52,13 @@ pub fn new_full_router<
             .nest("/catalog/v1", v1_routes)
             .nest("/management/v1", management_routes),
     )
-    .route("/health", get(|| async { "OK" }))
+    .route(
+        "/health",
+        get(|| async move {
+            let health = svhp.collect_health().await;
+            Json(health).into_response()
+        }),
+    )
     .merge(utoipa_swagger_ui::SwaggerUi::new("/swagger-ui").url(
         "/api-docs/management/v1/openapi.json",
         ManagementApiDoc::openapi(),

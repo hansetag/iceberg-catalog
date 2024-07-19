@@ -1,4 +1,5 @@
 use crate::api::Result;
+use crate::service::health::HealthExt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -57,7 +58,7 @@ pub trait SecretStore
 where
     Self: Clone + Send + Sync + 'static,
 {
-    type State: Sized + Send + Sync + Clone + 'static;
+    type State: Sized + Send + Sync + Clone + 'static + HealthExt;
 
     /// Get the secret for a given warehouse.
     async fn get_secret_by_id<S: SecretInStorage + for<'de> Deserialize<'de>>(

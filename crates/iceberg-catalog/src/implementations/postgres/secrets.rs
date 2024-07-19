@@ -36,7 +36,7 @@ impl SecretStore for Server {
             secret_id.as_uuid(),
             CONFIG.pg_encryption_key
         )
-        .fetch_one(&state.read_pool)
+        .fetch_one(&state.read_pool())
         .await
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => ErrorModel::builder()
@@ -96,7 +96,7 @@ impl SecretStore for Server {
             secret_str,
             CONFIG.pg_encryption_key,
         )
-        .fetch_one(&state.write_pool)
+        .fetch_one(&state.write_pool())
         .await
         .map_err(|e| {
             ErrorModel::builder()
@@ -119,7 +119,7 @@ impl SecretStore for Server {
             "#,
             secret_id.as_uuid()
         )
-        .execute(&state.write_pool)
+        .execute(&state.write_pool())
         .await
         .map_err(|e| {
             ErrorModel::builder()
@@ -143,10 +143,7 @@ mod tests {
 
     #[sqlx::test]
     async fn test_write_read_secret(pool: sqlx::PgPool) {
-        let state = SecretsState {
-            read_pool: pool.clone(),
-            write_pool: pool,
-        };
+        let state = SecretsState::from_pools(pool.clone(), pool);
 
         let secret: StorageCredential = S3Credential::AccessKey {
             aws_access_key_id: "my access key".to_string(),
@@ -167,10 +164,7 @@ mod tests {
 
     #[sqlx::test]
     async fn test_delete_secret(pool: sqlx::PgPool) {
-        let state = SecretsState {
-            read_pool: pool.clone(),
-            write_pool: pool,
-        };
+        let state = SecretsState::from_pools(pool.clone(), pool);
 
         let secret: StorageCredential = S3Credential::AccessKey {
             aws_access_key_id: "my access key".to_string(),
