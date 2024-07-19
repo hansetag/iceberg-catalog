@@ -30,6 +30,8 @@ pub mod v1 {
     };
     pub use crate::request_metadata::RequestMetadata;
 
+    pub const MAX_PAGE_SIZE: i64 = 100i64;
+
     pub fn new_v1_full_router<
         C: config::Service<S>,
         #[cfg(feature = "s3-signer")] T: namespace::Service<S>
