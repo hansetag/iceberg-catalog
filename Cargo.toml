@@ -68,6 +68,7 @@ tower-http = { version = "^0.5", features = [
     "sensitive-headers",
     "timeout",
     "trace",
+    "cors"
 ] }
 tracing = { version = "^0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }

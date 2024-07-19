@@ -8,6 +8,7 @@ use crate::service::token_verification::Verifier;
 use axum::response::IntoResponse;
 use axum::{routing::get, Json, Router};
 use tower::ServiceBuilder;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer,
     sensitive_headers::SetSensitiveHeadersLayer, timeout::TimeoutLayer, trace, trace::TraceLayer,
@@ -81,6 +82,7 @@ pub fn new_full_router<
             )
             .layer(TimeoutLayer::new(std::time::Duration::from_secs(30)))
             .layer(CatchPanicLayer::new())
+            .layer(CorsLayer::new().allow_origin(AllowOrigin::any()))
             .propagate_x_request_id(),
     )
     .with_state(ApiContext {
