@@ -4,9 +4,11 @@
       <div class="text-center">
         <v-img class="mb-4" height="100" src="@/assets/bear.png" />
 
-        <div class="text-body-2 font-weight-light mb-n1">Welcome to</div>
+        <div>
+          <span class="text-h2 font-weight-bold">TIP</span>
 
-        <h1 class="text-h2 font-weight-bold">TIP</h1>
+          <span class="text-body-2 font-weight-light mb-n1">of the</span>
+        </div>
       </div>
       <v-img class="mb-4" height="150" src="@/assets/iceberg.png" />
 
