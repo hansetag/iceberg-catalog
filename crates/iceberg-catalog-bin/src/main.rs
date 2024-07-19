@@ -104,7 +104,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
 
     let (metrics_layer, metrics_future) =
-        iceberg_catalog::metrics::get_axum_layer(CONFIG.metrics_port)?;
+        iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?;
 
     let router = new_full_router::<
         Catalog,
