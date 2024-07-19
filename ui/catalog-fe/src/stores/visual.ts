@@ -5,7 +5,7 @@ export const useVisualStore = defineStore(
   "visual",
   () => {
     const themeLight = ref(true);
-    const navBarShow = ref(false);
+    const navBarShow = ref(true);
 
     function toggleThemeLight() {
       themeLight.value = !themeLight.value;

@@ -30,7 +30,7 @@ const themeText = computed(() => {
 });
 
 const navIcon = computed(() => {
-  return visual.navBarShow ? "mdi-arrow-left" : "mdi-menu";
+  return visual.navBarShow ? "mdi-menu-open" : "mdi-menu";
 });
 
 ref("mdi-menu");
