@@ -62,8 +62,7 @@ pub(crate) async fn list_namespaces(
 
     let page_size = page_size
         .map(i64::from)
-        .map(|i| i.clamp(1, MAX_PAGE_SIZE))
-        .unwrap_or(MAX_PAGE_SIZE);
+        .map_or(MAX_PAGE_SIZE, |i| i.clamp(1, MAX_PAGE_SIZE));
 
     // Treat empty parent as None
     let parent = parent
@@ -108,7 +107,7 @@ pub(crate) async fn list_namespaces(
         .await
         .map_err(|e| e.into_error_model("Error fetching Namespace".into()))?
         .into_iter()
-        .flat_map(|r| match r.namespace_name {
+        .filter_map(|r| match r.namespace_name {
             Some(n) => Some((r.namespace_id, n)),
             None => None,
         })
