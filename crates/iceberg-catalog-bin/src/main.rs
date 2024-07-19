@@ -1,5 +1,6 @@
 use anyhow::{Context, Error};
 use clap::{Parser, Subcommand};
+use iceberg_catalog::api::management::v1::ManagementApiDoc;
 use iceberg_catalog::implementations::postgres::{get_reader_pool, get_writer_pool, ReadWrite};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
@@ -63,6 +64,7 @@ enum Commands {
     },
     /// Print the version of the server
     Version {},
+    ManagementOpenapi {},
 }
 
 async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -229,6 +231,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
 
             tracing::info!("Database migration complete.");
+        }
+
+        Some(Commands::ManagementOpenapi {}) => {
+            use utoipa::OpenApi;
+            println!("{}", ManagementApiDoc::openapi().to_yaml()?)
         }
     }
 
