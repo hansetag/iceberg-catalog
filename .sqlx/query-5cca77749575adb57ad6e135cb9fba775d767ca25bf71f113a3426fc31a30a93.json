@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                n.namespace_id,\n                \"namespace_name\" as \"namespace_name: Vec<String>\"\n            FROM namespace n\n            INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n            WHERE n.warehouse_id = $1\n            AND w.status = 'active'\n            AND (n.created_at > (\n                SELECT created_at\n                FROM namespace\n                WHERE namespace_id = $2\n            ) OR $2 IS NULL)\n            ORDER BY n.created_at ASC\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "namespace_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "namespace_name: Vec<String>",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "5cca77749575adb57ad6e135cb9fba775d767ca25bf71f113a3426fc31a30a93"
+}
