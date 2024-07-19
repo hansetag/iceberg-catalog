@@ -134,12 +134,12 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         };
     });
 
-    tokio::task::spawn(|| {
+    tokio::task::spawn(async move {
         tracing::info!(
             "Starting metrics server listening on 0.0.0.0:{} ...",
             CONFIG.metrics_port
         );
-        metrics_future
+        metrics_future.await
     });
 
     service_serve(listener, router).await?;
