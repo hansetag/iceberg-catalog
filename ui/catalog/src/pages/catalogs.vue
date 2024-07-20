@@ -6,13 +6,18 @@
           :items="treeItems.items"
           item-key="id"
           item-title="title"
+          :load-children="fetchUsers"
           expand-on-click
         >
           <template #prepend="{ item }">
-            <v-icon v-if="item.children && item.children.length"
-              >mdi-bookmark</v-icon
+            <v-icon v-if="item.itemType == 'project'"> mdi-bookmark</v-icon>
+            <v-icon v-else-if="item.itemType == 'warehouse'">
+              mdi-database</v-icon
             >
-            <v-icon v-else>mdi-database</v-icon>
+            <v-icon v-else-if="item.itemType == 'namespace'">
+              mdi-folder</v-icon
+            >
+            <v-icon v-else>mdi-table</v-icon>
           </template>
         </v-treeview>
       </v-col>
@@ -50,8 +55,13 @@ interface Warehouse {
   status: string;
 }
 
+interface Namespaces {
+  namespaces: string[][];
+}
+
 interface TreeItem {
   id: string;
+  itemType: string;
   title: string;
   children?: TreeItem[];
 }
@@ -74,21 +84,23 @@ onMounted(async () => {
       const transformedData: TreeItem[] = [];
 
       for (const project of projects) {
-        const warehousesResponse = (await loadData(
-          managementUrl + "/warehouse?project-id=" + project.project_id
-        )) as { warehouses: Warehouse[] };
+        // const warehousesResponse = (await loadData(
+        //   managementUrl + "/warehouse?project-id=" + project.project_id
+        // )) as { warehouses: Warehouse[] };
 
-        const children: TreeItem[] = warehousesResponse.warehouses.map(
-          (warehouse) => ({
-            id: warehouse.id,
-            title: warehouse.name,
-          })
-        );
+        // const children: TreeItem[] = warehousesResponse.warehouses.map(
+        //   (warehouse) => ({
+        //     id: warehouse.id,
+        //     itemType: "warehouse",
+        //     title: warehouse.name,
+        //   })
+        // );
 
         transformedData.push({
           id: project.project_id,
+          itemType: "project",
           title: `Project ${project.project_id}`,
-          children: children,
+          children: [], //children,
         });
       }
 
@@ -103,11 +115,50 @@ onMounted(async () => {
 
 async function loadData(
   subPath: string
-): Promise<Data | { warehouses: Warehouse[] }> {
+): Promise<Data | { warehouses: Warehouse[] } | Namespaces> {
   const res = await fetch(subPath);
   if (!res.ok) {
     throw new Error(`HTTP error! status: ${res.status}`);
   }
   return await res.json();
+}
+
+async function fetchUsers(item: any) {
+  console.log(item);
+
+  if (item.itemType == "project") {
+    const warehousesResponse = (await loadData(
+      managementUrl + "/warehouse?project-id=" + item.id
+    )) as { warehouses: Warehouse[] };
+    console.log(warehousesResponse);
+    const children: TreeItem[] = warehousesResponse.warehouses.map(
+      (warehouse) => ({
+        id: warehouse.id,
+        itemType: "warehouse",
+        title: warehouse.name,
+        children: [],
+      })
+    );
+    item.children.push(...children);
+
+    return item;
+  } else if (item.itemType == "warehouse") {
+    const namespacesResponse = (await loadData(
+      catalogUrl + "/" + item.id + "/namespaces"
+    )) as Namespaces;
+    console.log(item, namespacesResponse);
+    const children: TreeItem[] = namespacesResponse.namespaces.flatMap(
+      (namespaceArray) =>
+        namespaceArray.map((namespace) => ({
+          id: namespace,
+          itemType: "namespace",
+          title: namespace,
+          children: [],
+        }))
+    );
+    item.children.push(...children);
+
+    return item;
+  }
 }
 </script>
