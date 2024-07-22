@@ -14,6 +14,8 @@ pub use crate::api::iceberg::v1::{
     NamespaceIdent, Result, TableIdent, UpdateNamespacePropertiesRequest,
     UpdateNamespacePropertiesResponse,
 };
+use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
+
 use crate::service::health::HealthExt;
 
 #[async_trait::async_trait]
@@ -169,7 +171,8 @@ where
         namespace: &NamespaceIdent,
         include_staged: bool,
         catalog_state: Self::State,
-    ) -> Result<HashMap<TableIdentUuid, TableIdent>>;
+        pagination_query: PaginationQuery,
+    ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>>;
 
     /// Return Err only on unexpected errors, not if the table does not exist.
     /// If include_staged is true, also return staged tables.
@@ -331,7 +334,8 @@ where
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         catalog_state: Self::State,
-    ) -> Result<HashMap<TableIdentUuid, TableIdent>>;
+        pagination_query: PaginationQuery,
+    ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>>;
 
     async fn update_view_metadata(
         namespace_id: NamespaceIdentUuid,

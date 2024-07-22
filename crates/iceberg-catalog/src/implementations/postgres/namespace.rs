@@ -1,5 +1,6 @@
 use super::{dbutils::DBErrorHandler, CatalogState};
 use crate::api::iceberg::v1::MAX_PAGE_SIZE;
+use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, ErrorModel, GetNamespaceResponse,
     ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
@@ -50,59 +51,16 @@ pub(crate) async fn get_namespace(
     })
 }
 
-fn deconstruct(s: &str) -> Result<(chrono::DateTime<Utc>, Uuid)> {
-    let mut parts = s.splitn(2, ':');
-    let created_at = parts
-        .next()
-        .and_then(|ts| ts.parse().ok())
-        .map(|ts| {
-            chrono::DateTime::from_timestamp_micros(ts).ok_or(
-                ErrorModel::builder()
-                    .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                    .message("Error parsing created_at".to_string())
-                    .r#type("...".to_string())
-                    .build(),
-            )
-        })
-        .ok_or_else(|| {
-            ErrorModel::builder()
-                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("Error parsing namespace id".to_string())
-                .r#type("NamespaceIdParsingError".to_string())
-                .build()
-        })??;
-    let namespace_id = parts
-        .next()
-        .ok_or_else(|| {
-            ErrorModel::builder()
-                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("Error parsing namespace id".to_string())
-                .r#type("NamespaceIdParsingError".to_string())
-                .build()
-        })?
-        .parse()
-        .map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("Error parsing namespace id".to_string())
-                .r#type("NamespaceIdParsingError".to_string())
-                .source(Some(Box::new(e)))
-                .build()
-        })?;
-    Ok((created_at, namespace_id))
-}
-
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn list_namespaces(
     warehouse_id: WarehouseIdent,
-    query: &ListNamespacesQuery,
-    catalog_state: CatalogState,
-) -> Result<ListNamespacesResponse> {
-    let ListNamespacesQuery {
+    ListNamespacesQuery {
         page_token,
         page_size,
         parent,
-    } = query;
-
+    }: &ListNamespacesQuery,
+    catalog_state: CatalogState,
+) -> Result<ListNamespacesResponse> {
     let page_size = page_size
         .map(i64::from)
         .map_or(MAX_PAGE_SIZE, |i| i.clamp(1, MAX_PAGE_SIZE));
@@ -113,10 +71,13 @@ pub(crate) async fn list_namespaces(
         .and_then(|p| if p.is_empty() { None } else { Some(p.clone()) });
     let token = page_token
         .as_option()
-        .map(|id| deconstruct(id))
+        .map(PaginateToken::try_from)
         .transpose()?;
-    let token_ts = token.as_ref().map(|(ts, _)| *ts);
-    let token_id = token.as_ref().map(|(_, id)| *id);
+
+    let (token_ts, token_id) = token
+        .as_ref()
+        .map(|PaginateToken::V1(V1PaginateToken { created_at, id })| (created_at, id))
+        .unzip();
 
     let namespaces: Vec<(Uuid, Vec<String>, chrono::DateTime<Utc>)> = if let Some(parent) = parent {
         // If it doesn't fit in a i32 it is way too large. Validation would have failed
@@ -139,9 +100,8 @@ pub(crate) async fn list_namespaces(
             AND w.status = 'active'
             AND array_length("namespace_name", 1) = $2 + 1
             AND "namespace_name"[1:$2] = $3
-            AND (((n.created_at > $4) OR ($4 IS NULL))
-                    OR ((n.created_at = $4) AND (n.namespace_id > $5))
-                )
+            --- PAGINATION
+            AND ((n.created_at > $4 OR $4 IS NULL) OR (n.created_at = $4 AND n.namespace_id > $5))
             ORDER BY n.created_at, n.namespace_id ASC
             LIMIT $6
             "#,
@@ -172,9 +132,7 @@ pub(crate) async fn list_namespaces(
             INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
             WHERE n.warehouse_id = $1
             AND w.status = 'active'
-            AND (((n.created_at > $2) OR ($2 IS NULL))
-                    OR ((n.created_at = $2) AND (n.namespace_id > $3))
-                )
+            AND ((n.created_at > $2 OR $2 IS NULL) OR (n.created_at = $2 AND n.namespace_id > $3))
             ORDER BY n.created_at, n.namespace_id ASC
             LIMIT $4
             "#,
@@ -190,9 +148,13 @@ pub(crate) async fn list_namespaces(
         .map(|r| (r.namespace_id, r.namespace_name, r.created_at))
         .collect()
     };
-    let next_page_token = namespaces
-        .last()
-        .map(|(id, _, ts)| format!("{}:{}", ts.timestamp_micros(), id));
+    let next_page_token = namespaces.last().map(|(id, _, ts)| {
+        PaginateToken::V1(V1PaginateToken {
+            id: *id,
+            created_at: *ts,
+        })
+        .to_string()
+    });
 
     // Convert Vec<Vec<String>> to Vec<NamespaceIdent>
     let namespaces: Result<Vec<NamespaceIdent>> = namespaces
@@ -625,11 +587,6 @@ pub(crate) mod tests {
         .unwrap();
 
         assert_eq!(namespaces.len(), 1);
-        let expected_page_token =
-            *namespace_ident_to_id(warehouse_id, &response1.namespace, state.clone())
-                .await
-                .unwrap()
-                .unwrap();
         assert_eq!(namespaces, vec![response1.namespace.clone()]);
 
         let ListNamespacesResponse {
@@ -651,12 +608,7 @@ pub(crate) mod tests {
         .unwrap();
 
         assert_eq!(namespaces.len(), 2);
-        let expected_page_token =
-            *namespace_ident_to_id(warehouse_id, &response3.namespace, state.clone())
-                .await
-                .unwrap()
-                .unwrap();
-
+        assert!(next_page_token.is_some());
         assert_eq!(
             namespaces,
             vec![response2.namespace.clone(), response3.namespace.clone()]
@@ -691,7 +643,7 @@ pub(crate) mod tests {
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let staged = false;
-        let table = initialize_table(warehouse_id, state.clone(), staged).await;
+        let table = initialize_table(warehouse_id, state.clone(), staged, None, None).await;
 
         let mut transaction = PostgresTransaction::begin_write(state.clone())
             .await

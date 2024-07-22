@@ -34,7 +34,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     /// List all table identifiers underneath a given namespace
     async fn list_tables(
         parameters: NamespaceParameters,
-        _query: PaginationQuery,
+        pagination_query: PaginationQuery,
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<ListTablesResponse> {
@@ -59,6 +59,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             &namespace,
             include_staged,
             state.v1_state.catalog,
+            pagination_query,
         )
         .await?;
 

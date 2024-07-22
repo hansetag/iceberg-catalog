@@ -38,6 +38,7 @@ impl PageToken {
             PageToken::NotSpecified | PageToken::Empty => None,
         }
     }
+
     #[inline]
     #[must_use]
     pub fn new_present(s: String) -> Self {
