@@ -90,8 +90,17 @@ pub mod v1 {
         pub fn get(&self, key: &T) -> Option<&Z> {
             self.tabulars.get(key)
         }
+    }
 
-        pub fn into_iter(self) -> impl Iterator<Item = (T, Z)> {
+    impl<T, Z> IntoIterator for PaginatedTabulars<T, Z>
+    where
+        T: std::hash::Hash + Eq + Debug,
+        Z: Debug,
+    {
+        type Item = (T, Z);
+        type IntoIter = std::collections::hash_map::IntoIter<T, Z>;
+
+        fn into_iter(self) -> Self::IntoIter {
             self.tabulars.into_iter()
         }
     }
