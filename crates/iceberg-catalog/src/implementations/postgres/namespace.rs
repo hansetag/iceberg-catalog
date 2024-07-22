@@ -589,8 +589,7 @@ pub(crate) mod tests {
             warehouse_id,
             &ListNamespacesQuery {
                 page_token: next_page_token
-                    .map(crate::api::iceberg::v1::PageToken::Present)
-                    .unwrap_or(crate::api::iceberg::v1::PageToken::Empty),
+                    .map_or(crate::api::iceberg::v1::PageToken::Empty, crate::api::iceberg::v1::PageToken::Present),
                 page_size: Some(2),
                 parent: None,
             },
@@ -619,8 +618,7 @@ pub(crate) mod tests {
             warehouse_id,
             &ListNamespacesQuery {
                 page_token: next_page_token
-                    .map(crate::api::iceberg::v1::PageToken::Present)
-                    .unwrap_or(crate::api::iceberg::v1::PageToken::Empty),
+                    .map_or(crate::api::iceberg::v1::PageToken::Empty, crate::api::iceberg::v1::PageToken::Present),
                 page_size: Some(3),
                 parent: None,
             },
