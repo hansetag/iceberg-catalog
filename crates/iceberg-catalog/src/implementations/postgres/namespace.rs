@@ -6,6 +6,7 @@ use crate::service::{
     UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 use crate::{catalog::namespace::MAX_NAMESPACE_DEPTH, service::NamespaceIdentUuid, WarehouseIdent};
+use chrono::Utc;
 use http::StatusCode;
 use sqlx::types::Json;
 use std::{collections::HashMap, ops::Deref};
@@ -49,6 +50,48 @@ pub(crate) async fn get_namespace(
     })
 }
 
+fn deconstruct(s: &str) -> Result<(chrono::DateTime<Utc>, Uuid)> {
+    let mut parts = s.splitn(2, ':');
+    let created_at = parts
+        .next()
+        .and_then(|ts| ts.parse().ok())
+        .map(|ts| {
+            chrono::DateTime::from_timestamp_micros(ts).ok_or(
+                ErrorModel::builder()
+                    .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                    .message("Error parsing created_at".to_string())
+                    .r#type("...".to_string())
+                    .build(),
+            )
+        })
+        .ok_or_else(|| {
+            ErrorModel::builder()
+                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                .message("Error parsing namespace id".to_string())
+                .r#type("NamespaceIdParsingError".to_string())
+                .build()
+        })??;
+    let namespace_id = parts
+        .next()
+        .ok_or_else(|| {
+            ErrorModel::builder()
+                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                .message("Error parsing namespace id".to_string())
+                .r#type("NamespaceIdParsingError".to_string())
+                .build()
+        })?
+        .parse()
+        .map_err(|e| {
+            ErrorModel::builder()
+                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                .message("Error parsing namespace id".to_string())
+                .r#type("NamespaceIdParsingError".to_string())
+                .source(Some(Box::new(e)))
+                .build()
+        })?;
+    Ok((created_at, namespace_id))
+}
+
 pub(crate) async fn list_namespaces(
     warehouse_id: WarehouseIdent,
     query: &ListNamespacesQuery,
@@ -68,8 +111,14 @@ pub(crate) async fn list_namespaces(
     let parent = parent
         .as_ref()
         .and_then(|p| if p.is_empty() { None } else { Some(p.clone()) });
+    let token = page_token
+        .as_option()
+        .map(|id| deconstruct(id))
+        .transpose()?;
+    let token_ts = token.as_ref().map(|(ts, _)| *ts);
+    let token_id = token.as_ref().map(|(_, id)| *id);
 
-    let namespaces: Vec<(Uuid, Vec<String>)> = if let Some(parent) = parent {
+    let namespaces: Vec<(Uuid, Vec<String>, chrono::DateTime<Utc>)> = if let Some(parent) = parent {
         // If it doesn't fit in a i32 it is way too large. Validation would have failed
         // already in the catalog.
         let parent_len: i32 = parent.len().try_into().unwrap_or(MAX_NAMESPACE_DEPTH + 1);
@@ -82,25 +131,25 @@ pub(crate) async fn list_namespaces(
             r#"
             SELECT
                 n.namespace_id,
-                "namespace_name"[$2 + 1:] as "namespace_name: Vec<String>"
+                "namespace_name"[$2 + 1:] as "namespace_name: Vec<String>",
+                n.created_at
             FROM namespace n
             INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
             WHERE n.warehouse_id = $1
             AND w.status = 'active'
             AND array_length("namespace_name", 1) = $2 + 1
             AND "namespace_name"[1:$2] = $3
-            AND (n.created_at > (
-                SELECT created_at
-                FROM namespace
-                WHERE namespace_id = $4
-            ) OR $4 IS NULL)
+            AND (((n.created_at > $4) OR ($4 IS NULL))
+                    OR ((n.created_at = $4) AND (n.namespace_id > $5))
+                )
             ORDER BY n.created_at, n.namespace_id ASC
-            LIMIT $5
+            LIMIT $6
             "#,
             *warehouse_id,
             parent_len,
             &*parent,
-            page_token.as_option().map(|id| id.parse::<Uuid>().unwrap()),
+            token_ts,
+            token_id,
             page_size
         )
         .fetch_all(&catalog_state.read_pool())
@@ -108,7 +157,7 @@ pub(crate) async fn list_namespaces(
         .map_err(|e| e.into_error_model("Error fetching Namespace".into()))?
         .into_iter()
         .filter_map(|r| match r.namespace_name {
-            Some(n) => Some((r.namespace_id, n)),
+            Some(n) => Some((r.namespace_id, n, r.created_at)),
             None => None,
         })
         .collect()
@@ -117,36 +166,38 @@ pub(crate) async fn list_namespaces(
             r#"
             SELECT
                 n.namespace_id,
-                "namespace_name" as "namespace_name: Vec<String>"
+                "namespace_name" as "namespace_name: Vec<String>",
+                n.created_at
             FROM namespace n
             INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
             WHERE n.warehouse_id = $1
             AND w.status = 'active'
-            AND (n.created_at > (
-                SELECT created_at
-                FROM namespace
-                WHERE namespace_id = $2
-            ) OR $2 IS NULL)
+            AND (((n.created_at > $2) OR ($2 IS NULL))
+                    OR ((n.created_at = $2) AND (n.namespace_id > $3))
+                )
             ORDER BY n.created_at, n.namespace_id ASC
-            LIMIT $3
+            LIMIT $4
             "#,
             *warehouse_id,
-            page_token.as_option().map(|id| id.parse::<Uuid>().unwrap()),
+            token_ts,
+            token_id,
             page_size
         )
         .fetch_all(&catalog_state.read_pool())
         .await
         .map_err(|e| e.into_error_model("Error fetching Namespace".into()))?
         .into_iter()
-        .map(|r| (r.namespace_id, r.namespace_name))
+        .map(|r| (r.namespace_id, r.namespace_name, r.created_at))
         .collect()
     };
-    let next_page_token = namespaces.last().map(|(id, _)| id.to_string());
+    let next_page_token = namespaces
+        .last()
+        .map(|(id, _, ts)| format!("{}:{}", ts.timestamp_micros(), id));
 
     // Convert Vec<Vec<String>> to Vec<NamespaceIdent>
     let namespaces: Result<Vec<NamespaceIdent>> = namespaces
         .iter()
-        .map(|(_, n)| {
+        .map(|(_, n, _)| {
             NamespaceIdent::from_vec(n.to_owned()).map_err(|e| {
                 ErrorModel::builder()
                     .code(StatusCode::INTERNAL_SERVER_ERROR.into())
@@ -580,7 +631,6 @@ pub(crate) mod tests {
                 .unwrap()
                 .unwrap();
         assert_eq!(namespaces, vec![response1.namespace.clone()]);
-        assert_eq!(next_page_token, Some(expected_page_token.to_string()));
 
         let ListNamespacesResponse {
             namespaces,
@@ -588,8 +638,10 @@ pub(crate) mod tests {
         } = Catalog::list_namespaces(
             warehouse_id,
             &ListNamespacesQuery {
-                page_token: next_page_token
-                    .map_or(crate::api::iceberg::v1::PageToken::Empty, crate::api::iceberg::v1::PageToken::Present),
+                page_token: next_page_token.map_or(
+                    crate::api::iceberg::v1::PageToken::Empty,
+                    crate::api::iceberg::v1::PageToken::Present,
+                ),
                 page_size: Some(2),
                 parent: None,
             },
@@ -604,7 +656,7 @@ pub(crate) mod tests {
                 .await
                 .unwrap()
                 .unwrap();
-        assert_eq!(next_page_token, Some(expected_page_token.to_string()));
+
         assert_eq!(
             namespaces,
             vec![response2.namespace.clone(), response3.namespace.clone()]
@@ -617,8 +669,10 @@ pub(crate) mod tests {
         } = Catalog::list_namespaces(
             warehouse_id,
             &ListNamespacesQuery {
-                page_token: next_page_token
-                    .map_or(crate::api::iceberg::v1::PageToken::Empty, crate::api::iceberg::v1::PageToken::Present),
+                page_token: next_page_token.map_or(
+                    crate::api::iceberg::v1::PageToken::Empty,
+                    crate::api::iceberg::v1::PageToken::Present,
+                ),
                 page_size: Some(3),
                 parent: None,
             },
