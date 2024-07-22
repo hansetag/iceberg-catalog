@@ -714,7 +714,6 @@ pub(crate) mod tests {
     use crate::api::iceberg::types::PageToken;
     use crate::api::management::v1::warehouse::WarehouseStatus;
     use crate::api::CommitTableRequest;
-    use crate::implementations::postgres::namespace;
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
     use crate::implementations::postgres::warehouse::set_warehouse_status;
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
