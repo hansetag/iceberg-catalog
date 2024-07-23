@@ -1,5 +1,6 @@
 FROM node:21.7.0 as build-stage
 WORKDIR /app
+ENV VITE_APP_ICEBERG_CATALOG_URL=VITE_APP_ICEBERG_CATALOG_URL_PLACEHOLDER
 COPY package*.json ./
 RUN npm install
 COPY ./ .

@@ -1,5 +1,6 @@
 //! Contains Configuration of the service Module
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
+use http::HeaderValue;
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::ops::{Deref, DerefMut};
@@ -95,6 +96,11 @@ pub struct DynAppConfig {
     // ------------- Health -------------
     pub health_check_frequency_seconds: u64,
     pub health_check_jitter_millis: u64,
+    #[serde(
+        deserialize_with = "deserialize_origin",
+        serialize_with = "serialize_origin"
+    )]
+    pub allow_origin: Option<Vec<HeaderValue>>,
 }
 
 impl Default for DynAppConfig {
@@ -134,6 +140,7 @@ impl Default for DynAppConfig {
             openid_provider_uri: None,
             health_check_frequency_seconds: 10,
             health_check_jitter_millis: 500,
+            allow_origin: None,
         }
     }
 }
@@ -233,6 +240,37 @@ where
     S: serde::Serializer,
 {
     value.0.iter().join(",").serialize(serializer)
+}
+
+fn deserialize_origin<'de, D>(deserializer: D) -> Result<Option<Vec<HeaderValue>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::deserialize(deserializer)?
+        .map(|buf: String| {
+            buf.split(',')
+                .map(|s| HeaderValue::from_str(s).map_err(serde::de::Error::custom))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()
+}
+
+fn serialize_origin<S>(value: &Option<Vec<HeaderValue>>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    value
+        .as_deref()
+        .map(|value| {
+            value
+                .iter()
+                .map(|hv| hv.to_str().context("Couldn't serialize cors header"))
+                .collect::<anyhow::Result<Vec<_>>>()
+                .map(|inner| inner.join(","))
+        })
+        .transpose()
+        .map_err(serde::ser::Error::custom)?
+        .serialize(serializer)
 }
 
 #[cfg(test)]

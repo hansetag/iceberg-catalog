@@ -120,6 +120,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             None
         },
         health_provider,
+        CONFIG.allow_origin.clone(),
     );
 
     let publisher_handle = tokio::task::spawn(async move {
