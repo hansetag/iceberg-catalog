@@ -95,6 +95,13 @@ pub struct DynAppConfig {
     // ------------- Health -------------
     pub health_check_frequency_seconds: u64,
     pub health_check_jitter_millis: u64,
+
+    // ------------- Vault -------------
+    pub vault_url: Option<Url>,
+    pub vault_user: Option<String>,
+    #[redact]
+    pub vault_password: Option<String>,
+    pub vault_secret_mount: Option<String>,
 }
 
 impl Default for DynAppConfig {

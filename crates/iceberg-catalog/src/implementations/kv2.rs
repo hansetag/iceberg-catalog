@@ -24,6 +24,9 @@ pub struct Server {}
 #[derive(Clone)]
 pub struct SecretsState {
     vault_client: Arc<RwLock<VaultClient>>,
+    secret_mount: String,
+    vault_user: String,
+    vault_password: String,
     pub health: Arc<RwLock<Vec<Health>>>,
 }
 
@@ -57,7 +60,7 @@ impl HealthExt for SecretsState {
 
 impl SecretsState {
     pub async fn login_task(&self) {
-        let login = UserpassLogin::new("test", "test");
+        let login = UserpassLogin::new(self.vault_user.as_str(), self.vault_password.as_str());
         let client_handle = self.vault_client.clone();
         let mut sleep = Self::refresh_login(&login, client_handle.clone()).await;
         tokio::task::spawn(async move {
@@ -96,7 +99,7 @@ impl SecretsState {
     ) -> Result<()> {
         vaultrs::kv2::set(
             &*self.vault_client.read().await,
-            "secret",
+            self.secret_mount.as_str(),
             &format!("secret/{}", secret_id.as_uuid()),
             &secret,
         )
@@ -124,7 +127,7 @@ impl SecretStore for Server {
         // is there no atomic get for metadata and secret??
         let metadata = vaultrs::kv2::read_metadata(
             &*state.vault_client.read().await,
-            "secret",
+            state.secret_mount.as_str(),
             &format!("secret/{}", secret_id),
         )
         .await
@@ -139,7 +142,7 @@ impl SecretStore for Server {
             secret_id: *secret_id,
             secret: vaultrs::kv2::read::<S>(
                 &*state.vault_client.read().await,
-                "secret",
+                state.secret_mount.as_str(),
                 &format!("secret/{}", secret_id),
             )
             .await
@@ -190,6 +193,9 @@ mod tests {
                 )
                 .unwrap(),
             )),
+            secret_mount: CONFIG.vault_secret_mount.clone().unwrap(),
+            vault_user: CONFIG.vault_user.clone().unwrap(),
+            vault_password: CONFIG.vault_password.clone().unwrap(),
             health: Arc::new(Default::default()),
         };
         state.login_task().await;

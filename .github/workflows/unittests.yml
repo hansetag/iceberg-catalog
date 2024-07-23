@@ -59,6 +59,19 @@ jobs:
   test:
     runs-on: ubuntu-latest
     services:
+      vault:
+        image: hashicorp/vault:latest
+        ports:
+          - 1234:1234
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: myroot
+          VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:1234
+          options: >-
+            --health-cmd "vault status -address http://localhost:1234"
+            --health-interval 10s
+            --health-timeout 5s
+            --health-retries 5
+
       postgres:
         image: postgres:16
         env:
@@ -89,12 +102,23 @@ jobs:
           sqlx migrate run
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      - name: Setup vault
+        run: |
+          export VAULT_ADDR=http://vault:1234
+          vault login -address http://vault:1234 myroot
+          vault auth  enable -address http://vault:1234  userpass
+          echo "path \"secret/*\" { capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"] }" > /tmp/app.hcl
+          vault policy write -address http://vault:1234 app /tmp/app.hcl
+          vault write -address http://vault:1234 auth/userpass/users/test password=test policies=app
 
       - name: Test
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-
+          ICEBERG_REST__VAULT_URL: http://vault:1234
+          ICEBERG_REST__VAULT_USER: test
+          ICEBERG_REST__VAULT_PASSWORD: test
+          ICEBERG_REST__VAULT_SECRET_MOUNT: secret
       - name: Doc Test
         run: cargo test --no-fail-fast --doc --all-features --workspace
         env:
