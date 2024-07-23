@@ -105,6 +105,10 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         sinks: cloud_event_sinks,
     };
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+
+    let (metrics_layer, metrics_future) =
+        iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?;
+
     let router = new_full_router::<
         Catalog,
         Catalog,
@@ -123,6 +127,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             None
         },
         health_provider,
+        Some(metrics_layer),
     );
 
     let publisher_handle = tokio::task::spawn(async move {
@@ -130,6 +135,14 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             Ok(_) => tracing::info!("Exiting publisher task"),
             Err(e) => tracing::error!("Publisher task failed: {e}"),
         };
+    });
+
+    tokio::task::spawn(async move {
+        tracing::info!(
+            "Starting metrics server listening on 0.0.0.0:{} ...",
+            CONFIG.metrics_port
+        );
+        metrics_future.await
     });
 
     service_serve(listener, router).await?;

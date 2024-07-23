@@ -38,6 +38,8 @@ pub struct DynAppConfig {
     /// This is used as the "uri" and "s3.signer.url"
     /// while generating the Catalog Config
     pub base_uri: url::Url,
+    /// Port under which we serve metrics
+    pub metrics_port: u16,
     /// Port to listen on.
     pub listen_port: u16,
     /// The default Project ID to use. We recommend setting this
@@ -105,6 +107,7 @@ impl Default for DynAppConfig {
             base_uri: "https://localhost:8080/catalog/"
                 .parse()
                 .expect("Valid URL"),
+            metrics_port: 9000,
             default_project_id: None,
             prefix_template: "{warehouse_id}".to_string(),
             reserved_namespaces: ReservedNamespaces(HashSet::from([
