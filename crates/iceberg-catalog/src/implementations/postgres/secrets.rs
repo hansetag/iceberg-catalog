@@ -65,7 +65,7 @@ impl SecretStore for Server {
             })?;
 
         Ok(Secret {
-            secret_id: secret_id.clone(),
+            secret_id: *secret_id,
             secret: inner,
             created_at: secret.created_at,
             updated_at: secret.updated_at,

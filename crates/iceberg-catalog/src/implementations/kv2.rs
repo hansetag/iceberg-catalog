@@ -1,22 +1,21 @@
 use crate::api::{ErrorModel, Result};
 use crate::service::health::{Health, HealthExt, HealthStatus};
 use crate::service::secrets::{Secret, SecretIdent, SecretStore};
-use crate::CONFIG;
+use std::fmt::Formatter;
+
 use async_trait::async_trait;
-use http::StatusCode;
+
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::Sleep;
 use uuid::Uuid;
-use vaultrs::api::sys::responses::ReadHealthResponse;
-use vaultrs::api::AuthInfo;
 use vaultrs::client::{Client, VaultClient};
-use vaultrs::error::ClientError;
+
 use vaultrs_login::engines::userpass::UserpassLogin;
-use vaultrs_login::{LoginClient, LoginMethod};
+use vaultrs_login::LoginMethod;
 
 #[derive(Debug, Clone)]
 pub struct Server {}
@@ -25,9 +24,24 @@ pub struct Server {}
 pub struct SecretsState {
     vault_client: Arc<RwLock<VaultClient>>,
     secret_mount: String,
+    // these are actually accessed, no idea what's clippy's problem here
+    #[allow(dead_code)]
     vault_user: String,
+    #[allow(dead_code)]
     vault_password: String,
     pub health: Arc<RwLock<Vec<Health>>>,
+}
+
+impl std::fmt::Debug for SecretsState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SecretsState")
+            .field("vault_client", &"VaultClient")
+            .field("secret_mount", &self.secret_mount)
+            .field("vault_user", &self.vault_user)
+            .field("vault_password", &"REDACTED")
+            .field("health", &self.health)
+            .finish()
+    }
 }
 
 #[async_trait]
@@ -77,14 +91,16 @@ impl SecretsState {
         login: &UserpassLogin,
         client_handle: Arc<RwLock<VaultClient>>,
     ) -> Sleep {
-        eprintln!("handle ");
+        tracing::debug!("Refreshing token");
+
         let log = {
             let handle = &*client_handle.read().await;
-
             login.login(handle, "userpass").await
         };
-        eprintln!("loggo {:?}", log);
-        let tken = dbg!(log).unwrap();
+
+        tracing::debug!("Token refreshed");
+
+        let tken = log.unwrap();
         let sleep = tokio::time::sleep(std::time::Duration::from_secs(tken.lease_duration - 10));
         let mut handle = client_handle.write().await;
         handle.set_token(tken.client_token.as_str());
@@ -92,6 +108,8 @@ impl SecretsState {
         sleep
     }
 
+    /// # Errors
+    /// errors if setting of secret fails
     pub async fn create_secret(
         &self,
         secret_id: SecretIdent,
@@ -128,7 +146,7 @@ impl SecretStore for Server {
         let metadata = vaultrs::kv2::read_metadata(
             &*state.vault_client.read().await,
             state.secret_mount.as_str(),
-            &format!("secret/{}", secret_id),
+            &format!("secret/{secret_id}"),
         )
         .await
         .map_err(|err| {
@@ -143,7 +161,7 @@ impl SecretStore for Server {
             secret: vaultrs::kv2::read::<S>(
                 &*state.vault_client.read().await,
                 state.secret_mount.as_str(),
-                &format!("secret/{}", secret_id),
+                &format!("secret/{secret_id}"),
             )
             .await
             .map_err(|err| {
@@ -166,11 +184,11 @@ impl SecretStore for Server {
         let secret_id = SecretIdent::from(Uuid::now_v7());
         state.create_secret(secret_id, &secret).await?;
 
-        Ok(secret_id.into())
+        Ok(secret_id)
     }
 
     /// Delete a secret
-    async fn delete_secret(secret_id: &SecretIdent, state: SecretsState) -> Result<()> {
+    async fn delete_secret(_secret_id: &SecretIdent, _state: SecretsState) -> Result<()> {
         todo!()
     }
 }
@@ -179,11 +197,12 @@ impl SecretStore for Server {
 mod tests {
     use crate::config::VaultConfig;
     use crate::service::storage::{S3Credential, StorageCredential};
+    use crate::CONFIG;
 
     use super::*;
 
-    #[sqlx::test]
-    async fn test_write_read_secret(pool: sqlx::PgPool) {
+    #[tokio::test]
+    async fn test_write_read_secret() {
         let VaultConfig {
             url,
             user,
@@ -203,7 +222,7 @@ mod tests {
             secret_mount,
             vault_user: user,
             vault_password: password,
-            health: Arc::new(Default::default()),
+            health: Arc::default(),
         };
         state.login_task().await;
 
