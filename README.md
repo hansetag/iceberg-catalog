@@ -135,6 +135,7 @@ Following options are global and apply to all warehouses:
 | `ICEBERG_REST__BASE_URI`            | `https://example.com:8080/catalog/ `   | Base URL where the catalog is externally reachable. Default: `https://localhost:8080/catalog/`                                                                                                                                 |
 | `ICEBERG_REST__DEFAULT_PROJECT_ID`  | `00000000-0000-0000-0000-000000000000` | The default project ID to use if the user does not specify a project when connecting. We recommend setting the Project-ID only in single Project setups. Each Project can still contain multiple Warehouses. Default: Not set. |
 | `ICEBERG_REST__RESERVED_NAMESPACES` | `system,examples`                      | Reserved Namespaces that cannot be created via the REST interface                                                                                                                                                              |
+| `ICEBERG_REST_SERVER__LISTEN_PORT`  | `8080`                                 | Port the server listens on. Default: `8080`                                                                                                                                                                                    |
 
 ### Postgres
 
