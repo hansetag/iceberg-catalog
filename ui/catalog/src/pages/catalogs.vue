@@ -31,7 +31,7 @@
       </v-col>
       <v-col cols="6">
         <v-card>
-          <v-card-title>JSON Data</v-card-title>
+          <v-card-title>Details {{ type }}: {{ obejctName }}</v-card-title>
           <v-card-text>
             <pre class="json-pre">{{ json }}</pre>
           </v-card-text>
@@ -42,6 +42,7 @@
 </template>
 
 <script lang="ts" setup>
+import * as env from "@/app.config";
 import { ref, onMounted } from "vue";
 import {
   Data,
@@ -56,9 +57,11 @@ const treeItems = ref<TreeItems>({ items: [] });
 
 const selected = ref([]);
 const json = reactive({});
-const baseUrl = "http://localhost:8080";
+const baseUrl = env.default.icebergCatalogUrl as string;
 const managementUrl = baseUrl + "/management/v1";
 const catalogUrl = baseUrl + "/catalog/v1";
+const type = ref();
+const obejctName = ref();
 
 onMounted(async () => {
   try {
@@ -96,7 +99,6 @@ async function loadData(
 }
 
 async function fetchUsers(item: any) {
-  console.log(item);
   if (item.itemType == "project") {
     const warehousesResponse = (await loadData(
       managementUrl + "/warehouse?project-id=" + item.id
@@ -178,9 +180,10 @@ async function fetchUsers(item: any) {
     if (!res.ok) {
       throw new Error(`HTTP error! status: ${res.status}`);
     }
-    const o = await res.json();
-    console.log(o);
-    Object.assign(json, o);
+
+    type.value = item.itemType;
+    obejctName.value = item.id;
+    Object.assign(json, await res.json());
   }
 }
 

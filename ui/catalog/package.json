@@ -13,7 +13,7 @@
     "pinia-plugin-persistedstate-2": "^2.0.21",
     "roboto-fontface": "*",
     "vue": "^3.4.31",
-    "vuetify": "^3.6.11"
+    "vuetify": "^3.6.13"
   },
   "devDependencies": {
     "@babel/types": "^7.24.7",
