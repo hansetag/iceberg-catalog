@@ -1,8 +1,9 @@
 use crate::api::Result;
 use crate::service::health::HealthExt;
-use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
 // Is UUID here too strict?
@@ -61,7 +62,7 @@ where
     type State: Sized + Send + Sync + Clone + 'static + HealthExt;
 
     /// Get the secret for a given warehouse.
-    async fn get_secret_by_id<S: SecretInStorage + for<'de> Deserialize<'de>>(
+    async fn get_secret_by_id<S: SecretInStorage + DeserializeOwned>(
         secret_id: &SecretIdent,
         state: Self::State,
     ) -> Result<Secret<S>>;
