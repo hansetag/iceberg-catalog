@@ -1,5 +1,6 @@
 use anyhow::{Context, Error};
 use clap::{Parser, Subcommand};
+use iceberg_catalog::api::management::v1::ManagementApiDoc;
 use iceberg_catalog::implementations::postgres::{get_reader_pool, get_writer_pool, ReadWrite};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
@@ -63,6 +64,8 @@ enum Commands {
     },
     /// Print the version of the server
     Version {},
+    /// Get the OpenAPI specification of the Management API as yaml
+    ManagementOpenapi {},
 }
 
 async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -102,6 +105,10 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
         sinks: cloud_event_sinks,
     };
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+
+    let (metrics_layer, metrics_future) =
+        iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?;
+
     let router = new_full_router::<
         Catalog,
         Catalog,
@@ -120,6 +127,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             None
         },
         health_provider,
+        Some(metrics_layer),
     );
 
     let publisher_handle = tokio::task::spawn(async move {
@@ -127,6 +135,14 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             Ok(_) => tracing::info!("Exiting publisher task"),
             Err(e) => tracing::error!("Publisher task failed: {e}"),
         };
+    });
+
+    tokio::task::spawn(async move {
+        tracing::info!(
+            "Starting metrics server listening on 0.0.0.0:{} ...",
+            CONFIG.metrics_port
+        );
+        metrics_future.await
     });
 
     service_serve(listener, router).await?;
@@ -169,8 +185,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Serve {}) => {
             print_info();
-            println!("Starting server on 0.0.0.0:8080...");
-            let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
+            tracing::info!("Starting server on 0.0.0.0:{}...", CONFIG.listen_port);
+            let bind_addr = std::net::SocketAddr::from(([0, 0, 0, 0], CONFIG.listen_port));
             serve(bind_addr).await?;
         }
         Some(Commands::Healthcheck {
@@ -196,8 +212,10 @@ async fn main() -> anyhow::Result<()> {
 
             if check_server {
                 let client = reqwest::Client::new();
-                let response = client.get("http://localhost:8080/health").send().await?;
-
+                let response = client
+                    .get(format!("http://localhost:{}/health", CONFIG.listen_port))
+                    .send()
+                    .await?;
                 let status = response.status();
                 if !status.is_success() {
                     tracing::info!("Server is not healthy: StatusCode: '{}'", status);
@@ -229,6 +247,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
 
             tracing::info!("Database migration complete.");
+        }
+
+        Some(Commands::ManagementOpenapi {}) => {
+            use utoipa::OpenApi;
+            println!("{}", ManagementApiDoc::openapi().to_yaml()?)
         }
     }
 

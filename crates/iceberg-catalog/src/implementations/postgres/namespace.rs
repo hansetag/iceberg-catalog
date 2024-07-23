@@ -1,15 +1,17 @@
+use super::{dbutils::DBErrorHandler, CatalogState};
+use crate::api::iceberg::v1::MAX_PAGE_SIZE;
+use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, ErrorModel, GetNamespaceResponse,
     ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
     UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
+use crate::{catalog::namespace::MAX_NAMESPACE_DEPTH, service::NamespaceIdentUuid, WarehouseIdent};
+use chrono::Utc;
 use http::StatusCode;
 use sqlx::types::Json;
 use std::{collections::HashMap, ops::Deref};
-
-use crate::{catalog::namespace::MAX_NAMESPACE_DEPTH, service::NamespaceIdentUuid, WarehouseIdent};
-
-use super::{dbutils::DBErrorHandler, CatalogState};
+use uuid::Uuid;
 
 pub(crate) async fn get_namespace(
     warehouse_id: WarehouseIdent,
@@ -49,23 +51,35 @@ pub(crate) async fn get_namespace(
     })
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn list_namespaces(
     warehouse_id: WarehouseIdent,
-    query: &ListNamespacesQuery,
+    ListNamespacesQuery {
+        page_token,
+        page_size,
+        parent,
+    }: &ListNamespacesQuery,
     catalog_state: CatalogState,
 ) -> Result<ListNamespacesResponse> {
-    let ListNamespacesQuery {
-        page_token: _,
-        page_size: _,
-        parent,
-    } = query;
+    let page_size = page_size
+        .map(i64::from)
+        .map_or(MAX_PAGE_SIZE, |i| i.clamp(1, MAX_PAGE_SIZE));
 
     // Treat empty parent as None
     let parent = parent
         .as_ref()
         .and_then(|p| if p.is_empty() { None } else { Some(p.clone()) });
+    let token = page_token
+        .as_option()
+        .map(PaginateToken::try_from)
+        .transpose()?;
 
-    let namespaces = if let Some(parent) = parent {
+    let (token_ts, token_id) = token
+        .as_ref()
+        .map(|PaginateToken::V1(V1PaginateToken { created_at, id })| (created_at, id))
+        .unzip();
+
+    let namespaces: Vec<(Uuid, Vec<String>, chrono::DateTime<Utc>)> = if let Some(parent) = parent {
         // If it doesn't fit in a i32 it is way too large. Validation would have failed
         // already in the catalog.
         let parent_len: i32 = parent.len().try_into().unwrap_or(MAX_NAMESPACE_DEPTH + 1);
@@ -74,48 +88,78 @@ pub(crate) async fn list_namespaces(
         // Get all namespaces where the "name" array has
         // length(parent) + 1 elements, and the first length(parent)
         // elements are equal to parent.
-        sqlx::query_scalar!(
+        sqlx::query!(
             r#"
             SELECT
-                "namespace_name"[$2 + 1:] as "namespace_name: Vec<String>"
+                n.namespace_id,
+                "namespace_name"[$2 + 1:] as "namespace_name: Vec<String>",
+                n.created_at
             FROM namespace n
             INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
             WHERE n.warehouse_id = $1
             AND w.status = 'active'
             AND array_length("namespace_name", 1) = $2 + 1
             AND "namespace_name"[1:$2] = $3
+            --- PAGINATION
+            AND ((n.created_at > $4 OR $4 IS NULL) OR (n.created_at = $4 AND n.namespace_id > $5))
+            ORDER BY n.created_at, n.namespace_id ASC
+            LIMIT $6
             "#,
             *warehouse_id,
             parent_len,
-            &*parent
+            &*parent,
+            token_ts,
+            token_id,
+            page_size
         )
         .fetch_all(&catalog_state.read_pool())
         .await
         .map_err(|e| e.into_error_model("Error fetching Namespace".into()))?
         .into_iter()
-        .flatten()
+        .filter_map(|r| match r.namespace_name {
+            Some(n) => Some((r.namespace_id, n, r.created_at)),
+            None => None,
+        })
         .collect()
     } else {
-        sqlx::query_scalar!(
+        sqlx::query!(
             r#"
             SELECT
-                "namespace_name" as "namespace_name: Vec<String>"
+                n.namespace_id,
+                "namespace_name" as "namespace_name: Vec<String>",
+                n.created_at
             FROM namespace n
             INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
             WHERE n.warehouse_id = $1
             AND w.status = 'active'
+            AND ((n.created_at > $2 OR $2 IS NULL) OR (n.created_at = $2 AND n.namespace_id > $3))
+            ORDER BY n.created_at, n.namespace_id ASC
+            LIMIT $4
             "#,
-            *warehouse_id
+            *warehouse_id,
+            token_ts,
+            token_id,
+            page_size
         )
         .fetch_all(&catalog_state.read_pool())
         .await
         .map_err(|e| e.into_error_model("Error fetching Namespace".into()))?
+        .into_iter()
+        .map(|r| (r.namespace_id, r.namespace_name, r.created_at))
+        .collect()
     };
+    let next_page_token = namespaces.last().map(|(id, _, ts)| {
+        PaginateToken::V1(V1PaginateToken {
+            id: *id,
+            created_at: *ts,
+        })
+        .to_string()
+    });
 
     // Convert Vec<Vec<String>> to Vec<NamespaceIdent>
     let namespaces: Result<Vec<NamespaceIdent>> = namespaces
         .iter()
-        .map(|n| {
+        .map(|(_, n, _)| {
             NamespaceIdent::from_vec(n.to_owned()).map_err(|e| {
                 ErrorModel::builder()
                     .code(StatusCode::INTERNAL_SERVER_ERROR.into())
@@ -127,10 +171,11 @@ pub(crate) async fn list_namespaces(
             })
         })
         .collect();
+    let namespaces = namespaces?;
 
     Ok(ListNamespacesResponse {
-        next_page_token: None,
-        namespaces: namespaces?,
+        next_page_token,
+        namespaces,
     })
 }
 
@@ -498,12 +543,107 @@ pub(crate) mod tests {
     }
 
     #[sqlx::test]
+    async fn test_pagination(pool: sqlx::PgPool) {
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
+
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let namespace = NamespaceIdent::from_vec(vec!["test".to_string()]).unwrap();
+        let properties = Some(HashMap::from_iter(vec![
+            ("key1".to_string(), "value1".to_string()),
+            ("key2".to_string(), "value2".to_string()),
+        ]));
+
+        let response1 =
+            initialize_namespace(state.clone(), warehouse_id, &namespace, properties.clone()).await;
+
+        let namespace = NamespaceIdent::from_vec(vec!["test2".to_string()]).unwrap();
+        let properties = Some(HashMap::from_iter(vec![
+            ("key1".to_string(), "value1".to_string()),
+            ("key2".to_string(), "value2".to_string()),
+        ]));
+        let response2 =
+            initialize_namespace(state.clone(), warehouse_id, &namespace, properties.clone()).await;
+        let namespace = NamespaceIdent::from_vec(vec!["test3".to_string()]).unwrap();
+        let properties = Some(HashMap::from_iter(vec![
+            ("key1".to_string(), "value1".to_string()),
+            ("key2".to_string(), "value2".to_string()),
+        ]));
+        let response3 =
+            initialize_namespace(state.clone(), warehouse_id, &namespace, properties.clone()).await;
+
+        let ListNamespacesResponse {
+            namespaces,
+            next_page_token,
+        } = Catalog::list_namespaces(
+            warehouse_id,
+            &ListNamespacesQuery {
+                page_token: crate::api::iceberg::v1::PageToken::NotSpecified,
+                page_size: Some(1),
+                parent: None,
+            },
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(namespaces.len(), 1);
+        assert_eq!(namespaces, vec![response1.namespace.clone()]);
+
+        let ListNamespacesResponse {
+            namespaces,
+            next_page_token,
+        } = Catalog::list_namespaces(
+            warehouse_id,
+            &ListNamespacesQuery {
+                page_token: next_page_token.map_or(
+                    crate::api::iceberg::v1::PageToken::Empty,
+                    crate::api::iceberg::v1::PageToken::Present,
+                ),
+                page_size: Some(2),
+                parent: None,
+            },
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(namespaces.len(), 2);
+        assert!(next_page_token.is_some());
+        assert_eq!(
+            namespaces,
+            vec![response2.namespace.clone(), response3.namespace.clone()]
+        );
+
+        // last page is empty
+        let ListNamespacesResponse {
+            namespaces,
+            next_page_token,
+        } = Catalog::list_namespaces(
+            warehouse_id,
+            &ListNamespacesQuery {
+                page_token: next_page_token.map_or(
+                    crate::api::iceberg::v1::PageToken::Empty,
+                    crate::api::iceberg::v1::PageToken::Present,
+                ),
+                page_size: Some(3),
+                parent: None,
+            },
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(next_page_token, None);
+        assert_eq!(namespaces, vec![]);
+    }
+
+    #[sqlx::test]
     async fn test_cannot_drop_nonempty_namespace(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let staged = false;
-        let table = initialize_table(warehouse_id, state.clone(), staged).await;
+        let table = initialize_table(warehouse_id, state.clone(), staged, None, None).await;
 
         let mut transaction = PostgresTransaction::begin_write(state.clone())
             .await

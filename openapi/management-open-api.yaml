@@ -1,0 +1,446 @@
+openapi: 3.0.3
+info:
+  title: iceberg-catalog
+  description: |
+    Implementation of the Iceberg REST Catalog server.
+  license:
+    name: Apache-2.0
+  version: 0.1.0
+paths:
+  management/v1/project:
+    get:
+      tags:
+      - management
+      summary: List all existing projects
+      operationId: list_projects
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ListProjectsResponse'
+  management/v1/warehouse:
+    get:
+      tags:
+      - management
+      summary: List all warehouses in a project
+      description: |-
+        By default, this endpoint does not return deactivated warehouses.
+        To include deactivated warehouses, set the `include_deactivated` query parameter to `true`.
+      operationId: list_warehouses
+      parameters:
+      - name: warehouse-status
+        in: query
+        description: |-
+          Optional filter to return only warehouses
+          with the specified status.
+          If not provided, only active warehouses are returned.
+        required: false
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/WarehouseStatus'
+          nullable: true
+      - name: project-id
+        in: query
+        description: |-
+          The project ID to list warehouses for.
+          Setting a warehouse is required.
+        required: false
+        schema:
+          type: string
+          format: uuid
+          nullable: true
+      responses:
+        '200':
+          description: List of warehouses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ListWarehousesResponse'
+    post:
+      tags:
+      - management
+      summary: Create a new warehouse.
+      description: |-
+        Create a new warehouse in the given project. The project
+        of a warehouse cannot be changed after creation.
+        The storage configuration is validated by this method.
+      operationId: create_warehouse
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWarehouseRequest'
+        required: true
+      responses:
+        '201':
+          description: Warehouse created successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CreateWarehouseResponse'
+  management/v1/warehouse/{warehouse_id}:
+    get:
+      tags:
+      - management
+      summary: Get a warehouse by ID
+      operationId: get_warehouse
+      parameters:
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Warehouse details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GetWarehouseResponse'
+    delete:
+      tags:
+      - management
+      summary: Delete a warehouse by ID
+      operationId: delete_warehouse
+      parameters:
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Warehouse deleted successfully
+  management/v1/warehouse/{warehouse_id}/activate:
+    post:
+      tags:
+      - management
+      summary: Activate a warehouse
+      operationId: activate_warehouse
+      parameters:
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Warehouse activated successfully
+  management/v1/warehouse/{warehouse_id}/deactivate:
+    post:
+      tags:
+      - management
+      summary: Deactivate a warehouse
+      operationId: deactivate_warehouse
+      parameters:
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Warehouse deactivated successfully
+  management/v1/warehouse/{warehouse_id}/rename:
+    post:
+      tags:
+      - management
+      summary: Rename a warehouse
+      operationId: rename_warehouse
+      parameters:
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameWarehouseRequest'
+        required: true
+      responses:
+        '200':
+          description: Warehouse renamed successfully
+  management/v1/warehouse/{warehouse_id}/storage:
+    post:
+      tags:
+      - management
+      summary: Update the storage profile of a warehouse
+      operationId: update_storage_profile
+      parameters:
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWarehouseStorageRequest'
+        required: true
+      responses:
+        '200':
+          description: Storage profile updated successfully
+  management/v1/warehouse/{warehouse_id}/storage-credential:
+    post:
+      tags:
+      - management
+      summary: Update the storage credential of a warehouse
+      operationId: update_storage_credential
+      parameters:
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWarehouseCredentialRequest'
+        required: true
+      responses:
+        '200':
+          description: Storage credential updated successfully
+components:
+  schemas:
+    CreateWarehouseRequest:
+      type: object
+      required:
+      - warehouse-name
+      - project-id
+      - storage-profile
+      properties:
+        project-id:
+          type: string
+          format: uuid
+          description: Project ID in which to create the warehouse.
+        storage-credential:
+          allOf:
+          - $ref: '#/components/schemas/StorageCredential'
+          nullable: true
+        storage-profile:
+          $ref: '#/components/schemas/StorageProfile'
+        warehouse-name:
+          type: string
+          description: |-
+            Name of the warehouse to create. Must be unique
+            within a project.
+    CreateWarehouseResponse:
+      type: object
+      required:
+      - warehouse-id
+      properties:
+        warehouse-id:
+          type: string
+          format: uuid
+          description: ID of the created warehouse.
+    GetWarehouseResponse:
+      type: object
+      required:
+      - id
+      - name
+      - project-id
+      - storage-profile
+      - status
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID of the warehouse.
+        name:
+          type: string
+          description: Name of the warehouse.
+        project-id:
+          type: string
+          format: uuid
+          description: Project ID in which the warehouse is created.
+        status:
+          $ref: '#/components/schemas/WarehouseStatus'
+        storage-profile:
+          $ref: '#/components/schemas/StorageProfile'
+    ListProjectsResponse:
+      type: object
+      required:
+      - projects
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectResponse'
+          description: List of projects
+    ListWarehousesRequest:
+      type: object
+      properties:
+        project-id:
+          type: string
+          format: uuid
+          description: |-
+            The project ID to list warehouses for.
+            Setting a warehouse is required.
+          nullable: true
+        warehouse-status:
+          type: array
+          items:
+            $ref: '#/components/schemas/WarehouseStatus'
+          description: |-
+            Optional filter to return only warehouses
+            with the specified status.
+            If not provided, only active warehouses are returned.
+          nullable: true
+    ListWarehousesResponse:
+      type: object
+      required:
+      - warehouses
+      properties:
+        warehouses:
+          type: array
+          items:
+            $ref: '#/components/schemas/GetWarehouseResponse'
+          description: List of warehouses in the project.
+    ProjectResponse:
+      type: object
+      required:
+      - project_id
+      properties:
+        project_id:
+          type: string
+          format: uuid
+          description: ID of the project.
+    RenameWarehouseRequest:
+      type: object
+      required:
+      - new-name
+      properties:
+        new-name:
+          type: string
+          description: New name for the warehouse.
+    S3Credential:
+      oneOf:
+      - type: object
+        required:
+        - aws-access-key-id
+        - aws-secret-access-key
+        - credential-type
+        properties:
+          aws-access-key-id:
+            type: string
+          aws-secret-access-key:
+            type: string
+          credential-type:
+            type: string
+            enum:
+            - access-key
+      discriminator:
+        propertyName: credential-type
+    S3Profile:
+      type: object
+      required:
+      - bucket
+      - region
+      properties:
+        assume-role-arn:
+          type: string
+          description: Optional ARN to assume when accessing the bucket
+          nullable: true
+        bucket:
+          type: string
+          description: Name of the S3 bucket
+        endpoint:
+          type: string
+          description: |-
+            Optional endpoint to use for S3 requests, if not provided
+            the region will be used to determine the endpoint.
+            If both region and endpoint are provided, the endpoint will be used.
+          nullable: true
+        key-prefix:
+          type: string
+          description: |-
+            Subpath in the bucket to use.
+            The same prefix can be used for multiple warehouses.
+          nullable: true
+        path-style-access:
+          type: boolean
+          description: Path style access for S3 requests.
+          nullable: true
+        region:
+          type: string
+          description: Region to use for S3 requests.
+    StorageCredential:
+      oneOf:
+      - allOf:
+        - $ref: '#/components/schemas/S3Credential'
+        - type: object
+          required:
+          - type
+          properties:
+            type:
+              type: string
+              enum:
+              - s3
+      description: Storage secret for a warehouse.
+      discriminator:
+        propertyName: type
+    StorageProfile:
+      oneOf:
+      - allOf:
+        - $ref: '#/components/schemas/S3Profile'
+        - type: object
+          required:
+          - type
+          properties:
+            type:
+              type: string
+              enum:
+              - s3
+      description: Storage profile for a warehouse.
+      discriminator:
+        propertyName: type
+    UpdateWarehouseCredentialRequest:
+      type: object
+      properties:
+        new-storage-credential:
+          allOf:
+          - $ref: '#/components/schemas/StorageCredential'
+          nullable: true
+    UpdateWarehouseStorageRequest:
+      type: object
+      required:
+      - storage-profile
+      properties:
+        storage-credential:
+          allOf:
+          - $ref: '#/components/schemas/StorageCredential'
+          nullable: true
+        storage-profile:
+          $ref: '#/components/schemas/StorageProfile'
+    WarehouseStatus:
+      type: string
+      description: Status of a warehouse
+      enum:
+      - active
+      - inactive
+tags:
+- name: management
+  description: Warehouse management operations
+

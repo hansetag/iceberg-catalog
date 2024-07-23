@@ -1,6 +1,7 @@
 mod catalog;
 pub(crate) mod dbutils;
 pub(crate) mod namespace;
+mod pagination;
 pub(crate) mod secrets;
 pub(crate) mod tabular;
 pub(crate) mod warehouse;

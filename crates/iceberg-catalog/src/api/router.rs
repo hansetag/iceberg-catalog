@@ -1,12 +1,20 @@
 use crate::service::event_publisher::CloudEventsPublisher;
 use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
 
+use super::management::v1::ManagementApiDoc;
 use crate::api::management::v1::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
 use crate::service::contract_verification::ContractVerifiers;
+use crate::service::health::ServiceHealthProvider;
 use crate::service::token_verification::Verifier;
+use crate::service::{
+    auth::{AuthConfigHandler, AuthZHandler},
+    config::ConfigProvider,
+    Catalog, SecretStore, State,
+};
 use axum::response::IntoResponse;
 use axum::{routing::get, Json, Router};
+use axum_prometheus::PrometheusMetricLayer;
 use tower::ServiceBuilder;
 use tower_http::{
     catch_panic::CatchPanicLayer, compression::CompressionLayer,
@@ -15,15 +23,7 @@ use tower_http::{
 };
 use utoipa::OpenApi;
 
-use super::management::v1::ManagementApiDoc;
-use crate::service::health::ServiceHealthProvider;
-use crate::service::{
-    auth::{AuthConfigHandler, AuthZHandler},
-    config::ConfigProvider,
-    Catalog, SecretStore, State,
-};
-
-#[allow(clippy::module_name_repetitions)]
+#[allow(clippy::module_name_repetitions, clippy::too_many_arguments)]
 pub fn new_full_router<
     CP: ConfigProvider<C>,
     C: Catalog,
@@ -38,15 +38,17 @@ pub fn new_full_router<
     table_change_checkers: ContractVerifiers,
     token_verifier: Option<Verifier>,
     svhp: ServiceHealthProvider,
+    metrics_layer: Option<PrometheusMetricLayer<'static>>,
 ) -> Router {
     let v1_routes = new_v1_full_router::<
         crate::catalog::ConfigServer<CP, C, AH, A>,
         crate::catalog::CatalogServer<C, A, S>,
         State<A, C, S>,
     >();
+
     let management_routes = Router::new().merge(ApiServer::new_v1_router());
 
-    maybe_add_auth(
+    let router = maybe_add_auth(
         token_verifier,
         Router::new()
             .nest("/catalog/v1", v1_routes)
@@ -91,7 +93,13 @@ pub fn new_full_router<
             publisher,
             contract_verifiers: table_change_checkers,
         },
-    })
+    });
+
+    if let Some(metrics_layer) = metrics_layer {
+        router.layer(metrics_layer)
+    } else {
+        router
+    }
 }
 
 fn maybe_add_auth<C: Catalog, A: AuthZHandler, S: SecretStore>(
