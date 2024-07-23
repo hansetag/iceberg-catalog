@@ -91,6 +91,10 @@ pub struct DynAppConfig {
 
     // ------------- AUTHORIZATION -------------
     pub openid_provider_uri: Option<Url>,
+
+    // ------------- Health -------------
+    pub health_check_frequency_seconds: u64,
+    pub health_check_jitter_millis: u64,
 }
 
 impl Default for DynAppConfig {
@@ -106,12 +110,8 @@ impl Default for DynAppConfig {
                 "examples".to_string(),
             ])),
             pg_encryption_key: "<This is unsafe, please set a proper key>".to_string(),
-            pg_database_url_read: Some(
-                "postgres://postgres:password@localhost:5432/iceberg".to_string(),
-            ),
-            pg_database_url_write: Some(
-                "postgres://postgres:password@localhost:5432/iceberg".to_string(),
-            ),
+            pg_database_url_read: None,
+            pg_database_url_write: None,
             pg_host_r: None,
             pg_host_w: None,
             pg_port: None,
@@ -132,6 +132,8 @@ impl Default for DynAppConfig {
             nats_password: None,
             nats_token: None,
             openid_provider_uri: None,
+            health_check_frequency_seconds: 10,
+            health_check_jitter_millis: 500,
         }
     }
 }
