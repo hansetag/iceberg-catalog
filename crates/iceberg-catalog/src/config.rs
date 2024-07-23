@@ -20,7 +20,7 @@ lazy_static::lazy_static! {
     pub static ref CONFIG: DynAppConfig = {
         let defaults = figment::providers::Serialized::defaults(DynAppConfig::default());
         let mut config = figment::Figment::from(defaults)
-            .merge(figment::providers::Env::prefixed("ICEBERG_REST__"))
+            .merge(figment::providers::Env::prefixed("ICEBERG_REST__").split("__"))
             .extract::<DynAppConfig>()
             .expect("Valid Configuration");
 
@@ -101,11 +101,16 @@ pub struct DynAppConfig {
     pub health_check_jitter_millis: u64,
 
     // ------------- Vault -------------
-    pub vault_url: Option<Url>,
-    pub vault_user: Option<String>,
+    pub vault: Option<VaultConfig>,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Redact)]
+pub struct VaultConfig {
+    pub url: Url,
+    pub user: String,
     #[redact]
-    pub vault_password: Option<String>,
-    pub vault_secret_mount: Option<String>,
+    pub password: String,
+    pub secret_mount: String,
 }
 
 impl Default for DynAppConfig {
@@ -147,10 +152,7 @@ impl Default for DynAppConfig {
             listen_port: 8080,
             health_check_frequency_seconds: 10,
             health_check_jitter_millis: 500,
-            vault_url: None,
-            vault_user: None,
-            vault_password: None,
-            vault_secret_mount: None,
+            vault: None,
         }
     }
 }

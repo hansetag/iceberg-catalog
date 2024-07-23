@@ -115,10 +115,10 @@ jobs:
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-          ICEBERG_REST__VAULT_URL: http://vault:1234
-          ICEBERG_REST__VAULT_USER: test
-          ICEBERG_REST__VAULT_PASSWORD: test
-          ICEBERG_REST__VAULT_SECRET_MOUNT: secret
+          ICEBERG_REST__VAULT__URL: http://vault:1234
+          ICEBERG_REST__VAUL__USER: test
+          ICEBERG_REST__VAULT__PASSWORD: test
+          ICEBERG_REST__VAULT__SECRET_MOUNT: secret
       - name: Doc Test
         run: cargo test --no-fail-fast --doc --all-features --workspace
         env:

@@ -177,25 +177,32 @@ impl SecretStore for Server {
 
 #[cfg(test)]
 mod tests {
+    use crate::config::VaultConfig;
     use crate::service::storage::{S3Credential, StorageCredential};
 
     use super::*;
 
     #[sqlx::test]
     async fn test_write_read_secret(pool: sqlx::PgPool) {
+        let VaultConfig {
+            url,
+            user,
+            password,
+            secret_mount,
+        } = CONFIG.vault.clone().unwrap();
         let state = SecretsState {
             vault_client: Arc::new(RwLock::new(
                 VaultClient::new(
                     vaultrs::client::VaultClientSettingsBuilder::default()
-                        .address(CONFIG.vault_url.clone().unwrap())
+                        .address(url)
                         .build()
                         .unwrap(),
                 )
                 .unwrap(),
             )),
-            secret_mount: CONFIG.vault_secret_mount.clone().unwrap(),
-            vault_user: CONFIG.vault_user.clone().unwrap(),
-            vault_password: CONFIG.vault_password.clone().unwrap(),
+            secret_mount,
+            vault_user: user,
+            vault_password: password,
             health: Arc::new(Default::default()),
         };
         state.login_task().await;
