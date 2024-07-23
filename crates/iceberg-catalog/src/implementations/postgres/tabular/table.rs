@@ -15,6 +15,7 @@ use iceberg_ext::{
     NamespaceIdent, TableRequirement, TableUpdate,
 };
 
+use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::api::{TableRequirementExt as _, TableUpdateExt};
 use crate::implementations::postgres::tabular::{
     create_tabular, drop_tabular, list_tabulars, try_parse_namespace_ident, CreateTabular,
@@ -238,26 +239,33 @@ pub(crate) async fn list_tables(
     namespace: &NamespaceIdent,
     include_staged: bool,
     catalog_state: CatalogState,
-) -> Result<HashMap<TableIdentUuid, TableIdent>> {
-    list_tabulars(
+    pagination_query: PaginationQuery,
+) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
+    let tabulars = list_tabulars(
         warehouse_id,
         namespace,
         include_staged,
         catalog_state,
         Some(TabularType::Table),
+        pagination_query,
     )
-    .await?
-    .into_iter()
-    .map(|(k, v)| match k {
-        TabularIdentUuid::Table(t) => Ok((TableIdentUuid::from(t), v.into_inner())),
-        TabularIdentUuid::View(_) => Err(ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("DB returned a view when filtering for tables.".to_string())
-            .r#type("InternalDatabaseError".to_string())
-            .build()
-            .into()),
+    .await?;
+    let tables = tabulars
+        .tabulars
+        .into_iter()
+        .map(|(k, v)| match k {
+            TabularIdentUuid::Table(t) => Ok((TableIdentUuid::from(t), v.into_inner())),
+            TabularIdentUuid::View(_) => Err(ErrorModel::internal(
+                "DB returned a view when filtering for tables.",
+                "InternalDatabaseError",
+                None,
+            )),
+        })
+        .collect::<Result<HashMap<TableIdentUuid, TableIdent>, ErrorModel>>()?;
+    Ok(PaginatedTabulars {
+        tabulars: tables,
+        next_page_token: tabulars.next_page_token,
     })
-    .collect::<Result<HashMap<TableIdentUuid, TableIdent>>>()
 }
 
 pub(crate) async fn get_table_metadata_by_id(
@@ -701,6 +709,9 @@ pub(crate) mod tests {
     // - Stage-Create => Next stage-create works & overwrites
     // - Stage-Create => Next regular create works & overwrites
 
+    use super::*;
+
+    use crate::api::iceberg::types::PageToken;
     use crate::api::management::v1::warehouse::WarehouseStatus;
     use crate::api::CommitTableRequest;
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
@@ -709,9 +720,10 @@ pub(crate) mod tests {
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
 
-    use super::*;
-
-    fn create_request(stage_create: Option<bool>) -> (CreateTableRequest, Option<String>) {
+    fn create_request(
+        stage_create: Option<bool>,
+        table_name: Option<String>,
+    ) -> (CreateTableRequest, Option<String>) {
         let metadata_location = if let Some(stage_create) = stage_create {
             if stage_create {
                 None
@@ -724,7 +736,7 @@ pub(crate) mod tests {
 
         (
             CreateTableRequest {
-                name: "my_table".to_string(),
+                name: table_name.unwrap_or("my_table".to_string()),
                 location: Some("s3://my_bucket/my_table".to_string()),
                 schema: Schema::builder()
                     .with_fields(vec![
@@ -787,15 +799,22 @@ pub(crate) mod tests {
         warehouse_id: WarehouseIdent,
         state: CatalogState,
         staged: bool,
+        namespace: Option<NamespaceIdent>,
+        table_name: Option<String>,
     ) -> InitializedTable {
         // my_namespace_<uuid>
-        let namespace =
-            NamespaceIdent::from_vec(vec![format!("my_namespace_{}", uuid::Uuid::now_v7())])
-                .unwrap();
-        initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
+        let namespace = if let Some(namespace) = namespace {
+            namespace
+        } else {
+            let namespace =
+                NamespaceIdent::from_vec(vec![format!("my_namespace_{}", uuid::Uuid::now_v7())])
+                    .unwrap();
+            initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
+            namespace
+        };
         let namespace_id = get_namespace_id(state.clone(), warehouse_id, &namespace).await;
 
-        let (request, metadata_location) = create_request(Some(staged));
+        let (request, metadata_location) = create_request(Some(staged), table_name);
         let table_ident = TableIdent {
             namespace: namespace.clone(),
             name: request.name.clone(),
@@ -833,7 +852,7 @@ pub(crate) mod tests {
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let namespace_id = get_namespace_id(state.clone(), warehouse_id, &namespace).await;
 
-        let (request, metadata_location) = create_request(None);
+        let (request, metadata_location) = create_request(None, None);
         let table_ident = TableIdent {
             namespace: namespace.clone(),
             name: request.name.clone(),
@@ -888,7 +907,7 @@ pub(crate) mod tests {
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let namespace_id = get_namespace_id(state.clone(), warehouse_id, &namespace).await;
 
-        let (request, metadata_location) = create_request(Some(true));
+        let (request, metadata_location) = create_request(Some(true), None);
         let table_ident = TableIdent {
             namespace: namespace.clone(),
             name: request.name.clone(),
@@ -932,7 +951,7 @@ pub(crate) mod tests {
         assert_eq!(create_result.table_metadata, create_result.table_metadata);
 
         // We can overwrite the table with a regular create
-        let (request, metadata_location) = create_request(Some(false));
+        let (request, metadata_location) = create_request(Some(false), None);
         let mut transaction = pool.begin().await.unwrap();
         let create_result = create_table(
             namespace_id,
@@ -971,7 +990,7 @@ pub(crate) mod tests {
         assert!(exists.is_none());
         drop(table_ident);
 
-        let table = initialize_table(warehouse_id, state.clone(), true).await;
+        let table = initialize_table(warehouse_id, state.clone(), true, None, None).await;
 
         // Table is staged - no result if include_staged is false
         let exists = table_ident_to_id(warehouse_id, &table.table_ident, false, &state.read_pool())
@@ -1009,7 +1028,7 @@ pub(crate) mod tests {
         assert!(exists.len() == 1 && exists.get(&table_ident).unwrap().is_none());
         drop(table_ident);
 
-        let table_1 = initialize_table(warehouse_id, state.clone(), true).await;
+        let table_1 = initialize_table(warehouse_id, state.clone(), true, None, None).await;
         let mut tables = HashSet::new();
         tables.insert(&table_1.table_ident);
 
@@ -1030,7 +1049,7 @@ pub(crate) mod tests {
         );
 
         // Second Table
-        let table_2 = initialize_table(warehouse_id, state.clone(), false).await;
+        let table_2 = initialize_table(warehouse_id, state.clone(), false, None, None).await;
         tables.insert(&table_2.table_ident);
 
         let exists = table_idents_to_ids(warehouse_id, tables.clone(), false, &state.read_pool())
@@ -1062,7 +1081,7 @@ pub(crate) mod tests {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table = initialize_table(warehouse_id, state.clone(), false).await;
+        let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let new_table_ident = TableIdent {
             namespace: table.namespace.clone(),
@@ -1098,7 +1117,7 @@ pub(crate) mod tests {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table = initialize_table(warehouse_id, state.clone(), false).await;
+        let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let new_namespace = NamespaceIdent::from_vec(vec!["new_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &new_namespace, None).await;
@@ -1138,29 +1157,144 @@ pub(crate) mod tests {
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
-        let tables = list_tables(warehouse_id, &namespace, false, state.clone())
-            .await
-            .unwrap();
+        let tables = list_tables(
+            warehouse_id,
+            &namespace,
+            false,
+            state.clone(),
+            PaginationQuery::empty(),
+        )
+        .await
+        .unwrap();
         assert_eq!(tables.len(), 0);
 
-        let table1 = initialize_table(warehouse_id, state.clone(), false).await;
+        let table1 = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
-        let tables = list_tables(warehouse_id, &table1.namespace, false, state.clone())
-            .await
-            .unwrap();
+        let tables = list_tables(
+            warehouse_id,
+            &table1.namespace,
+            false,
+            state.clone(),
+            PaginationQuery::empty(),
+        )
+        .await
+        .unwrap();
         assert_eq!(tables.len(), 1);
         assert_eq!(tables.get(&table1.table_id), Some(&table1.table_ident));
 
-        let table2 = initialize_table(warehouse_id, state.clone(), true).await;
-        let tables = list_tables(warehouse_id, &table2.namespace, false, state.clone())
-            .await
-            .unwrap();
+        let table2 = initialize_table(warehouse_id, state.clone(), true, None, None).await;
+        let tables = list_tables(
+            warehouse_id,
+            &table2.namespace,
+            false,
+            state.clone(),
+            PaginationQuery::empty(),
+        )
+        .await
+        .unwrap();
         assert_eq!(tables.len(), 0);
-        let tables = list_tables(warehouse_id, &table2.namespace, true, state.clone())
-            .await
-            .unwrap();
+        let tables = list_tables(
+            warehouse_id,
+            &table2.namespace,
+            true,
+            state.clone(),
+            PaginationQuery::empty(),
+        )
+        .await
+        .unwrap();
         assert_eq!(tables.len(), 1);
         assert_eq!(tables.get(&table2.table_id), Some(&table2.table_ident));
+    }
+
+    #[sqlx::test]
+    async fn test_list_tables_pagination(pool: sqlx::PgPool) {
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
+
+        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
+        initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
+        let tables = list_tables(
+            warehouse_id,
+            &namespace,
+            false,
+            state.clone(),
+            PaginationQuery::empty(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(tables.len(), 0);
+
+        let _ = initialize_table(
+            warehouse_id,
+            state.clone(),
+            false,
+            Some(namespace.clone()),
+            Some("t1".into()),
+        )
+        .await;
+        let table2 = initialize_table(
+            warehouse_id,
+            state.clone(),
+            true,
+            Some(namespace.clone()),
+            Some("t2".into()),
+        )
+        .await;
+        let table3 = initialize_table(
+            warehouse_id,
+            state.clone(),
+            true,
+            Some(namespace.clone()),
+            Some("t3".into()),
+        )
+        .await;
+
+        let tables = list_tables(
+            warehouse_id,
+            &namespace,
+            true,
+            state.clone(),
+            PaginationQuery {
+                page_token: PageToken::NotSpecified,
+                page_size: Some(2),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(tables.len(), 2);
+
+        assert_eq!(tables.get(&table2.table_id), Some(&table2.table_ident));
+
+        let tables = list_tables(
+            warehouse_id,
+            &namespace,
+            true,
+            state.clone(),
+            PaginationQuery {
+                page_token: PageToken::Present(tables.next_page_token.unwrap()),
+                page_size: Some(2),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables.get(&table3.table_id), Some(&table3.table_ident));
+
+        let tables = list_tables(
+            warehouse_id,
+            &namespace,
+            true,
+            state.clone(),
+            PaginationQuery {
+                page_token: PageToken::Present(tables.next_page_token.unwrap()),
+                page_size: Some(2),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(tables.len(), 0);
+        assert!(tables.next_page_token.is_none());
     }
 
     #[sqlx::test]
@@ -1168,8 +1302,8 @@ pub(crate) mod tests {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table1 = initialize_table(warehouse_id, state.clone(), true).await;
-        let table2 = initialize_table(warehouse_id, state.clone(), false).await;
+        let table1 = initialize_table(warehouse_id, state.clone(), true, None, None).await;
+        let table2 = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let self1 = &table2.table_id;
         let request = CommitTransactionRequest {
@@ -1250,7 +1384,7 @@ pub(crate) mod tests {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table = initialize_table(warehouse_id, state.clone(), false).await;
+        let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let metadata = get_table_metadata_by_id(warehouse_id, table.table_id, false, state.clone())
             .await
@@ -1295,7 +1429,7 @@ pub(crate) mod tests {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table = initialize_table(warehouse_id, state.clone(), false).await;
+        let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
         let mut transaction = pool.begin().await.unwrap();
         set_warehouse_status(warehouse_id, WarehouseStatus::Inactive, &mut transaction)
             .await
@@ -1313,7 +1447,7 @@ pub(crate) mod tests {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
-        let table = initialize_table(warehouse_id, state.clone(), false).await;
+        let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let mut transaction = pool.begin().await.unwrap();
         drop_table(table.table_id, &mut transaction).await.unwrap();

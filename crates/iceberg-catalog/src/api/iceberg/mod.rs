@@ -3,6 +3,8 @@ pub mod types;
 pub mod v1 {
     use crate::api::ThreadSafe;
     use axum::Router;
+    use std::collections::HashMap;
+    use std::fmt::Debug;
 
     pub mod config;
     pub mod metrics;
@@ -30,6 +32,9 @@ pub mod v1 {
     };
     pub use crate::request_metadata::RequestMetadata;
 
+    // according to crates/iceberg-ext/src/catalog/rest/namespace.rs:115 this is what we should do..
+    pub const MAX_PAGE_SIZE: i64 = i64::MAX;
+
     pub fn new_v1_full_router<
         C: config::Service<S>,
         #[cfg(feature = "s3-signer")] T: namespace::Service<S>
@@ -55,5 +60,48 @@ pub mod v1 {
 
     pub fn new_v1_config_router<C: config::Service<S>, S: ThreadSafe>() -> Router<ApiContext<S>> {
         config::router::<C, S>()
+    }
+
+    #[derive(Debug)]
+    pub struct PaginatedTabulars<T, Z>
+    where
+        T: std::hash::Hash + Eq + Debug,
+        Z: Debug,
+    {
+        pub tabulars: HashMap<T, Z>,
+        pub next_page_token: Option<String>,
+    }
+
+    impl<T, Z> PaginatedTabulars<T, Z>
+    where
+        T: std::hash::Hash + Eq + Debug,
+        Z: Debug,
+    {
+        #[must_use]
+        pub fn len(&self) -> usize {
+            self.tabulars.len()
+        }
+
+        #[must_use]
+        pub fn is_empty(&self) -> bool {
+            self.tabulars.is_empty()
+        }
+
+        pub fn get(&self, key: &T) -> Option<&Z> {
+            self.tabulars.get(key)
+        }
+    }
+
+    impl<T, Z> IntoIterator for PaginatedTabulars<T, Z>
+    where
+        T: std::hash::Hash + Eq + Debug,
+        Z: Debug,
+    {
+        type Item = (T, Z);
+        type IntoIter = std::collections::hash_map::IntoIter<T, Z>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.tabulars.into_iter()
+        }
     }
 }

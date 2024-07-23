@@ -9,11 +9,14 @@ use crate::{
 use http::StatusCode;
 use iceberg_ext::NamespaceIdent;
 
+use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery, MAX_PAGE_SIZE};
+use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
 use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
 use sqlx::postgres::PgArguments;
 use sqlx::{Arguments, Execute, FromRow, PgConnection, Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
+use std::fmt::Debug;
 use uuid::Uuid;
 
 const MAX_PARAMETERS: usize = 30000;
@@ -290,14 +293,32 @@ pub(crate) async fn list_tabulars(
     include_staged: bool,
     catalog_state: CatalogState,
     typ: Option<TabularType>,
-) -> Result<HashMap<TabularIdentUuid, TabularIdentOwned>> {
+    pagination_query: PaginationQuery,
+) -> Result<PaginatedTabulars<TabularIdentUuid, TabularIdentOwned>> {
+    let page_size = pagination_query
+        .page_size
+        .map(i64::from)
+        .map_or(MAX_PAGE_SIZE, |i| i.clamp(1, MAX_PAGE_SIZE));
+
+    let token = pagination_query
+        .page_token
+        .as_option()
+        .map(PaginateToken::try_from)
+        .transpose()?;
+
+    let (token_ts, token_id) = token
+        .as_ref()
+        .map(|PaginateToken::V1(V1PaginateToken { created_at, id })| (created_at, id))
+        .unzip();
+
     let tables = sqlx::query!(
         r#"
         SELECT
             t.tabular_id,
             t.name as "tabular_name",
             namespace_name,
-            typ as "typ: TabularType"
+            typ as "typ: TabularType",
+            t.created_at
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
@@ -306,30 +327,44 @@ pub(crate) async fn list_tabulars(
             AND w.status = 'active'
             AND (t."metadata_location" IS NOT NULL OR $3)
             AND (t.typ = $4 OR $4 IS NULL)
+            AND ((t.created_at > $5 OR $5 IS NULL) OR (t.created_at = $5 AND t.tabular_id > $6))
+            ORDER BY t.created_at, t.tabular_id ASC
+            LIMIT $7
         "#,
         *warehouse_id,
         &**namespace,
         include_staged,
-        typ as _
+        typ as _,
+        token_ts,
+        token_id,
+        page_size
     )
     .fetch_all(&catalog_state.read_pool())
     .await
     .map_err(|e| e.into_error_model("Error fetching tables or views".to_string()))?;
 
-    let mut table_map = HashMap::new();
+    let next_page_token = tables.last().map(|r| {
+        PaginateToken::V1(V1PaginateToken {
+            created_at: r.created_at,
+            id: r.tabular_id,
+        })
+        .to_string()
+    });
+
+    let mut tabulars = HashMap::new();
     for table in tables {
         let namespace = try_parse_namespace_ident(table.namespace_name)?;
         let name = table.tabular_name;
 
         match table.typ {
             TabularType::Table => {
-                table_map.insert(
+                tabulars.insert(
                     TabularIdentUuid::Table(table.tabular_id),
                     TabularIdentOwned::Table(TableIdent { namespace, name }),
                 );
             }
             TabularType::View => {
-                table_map.insert(
+                tabulars.insert(
                     TabularIdentUuid::View(table.tabular_id),
                     TabularIdentOwned::View(TableIdent { namespace, name }),
                 );
@@ -337,7 +372,10 @@ pub(crate) async fn list_tabulars(
         };
     }
 
-    Ok(table_map)
+    Ok(PaginatedTabulars {
+        tabulars,
+        next_page_token,
+    })
 }
 
 /// Rename a tabular. Tabulars may be moved across namespaces.

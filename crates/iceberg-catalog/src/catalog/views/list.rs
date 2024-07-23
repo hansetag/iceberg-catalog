@@ -10,7 +10,7 @@ use iceberg_ext::catalog::rest::ListTablesResponse;
 
 pub(crate) async fn list_views<C: Catalog, A: AuthZHandler, S: SecretStore>(
     parameters: NamespaceParameters,
-    _query: PaginationQuery,
+    pagination_query: PaginationQuery,
     state: ApiContext<State<A, C, S>>,
     request_metadata: RequestMetadata,
 ) -> Result<ListTablesResponse> {
@@ -30,9 +30,13 @@ pub(crate) async fn list_views<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     // ------------------- BUSINESS LOGIC -------------------
 
-    let views = C::list_views(warehouse_id, &namespace, state.v1_state.catalog.clone())
-        .await
-        .unwrap();
+    let views = C::list_views(
+        warehouse_id,
+        &namespace,
+        state.v1_state.catalog.clone(),
+        pagination_query,
+    )
+    .await?;
 
     Ok(ListTablesResponse {
         next_page_token: None,
