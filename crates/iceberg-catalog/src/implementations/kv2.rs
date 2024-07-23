@@ -187,7 +187,7 @@ mod tests {
             vault_client: Arc::new(RwLock::new(
                 VaultClient::new(
                     vaultrs::client::VaultClientSettingsBuilder::default()
-                        .address("http://localhost:1234")
+                        .address(CONFIG.vault_url.clone().unwrap())
                         .build()
                         .unwrap(),
                 )
