@@ -64,6 +64,7 @@ enum Commands {
     },
     /// Print the version of the server
     Version {},
+    /// Get the OpenAPI specification of the Management API as yaml
     ManagementOpenapi {},
 }
 
