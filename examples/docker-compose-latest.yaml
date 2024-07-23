@@ -1,0 +1,9 @@
+services:
+  server:
+    image: localhost/iceberg-catalog-local:latest
+    build:
+      context: ..
+      dockerfile: docker/full.Dockerfile
+  migrate:
+    image: localhost/iceberg-catalog-local:latest
+    pull_policy: never
