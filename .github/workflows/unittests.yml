@@ -104,24 +104,25 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       - name: Setup vault
         run: |
-          export VAULT_ADDR=http://vault:1234
+          export VAULT_ADDR=http://localhost:1234
           export DEBIAN_FRONTEND=noninteractive 
           sudo apt update && sudo apt install gpg wget
           wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
           gpg --no-default-keyring --keyring /usr/share/keyrings/hashicorp-archive-keyring.gpg --fingerprint
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
           sudo apt update && sudo apt install vault
-          vault login -address http://vault:1234 myroot
-          vault auth  enable -address http://vault:1234  userpass
+          
+          vault login -address "${VAULT_ADDR}" myroot
+          vault auth  enable -address "${VAULT_ADDR}"  userpass
           echo "path \"secret/*\" { capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"] }" > /tmp/app.hcl
-          vault policy write -address http://vault:1234 app /tmp/app.hcl
-          vault write -address http://vault:1234 auth/userpass/users/test password=test policies=app
+          vault policy write -address "${VAULT_ADDR}" app /tmp/app.hcl
+          vault write -address "${VAULT_ADDR}" auth/userpass/users/test password=test policies=app
 
       - name: Test
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-          ICEBERG_REST__VAULT__URL: http://vault:1234
+          ICEBERG_REST__VAULT__URL: http://localhost:1234
           ICEBERG_REST__VAUL__USER: test
           ICEBERG_REST__VAULT__PASSWORD: test
           ICEBERG_REST__VAULT__SECRET_MOUNT: secret
