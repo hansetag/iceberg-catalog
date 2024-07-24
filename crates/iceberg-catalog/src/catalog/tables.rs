@@ -69,6 +69,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Create a table in the given namespace
     async fn create_table(
         parameters: NamespaceParameters,
@@ -152,7 +153,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // We don't commit the transaction yet, first we need to write the metadata file.
         let storage_secret = if let Some(secret_id) = &storage_secret_id {
             Some(
-                S::get_secret_by_id(secret_id, state.v1_state.secrets)
+                state
+                    .v1_state
+                    .secrets
+                    .get_secret_by_id(secret_id)
                     .await?
                     .secret,
             )
@@ -287,7 +291,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // not be required based on the `data_access` parameter.
         let storage_secret = if let Some(secret_id) = storage_secret_ident {
             Some(
-                S::get_secret_by_id(&secret_id, state.v1_state.secrets)
+                state
+                    .v1_state
+                    .secrets
+                    .get_secret_by_id(&secret_id)
                     .await?
                     .secret,
             )
@@ -466,7 +473,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // We don't commit the transaction yet, first we need to write the metadata file.
         let storage_secret = if let Some(secret_id) = &result.storage_config.storage_secret_ident {
             Some(
-                S::get_secret_by_id(secret_id, state.v1_state.secrets)
+                state
+                    .v1_state
+                    .secrets
+                    .get_secret_by_id(secret_id)
                     .await?
                     .secret,
             )
@@ -882,7 +892,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 //unique
                 .collect::<HashSet<_>>()
                 .into_iter()
-                .map(|secret_id| S::get_secret_by_id(secret_id, state.v1_state.secrets.clone())),
+                .map(|secret_id| state.v1_state.secrets.get_secret_by_id(secret_id)),
         )
         .await?;
         let storage_secrets: HashMap<_, StorageCredential> = storage_secrets

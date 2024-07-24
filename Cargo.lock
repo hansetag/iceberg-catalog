@@ -2160,6 +2160,7 @@ dependencies = [
  "http 1.1.0",
  "iceberg-catalog",
  "reqwest 0.12.5",
+ "serde",
  "serde_json",
  "tokio",
  "tower-http",

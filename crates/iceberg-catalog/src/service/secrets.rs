@@ -1,5 +1,6 @@
 use crate::api::Result;
 use crate::service::health::HealthExt;
+use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -53,26 +54,24 @@ pub struct Secret<T> {
 pub trait SecretInStorage {}
 
 /// Interface for Handling Secrets.
-#[async_trait::async_trait]
+#[async_trait]
 #[allow(clippy::module_name_repetitions)]
 pub trait SecretStore
 where
-    Self: Clone + Send + Sync + 'static,
+    Self: Send + Sync + 'static + HealthExt + Clone,
 {
-    type State: Sized + Send + Sync + Clone + 'static + HealthExt;
-
     /// Get the secret for a given warehouse.
     async fn get_secret_by_id<S: SecretInStorage + DeserializeOwned>(
+        &self,
         secret_id: &SecretIdent,
-        state: Self::State,
     ) -> Result<Secret<S>>;
 
     /// Create a new secret
     async fn create_secret<S: SecretInStorage + Send + Sync + Serialize + std::fmt::Debug>(
+        &self,
         secret: S,
-        state: Self::State,
     ) -> Result<SecretIdent>;
 
     /// Delete a secret
-    async fn delete_secret(secret_id: &SecretIdent, state: Self::State) -> Result<()>;
+    async fn delete_secret(&self, secret_id: &SecretIdent) -> Result<()>;
 }

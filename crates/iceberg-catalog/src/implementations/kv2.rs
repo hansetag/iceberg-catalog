@@ -19,23 +19,30 @@ use crate::config::VaultConfig;
 use vaultrs_login::engines::userpass::UserpassLogin;
 use vaultrs_login::LoginMethod;
 
-#[derive(Debug, Clone)]
-pub struct Server {}
+#[derive(Clone)]
+pub struct SecretsState {
+    // vaultrs doesn't have a Clone impl for Client, so we need to wrap it in an Arc
+    // and since it stores the token internally it becomes a RwLock. Shouldn't be too
+    // bad since we only need to read the client for most operations.
+    vault_client: Arc<RwLock<VaultClient>>,
+    secret_mount: String,
+    vault_user: String,
+    vault_password: String,
+    health: Arc<RwLock<Vec<Health>>>,
+}
 
 #[async_trait::async_trait]
-impl SecretStore for Server {
-    type State = SecretsState;
-
+impl SecretStore for SecretsState {
     /// Get the secret for a given warehouse.
     async fn get_secret_by_id<S: DeserializeOwned>(
+        &self,
         secret_id: &SecretIdent,
-        state: SecretsState,
     ) -> Result<Secret<S>> {
         // it seems there is no atomic get for metadata and secret so we read_metadata, and then
         // read the secret with the current version defined in the previously read metadata
         let metadata = vaultrs::kv2::read_metadata(
-            &*state.vault_client.read().await,
-            state.secret_mount.as_str(),
+            &*self.vault_client.read().await,
+            self.secret_mount.as_str(),
             &secret_ident_to_key(*secret_id),
         )
         .await
@@ -50,8 +57,8 @@ impl SecretStore for Server {
         Ok(Secret {
             secret_id: *secret_id,
             secret: vaultrs::kv2::read_version::<S>(
-                &*state.vault_client.read().await,
-                state.secret_mount.as_str(),
+                &*self.vault_client.read().await,
+                self.secret_mount.as_str(),
                 &secret_ident_to_key(*secret_id),
                 metadata.current_version,
             )
@@ -82,13 +89,13 @@ impl SecretStore for Server {
 
     /// Create a new secret
     async fn create_secret<S: Send + Sync + Serialize + std::fmt::Debug>(
+        &self,
         secret: S,
-        state: SecretsState,
     ) -> Result<SecretIdent> {
         let secret_id = SecretIdent::from(Uuid::now_v7());
         vaultrs::kv2::set(
-            &*state.vault_client.read().await,
-            state.secret_mount.as_str(),
+            &*self.vault_client.read().await,
+            self.secret_mount.as_str(),
             &secret_ident_to_key(secret_id),
             &secret,
         )
@@ -104,10 +111,10 @@ impl SecretStore for Server {
     }
 
     /// Delete a secret
-    async fn delete_secret(secret_id: &SecretIdent, state: SecretsState) -> Result<()> {
+    async fn delete_secret(&self, secret_id: &SecretIdent) -> Result<()> {
         Ok(vaultrs::kv2::delete_metadata(
-            &*state.vault_client.read().await,
-            state.secret_mount.as_str(),
+            &*self.vault_client.read().await,
+            self.secret_mount.as_str(),
             &secret_ident_to_key(*secret_id),
         )
         .await
@@ -123,18 +130,6 @@ impl SecretStore for Server {
 
 fn secret_ident_to_key(secret_id: SecretIdent) -> String {
     format!("secret/{secret_id}", secret_id = secret_id.as_uuid())
-}
-
-#[derive(Clone)]
-pub struct SecretsState {
-    // vaultrs doesn't have a Clone impl for Client, so we need to wrap it in an Arc
-    // and since it stores the token internally it becomes a RwLock. Shouldn't be too
-    // bad since we only need to read the client for most operations.
-    vault_client: Arc<RwLock<VaultClient>>,
-    secret_mount: String,
-    vault_user: String,
-    vault_password: String,
-    health: Arc<RwLock<Vec<Health>>>,
 }
 
 impl std::fmt::Debug for SecretsState {
@@ -277,11 +272,10 @@ mod tests {
         }
         .into();
 
-        let secret_id = Server::create_secret(secret.clone(), state.clone())
-            .await
-            .unwrap();
+        let secret_id = state.create_secret(secret.clone()).await.unwrap();
 
-        let read_secret = Server::get_secret_by_id::<StorageCredential>(&secret_id, state.clone())
+        let read_secret = state
+            .get_secret_by_id::<StorageCredential>(&secret_id)
             .await
             .unwrap();
 
@@ -300,16 +294,13 @@ mod tests {
         }
         .into();
 
-        let secret_id = Server::create_secret(secret.clone(), state.clone())
-            .await
-            .unwrap();
+        let secret_id = state.create_secret(secret.clone()).await.unwrap();
 
-        Server::delete_secret(&secret_id, state.clone())
-            .await
-            .unwrap();
+        state.delete_secret(&secret_id).await.unwrap();
 
-        let read_secret =
-            Server::get_secret_by_id::<StorageCredential>(&secret_id, state.clone()).await;
+        let read_secret = state
+            .get_secret_by_id::<StorageCredential>(&secret_id)
+            .await;
 
         assert!(read_secret.is_err());
     }

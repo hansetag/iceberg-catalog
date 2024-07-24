@@ -1,18 +1,21 @@
 use anyhow::{anyhow, Error};
+use async_trait::async_trait;
 use iceberg_catalog::api::router::{new_full_router, serve as service_serve};
-use iceberg_catalog::implementations::postgres::{
-    Catalog, CatalogState, SecretsState, SecretsStore,
-};
+use iceberg_catalog::implementations::postgres::{Catalog, CatalogState};
 use iceberg_catalog::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
     CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
     NatsBackend,
 };
-use iceberg_catalog::service::health::ServiceHealthProvider;
+use iceberg_catalog::service::health::{Health, HealthExt, ServiceHealthProvider};
+use iceberg_catalog::service::secrets::{Secret, SecretInStorage};
 use iceberg_catalog::service::token_verification::Verifier;
-use iceberg_catalog::{CONFIG, SecretBackend};
+use iceberg_catalog::service::SecretStore;
+use iceberg_catalog::{SecretBackend, SecretIdent, CONFIG};
 use reqwest::Url;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::sync::Arc;
 
 pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -22,12 +25,20 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         iceberg_catalog::implementations::postgres::get_writer_pool(CONFIG.to_pool_opts()).await?;
 
     let catalog_state = CatalogState::from_pools(read_pool.clone(), write_pool.clone());
-    let secrets_state = match CONFIG.secret_backend {
-        SecretBackend::Vault => {
-            iceberg_catalog::implementations::kv2::SecretsState::from_config(CONFIG.vault.as_ref().ok_or_else(|| anyhow!("Need vault config to use vault as backend"))?
-        }
+    let secrets_state: Secrets = match CONFIG.secret_backend {
+        SecretBackend::Vault => iceberg_catalog::implementations::kv2::SecretsState::from_config(
+            CONFIG
+                .vault
+                .as_ref()
+                .ok_or_else(|| anyhow!("Need vault config to use vault as backend"))?,
+        )
+        .await?
+        .into(),
         SecretBackend::Postgres => {
-            SecretsState::from_pools(read_pool, write_pool)
+            iceberg_catalog::implementations::postgres::SecretsState::from_pools(
+                read_pool, write_pool,
+            )
+            .into()
         }
     };
     let auth_state = AllowAllAuthState;
@@ -65,26 +76,21 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     let (metrics_layer, metrics_future) =
         iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?;
 
-    let router = new_full_router::<
-        Catalog,
-        Catalog,
-        AllowAllAuthZHandler,
-        AllowAllAuthZHandler,
-        SecretsStore,
-    >(
-        auth_state,
-        catalog_state,
-        secrets_state,
-        CloudEventsPublisher::new(tx.clone()),
-        ContractVerifiers::new(vec![]),
-        if let Some(uri) = CONFIG.openid_provider_uri.clone() {
-            Some(Verifier::new(uri).await?)
-        } else {
-            None
-        },
-        health_provider,
-        Some(metrics_layer),
-    );
+    let router =
+        new_full_router::<Catalog, Catalog, AllowAllAuthZHandler, AllowAllAuthZHandler, Secrets>(
+            auth_state,
+            catalog_state,
+            secrets_state,
+            CloudEventsPublisher::new(tx.clone()),
+            ContractVerifiers::new(vec![]),
+            if let Some(uri) = CONFIG.openid_provider_uri.clone() {
+                Some(Verifier::new(uri).await?)
+            } else {
+                None
+            },
+            health_provider,
+            Some(metrics_layer),
+        );
 
     let publisher_handle = tokio::task::spawn(async move {
         match x.publish().await {
@@ -108,6 +114,71 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     publisher_handle.await?;
 
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub enum Secrets {
+    Postgres(iceberg_catalog::implementations::postgres::SecretsState),
+    KV2(iceberg_catalog::implementations::kv2::SecretsState),
+}
+
+#[async_trait]
+impl SecretStore for Secrets {
+    async fn get_secret_by_id<S: SecretInStorage + DeserializeOwned>(
+        &self,
+        secret_id: &SecretIdent,
+    ) -> iceberg_catalog::api::Result<Secret<S>> {
+        match self {
+            Self::Postgres(state) => state.get_secret_by_id(secret_id).await,
+            Self::KV2(state) => state.get_secret_by_id(secret_id).await,
+        }
+    }
+
+    async fn create_secret<S: SecretInStorage + Send + Sync + Serialize + std::fmt::Debug>(
+        &self,
+        secret: S,
+    ) -> iceberg_catalog::api::Result<SecretIdent> {
+        match self {
+            Self::Postgres(state) => state.create_secret(secret).await,
+            Self::KV2(state) => state.create_secret(secret).await,
+        }
+    }
+
+    async fn delete_secret(&self, secret_id: &SecretIdent) -> iceberg_catalog::api::Result<()> {
+        match self {
+            Self::Postgres(state) => state.delete_secret(secret_id).await,
+            Self::KV2(state) => state.delete_secret(secret_id).await,
+        }
+    }
+}
+
+#[async_trait]
+impl HealthExt for Secrets {
+    async fn health(&self) -> Vec<Health> {
+        match self {
+            Self::Postgres(state) => state.health().await,
+            Self::KV2(state) => state.health().await,
+        }
+    }
+
+    async fn update_health(&self) {
+        match self {
+            Self::Postgres(state) => state.update_health().await,
+            Self::KV2(state) => state.update_health().await,
+        }
+    }
+}
+
+impl From<iceberg_catalog::implementations::postgres::SecretsState> for Secrets {
+    fn from(state: iceberg_catalog::implementations::postgres::SecretsState) -> Self {
+        Self::Postgres(state)
+    }
+}
+
+impl From<iceberg_catalog::implementations::kv2::SecretsState> for Secrets {
+    fn from(state: iceberg_catalog::implementations::kv2::SecretsState) -> Self {
+        Self::KV2(state)
+    }
 }
 
 async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
