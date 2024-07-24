@@ -12,10 +12,9 @@ use iceberg_catalog::service::health::{Health, HealthExt, ServiceHealthProvider}
 use iceberg_catalog::service::secrets::{Secret, SecretInStorage, Secrets};
 use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::service::SecretStore;
-use iceberg_catalog::{SecretBackend, SecretIdent, CONFIG};
+use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+
 use std::sync::Arc;
 
 pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
