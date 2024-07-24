@@ -1,4 +1,4 @@
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use iceberg_catalog::api::router::{new_full_router, serve as service_serve};
 use iceberg_catalog::implementations::postgres::{
     Catalog, CatalogState, SecretsState, SecretsStore,
@@ -11,7 +11,7 @@ use iceberg_catalog::service::event_publisher::{
 };
 use iceberg_catalog::service::health::ServiceHealthProvider;
 use iceberg_catalog::service::token_verification::Verifier;
-use iceberg_catalog::CONFIG;
+use iceberg_catalog::{CONFIG, SecretBackend};
 use reqwest::Url;
 use std::sync::Arc;
 
@@ -22,7 +22,14 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         iceberg_catalog::implementations::postgres::get_writer_pool(CONFIG.to_pool_opts()).await?;
 
     let catalog_state = CatalogState::from_pools(read_pool.clone(), write_pool.clone());
-    let secrets_state = SecretsState::from_pools(read_pool, write_pool);
+    let secrets_state = match CONFIG.secret_backend {
+        SecretBackend::Vault => {
+            iceberg_catalog::implementations::kv2::SecretsState::from_config(CONFIG.vault.as_ref().ok_or_else(|| anyhow!("Need vault config to use vault as backend"))?
+        }
+        SecretBackend::Postgres => {
+            SecretsState::from_pools(read_pool, write_pool)
+        }
+    };
     let auth_state = AllowAllAuthState;
 
     let health_provider = ServiceHealthProvider::new(

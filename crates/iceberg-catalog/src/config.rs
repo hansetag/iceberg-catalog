@@ -102,6 +102,14 @@ pub struct DynAppConfig {
 
     // ------------- Vault -------------
     pub vault: Option<VaultConfig>,
+    // ------------- Secrets -------------
+    pub secret_backend: SecretBackend,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SecretBackend {
+    Vault,
+    Postgres,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Redact)]

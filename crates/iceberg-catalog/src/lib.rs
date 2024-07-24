@@ -14,7 +14,7 @@ mod config;
 pub mod service;
 pub use service::{ProjectIdent, SecretIdent, WarehouseIdent};
 
-pub use config::CONFIG;
+pub use config::{SecretBackend, CONFIG};
 
 pub mod implementations;
 
