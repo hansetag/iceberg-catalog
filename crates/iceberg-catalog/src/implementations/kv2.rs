@@ -5,6 +5,7 @@ use std::fmt::Formatter;
 
 use async_trait::async_trait;
 
+use anyhow::Context;
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -14,6 +15,7 @@ use tokio::time::Sleep;
 use uuid::Uuid;
 use vaultrs::client::{Client, VaultClient};
 
+use crate::config::VaultConfig;
 use vaultrs_login::engines::userpass::UserpassLogin;
 use vaultrs_login::LoginMethod;
 
@@ -73,39 +75,83 @@ impl HealthExt for SecretsState {
 }
 
 impl SecretsState {
-    pub async fn login_task(&self) {
+    /// Creates a new `SecretsState` from a `VaultConfig`
+    ///
+    /// This constructor spawns a background task that refreshes the login token.
+    ///
+    /// # Errors
+    /// Fails if the initial login fails
+    pub async fn from_config(
+        VaultConfig {
+            url,
+            user,
+            password,
+            secret_mount,
+        }: &VaultConfig,
+    ) -> anyhow::Result<Self> {
+        let slf = Self {
+            vault_client: Arc::new(RwLock::new(VaultClient::new(
+                vaultrs::client::VaultClientSettingsBuilder::default()
+                    .address(url.clone())
+                    .build()?,
+            )?)),
+            secret_mount: secret_mount.clone(),
+            vault_user: user.clone(),
+            vault_password: password.clone(),
+            health: Arc::default(),
+        };
+        slf.login_task().await?;
+        Ok(slf)
+    }
+
+    async fn login_task(&self) -> anyhow::Result<tokio::task::JoinHandle<()>> {
         let login = UserpassLogin::new(self.vault_user.as_str(), self.vault_password.as_str());
         let client_handle = self.vault_client.clone();
-        let mut sleep = Self::refresh_login(&login, client_handle.clone()).await;
-        tokio::task::spawn(async move {
+        let mut sleep = Self::refresh_login(&login, client_handle.clone())
+            .await
+            .context("Failed to get initial login")?;
+
+        Ok(tokio::task::spawn(async move {
             loop {
-                eprintln!("Refreshing token");
+                tracing::debug!("Refreshing token");
                 sleep.await;
-                sleep = Self::refresh_login(&login, client_handle.clone()).await;
+                sleep = Self::refresh_login(&login, client_handle.clone())
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::error!(?e, "Failed to refresh token: {:?}", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(1))
+                    });
                 tracing::debug!("Token refreshed");
             }
-        });
+        }))
     }
 
     async fn refresh_login(
         login: &UserpassLogin,
         client_handle: Arc<RwLock<VaultClient>>,
-    ) -> Sleep {
+    ) -> anyhow::Result<Sleep> {
         tracing::debug!("Refreshing token");
 
-        let log = {
-            let handle = &*client_handle.read().await;
-            login.login(handle, "userpass").await
+        let login_result = {
+            let handle = client_handle.read().await;
+            login.login(&*handle, "userpass").await
         };
 
-        tracing::debug!("Token refreshed");
-
-        let tken = log.unwrap();
-        let sleep = tokio::time::sleep(std::time::Duration::from_secs(tken.lease_duration - 10));
-        let mut handle = client_handle.write().await;
-        handle.set_token(tken.client_token.as_str());
-        tracing::debug!("Token refreshed");
-        sleep
+        match login_result {
+            Ok(token) => {
+                let sleep_duration =
+                    std::time::Duration::from_secs(token.lease_duration.saturating_sub(10));
+                let sleep = tokio::time::sleep(sleep_duration);
+                let mut handle = client_handle.write().await;
+                handle.set_token(token.client_token.as_str());
+                tracing::debug!("Token refreshed");
+                Ok(sleep)
+            }
+            Err(e) => {
+                tracing::error!("Failed to refresh token: {:?}", e);
+                Err(e.into())
+            }
+        }
     }
 }
 
@@ -197,7 +243,6 @@ impl SecretStore for Server {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::VaultConfig;
     use crate::service::storage::{S3Credential, StorageCredential};
     use crate::CONFIG;
 
@@ -205,28 +250,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_read_secret() {
-        let VaultConfig {
-            url,
-            user,
-            password,
-            secret_mount,
-        } = CONFIG.vault.clone().unwrap();
-        let state = SecretsState {
-            vault_client: Arc::new(RwLock::new(
-                VaultClient::new(
-                    vaultrs::client::VaultClientSettingsBuilder::default()
-                        .address(url)
-                        .build()
-                        .unwrap(),
-                )
-                .unwrap(),
-            )),
-            secret_mount,
-            vault_user: user,
-            vault_password: password,
-            health: Arc::default(),
-        };
-        state.login_task().await;
+        let state = SecretsState::from_config(CONFIG.vault.as_ref().unwrap())
+            .await
+            .unwrap();
 
         let secret: StorageCredential = S3Credential::AccessKey {
             aws_access_key_id: "my access key".to_string(),
@@ -247,28 +273,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_secret() {
-        let VaultConfig {
-            url,
-            user,
-            password,
-            secret_mount,
-        } = CONFIG.vault.clone().unwrap();
-        let state = SecretsState {
-            vault_client: Arc::new(RwLock::new(
-                VaultClient::new(
-                    vaultrs::client::VaultClientSettingsBuilder::default()
-                        .address(url)
-                        .build()
-                        .unwrap(),
-                )
-                .unwrap(),
-            )),
-            secret_mount,
-            vault_user: user,
-            vault_password: password,
-            health: Arc::default(),
-        };
-        state.login_task().await;
+        let state = SecretsState::from_config(CONFIG.vault.as_ref().unwrap())
+            .await
+            .unwrap();
 
         let secret: StorageCredential = S3Credential::AccessKey {
             aws_access_key_id: "my access key".to_string(),
