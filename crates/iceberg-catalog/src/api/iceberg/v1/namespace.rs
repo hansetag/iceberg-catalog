@@ -276,6 +276,17 @@ impl From<ListNamespacesQuery> for PaginationQuery {
     }
 }
 
+impl PaginationQuery {
+    #[cfg(test)]
+    #[must_use]
+    pub fn empty() -> Self {
+        PaginationQuery {
+            page_token: PageToken::Empty,
+            page_size: None,
+        }
+    }
+}
+
 // Deliberately not ser / de so that it can't be used in the router directly
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone, PartialEq)]

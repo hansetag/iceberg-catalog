@@ -31,6 +31,14 @@ pub enum PageToken {
 }
 
 impl PageToken {
+    #[must_use]
+    pub fn as_option(&self) -> Option<&str> {
+        match self {
+            PageToken::Present(s) => Some(s),
+            PageToken::NotSpecified | PageToken::Empty => None,
+        }
+    }
+
     #[inline]
     #[must_use]
     pub fn new_present(s: String) -> Self {

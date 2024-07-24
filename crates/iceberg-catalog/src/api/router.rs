@@ -1,22 +1,22 @@
 use crate::service::event_publisher::CloudEventsPublisher;
 use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
 
+use super::management::v1::ManagementApiDoc;
 use crate::api::management::v1::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
 use crate::service::contract_verification::ContractVerifiers;
-use crate::service::token_verification::Verifier;
-use axum::response::IntoResponse;
-use axum::{routing::get, Json, Router};
-use http::HeaderValue;
-// use tower::util::option_layer;
-use super::management::v1::ManagementApiDoc;
 use crate::service::health::ServiceHealthProvider;
+use crate::service::token_verification::Verifier;
 use crate::service::{
     auth::{AuthConfigHandler, AuthZHandler},
     config::ConfigProvider,
     Catalog, SecretStore, State,
 };
+use axum::response::IntoResponse;
+use axum::{routing::get, Json, Router};
 use axum_extra::middleware::option_layer;
+use axum_prometheus::PrometheusMetricLayer;
+use http::HeaderValue;
 use tower::ServiceBuilder;
 use tower_http::cors::AllowOrigin;
 use tower_http::{
@@ -44,12 +44,14 @@ pub fn new_full_router<
     token_verifier: Option<Verifier>,
     svhp: ServiceHealthProvider,
     cors_origins: Option<Vec<HeaderValue>>,
+    metrics_layer: Option<PrometheusMetricLayer<'static>>,
 ) -> Router {
     let v1_routes = new_v1_full_router::<
         crate::catalog::ConfigServer<CP, C, AH, A>,
         crate::catalog::CatalogServer<C, A, S>,
         State<A, C, S>,
     >();
+
     let management_routes = Router::new().merge(ApiServer::new_v1_router());
     let maybe_cors_layer = option_layer(cors_origins.map(|origins| {
         tower_http::cors::CorsLayer::new().allow_origin(AllowOrigin::list(origins))
@@ -60,7 +62,8 @@ pub fn new_full_router<
             crate::service::token_verification::auth_middleware_fn,
         )
     }));
-    Router::new()
+
+    let router = Router::new()
         .nest("/catalog/v1", v1_routes)
         .nest("/management/v1", management_routes)
         .layer(maybe_auth_layer)
@@ -104,7 +107,13 @@ pub fn new_full_router<
                 publisher,
                 contract_verifiers: table_change_checkers,
             },
-        })
+        });
+
+    if let Some(metrics_layer) = metrics_layer {
+        router.layer(metrics_layer)
+    } else {
+        router
+    }
 }
 
 /// Serve the given router on the given listener
