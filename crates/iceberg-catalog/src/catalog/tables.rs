@@ -1021,6 +1021,17 @@ where
     for prop in properties {
         validate_lowercase_property(prop)?;
     }
+    for p in properties
+        .keys()
+        .any(|k| k.starts_with("write.metadata") || k.starts_with("write.data.path"))
+    {
+        return Err(ErrorModel::conflict(
+            format!("Properties contain unsupported property: '{}'", p),
+            "FailedToSetProperties",
+            None,
+        )
+        .into());
+    }
     Ok(())
 }
 
