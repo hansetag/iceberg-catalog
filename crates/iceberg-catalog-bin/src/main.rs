@@ -127,6 +127,7 @@ async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
             None
         },
         health_provider,
+        CONFIG.allow_origin.clone(),
         Some(metrics_layer),
     );
 
