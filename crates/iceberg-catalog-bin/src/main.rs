@@ -1,30 +1,8 @@
 mod serve;
 
-use anyhow::{Context, Error};
 use clap::{Parser, Subcommand};
 use iceberg_catalog::api::management::v1::ManagementApiDoc;
-use iceberg_catalog::implementations::postgres::{
-    get_reader_pool, get_writer_pool, MigrationState, ReadWrite,
-};
-use iceberg_catalog::service::contract_verification::ContractVerifiers;
-use iceberg_catalog::service::event_publisher::{
-    CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
-    NatsBackend,
-};
-use iceberg_catalog::service::health::{
-    HealthExt, HealthState, HealthStatus, ServiceHealthProvider,
-};
-use iceberg_catalog::service::token_verification::Verifier;
-use iceberg_catalog::{
-    api::router::{new_full_router, serve as service_serve},
-    implementations::{
-        postgres::{Catalog, CatalogState, SecretsState, SecretsStore},
-        AllowAllAuthState, AllowAllAuthZHandler,
-    },
-    CONFIG,
-};
-use reqwest::Url;
-use std::sync::Arc;
+use iceberg_catalog::CONFIG;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -178,5 +156,5 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn print_info() {
-    println!("Iceberg Catalog Version: {}", env!("CARGO_PKG_VERSION"));
+    tracing::info!("Iceberg Catalog Version: {}", env!("CARGO_PKG_VERSION"));
 }
