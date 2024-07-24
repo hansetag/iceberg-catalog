@@ -107,30 +107,6 @@ impl SecretsState {
         tracing::debug!("Token refreshed");
         sleep
     }
-
-    /// # Errors
-    /// errors if setting of secret fails
-    pub async fn create_secret(
-        &self,
-        secret_id: SecretIdent,
-        secret: impl Serialize,
-    ) -> Result<()> {
-        vaultrs::kv2::set(
-            &*self.vault_client.read().await,
-            self.secret_mount.as_str(),
-            &format!("secret/{}", secret_id.as_uuid()),
-            &secret,
-        )
-        .await
-        .map_err(|err| {
-            ErrorModel::internal(
-                "secret creation failure",
-                "SecretCreationFailed",
-                Some(Box::new(err)),
-            )
-        })?;
-        Ok(())
-    }
 }
 
 #[async_trait::async_trait]
@@ -156,12 +132,14 @@ impl SecretStore for Server {
                 Some(Box::new(err)),
             ))
         })?;
+
         Ok(Secret {
             secret_id: *secret_id,
-            secret: vaultrs::kv2::read::<S>(
+            secret: vaultrs::kv2::read_version::<S>(
                 &*state.vault_client.read().await,
                 state.secret_mount.as_str(),
                 &format!("secret/{secret_id}"),
+                metadata.current_version,
             )
             .await
             .map_err(|err| {
@@ -182,14 +160,38 @@ impl SecretStore for Server {
         state: SecretsState,
     ) -> Result<SecretIdent> {
         let secret_id = SecretIdent::from(Uuid::now_v7());
-        state.create_secret(secret_id, &secret).await?;
-
+        vaultrs::kv2::set(
+            &*state.vault_client.read().await,
+            state.secret_mount.as_str(),
+            &format!("secret/{}", secret_id.as_uuid()),
+            &secret,
+        )
+        .await
+        .map_err(|err| {
+            ErrorModel::internal(
+                "secret creation failure",
+                "SecretCreationFailed",
+                Some(Box::new(err)),
+            )
+        })?;
         Ok(secret_id)
     }
 
     /// Delete a secret
-    async fn delete_secret(_secret_id: &SecretIdent, _state: SecretsState) -> Result<()> {
-        todo!()
+    async fn delete_secret(secret_id: &SecretIdent, state: SecretsState) -> Result<()> {
+        Ok(vaultrs::kv2::delete_metadata(
+            &*state.vault_client.read().await,
+            state.secret_mount.as_str(),
+            &format!("secret/{secret_id}", secret_id = secret_id.as_uuid()),
+        )
+        .await
+        .map_err(|err| {
+            ErrorModel::internal(
+                "secret deletion failure",
+                "SecretDeletionFailed",
+                Some(Box::new(err)),
+            )
+        })?)
     }
 }
 
@@ -243,27 +245,48 @@ mod tests {
         assert_eq!(read_secret.secret, secret);
     }
 
-    // #[sqlx::test]
-    // async fn test_delete_secret(pool: sqlx::PgPool) {
-    //     let state = SecretsState::from_pools(pool.clone(), pool);
-    //
-    //     let secret: StorageCredential = S3Credential::AccessKey {
-    //         aws_access_key_id: "my access key".to_string(),
-    //         aws_secret_access_key: "my secret key".to_string(),
-    //     }
-    //     .into();
-    //
-    //     let secret_id = Server::create_secret(secret.clone(), state.clone())
-    //         .await
-    //         .unwrap();
-    //
-    //     Server::delete_secret(&secret_id, state.clone())
-    //         .await
-    //         .unwrap();
-    //
-    //     let read_secret =
-    //         Server::get_secret_by_id::<StorageCredential>(&secret_id, state.clone()).await;
-    //
-    //     assert!(read_secret.is_err());
-    // }
+    #[tokio::test]
+    async fn test_delete_secret() {
+        let VaultConfig {
+            url,
+            user,
+            password,
+            secret_mount,
+        } = CONFIG.vault.clone().unwrap();
+        let state = SecretsState {
+            vault_client: Arc::new(RwLock::new(
+                VaultClient::new(
+                    vaultrs::client::VaultClientSettingsBuilder::default()
+                        .address(url)
+                        .build()
+                        .unwrap(),
+                )
+                .unwrap(),
+            )),
+            secret_mount,
+            vault_user: user,
+            vault_password: password,
+            health: Arc::default(),
+        };
+        state.login_task().await;
+
+        let secret: StorageCredential = S3Credential::AccessKey {
+            aws_access_key_id: "my access key".to_string(),
+            aws_secret_access_key: "my secret key".to_string(),
+        }
+        .into();
+
+        let secret_id = Server::create_secret(secret.clone(), state.clone())
+            .await
+            .unwrap();
+
+        Server::delete_secret(&secret_id, state.clone())
+            .await
+            .unwrap();
+
+        let read_secret =
+            Server::get_secret_by_id::<StorageCredential>(&secret_id, state.clone()).await;
+
+        assert!(read_secret.is_err());
+    }
 }
