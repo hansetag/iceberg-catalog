@@ -37,8 +37,35 @@ struct Cli {
 enum Commands {
     /// Migrate the database
     Migrate {},
-    /// Migrate the database
-    EnsureMigrate {},
+    /// Wait for the database to be up and migrated
+    WaitForDB {
+        #[clap(
+            default_value = "false",
+            short = 'd',
+            help = "Test DB connection, requires postgres env values."
+        )]
+        check_db: bool,
+        #[clap(
+            default_value = "false",
+            short = 'm',
+            help = "Check migrations, implies -d."
+        )]
+        check_migrations: bool,
+        #[clap(
+            default_value_t = 15,
+            long,
+            short,
+            help = "Number of retries to connect to the database, implies -w."
+        )]
+        retries: u32,
+        #[clap(
+            default_value_t = 2,
+            long,
+            short,
+            help = "Delay in seconds between retries to connect to the database."
+        )]
+        backoff: u64,
+    },
     /// Run the server - The database must be migrated before running the server
     Serve {},
     /// Check the health of the server
@@ -71,8 +98,10 @@ enum Commands {
 }
 
 async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
-    let read_pool = iceberg_catalog::implementations::postgres::get_reader_pool().await?;
-    let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool().await?;
+    let read_pool =
+        iceberg_catalog::implementations::postgres::get_reader_pool(CONFIG.to_pool_opts()).await?;
+    let write_pool =
+        iceberg_catalog::implementations::postgres::get_writer_pool(CONFIG.to_pool_opts()).await?;
 
     let catalog_state = CatalogState::from_pools(read_pool.clone(), write_pool.clone());
     let secrets_state = SecretsState::from_pools(read_pool, write_pool);
@@ -174,10 +203,76 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     match cli.command {
+        Some(Commands::WaitForDB {
+            check_db,
+            check_migrations,
+            retries,
+            backoff,
+        }) => {
+            let mut counter = 0;
+            let check_db = check_db || check_migrations;
+            if check_db {
+                loop {
+                    let Err(details) = db_health_check().await else {
+                        tracing::info!("Database is healthy.");
+                        break;
+                    };
+                    tracing::info!(?details,
+                        "DB not up yet, sleeping for {backoff}s before next retry. Retry: {counter}/{retries}",
+                    );
+                    counter += 1;
+                    if counter == retries {
+                        tracing::error!("Ran out of retries while waiting for db to come up.");
+                        anyhow::bail!("Ran out of retries while waiting for db to come up.");
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
+                }
+            }
+
+            if check_migrations {
+                let mut counter = 0;
+                loop {
+                    let opts = CONFIG
+                        .to_pool_opts()
+                        .acquire_timeout(std::time::Duration::from_secs(1));
+
+                    let read_pool = get_reader_pool(opts).await?;
+                    let migrations =
+                        iceberg_catalog::implementations::postgres::check_migration_status(
+                            &read_pool,
+                        )
+                        .await;
+                    match migrations {
+                        Ok(MigrationState::Complete) => {
+                            tracing::info!("Database is up to date with binary.");
+                            break;
+                        }
+                        unready => {
+                            tracing::info!(?unready, "Database is not up to date with binary.");
+                        }
+                    }
+
+                    counter += 1;
+                    if counter > retries {
+                        tracing::error!("Ran out of retries while waiting for migrations.");
+                        anyhow::bail!("Ran out of retries while waiting for migrations.");
+                    }
+                    tracing::info!(
+                        "DB not up to date with binary yet, sleeping for {backoff}s before next retry. Retry: {counter}/{retries}",
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
+                }
+            }
+        }
         Some(Commands::Migrate {}) => {
             print_info();
             println!("Migrating database...");
-            let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool().await?;
+            let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool(
+                CONFIG
+                    .to_pool_opts()
+                    .acquire_timeout(std::time::Duration::from_secs(1)),
+            )
+            .await?;
 
             // This embeds database migrations in the application binary so we can ensure the database
             // is migrated correctly on startup
@@ -240,33 +335,6 @@ async fn main() -> anyhow::Result<()> {
             // Error out if no subcommand is provided.
             eprintln!("No subcommand provided. Use --help for more information.");
         }
-        Some(Commands::EnsureMigrate {}) => {
-            print_info();
-            tracing::info!("Checking if database is migrated...");
-
-            let read_pool = iceberg_catalog::implementations::postgres::get_reader_pool().await?;
-            let migrations =
-                iceberg_catalog::implementations::postgres::ensure_migrations_applied(&read_pool)
-                    .await;
-            match migrations {
-                Ok(s) => match s {
-                    MigrationState::Complete => {
-                        tracing::info!("Database is up to date with binary.");
-                    }
-                    MigrationState::Missing => {
-                        tracing::info!("Database is missing migrations.");
-                        std::process::exit(1)
-                    }
-                    MigrationState::None => {
-                        tracing::info!("Database is empty.");
-                        std::process::exit(1)
-                    }
-                },
-                Err(e) => {
-                    tracing::error!("Checking migrations failed: {e}");
-                }
-            }
-        }
 
         Some(Commands::ManagementOpenapi {}) => {
             use utoipa::OpenApi;
@@ -278,12 +346,20 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn db_health_check() -> anyhow::Result<()> {
-    let reader = get_reader_pool()
-        .await
-        .with_context(|| "Read pool failed.")?;
-    let writer = get_writer_pool()
-        .await
-        .with_context(|| "Write pool failed.")?;
+    let reader = get_reader_pool(
+        CONFIG
+            .to_pool_opts()
+            .acquire_timeout(std::time::Duration::from_secs(1)),
+    )
+    .await
+    .with_context(|| "Read pool failed.")?;
+    let writer = get_writer_pool(
+        CONFIG
+            .to_pool_opts()
+            .acquire_timeout(std::time::Duration::from_secs(1)),
+    )
+    .await
+    .with_context(|| "Write pool failed.")?;
 
     let db = ReadWrite::from_pools(reader.clone(), writer.clone());
     db.update_health().await;
