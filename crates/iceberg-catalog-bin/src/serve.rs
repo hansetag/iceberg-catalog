@@ -7,8 +7,8 @@ use iceberg_catalog::service::event_publisher::{
     CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
     NatsBackend,
 };
-use iceberg_catalog::service::health::{ServiceHealthProvider};
-use iceberg_catalog::service::secrets::{Secrets};
+use iceberg_catalog::service::health::ServiceHealthProvider;
+use iceberg_catalog::service::secrets::Secrets;
 use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
