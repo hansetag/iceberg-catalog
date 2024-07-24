@@ -1,7 +1,9 @@
 use anyhow::{Context, Error};
 use clap::{Parser, Subcommand};
 use iceberg_catalog::api::management::v1::ManagementApiDoc;
-use iceberg_catalog::implementations::postgres::{get_reader_pool, get_writer_pool, ReadWrite};
+use iceberg_catalog::implementations::postgres::{
+    get_reader_pool, get_writer_pool, MigrationState, ReadWrite,
+};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
     CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
@@ -243,10 +245,27 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("Checking if database is migrated...");
 
             let read_pool = iceberg_catalog::implementations::postgres::get_reader_pool().await?;
-            iceberg_catalog::implementations::postgres::ensure_migrations_applied(&read_pool)
-                .await?;
-
-            tracing::info!("Database migration complete.");
+            let migrations =
+                iceberg_catalog::implementations::postgres::ensure_migrations_applied(&read_pool)
+                    .await;
+            match migrations {
+                Ok(s) => match s {
+                    MigrationState::Complete => {
+                        tracing::info!("Database is up to date with binary.");
+                    }
+                    MigrationState::Missing => {
+                        tracing::info!("Database is missing migrations.");
+                        std::process::exit(1)
+                    }
+                    MigrationState::None => {
+                        tracing::info!("Database is empty.");
+                        std::process::exit(1)
+                    }
+                },
+                Err(e) => {
+                    tracing::error!("Checking migrations failed: {e}");
+                }
+            }
         }
 
         Some(Commands::ManagementOpenapi {}) => {
