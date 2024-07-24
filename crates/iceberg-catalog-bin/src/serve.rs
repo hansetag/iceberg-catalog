@@ -9,7 +9,7 @@ use iceberg_catalog::service::event_publisher::{
     NatsBackend,
 };
 use iceberg_catalog::service::health::{Health, HealthExt, ServiceHealthProvider};
-use iceberg_catalog::service::secrets::{Secret, SecretInStorage};
+use iceberg_catalog::service::secrets::{Secret, SecretInStorage, Secrets};
 use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::service::SecretStore;
 use iceberg_catalog::{SecretBackend, SecretIdent, CONFIG};
@@ -114,71 +114,6 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     publisher_handle.await?;
 
     Ok(())
-}
-
-#[derive(Debug, Clone)]
-pub enum Secrets {
-    Postgres(iceberg_catalog::implementations::postgres::SecretsState),
-    KV2(iceberg_catalog::implementations::kv2::SecretsState),
-}
-
-#[async_trait]
-impl SecretStore for Secrets {
-    async fn get_secret_by_id<S: SecretInStorage + DeserializeOwned>(
-        &self,
-        secret_id: &SecretIdent,
-    ) -> iceberg_catalog::api::Result<Secret<S>> {
-        match self {
-            Self::Postgres(state) => state.get_secret_by_id(secret_id).await,
-            Self::KV2(state) => state.get_secret_by_id(secret_id).await,
-        }
-    }
-
-    async fn create_secret<S: SecretInStorage + Send + Sync + Serialize + std::fmt::Debug>(
-        &self,
-        secret: S,
-    ) -> iceberg_catalog::api::Result<SecretIdent> {
-        match self {
-            Self::Postgres(state) => state.create_secret(secret).await,
-            Self::KV2(state) => state.create_secret(secret).await,
-        }
-    }
-
-    async fn delete_secret(&self, secret_id: &SecretIdent) -> iceberg_catalog::api::Result<()> {
-        match self {
-            Self::Postgres(state) => state.delete_secret(secret_id).await,
-            Self::KV2(state) => state.delete_secret(secret_id).await,
-        }
-    }
-}
-
-#[async_trait]
-impl HealthExt for Secrets {
-    async fn health(&self) -> Vec<Health> {
-        match self {
-            Self::Postgres(state) => state.health().await,
-            Self::KV2(state) => state.health().await,
-        }
-    }
-
-    async fn update_health(&self) {
-        match self {
-            Self::Postgres(state) => state.update_health().await,
-            Self::KV2(state) => state.update_health().await,
-        }
-    }
-}
-
-impl From<iceberg_catalog::implementations::postgres::SecretsState> for Secrets {
-    fn from(state: iceberg_catalog::implementations::postgres::SecretsState) -> Self {
-        Self::Postgres(state)
-    }
-}
-
-impl From<iceberg_catalog::implementations::kv2::SecretsState> for Secrets {
-    fn from(state: iceberg_catalog::implementations::kv2::SecretsState) -> Self {
-        Self::KV2(state)
-    }
 }
 
 async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {

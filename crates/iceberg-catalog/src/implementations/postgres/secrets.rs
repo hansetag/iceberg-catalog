@@ -59,7 +59,7 @@ impl SecretStore for SecretsState {
         let secret: SecretRow = sqlx::query_as!(
             SecretRow,
             r#"
-            SELECT
+            SELECT 
                 pgp_sym_decrypt(secret, $2, 'cipher-algo=aes256') as secret,
                 created_at,
                 updated_at
