@@ -22,16 +22,119 @@ use vaultrs_login::LoginMethod;
 #[derive(Debug, Clone)]
 pub struct Server {}
 
+#[async_trait::async_trait]
+impl SecretStore for Server {
+    type State = SecretsState;
+
+    /// Get the secret for a given warehouse.
+    async fn get_secret_by_id<S: DeserializeOwned>(
+        secret_id: &SecretIdent,
+        state: SecretsState,
+    ) -> Result<Secret<S>> {
+        // it seems there is no atomic get for metadata and secret so we read_metadata, and then
+        // read the secret with the current version defined in the previously read metadata
+        let metadata = vaultrs::kv2::read_metadata(
+            &*state.vault_client.read().await,
+            state.secret_mount.as_str(),
+            &secret_ident_to_key(*secret_id),
+        )
+        .await
+        .map_err(|err| {
+            IcebergErrorResponse::from(ErrorModel::internal(
+                "secret metadata read failure",
+                "SecretReadFailed",
+                Some(Box::new(err)),
+            ))
+        })?;
+
+        Ok(Secret {
+            secret_id: *secret_id,
+            secret: vaultrs::kv2::read_version::<S>(
+                &*state.vault_client.read().await,
+                state.secret_mount.as_str(),
+                &secret_ident_to_key(*secret_id),
+                metadata.current_version,
+            )
+            .await
+            .map_err(|err| {
+                IcebergErrorResponse::from(ErrorModel::internal(
+                    "secret read failure",
+                    "SecretReadFailed",
+                    Some(Box::new(err)),
+                ))
+            })?,
+            created_at: metadata.created_time.parse().map_err(|err| {
+                IcebergErrorResponse::from(ErrorModel::internal(
+                    "secret metadata read failure",
+                    "SecretReadFailed",
+                    Some(Box::new(err)),
+                ))
+            })?,
+            updated_at: Some(metadata.updated_time.parse().map_err(|err| {
+                IcebergErrorResponse::from(ErrorModel::internal(
+                    "secret metadata read failure",
+                    "SecretReadFailed",
+                    Some(Box::new(err)),
+                ))
+            })?),
+        })
+    }
+
+    /// Create a new secret
+    async fn create_secret<S: Send + Sync + Serialize + std::fmt::Debug>(
+        secret: S,
+        state: SecretsState,
+    ) -> Result<SecretIdent> {
+        let secret_id = SecretIdent::from(Uuid::now_v7());
+        vaultrs::kv2::set(
+            &*state.vault_client.read().await,
+            state.secret_mount.as_str(),
+            &secret_ident_to_key(secret_id),
+            &secret,
+        )
+        .await
+        .map_err(|err| {
+            ErrorModel::internal(
+                "secret creation failure",
+                "SecretCreationFailed",
+                Some(Box::new(err)),
+            )
+        })?;
+        Ok(secret_id)
+    }
+
+    /// Delete a secret
+    async fn delete_secret(secret_id: &SecretIdent, state: SecretsState) -> Result<()> {
+        Ok(vaultrs::kv2::delete_metadata(
+            &*state.vault_client.read().await,
+            state.secret_mount.as_str(),
+            &secret_ident_to_key(*secret_id),
+        )
+        .await
+        .map_err(|err| {
+            ErrorModel::internal(
+                "secret deletion failure",
+                "SecretDeletionFailed",
+                Some(Box::new(err)),
+            )
+        })?)
+    }
+}
+
+fn secret_ident_to_key(secret_id: SecretIdent) -> String {
+    format!("secret/{secret_id}", secret_id = secret_id.as_uuid())
+}
+
 #[derive(Clone)]
 pub struct SecretsState {
+    // vaultrs doesn't have a Clone impl for Client, so we need to wrap it in an Arc
+    // and since it stores the token internally it becomes a RwLock. Shouldn't be too
+    // bad since we only need to read the client for most operations.
     vault_client: Arc<RwLock<VaultClient>>,
     secret_mount: String,
-    // these are actually accessed, no idea what's clippy's problem here
-    #[allow(dead_code)]
     vault_user: String,
-    #[allow(dead_code)]
     vault_password: String,
-    pub health: Arc<RwLock<Vec<Health>>>,
+    health: Arc<RwLock<Vec<Health>>>,
 }
 
 impl std::fmt::Debug for SecretsState {
@@ -152,92 +255,6 @@ impl SecretsState {
                 Err(e.into())
             }
         }
-    }
-}
-
-#[async_trait::async_trait]
-impl SecretStore for Server {
-    type State = SecretsState;
-
-    /// Get the secret for a given warehouse.
-    async fn get_secret_by_id<S: DeserializeOwned>(
-        secret_id: &SecretIdent,
-        state: SecretsState,
-    ) -> Result<Secret<S>> {
-        // is there no atomic get for metadata and secret??
-        let metadata = vaultrs::kv2::read_metadata(
-            &*state.vault_client.read().await,
-            state.secret_mount.as_str(),
-            &format!("secret/{secret_id}"),
-        )
-        .await
-        .map_err(|err| {
-            IcebergErrorResponse::from(ErrorModel::internal(
-                "secret metadata read failure",
-                "SecretReadFailed",
-                Some(Box::new(err)),
-            ))
-        })?;
-
-        Ok(Secret {
-            secret_id: *secret_id,
-            secret: vaultrs::kv2::read_version::<S>(
-                &*state.vault_client.read().await,
-                state.secret_mount.as_str(),
-                &format!("secret/{secret_id}"),
-                metadata.current_version,
-            )
-            .await
-            .map_err(|err| {
-                IcebergErrorResponse::from(ErrorModel::internal(
-                    "secret read failure",
-                    "SecretReadFailed",
-                    Some(Box::new(err)),
-                ))
-            })?,
-            created_at: metadata.created_time.parse().unwrap(),
-            updated_at: Some(metadata.updated_time.parse().unwrap()),
-        })
-    }
-
-    /// Create a new secret
-    async fn create_secret<S: Send + Sync + Serialize + std::fmt::Debug>(
-        secret: S,
-        state: SecretsState,
-    ) -> Result<SecretIdent> {
-        let secret_id = SecretIdent::from(Uuid::now_v7());
-        vaultrs::kv2::set(
-            &*state.vault_client.read().await,
-            state.secret_mount.as_str(),
-            &format!("secret/{}", secret_id.as_uuid()),
-            &secret,
-        )
-        .await
-        .map_err(|err| {
-            ErrorModel::internal(
-                "secret creation failure",
-                "SecretCreationFailed",
-                Some(Box::new(err)),
-            )
-        })?;
-        Ok(secret_id)
-    }
-
-    /// Delete a secret
-    async fn delete_secret(secret_id: &SecretIdent, state: SecretsState) -> Result<()> {
-        Ok(vaultrs::kv2::delete_metadata(
-            &*state.vault_client.read().await,
-            state.secret_mount.as_str(),
-            &format!("secret/{secret_id}", secret_id = secret_id.as_uuid()),
-        )
-        .await
-        .map_err(|err| {
-            ErrorModel::internal(
-                "secret deletion failure",
-                "SecretDeletionFailed",
-                Some(Box::new(err)),
-            )
-        })?)
     }
 }
 
