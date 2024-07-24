@@ -161,6 +161,7 @@ impl Default for DynAppConfig {
             health_check_frequency_seconds: 10,
             health_check_jitter_millis: 500,
             vault: None,
+            secret_backend: SecretBackend::Postgres,
         }
     }
 }
