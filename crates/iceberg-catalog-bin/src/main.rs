@@ -1,5 +1,3 @@
-mod serve;
-
 use clap::{Parser, Subcommand};
 use iceberg_catalog::api::management::v1::ManagementApiDoc;
 use iceberg_catalog::CONFIG;
@@ -7,6 +5,7 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 mod healthcheck;
+mod serve;
 mod wait_for_db;
 
 #[derive(Parser)]
