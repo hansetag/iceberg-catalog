@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Error};
-use async_trait::async_trait;
 use iceberg_catalog::api::router::{new_full_router, serve as service_serve};
 use iceberg_catalog::implementations::postgres::{Catalog, CatalogState};
 use iceberg_catalog::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
@@ -8,10 +7,9 @@ use iceberg_catalog::service::event_publisher::{
     CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
     NatsBackend,
 };
-use iceberg_catalog::service::health::{Health, HealthExt, ServiceHealthProvider};
-use iceberg_catalog::service::secrets::{Secret, SecretInStorage, Secrets};
+use iceberg_catalog::service::health::{ServiceHealthProvider};
+use iceberg_catalog::service::secrets::{Secrets};
 use iceberg_catalog::service::token_verification::Verifier;
-use iceberg_catalog::service::SecretStore;
 use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
 
