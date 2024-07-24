@@ -1021,7 +1021,7 @@ where
     for prop in properties {
         if prop.starts_with("write.metadata") || prop.starts_with("write.data.path") {
             return Err(ErrorModel::conflict(
-                format!("Properties contain unsupported property: '{}'", prop),
+                format!("Properties contain unsupported property: '{prop}'"),
                 "FailedToSetProperties",
                 None,
             )
@@ -1041,12 +1041,12 @@ pub(crate) fn validate_table_or_view_ident(table: &TableIdent) -> Result<()> {
     validate_namespace_ident(namespace)?;
 
     if name.is_empty() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("name of the identifier cannot be empty".to_string())
-            .r#type("IdentifierNameEmpty".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "name of the identifier cannot be empty",
+            "IdentifierNameEmpty",
+            None,
+        )
+        .into());
     }
     Ok(())
 }
