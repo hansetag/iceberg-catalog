@@ -123,7 +123,7 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
           ICEBERG_REST__VAULT__URL: http://localhost:1234
-          ICEBERG_REST__VAUL__USER: test
+          ICEBERG_REST__VAULT__USER: test
           ICEBERG_REST__VAULT__PASSWORD: test
           ICEBERG_REST__VAULT__SECRET_MOUNT: secret
       - name: Doc Test
