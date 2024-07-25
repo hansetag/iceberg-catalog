@@ -29,7 +29,7 @@ aws-sigv4 = { version = "^1.2", optional = true }
 axum = { workspace = true }
 axum-extra = { workspace = true, features = ["typed-header"] }
 axum-prometheus = { workspace = true }
-chrono = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
 cloudevents-sdk = { version = "0.7.0" }
 derive_more = { workspace = true }
 figment = { workspace = true }
@@ -44,7 +44,6 @@ jsonwebtoken = "9.3.0"
 jwks_client_rs = { workspace = true }
 lazy_static = { workspace = true }
 maplit = { workspace = true }
-openssl = { version = '0.10', features = ["vendored"] }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
