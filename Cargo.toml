@@ -28,7 +28,7 @@ iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "tp/p
 typed-builder = "^0.18"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }
-axum-prometheus = "0.6.1"
+axum-prometheus = "0.7.0"
 axum-extra = { version = "0.9.3" }
 async-trait = "^0.1"
 env_logger = "^0.11"
