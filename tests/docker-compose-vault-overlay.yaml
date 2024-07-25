@@ -20,9 +20,9 @@ services:
     healthcheck:
       test: [ "CMD", "vault", "status", "-address http://localhost:8200" ]
       interval: 1s
-      timeout: 20s
+      timeout: 5s
       retries: 2
-      start_period: 20s
+      start_period: 40s
   inithvault:
     image: hashicorp/vault:latest
     depends_on:
