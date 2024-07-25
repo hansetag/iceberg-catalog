@@ -24,9 +24,9 @@ COPY . .
 ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin iceberg-catalog
 
-
 # our final base
-FROM gcr.io/distroless/base-nossl-debian12:nonroot
+FROM cgr.dev/chainguard/cc-dynamic:13.3.0
+
 ARG EXPIRES=Never
 LABEL maintainer="moderation@hansetag.com" quay.expires-after=${EXPIRES}
 
