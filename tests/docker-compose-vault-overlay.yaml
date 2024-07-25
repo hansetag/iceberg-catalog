@@ -29,4 +29,4 @@ services:
     restart: "no"
     entrypoint: [ "sh", "/init_vault.sh" ]
     volumes:
-      - ../examples/init_vault.sh:/init_vault.sh
+      - ./init_vault.sh:/init_vault.sh
