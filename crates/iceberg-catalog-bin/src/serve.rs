@@ -70,7 +70,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     };
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
 
-    let (metrics_layer, metrics_future) =
+    let metrics_layer =
         iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?;
 
     let router =
@@ -94,14 +94,6 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
             Ok(_) => tracing::info!("Exiting publisher task"),
             Err(e) => tracing::error!("Publisher task failed: {e}"),
         };
-    });
-
-    tokio::task::spawn(async move {
-        tracing::info!(
-            "Starting metrics server listening on 0.0.0.0:{} ...",
-            CONFIG.metrics_port
-        );
-        metrics_future.await
     });
 
     service_serve(listener, router).await?;
