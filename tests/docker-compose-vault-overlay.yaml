@@ -20,7 +20,7 @@ services:
     cap_add:
       - IPC_LOCK
     healthcheck:
-      test: [ "CMD", "vault", "status", "-address http://hvault:8200" ]
+      test: [ "CMD", "vault", "status", "-address", "http://hvault:8200" ]
       interval: 1s
       timeout: 5s
       retries: 2
