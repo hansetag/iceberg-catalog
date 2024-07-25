@@ -65,7 +65,7 @@ impl NamespaceIdentExt for NamespaceIdent {
 pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
     pub auth: A::State,
     pub catalog: C::State,
-    pub secrets: S::State,
+    pub secrets: S,
     pub publisher: CloudEventsPublisher,
     pub contract_verifiers: ContractVerifiers,
 }

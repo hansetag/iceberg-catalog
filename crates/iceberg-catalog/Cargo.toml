@@ -64,6 +64,10 @@ urlencoding = { workspace = true }
 utoipa = { workspace = true, features = ["uuid"] }
 utoipa-swagger-ui = { workspace = true }
 uuid = { workspace = true }
+
+vaultrs = "0.7.2"
+vaultrs-login = "0.2.1"
+
 veil = { workspace = true }
 rand = "0.8.5"
 

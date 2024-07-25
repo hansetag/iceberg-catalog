@@ -142,12 +142,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // If all is good, we need the storage secret
         let storage_secret = if let Some(storage_secret_ident) = storage_secret_ident {
             Some(
-                S::get_secret_by_id::<StorageCredential>(
-                    &storage_secret_ident,
-                    state.v1_state.secrets,
-                )
-                .await?
-                .secret,
+                state
+                    .v1_state
+                    .secrets
+                    .get_secret_by_id::<StorageCredential>(&storage_secret_ident)
+                    .await?
+                    .secret,
             )
         } else {
             None

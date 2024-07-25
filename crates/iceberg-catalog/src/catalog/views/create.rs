@@ -130,7 +130,10 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     // We don't commit the transaction yet, first we need to write the metadata file.
     let storage_secret = if let Some(secret_id) = &storage_secret_id {
         Some(
-            S::get_secret_by_id(secret_id, state.v1_state.secrets)
+            state
+                .v1_state
+                .secrets
+                .get_secret_by_id(secret_id)
                 .await?
                 .secret,
         )
@@ -195,7 +198,7 @@ pub(crate) mod test {
 
     use crate::catalog::views::test::new_namespace;
 
-    use crate::implementations::postgres::secrets::Server;
+    use crate::implementations::postgres::secrets::SecretsState;
     use crate::implementations::AllowAllAuthZHandler;
     use iceberg::NamespaceIdent;
     use serde_json::json;
@@ -203,7 +206,7 @@ pub(crate) mod test {
 
     pub(crate) async fn create_view(
         api_context: ApiContext<
-            State<AllowAllAuthZHandler, crate::implementations::postgres::Catalog, Server>,
+            State<AllowAllAuthZHandler, crate::implementations::postgres::Catalog, SecretsState>,
         >,
         namespace: NamespaceIdent,
         rq: CreateViewRequest,
