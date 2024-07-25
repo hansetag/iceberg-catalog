@@ -8,6 +8,8 @@ services:
         condition: service_healthy
       inithvault:
         condition: service_completed_successfully
+      testhvault:
+        condition: service_completed_successfully
   hvault:
     image: hashicorp/vault:latest
     ports:
@@ -22,7 +24,7 @@ services:
       interval: 1s
       timeout: 5s
       retries: 2
-      start_period: 200s
+      start_period: 40s
   inithvault:
     image: hashicorp/vault:latest
     depends_on:
@@ -32,3 +34,11 @@ services:
     entrypoint: [ "sh", "/init_vault.sh" ]
     volumes:
       - ./init_vault.sh:/init_vault.sh
+  testhvault:
+    image: hashicorp/vault:latest
+    depends_on:
+      hvault:
+        condition: service_started
+    restart: "no"
+    entrypoint: [ "sh", "-c" ]
+    command: ["sleep 10 && vault status -address http://hvault:8200"]
