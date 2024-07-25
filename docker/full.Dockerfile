@@ -1,5 +1,5 @@
 # docker build -f docker/full.Dockerfile -t iceberg-catalog-local:latest .
-FROM rust:1.79-slim-bookworm AS chef
+FROM rust:1.80-slim-bookworm AS chef
 # We only pay the installation cost once, 
 # it will be cached from the second build onwards
 RUN apt update -q && \
