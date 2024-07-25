@@ -22,7 +22,7 @@ services:
       interval: 1s
       timeout: 5s
       retries: 2
-      start_period: 40s
+      start_period: 200s
   inithvault:
     image: hashicorp/vault:latest
     depends_on:
