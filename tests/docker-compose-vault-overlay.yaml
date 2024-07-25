@@ -9,10 +9,10 @@ services:
   hvault:
     image: hashicorp/vault:latest
     ports:
-      - 1234:1234
+      - 8200:8200
     environment:
       - VAULT_DEV_ROOT_TOKEN_ID=myroot
-      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:1234
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
     cap_add:
       - IPC_LOCK
     healthcheck:
