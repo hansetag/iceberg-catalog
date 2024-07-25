@@ -20,7 +20,6 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
 pub struct GetConfigQueryParams {
     /// Warehouse location or identifier to request from the service
     #[serde(skip_serializing_if = "Option::is_none")]
