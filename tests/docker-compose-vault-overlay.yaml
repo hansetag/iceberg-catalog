@@ -2,10 +2,10 @@ services:
   server:
     environment:
       - ICEBERG_REST__SECRET_BACKEND=kv2
-      - 'ICEBERG_REST__VAULT={url="http://hvault:1234", user="test", password="test", secret_mount="secret"}'
+      - ICEBERG_REST__VAULT={url="http://hvault:1234", user="test", password="test", secret_mount="secret"}
     depends_on:
-      - hvault:
-          condition: service_healthy
+      hvault:
+        condition: service_healthy
   hvault:
     image: hashicorp/vault:latest
     ports:
@@ -20,8 +20,6 @@ services:
       interval: 1s
       timeout: 10s
       retries: 3
-    networks:
-      iceberg_net:
   inithvault:
     image: hashicorp/vault:latest
     depends_on:
@@ -31,5 +29,3 @@ services:
     entrypoint: [ "sh", "/init_vault.sh" ]
     volumes:
       - ../examples/init_vault.sh:/init_vault.sh
-    networks:
-      iceberg_net:
