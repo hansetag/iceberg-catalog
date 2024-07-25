@@ -15,21 +15,9 @@ use tokio::time::Sleep;
 use uuid::Uuid;
 use vaultrs::client::{Client, VaultClient};
 
-use crate::config::VaultConfig;
+use crate::config::KV2Config;
 use vaultrs_login::engines::userpass::UserpassLogin;
 use vaultrs_login::LoginMethod;
-
-#[derive(Clone)]
-pub struct SecretsState {
-    // vaultrs doesn't have a Clone impl for Client, so we need to wrap it in an Arc
-    // and since it stores the token internally it becomes a RwLock. Shouldn't be too
-    // bad since we only need to read the client for most operations.
-    vault_client: Arc<RwLock<VaultClient>>,
-    secret_mount: String,
-    vault_user: String,
-    vault_password: String,
-    health: Arc<RwLock<Vec<Health>>>,
-}
 
 #[async_trait::async_trait]
 impl SecretStore for SecretsState {
@@ -128,48 +116,16 @@ impl SecretStore for SecretsState {
     }
 }
 
-fn secret_ident_to_key(secret_id: SecretIdent) -> String {
-    format!("secret/{secret_id}", secret_id = secret_id.as_uuid())
-}
-
-impl std::fmt::Debug for SecretsState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SecretsState")
-            .field("vault_client", &"VaultClient")
-            .field("secret_mount", &self.secret_mount)
-            .field("vault_user", &self.vault_user)
-            .field("vault_password", &"REDACTED")
-            .field("health", &self.health)
-            .finish()
-    }
-}
-
-#[async_trait]
-impl HealthExt for SecretsState {
-    async fn health(&self) -> Vec<Health> {
-        self.health.read().await.clone()
-    }
-
-    async fn update_health(&self) {
-        let handle = self.vault_client.read().await;
-        let t = vaultrs::sys::health(&*handle).await;
-        match t {
-            Ok(_) => {
-                tracing::debug!("Vault is healthy");
-                self.health
-                    .write()
-                    .await
-                    .push(Health::now("vault", HealthStatus::Healthy));
-            }
-            Err(err) => {
-                tracing::error!(?err, "Vault is unhealthy");
-                self.health
-                    .write()
-                    .await
-                    .push(Health::now("vault", HealthStatus::Unhealthy));
-            }
-        }
-    }
+#[derive(Clone)]
+pub struct SecretsState {
+    // vaultrs doesn't have a Clone impl for Client, so we need to wrap it in an Arc
+    // and since it stores the token internally it becomes a RwLock. Shouldn't be too
+    // bad since we only need to read the client for most operations.
+    vault_client: Arc<RwLock<VaultClient>>,
+    secret_mount: String,
+    vault_user: String,
+    vault_password: String,
+    health: Arc<RwLock<Vec<Health>>>,
 }
 
 impl SecretsState {
@@ -180,12 +136,12 @@ impl SecretsState {
     /// # Errors
     /// Fails if the initial login fails
     pub async fn from_config(
-        VaultConfig {
+        KV2Config {
             url,
             user,
             password,
             secret_mount,
-        }: &VaultConfig,
+        }: &KV2Config,
     ) -> anyhow::Result<Self> {
         let slf = Self {
             vault_client: Arc::new(RwLock::new(VaultClient::new(
@@ -251,6 +207,50 @@ impl SecretsState {
             }
         }
     }
+}
+
+#[async_trait]
+impl HealthExt for SecretsState {
+    async fn health(&self) -> Vec<Health> {
+        self.health.read().await.clone()
+    }
+
+    async fn update_health(&self) {
+        let handle = self.vault_client.read().await;
+        let t = vaultrs::sys::health(&*handle).await;
+        match t {
+            Ok(_) => {
+                tracing::debug!("Vault is healthy");
+                self.health
+                    .write()
+                    .await
+                    .push(Health::now("vault", HealthStatus::Healthy));
+            }
+            Err(err) => {
+                tracing::error!(?err, "Vault is unhealthy");
+                self.health
+                    .write()
+                    .await
+                    .push(Health::now("vault", HealthStatus::Unhealthy));
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for SecretsState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SecretsState")
+            .field("vault_client", &"VaultClient")
+            .field("secret_mount", &self.secret_mount)
+            .field("vault_user", &self.vault_user)
+            .field("vault_password", &"REDACTED")
+            .field("health", &self.health)
+            .finish()
+    }
+}
+
+fn secret_ident_to_key(secret_id: SecretIdent) -> String {
+    format!("secret/{secret_id}", secret_id = secret_id.as_uuid())
 }
 
 #[cfg(test)]

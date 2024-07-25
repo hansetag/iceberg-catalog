@@ -23,7 +23,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
 
     let catalog_state = CatalogState::from_pools(read_pool.clone(), write_pool.clone());
     let secrets_state: Secrets = match CONFIG.secret_backend {
-        SecretBackend::Vault => iceberg_catalog::implementations::kv2::SecretsState::from_config(
+        SecretBackend::KV2 => iceberg_catalog::implementations::kv2::SecretsState::from_config(
             CONFIG
                 .vault
                 .as_ref()

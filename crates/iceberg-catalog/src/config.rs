@@ -100,20 +100,20 @@ pub struct DynAppConfig {
     pub health_check_frequency_seconds: u64,
     pub health_check_jitter_millis: u64,
 
-    // ------------- Vault -------------
-    pub vault: Option<VaultConfig>,
+    // ------------- KV2 -------------
+    pub vault: Option<KV2Config>,
     // ------------- Secrets -------------
     pub secret_backend: SecretBackend,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SecretBackend {
-    Vault,
+    KV2,
     Postgres,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Redact)]
-pub struct VaultConfig {
+pub struct KV2Config {
     pub url: Url,
     pub user: String,
     #[redact]
