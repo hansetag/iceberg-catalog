@@ -1,8 +1,8 @@
 services:
   server:
     environment:
-      - ICEBERG_REST__SECRET_BACKEND=kv2
-      - ICEBERG_REST__VAULT={url="http://hvault:1234", user="test", password="test", secret_mount="secret"}
+      - ICEBERG_REST__SECRET_BACKEND=KV2
+      - ICEBERG_REST__VAULT={url="http://hvault:8200", user="test", password="test", secret_mount="secret"}
     depends_on:
       hvault:
         condition: service_healthy
@@ -16,7 +16,7 @@ services:
     cap_add:
       - IPC_LOCK
     healthcheck:
-      test: [ "CMD", "vault", "status", "-address http://localhost:1234" ]
+      test: [ "CMD", "vault", "status", "-address http://localhost:8200" ]
       interval: 1s
       timeout: 15s
       retries: 2
