@@ -13,7 +13,7 @@ use crate::service::health::{Health, HealthExt, HealthStatus};
 use crate::CONFIG;
 use anyhow::anyhow;
 use async_trait::async_trait;
-pub use secrets::Server as SecretsStore;
+pub use secrets::SecretsState as SecretsStore;
 use sqlx::migrate::{Migrate, MigrateError};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{ConnectOptions, Error, Executor, PgPool};
@@ -255,42 +255,7 @@ impl CatalogState {
         self.read_write.write_pool.clone()
     }
 }
-
-#[derive(Clone, Debug)]
-#[allow(clippy::module_name_repetitions)]
-pub struct SecretsState {
-    pub read_write: ReadWrite,
-}
-
-#[async_trait]
-impl HealthExt for SecretsState {
-    async fn health(&self) -> Vec<Health> {
-        self.read_write.health().await
-    }
-
-    async fn update_health(&self) {
-        self.read_write.update_health().await;
-    }
-}
-
-impl SecretsState {
-    #[must_use]
-    pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
-        Self {
-            read_write: ReadWrite::from_pools(read_pool, write_pool),
-        }
-    }
-
-    #[must_use]
-    pub fn read_pool(&self) -> PgPool {
-        self.read_write.read_pool.clone()
-    }
-
-    #[must_use]
-    pub fn write_pool(&self) -> PgPool {
-        self.read_write.write_pool.clone()
-    }
-}
+pub use secrets::SecretsState;
 
 impl DynAppConfig {
     pub fn to_pool_opts(&self) -> PgPoolOptions {

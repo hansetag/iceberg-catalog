@@ -136,7 +136,7 @@ mod test {
     use crate::api::ApiContext;
 
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
-    use crate::implementations::postgres::secrets::Server;
+
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use crate::implementations::postgres::{Catalog, CatalogState, SecretsState};
     use crate::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
@@ -154,7 +154,7 @@ mod test {
         pool: PgPool,
         namespace_name: Option<Vec<String>>,
     ) -> (
-        ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,
+        ApiContext<State<AllowAllAuthZHandler, Catalog, SecretsState>>,
         NamespaceIdent,
         WarehouseIdent,
     ) {
@@ -181,7 +181,7 @@ mod test {
 
     pub(crate) fn get_api_context(
         pool: PgPool,
-    ) -> ApiContext<State<AllowAllAuthZHandler, Catalog, Server>> {
+    ) -> ApiContext<State<AllowAllAuthZHandler, Catalog, SecretsState>> {
         let (tx, _) = tokio::sync::mpsc::channel(1000);
 
         ApiContext {

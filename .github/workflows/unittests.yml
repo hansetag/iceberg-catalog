@@ -59,6 +59,19 @@ jobs:
   test:
     runs-on: ubuntu-latest
     services:
+      vault:
+        image: hashicorp/vault:latest
+        ports:
+          - 8200:8200
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: myroot
+          VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+          options: >-
+            --health-cmd "vault status -address http://localhost:1234"
+            --health-interval 10s
+            --health-timeout 5s
+            --health-retries 5
+
       postgres:
         image: postgres:16
         env:
@@ -89,12 +102,30 @@ jobs:
           sqlx migrate run
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      - name: Setup vault
+        run: |
+          export VAULT_ADDR=http://localhost:8200
+          export DEBIAN_FRONTEND=noninteractive 
+          sudo apt update && sudo apt install gpg wget
+          wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          gpg --no-default-keyring --keyring /usr/share/keyrings/hashicorp-archive-keyring.gpg --fingerprint
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt update && sudo apt install vault
+          
+          vault login -address "${VAULT_ADDR}" myroot
+          vault auth  enable -address "${VAULT_ADDR}"  userpass
+          echo "path \"secret/*\" { capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"] }" > /tmp/app.hcl
+          vault policy write -address "${VAULT_ADDR}" app /tmp/app.hcl
+          vault write -address "${VAULT_ADDR}" auth/userpass/users/test password=test policies=app
 
       - name: Test
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-
+          ICEBERG_REST__VAULT__URL: http://localhost:8200
+          ICEBERG_REST__VAULT__USER: test
+          ICEBERG_REST__VAULT__PASSWORD: test
+          ICEBERG_REST__VAULT__SECRET_MOUNT: secret
       - name: Doc Test
         run: cargo test --no-fail-fast --doc --all-features --workspace
         env:

@@ -144,7 +144,13 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
         let secret_id = if let Some(storage_credential) = storage_credential {
-            Some(S::create_secret(storage_credential, context.v1_state.secrets).await?)
+            Some(
+                context
+                    .v1_state
+                    .secrets
+                    .create_secret(storage_credential)
+                    .await?,
+            )
         } else {
             None
         };
@@ -359,7 +365,13 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         let old_secret_id = warehouse.storage_secret_id;
 
         let secret_id = if let Some(storage_credential) = storage_credential {
-            Some(S::create_secret(storage_credential, context.v1_state.secrets.clone()).await?)
+            Some(
+                context
+                    .v1_state
+                    .secrets
+                    .create_secret(storage_credential)
+                    .await?,
+            )
         } else {
             None
         };
@@ -376,7 +388,10 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         // Delete the old secret if it exists - never fail the request if the deletion fails
         if let Some(old_secret_id) = old_secret_id {
-            S::delete_secret(&old_secret_id, context.v1_state.secrets)
+            context
+                .v1_state
+                .secrets
+                .delete_secret(&old_secret_id)
                 .await
                 .map_err(|e| {
                     tracing::warn!("Failed to delete old secret: {:?}", e.error);
@@ -411,7 +426,13 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             .await?;
 
         let secret_id = if let Some(new_storage_credential) = new_storage_credential {
-            Some(S::create_secret(new_storage_credential, context.v1_state.secrets.clone()).await?)
+            Some(
+                context
+                    .v1_state
+                    .secrets
+                    .create_secret(new_storage_credential)
+                    .await?,
+            )
         } else {
             None
         };
@@ -428,7 +449,10 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         // Delete the old secret if it exists - never fail the request if the deletion fails
         if let Some(old_secret_id) = old_secret_id {
-            S::delete_secret(&old_secret_id, context.v1_state.secrets)
+            context
+                .v1_state
+                .secrets
+                .delete_secret(&old_secret_id)
                 .await
                 .map_err(|e| {
                     tracing::warn!("Failed to delete old secret: {:?}", e.error);

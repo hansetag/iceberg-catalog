@@ -20,7 +20,7 @@ lazy_static::lazy_static! {
     pub static ref CONFIG: DynAppConfig = {
         let defaults = figment::providers::Serialized::defaults(DynAppConfig::default());
         let mut config = figment::Figment::from(defaults)
-            .merge(figment::providers::Env::prefixed("ICEBERG_REST__"))
+            .merge(figment::providers::Env::prefixed("ICEBERG_REST__").split("__"))
             .extract::<DynAppConfig>()
             .expect("Valid Configuration");
 
@@ -99,6 +99,26 @@ pub struct DynAppConfig {
     // ------------- Health -------------
     pub health_check_frequency_seconds: u64,
     pub health_check_jitter_millis: u64,
+
+    // ------------- KV2 -------------
+    pub vault: Option<KV2Config>,
+    // ------------- Secrets -------------
+    pub secret_backend: SecretBackend,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SecretBackend {
+    KV2,
+    Postgres,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Redact)]
+pub struct KV2Config {
+    pub url: Url,
+    pub user: String,
+    #[redact]
+    pub password: String,
+    pub secret_mount: String,
 }
 
 impl Default for DynAppConfig {
@@ -140,6 +160,8 @@ impl Default for DynAppConfig {
             listen_port: 8080,
             health_check_frequency_seconds: 10,
             health_check_jitter_millis: 500,
+            vault: None,
+            secret_backend: SecretBackend::Postgres,
         }
     }
 }
