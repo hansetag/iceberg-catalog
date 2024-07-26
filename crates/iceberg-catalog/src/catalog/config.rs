@@ -136,7 +136,7 @@ impl<
 
         config
             .overrides
-            .insert("uri".to_string(), CONFIG.base_uri.to_string());
+            .insert("uri".to_string(), CONFIG.base_uri_catalog().to_string());
 
         Ok(config)
     }
