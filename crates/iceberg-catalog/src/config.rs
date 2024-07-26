@@ -26,6 +26,11 @@ lazy_static::lazy_static! {
 
         config.reserved_namespaces.extend(DEFAULT_RESERVED_NAMESPACES.into_iter().map(str::to_string));
 
+        // Fail early if the base_uri is not a valid URL
+        config.s3_signer_uri_for_warehouse(WarehouseIdent::from(uuid::Uuid::new_v4()));
+        config.base_uri_catalog();
+        config.base_uri_management();
+
         config
     };
 }
@@ -124,9 +129,7 @@ pub struct KV2Config {
 impl Default for DynAppConfig {
     fn default() -> Self {
         Self {
-            base_uri: "https://localhost:8080/catalog/"
-                .parse()
-                .expect("Valid URL"),
+            base_uri: "https://localhost:8080".parse().expect("Valid URL"),
             metrics_port: 9000,
             default_project_id: None,
             prefix_template: "{warehouse_id}".to_string(),
@@ -169,8 +172,16 @@ impl Default for DynAppConfig {
 impl DynAppConfig {
     pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: WarehouseIdent) -> url::Url {
         self.base_uri
-            .join(&format!("v1/{warehouse_id}"))
+            .join(&format!("catalog/v1/{warehouse_id}"))
             .expect("Valid URL")
+    }
+
+    pub fn base_uri_catalog(&self) -> url::Url {
+        self.base_uri.join("catalog").expect("Valid URL")
+    }
+
+    pub fn base_uri_management(&self) -> url::Url {
+        self.base_uri.join("management").expect("Valid URL")
     }
 
     pub fn warehouse_prefix(&self, warehouse_id: WarehouseIdent) -> String {
