@@ -22,9 +22,28 @@ COPY . .
 
 ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin iceberg-catalog
+RUN ldd target/release/iceberg-catalog > tmp_file
 
 # our final base
 FROM gcr.io/distroless/cc-debian12:nonroot as base
+COPY --from=builder /app/tmp_file /tmp_file
+
+FROM busybox:1.36.1 as cleaner
+COPY --from=base / /clean
+
+RUN rm -r /clean/usr/lib/*-linux-gnu/libgomp*  \
+         /clean/usr/lib/*-linux-gnu/libssl*  \
+         /clean/usr/lib/*-linux-gnu/libstdc++* \
+         /clean/usr/lib/*-linux-gnu/engines-3 \
+         /clean/usr/lib/*-linux-gnu/ossl-modules \
+         /clean/usr/lib/*-linux-gnu/libcrypto.so.3 \
+       /clean/var/lib/dpkg/status.d/libgomp1*  \
+       /clean/var/lib/dpkg/status.d/libssl3*  \
+       /clean/var/lib/dpkg/status.d/libstdc++6* \
+       /clean/usr/share/doc/libssl3 \
+       /clean/usr/share/doc/libstdc++6 \
+       /clean/usr/share/doc/libgomp1
+
 
 FROM scratch
 
@@ -34,16 +53,7 @@ LABEL maintainer="moderation@hansetag.com" quay.expires-after=${EXPIRES}
 # noise we cannot use rm since we don't have a shell, we cannot use the experimental --exclude syntax since podman
 # doesn't seem to support it. So we end up with that thing below here.
 
-COPY --from=base /home /etc /lib /sys /proc /boot /bin /dev /root /tmp /
-COPY --from=base /usr/share /usr/
-COPY --from=base /usr/lib/os-release /usr/lib/os-release
-COPY --from=base /var/lib /var/spool /var/run /var/log /var/lock /var/local /var/cache /var/backups /var/
-COPY --from=base /var/lib/misc /var/lib/misc/
-COPY --from=base /var/lib/dpkg/status.d/tzdata* \
-/var/lib/dpkg/status.d/libc6* \
-/var/lib/dpkg/status.d/libgcc-s1* \
-/var/lib/dpkg/status.d/base-files* /var/lib/dpkg/status/
-
+COPY --from=cleaner /clean /
 
 # copy the build artifact from the build stage
 COPY --from=builder /app/target/release/iceberg-catalog /home/nonroot/iceberg-catalog
