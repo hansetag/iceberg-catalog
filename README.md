@@ -42,9 +42,7 @@ docker compose up
 
 Then open your browser and head to `localhost:8888`.
 
-# Deploy on Kubernetes
-
-We provide a Helm-Chart to deploy the REST-Server on Kubernetes. The chart is developed and hosted in the [iceberg-catalog-charts](https://github.com/hansetag/iceberg-catalog-charts) repository. Please check its `README` for more information on available values.
+For more information on deployment, please check the [User Guide](USER_GUIDE.md).
 
 
 # Status
