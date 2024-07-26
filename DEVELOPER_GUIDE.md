@@ -41,7 +41,7 @@ Please check the [Integration Test Docs](tests/README.md).
 ```sh
 docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:15
 
-export ICEBERG_REST__BASE_URI="http://localhost:8080/catalog/"
+export ICEBERG_REST__BASE_URI="http://localhost:8080"
 export ICEBERG_REST__PG_ENCRYPTION_KEY="abc"
 export ICEBERG_REST__PG_DATABASE_URL_READ="postgresql://postgres:postgres@localhost/demo"
 export ICEBERG_REST__PG_DATABASE_URL_WRITE="postgresql://postgres:postgres@localhost/demo"
