@@ -19,7 +19,7 @@ RUN rm -r /clean/usr/lib/*-linux-gnu/libgomp*  \
        /clean/var/lib/dpkg/status.d/libstdc++6* \
        /clean/usr/share/doc/libssl3 \
        /clean/usr/share/doc/libstdc++6 \
-       /clean/usr/share/doc/libgomp1 \
+       /clean/usr/share/doc/libgomp1
 
 FROM scratch
 
