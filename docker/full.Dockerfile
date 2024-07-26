@@ -28,16 +28,14 @@ RUN cargo build --release --bin iceberg-catalog
 FROM gcr.io/distroless/cc-debian12:nonroot as base
 
 FROM scratch as final
+ARG EXPIRES=Never
+LABEL maintainer="moderation@hansetag.com" quay.expires-after=${EXPIRES}
 
 COPY --from=base /home /home
 COPY --from=base /etc/ /etc/
 COPY --from=base /lib/ /lib/
 COPY --from=base /usr/share /usr/share
 COPY --from=base /usr/lib/os-release /usr/lib/os-release
-
-ARG EXPIRES=Never
-LABEL maintainer="moderation@hansetag.com" quay.expires-after=${EXPIRES}
-
 
 # copy the build artifact from the build stage
 COPY --from=builder /app/target/release/iceberg-catalog /home/nonroot/iceberg-catalog
