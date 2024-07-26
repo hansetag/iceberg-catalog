@@ -21,7 +21,7 @@ services:
       - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:postgres@db:5432/postgres
       - ICEBERG_REST__DEFAULT_PROJECT_ID=00000000-0000-0000-0000-000000000000
       - RUST_LOG=info
-    entrypoint: [ "./iceberg-catalog", "serve" ]
+    command: [ "serve" ]
     healthcheck:
       test: [ "CMD", "/home/nonroot/iceberg-catalog", "healthcheck" ]
       interval: 1s
