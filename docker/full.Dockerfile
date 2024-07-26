@@ -25,7 +25,15 @@ ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin iceberg-catalog
 
 # our final base
-FROM cgr.dev/chainguard/cc-dynamic:13.3.0
+FROM gcr.io/distroless/cc-debian12:nonroot as base
+
+FROM scratch as final
+
+COPY --from=base /home /home
+COPY --from=base /etc/ /etc/
+COPY --from=base /lib/ /lib/
+COPY --from=base /usr/share /usr/share
+COPY --from=base /usr/lib/os-release /usr/lib/os-release
 
 ARG EXPIRES=Never
 LABEL maintainer="moderation@hansetag.com" quay.expires-after=${EXPIRES}
