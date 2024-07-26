@@ -1,3 +1,5 @@
+#syntax=docker/dockerfile:1
+
 # docker build -f docker/full.Dockerfile -t iceberg-catalog-local:latest .
 FROM rust:1.79-slim-bookworm AS chef
 # We only pay the installation cost once, 
@@ -27,29 +29,43 @@ RUN cargo build --release --bin iceberg-catalog
 # our final base
 FROM gcr.io/distroless/cc-debian12:nonroot as base
 
+FROM scratch
 
-FROM scratch as final
 ARG EXPIRES=Never
 LABEL maintainer="moderation@hansetag.com" quay.expires-after=${EXPIRES}
+# copy almost everything from the distroless container leaving behind libgomp libssl which we don't need and create CVE
+# noise
+COPY --from=base /home /home \
+/etc/ /etc/ \
+/lib/ /lib/ \
+/usr/share /usr/share \
+/usr/lib/os-release \
+/usr/lib/os-release \
+/sys /sys \
+/proc /proc \
+/boot /boot \
+/bin /bin \
+/dev /dev \
+/root /root \
+/tmp /tmp \
+/var/lib/misc /var/lib/misc \
+/var/tmp /var/tmp \
+/var/spool /var/spool \
+/var/run /var/run \
+/var/log /var/log \
+/var/lock /var/lock \
+/var/local /var/local \
+/var/cache /var/cache \
+/var/backups /var/backups \
+/var/lib/dpkg/status.d/tzdata.md5sums /var/lib/dpkg/status.d/ \
+/var/lib/dpkg/status.d/libc6.md5sums /var/lib/dpkg/status.d/ \
+/var/lib/dpkg/status.d/libgcc-s1 /var/lib/dpkg/status.d/ \
+/var/lib/dpkg/status.d/libgcc-s1.md5sums /var/lib/dpkg/status.d/ \
+/var/lib/dpkg/status.d/base-files.md5sums /var/lib/dpkg/status.d/ \
+/var/lib/dpkg/status.d/base-files /var/lib/dpkg/status.d/
 
-COPY --from=base /home /home
-COPY --from=base /etc/ /etc/
-COPY --from=base /lib/ /lib/
-COPY --from=base /usr/share /usr/share
-COPY --from=base /usr/lib/os-release /usr/lib/os-release
-COPY --from=base /sys /sys
-COPY --from=base /proc /proc
-COPY --from=base /boot /boot
-COPY --from=base /bin /bin
-COPY --from=base /dev /dev
-COPY --from=base /root /root
-COPY --from=base /tmp /tmp
-COPY --from=base /var/lib/dpkg/status.d/tzdata.md5sums /var/lib/dpkg/status.d/
-COPY --from=base /var/lib/dpkg/status.d/libc6.md5sums /var/lib/dpkg/status.d/
-COPY --from=base /var/lib/dpkg/status.d/libgcc-s1 /var/lib/dpkg/status.d/
-COPY --from=base /var/lib/dpkg/status.d/libgcc-s1.md5sums /var/lib/dpkg/status.d/
-COPY --from=base /var/lib/dpkg/status.d/base-files.md5sums /var/lib/dpkg/status.d/
-COPY --from=base /var/lib/dpkg/status.d/base-files /var/lib/dpkg/status.d/
+
+
 
 
 
