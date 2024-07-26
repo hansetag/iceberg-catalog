@@ -1,5 +1,7 @@
 # Using the Catalog
 
+If you just want a quick glimpse, use the self-contained Quickstart describe in the main [README](#README). Otherwise, continue here.
+
 # Deployment
 
 There are multiple ways to deploy the catalog. It ships as a single standalone binary that can be deployed anywhere you like. For high availability, we recommend to [Deploy on Kubernetes](#deployment-on-kubernetes).
@@ -103,3 +105,4 @@ spark.sql(
 sdf.writeTo("demo.my_namespace.my_table").append()
 spark.table("demo.my_namespace.my_table").show()
 ```
+For more examples also check the [/examples/notebooks](examples/notebooks) as well as our [integration tests](tests/python/tests/).
