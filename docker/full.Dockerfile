@@ -1,6 +1,3 @@
-#syntax=docker/dockerfile:1
-
-# docker build -f docker/full.Dockerfile -t iceberg-catalog-local:latest .
 FROM rust:1.79-slim-bookworm AS chef
 # We only pay the installation cost once, 
 # it will be cached from the second build onwards
@@ -34,7 +31,9 @@ FROM scratch
 ARG EXPIRES=Never
 LABEL maintainer="moderation@hansetag.com" quay.expires-after=${EXPIRES}
 # copy almost everything from the distroless container leaving behind libgomp libssl which we don't need and create CVE
-# noise
+# noise we cannot use rm since we don't have a shell, we cannot use the experimental --exclude syntax since podman
+# doesn't seem to support it. So we end up with that thing below here.
+
 COPY --from=base /home /home \
 /etc/ /etc/ \
 /lib/ /lib/ \
@@ -63,11 +62,6 @@ COPY --from=base /home /home \
 /var/lib/dpkg/status.d/libgcc-s1.md5sums /var/lib/dpkg/status.d/ \
 /var/lib/dpkg/status.d/base-files.md5sums /var/lib/dpkg/status.d/ \
 /var/lib/dpkg/status.d/base-files /var/lib/dpkg/status.d/
-
-
-
-
-
 
 # copy the build artifact from the build stage
 COPY --from=builder /app/target/release/iceberg-catalog /home/nonroot/iceberg-catalog
