@@ -1,7 +1,7 @@
 services:
   server:
     environment:
-      - ICEBERG_REST__SECRET_BACKEND=KV2
+      - ICEBERG_REST__SECRET_BACKEND=kv2
       - ICEBERG_REST__VAULT={url="http://hvault:8200", user="test", password="test", secret_mount="secret"}
     depends_on:
       hvault:

@@ -143,7 +143,7 @@ Following options are global and apply to all warehouses:
 | `ICEBERG_REST__RESERVED_NAMESPACES` | `system,examples`                      | Reserved Namespaces that cannot be created via the REST interface                                                                                                                                                              |
 | `ICEBERG_REST__METRICS_PORT`        | `9000`                                 | Port where the metrics endpoint is reachable. Default: `9000`                                                                                                                                                                  |
 | `ICEBERG_REST__LISTEN_PORT`         | `8080`                                 | Port the server listens on. Default: `8080`                                                                                                                                                                                    |
-| `ICEBERG_REST__SECRET_BACKEND`      | `Postgres`                             | The secret backend to use. If `kv2` is chosen, you need to provide additional parameters found under []() Default: `postgres`, one-of: [`Postgres`, `KV2`]                                                                     |
+| `ICEBERG_REST__SECRET_BACKEND`      | `postgres`                             | The secret backend to use. If `kv2` is chosen, you need to provide additional parameters found under []() Default: `postgres`, one-of: [`postgres`, `kv2`]                                                                     |
 
 ### Postgres
 
