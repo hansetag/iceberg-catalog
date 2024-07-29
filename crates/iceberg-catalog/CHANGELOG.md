@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.1](https://github.com/hansetag/iceberg-catalog/compare/v0.2.0...v0.2.1) (2024-07-29)
+
+
+### Features
+
+* **db:** Add Encryption Secret for postgres SecretStore to README & warn on startup ([#217](https://github.com/hansetag/iceberg-catalog/issues/217)) ([933409d](https://github.com/hansetag/iceberg-catalog/commit/933409da47aefb7b1fb9668386da35adab43477e))
+* **secrets:** Secret Backend configuration is now case insensitive ([#215](https://github.com/hansetag/iceberg-catalog/issues/215)) ([99b19ab](https://github.com/hansetag/iceberg-catalog/commit/99b19ab3072fc4d9e2648a81cbca7b87b3b193b0))
+
+
+### Bug Fixes
+
+* **examples:** Fix `ICEBERG_REST__BASE_URI` ([33f213b](https://github.com/hansetag/iceberg-catalog/commit/33f213bf2592c958ac299a89ddae1a72e3446ed6))
+* **s3signing:** Add S3 remote signing "content-md5" for pyiceberg compatability ([33f213b](https://github.com/hansetag/iceberg-catalog/commit/33f213bf2592c958ac299a89ddae1a72e3446ed6))
+
+
+### Miscellaneous Chores
+
+* release 0.2.1 ([587ea12](https://github.com/hansetag/iceberg-catalog/commit/587ea129780c21a3cd0fa8dd371b6901dede4c20))
+
 ## [0.2.0](https://github.com/hansetag/iceberg-catalog/compare/v0.1.0...v0.2.0) (2024-07-26)
 
 
