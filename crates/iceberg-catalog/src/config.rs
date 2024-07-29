@@ -113,7 +113,9 @@ pub struct DynAppConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SecretBackend {
+    #[serde(alias = "kv2", alias = "Kv2")]
     KV2,
+    #[serde(alias = "postgres")]
     Postgres,
 }
 
