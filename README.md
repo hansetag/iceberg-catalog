@@ -7,8 +7,11 @@
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/iceberg-catalog)](https://artifacthub.io/packages/search?repo=iceberg-catalog)
 [![Docker on quay](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://quay.io/repository/hansetag/iceberg-catalog?tab=tags&filter_tag_name=like%3Av)
 [![Helm Chart](https://img.shields.io/badge/Helm-0F1689?style=for-the-badge&logo=Helm&labelColor=0F1689)](https://github.com/hansetag/iceberg-catalog-charts/tree/main/charts/iceberg-catalog)
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/S2ubHBxT)
 
 This is TIP: A Rust-native implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification based on [apache/iceberg-rust](https://github.com/apache/iceberg-rust).
+
+If you have questions, feature requests or just want a chat, we are hanging around in [Discord](https://discord.gg/S2ubHBxT)!
 
 # Scope and Features
 
