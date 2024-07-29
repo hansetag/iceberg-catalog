@@ -361,13 +361,12 @@ jobs:
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-arm64.tar
           docker images
       
-      - name: Push Full Tag to quay.io
+      - name: Push Images to quay.io
         run: |
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-amd64
           docker tag localhost/iceberg-catalog-local:arm64 quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-arm64
           docker push quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-amd64
           docker push quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-arm64
-          docker manifest create quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }} quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-amd64 quay.io/hansetag/iceberg-catalog:${{ needs.release_please.outputs.tag_name }}-arm64
       
       - name: Check if Tag is vX.Y.Z
         id: check-tag
