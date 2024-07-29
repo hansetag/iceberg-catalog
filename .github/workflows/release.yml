@@ -311,6 +311,7 @@ jobs:
           docker push quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-arm64
           docker manifest create quay.io/hansetag/iceberg-catalog:latest-main quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-amd64 quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-arm64
           docker manifest push quay.io/hansetag/iceberg-catalog:latest-main
+          docker manifest create quay.io/hansetag/iceberg-catalog:latest quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-amd64 quay.io/hansetag/iceberg-catalog:${COMMIT_SHA}-arm64
 
   # Create GitHub release with Rust build targets and release notes
   publish-binary:
