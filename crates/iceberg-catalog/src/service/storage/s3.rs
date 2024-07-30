@@ -4,9 +4,14 @@ use crate::{
 };
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
+use crate::service::storage;
 use crate::service::tabular_idents::TabularIdentUuid;
+use futures::AsyncWriteExt as _;
+use object_store::ObjectStore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::io::AsyncWriteExt as _;
 use veil::Redact;
 
 fn is_valid_bucket_name(bucket: &str) -> Result<()> {
@@ -158,7 +163,7 @@ impl S3Profile {
             TabularIdentUuid::Table(uuid::Uuid::now_v7()),
         );
 
-        validate_file_io(&file_io, &test_location)
+        storage::validate_file_io(Arc::new(file_io), &test_location)
             .await
             .map_err(|e| e.error.append_detail(format!("Profile: {self:?}")))?;
 
@@ -365,14 +370,35 @@ impl S3Profile {
     ///
     /// # Errors
     /// Fails if the `FileIO` instance cannot be created.
-    pub fn file_io(&self, credential: Option<&S3Credential>) -> Result<iceberg::io::FileIO> {
-        let mut builder = iceberg::io::FileIOBuilder::new("s3");
+    pub fn file_io(
+        &self,
+        credential: Option<&S3Credential>,
+    ) -> Result<object_store::aws::AmazonS3> {
+        let Some(S3Credential::AccessKey {
+            aws_access_key_id,
+            aws_secret_access_key,
+        }) = credential
+        else {
+            return Err(ErrorModel::bad_request(
+                "Storage Credentials missing.",
+                "MissingStorageCredential",
+                None,
+            )
+            .into());
+        };
+        let builder = object_store::aws::AmazonS3Builder::default()
+            .with_bucket_name(&self.bucket)
+            .with_region(&self.region)
+            // .with_(self.key_prefix.as_deref());
+            ;
+        let builder = if let Some(endpoint) = &self.endpoint {
+            builder.with_endpoint(endpoint)
+        } else {
+            builder
+        };
 
-        builder = builder.with_prop(iceberg::io::S3_REGION, self.region.clone());
-
-        if let Some(endpoint) = &self.endpoint {
-            builder = builder.with_prop(iceberg::io::S3_ENDPOINT, endpoint);
-        }
+        // TODO: it appears that object_store only supports ARN through env vars and it conflicts with
+        //       providing access key secret
         if let Some(_assume_role_arn) = &self.assume_role_arn {
             return Err(ErrorModel::not_implemented(
                 "S3 Assume role ARN not supported.",
@@ -381,27 +407,32 @@ impl S3Profile {
             )
             .into());
         }
-        if let Some(credential) = credential {
-            match credential {
-                S3Credential::AccessKey {
-                    aws_access_key_id,
-                    aws_secret_access_key,
-                } => {
-                    builder = builder
-                        .with_prop(iceberg::io::S3_ACCESS_KEY_ID, aws_access_key_id)
-                        .with_prop(iceberg::io::S3_SECRET_ACCESS_KEY, aws_secret_access_key);
-                }
-            }
-        }
-
-        builder.build().map_err(|e| {
-            ErrorModel::precondition_failed(
-                "Error creating S3 filesystem.",
-                "S3FileIOError",
-                Some(Box::new(e)),
-            )
-            .into()
-        })
+        // TODO: in contrast to fileio object_store requires a credential of some sort.
+        // if let Some(credential) = credential {
+        //     match credential {
+        //         S3Credential::AccessKey {
+        //             aws_access_key_id,
+        //             aws_secret_access_key,
+        //         } => {
+        //             builder = builder
+        //                 .with_prop(iceberg::io::S3_ACCESS_KEY_ID, aws_access_key_id)
+        //                 .with_prop(iceberg::io::S3_SECRET_ACCESS_KEY, aws_secret_access_key);
+        //         }
+        //     }
+        // }
+        // .(self.path_style_access.unwrap_or(false))
+        builder
+            .with_secret_access_key(aws_secret_access_key)
+            .with_access_key_id(aws_access_key_id)
+            .build()
+            .map_err(|e| {
+                ErrorModel::precondition_failed(
+                    "Error creating S3 filesystem.",
+                    "S3FileIOError",
+                    Some(Box::new(e)),
+                )
+                .into()
+            })
     }
 }
 
@@ -416,53 +447,6 @@ pub enum S3Credential {
         #[redact(partial)]
         aws_secret_access_key: String,
     },
-}
-
-// ToDo: Move somewhere so that other profiles can use it as well?
-async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) -> Result<()> {
-    // Validate the file_io instance by creating a test file.
-
-    let test_file = file_io.new_output(test_location).map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileCreationError",
-            Some(Box::new(e)),
-        )
-    })?;
-    let mut writer = test_file.writer().await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileWriterError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    let buf: &[u8; 4] = b"test";
-    writer.write(buf.to_vec().into()).await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileWriterError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    writer.close().await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileCloseError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    file_io.delete(test_location).await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileDeleteError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    Ok(())
 }
 
 #[cfg(test)]

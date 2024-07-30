@@ -4,9 +4,11 @@ use crate::{
 };
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
+use crate::service::storage::validate_file_io;
 use crate::service::tabular_idents::TabularIdentUuid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use url::Url;
 use veil::Redact;
 
@@ -70,10 +72,6 @@ pub struct AzProfile {
     /// The same prefix can be used for multiple warehouses.
     pub key_prefix: Option<String>,
     pub account_name: String,
-    pub account_key: String,
-    pub endpoint: Url,
-    /// Region to use for S3 requests.
-    pub region: String,
 }
 
 impl AzProfile {
@@ -95,21 +93,9 @@ impl AzProfile {
             bucket,
             key_prefix,
             account_name: _,
-            account_key: _,
-            endpoint,
-            region,
         } = self;
 
         is_valid_bucket_name(bucket)?;
-
-        if region.len() > 128 {
-            return Err(ErrorModel::bad_request(
-                "Storage Profile `region` must be less than 128 characters.",
-                "InvalidRegion",
-                None,
-            )
-            .into());
-        }
 
         // Aws supports a max of 1024 chars and we need some buffer for tables.
         if let Some(key_prefix) = key_prefix {
@@ -123,23 +109,13 @@ impl AzProfile {
             }
         }
 
-        // Protocol must be http or https
-        if endpoint.scheme() != "http" && endpoint.scheme() != "https" {
-            return Err(ErrorModel::bad_request(
-                "Storage Profile `endpoint` must have http or https protocol.",
-                "InvalidS3Endpoint",
-                None,
-            )
-            .into());
-        }
-
         let file_io = self.file_io(credential)?;
         let test_location = self.tabular_location(
             uuid::Uuid::now_v7().into(),
             TabularIdentUuid::Table(uuid::Uuid::now_v7()),
         );
 
-        validate_file_io(&file_io, &test_location)
+        validate_file_io(Arc::new(file_io), &test_location)
             .await
             .map_err(|e| e.error.append_detail(format!("Profile: {self:?}")))?;
 
@@ -164,15 +140,6 @@ impl AzProfile {
             .into());
         }
 
-        if self.region != other.region {
-            return Err(ErrorModel::bad_request(
-                "Storage Profile `region` cannot be updated to prevent data loss.",
-                "InvalidRegion",
-                None,
-            )
-            .into());
-        }
-
         if self.key_prefix != other.key_prefix {
             return Err(ErrorModel::bad_request(
                 "Storage Profile `key_prefix` cannot be updated to prevent data loss.",
@@ -183,52 +150,6 @@ impl AzProfile {
         }
 
         Ok(())
-    }
-
-    #[cfg(feature = "s3-signer")]
-    /// Get the AWS SDK credentials for the S3 profile.
-    ///
-    /// # Errors
-    /// Fails if the assume role ARN is provided.
-    /// Fails if the credential is missing.
-    pub fn get_aws_sdk_credentials(
-        &self,
-        credential: Option<&AzCredential>,
-    ) -> Result<aws_credential_types::Credentials> {
-        let Self {
-            bucket,
-            key_prefix,
-            account_name,
-            account_key,
-            endpoint,
-            region,
-        } = self;
-
-        // Currently there is no supported configuration without Credential
-        if let Some(credential) = credential {
-            match credential {
-                AzCredential::AccessKey {
-                    aws_access_key_id,
-                    aws_secret_access_key,
-                } => {
-                    let credentials = aws_credential_types::Credentials::new(
-                        aws_access_key_id.clone(),
-                        aws_secret_access_key.clone(),
-                        None,
-                        None,
-                        "iceberg-rest-secret-storage",
-                    );
-                    Ok(credentials)
-                }
-            }
-        } else {
-            Err(ErrorModel::bad_request(
-                "Storage Credentials missing.",
-                "MissingStorageCredential",
-                None,
-            )
-            .into())
-        }
     }
 
     #[must_use]
@@ -249,14 +170,10 @@ impl AzProfile {
         namespace_id: NamespaceIdentUuid,
         tabular_id: TabularIdentUuid,
     ) -> String {
-        // s3://bucket-name/<path_prefix>/<namespace-uuid>/<table-uuid>/
         if let Some(key_prefix) = &self.key_prefix {
-            format!(
-                "s3://{}/{key_prefix}/{namespace_id}/{tabular_id}",
-                &self.bucket
-            )
+            format!("/{key_prefix}/{namespace_id}/{tabular_id}")
         } else {
-            format!("s3://{}/{namespace_id}/{tabular_id}", &self.bucket)
+            format!("/{namespace_id}/{tabular_id}")
         }
     }
 
@@ -287,10 +204,6 @@ impl AzProfile {
         };
 
         let mut config = HashMap::new();
-
-        config.insert("s3.region".to_string(), self.region.to_string());
-        config.insert("region".to_string(), self.region.to_string());
-        config.insert("client.region".to_string(), self.region.to_string());
 
         if *vended_credentials {
             // ToDo: Find a better way.
@@ -326,24 +239,23 @@ impl AzProfile {
     ///
     /// # Errors
     /// Fails if the `FileIO` instance cannot be created.
-    pub fn file_io(&self, credential: Option<&AzCredential>) -> Result<iceberg::io::FileIO> {
-        let mut builder = iceberg::io::FileIOBuilder::new("azdls");
-
-        builder = builder
-            .with_prop("endpoint", self.endpoint.to_string())
-            .with_prop("account_name", self.account_name.clone())
-            .with_prop("account_key", self.account_key.clone())
-            .with_prop("container", self.bucket.clone());
+    pub fn file_io(
+        &self,
+        credential: Option<&AzCredential>,
+    ) -> Result<object_store::azure::MicrosoftAzure> {
+        let mut builder = object_store::azure::MicrosoftAzureBuilder::new()
+            .with_account(self.account_name.clone())
+            .with_container_name(self.bucket.clone());
 
         if let Some(credential) = credential {
             match credential {
                 AzCredential::AccessKey {
-                    aws_access_key_id,
-                    aws_secret_access_key,
+                    client_id,
+                    secret_key,
+                    tenant_id,
                 } => {
-                    builder = builder
-                        .with_prop(iceberg::io::S3_ACCESS_KEY_ID, aws_access_key_id)
-                        .with_prop(iceberg::io::S3_SECRET_ACCESS_KEY, aws_secret_access_key);
+                    builder =
+                        builder.with_client_secret_authorization(client_id, secret_key, tenant_id);
                 }
             }
         }
@@ -366,82 +278,33 @@ impl AzProfile {
 pub enum AzCredential {
     #[serde(rename_all = "kebab-case")]
     AccessKey {
-        aws_access_key_id: String,
+        client_id: String,
         #[redact(partial)]
-        aws_secret_access_key: String,
+        secret_key: String,
+        tenant_id: String,
     },
-}
-
-// ToDo: Move somewhere so that other profiles can use it as well?
-async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) -> Result<()> {
-    // Validate the file_io instance by creating a test file.
-
-    let test_file = file_io.new_output(test_location).map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileCreationError",
-            Some(Box::new(e)),
-        )
-    })?;
-    let mut writer = test_file.writer().await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileWriterError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    let buf: &[u8; 4] = b"test";
-    writer.write(buf.to_vec().into()).await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileWriterError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    writer.close().await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileCloseError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    file_io.delete(test_location).await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileDeleteError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    Ok(())
 }
 
 #[cfg(test)]
 mod test {
-    use super::{validate_file_io, AzProfile};
-    use std::str::FromStr;
-    use url::Url;
-    use uuid::Uuid;
+    use super::{AzCredential, AzProfile};
 
     #[tokio::test]
     async fn test_can_validate() {
+        tracing_subscriber::fmt::init();
         let account_name = "ht0cht0tabular0eastus";
-        let prof = AzProfile {
+        let bucket_name = "tobias";
+        let mut prof = AzProfile {
             bucket: "tobias".to_string(),
-            key_prefix: None,
+            key_prefix: Some("test".to_string()),
             account_name: "ht0cht0tabular0eastus".to_string(),
-            account_key: "...==".to_string(),
-            endpoint: Url::from_str(&format!("https://{account_name}.dfs.core.windows.net"))
-                .unwrap(),
-            region: "eastus".to_string(),
         };
-        let fio = prof.file_io(None);
-        let loc = Uuid::now_v7();
-        validate_file_io(&fio.unwrap(), &format!("/{loc}"))
-            .await
-            .unwrap();
+        prof.validate(Some(&AzCredential::AccessKey {
+            client_id: "7af37ff1-e011-45d2-b302-1c51f8de8bcf".to_string(),
+            secret_key: "".to_string(),
+            tenant_id: "7a891ae2-bb88-41c2-8e25-13a407dca040".to_string(),
+        }))
+        .await
+        .unwrap();
     }
 }

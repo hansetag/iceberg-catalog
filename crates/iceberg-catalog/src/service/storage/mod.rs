@@ -1,16 +1,17 @@
 mod az;
 mod s3;
 
-use std::collections::HashMap;
-
+use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
 use crate::service::storage::az::{AzCredential, AzProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
+use object_store::{ObjectStore, PutPayload};
 pub use s3::{S3Credential, S3Profile};
 use serde::{Deserialize, Serialize};
-
-use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt as _};
 
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
@@ -88,48 +89,49 @@ impl StorageProfile {
     ///
     /// # Errors
     /// Fails if the underlying storage profile's file IO creation fails.
-    pub fn file_io(&self, secret: Option<&StorageCredential>) -> Result<iceberg::io::FileIO> {
+    pub fn file_io(&self, secret: Option<&StorageCredential>) -> Result<Arc<dyn ObjectStore>> {
         match self {
-            StorageProfile::S3(profile) => profile.file_io(
-                secret
-                    .map(|s| match s {
-                        StorageCredential::S3(s) => Ok(s),
-                        _ => Err(ErrorModel::bad_request(
-                            "Invalid storage credential, expected s3 but received: {}",
-                            "InvalidStorageCredential",
-                            None,
-                        )),
-                    })
-                    .transpose()?,
-            ),
-            #[cfg(test)]
-            StorageProfile::Test(_) => {
-                let file_io = iceberg::io::FileIOBuilder::new("file")
-                    .build()
-                    .map_err(|e| {
-                        ErrorModel::builder()
-                            .code(500)
-                            .message("Failed to create file IO".to_string())
-                            .r#type("FileIOCreationFailed".to_string())
-                            .stack(vec![format!("{:?}", e)])
-                            .build()
-                    })?;
-                Ok(file_io)
-            }
-            StorageProfile::Az(prof) => prof.file_io(
-                secret
-                    .map(|s| match s {
-                        StorageCredential::Az(s) => Ok(s),
-                        StorageCredential::S3(_) => {
-                            return Err(ErrorModel::bad_request(
-                                "Invalid storage credential, expected az but received: {}",
+            StorageProfile::S3(profile) => profile
+                .file_io(
+                    secret
+                        .map(|s| match s {
+                            StorageCredential::S3(s) => Ok(s),
+                            _ => Err(ErrorModel::bad_request(
+                                "Invalid storage credential, expected s3 but received: {}",
                                 "InvalidStorageCredential",
                                 None,
-                            ))
-                        }
-                    })
-                    .transpose()?,
-            ),
+                            )),
+                        })
+                        .transpose()?,
+                )
+                .map(|s3| Arc::new(s3) as Arc<dyn ObjectStore>),
+            #[cfg(test)]
+            StorageProfile::Test(_) => Ok(Arc::new(
+                object_store::local::LocalFileSystem::new_with_prefix("/tmp").map_err(|e| {
+                    ErrorModel::builder()
+                        .code(500)
+                        .message("Failed to create file IO".to_string())
+                        .r#type("FileIOCreationFailed".to_string())
+                        .stack(vec![format!("{:?}", e)])
+                        .build()
+                })?,
+            )),
+            StorageProfile::Az(prof) => prof
+                .file_io(
+                    secret
+                        .map(|s| match s {
+                            StorageCredential::Az(s) => Ok(s),
+                            StorageCredential::S3(_) => {
+                                return Err(ErrorModel::bad_request(
+                                    "Invalid storage credential, expected az but received: {}",
+                                    "InvalidStorageCredential",
+                                    None,
+                                ))
+                            }
+                        })
+                        .transpose()?,
+                )
+                .map(|az| Arc::new(az) as Arc<dyn ObjectStore>),
         }
     }
 
@@ -407,4 +409,63 @@ mod tests {
             })
         );
     }
+}
+
+// ToDo: Move somewhere so that other profiles can use it as well?
+async fn validate_file_io(file_io: Arc<impl ObjectStore>, test_location: &str) -> Result<()> {
+    // Validate the file_io instance by creating a test file.
+    let test_location = object_store::path::Path::parse(test_location).unwrap();
+    let mut writer = object_store::buffered::BufWriter::new(file_io.clone(), test_location.clone());
+
+    let buf: &[u8; 4] = b"test";
+    writer.write(buf).await.map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileWriterError",
+            Some(Box::new(e)),
+        )
+    })?;
+    //
+    writer.shutdown().await.map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileCloseError",
+            Some(Box::new(e)),
+        )
+    })?;
+
+    let object_meta = file_io.head(&test_location).await.map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileHeadError",
+            Some(Box::new(e)),
+        )
+    })?;
+    let mut reader = object_store::buffered::BufReader::new(file_io.clone(), &object_meta);
+    let mut buf = vec![0; 4];
+    reader.read_exact(&mut buf).await.map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileReaderError",
+            Some(Box::new(e)),
+        )
+    })?;
+
+    if buf != b"test" {
+        return Err(ErrorModel::bad_request(
+            "Error validating S3 Storage Profile: Read data does not match written data",
+            "S3TestFileDataMismatch",
+            None,
+        )
+        .into());
+    }
+
+    file_io.delete(&test_location).await.map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileDeleteError",
+            Some(Box::new(e)),
+        )
+    })?;
+    Ok(())
 }
