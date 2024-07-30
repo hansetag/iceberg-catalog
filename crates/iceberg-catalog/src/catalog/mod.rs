@@ -8,6 +8,7 @@ mod tables;
 mod views;
 
 pub use config::Server as ConfigServer;
+use iceberg::spec::{TableMetadata, ViewMetadata};
 pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
 
 use crate::api::{iceberg::v1::Prefix, ErrorModel, Result};
@@ -15,7 +16,24 @@ use crate::{
     service::{auth::AuthZHandler, secrets::SecretStore, Catalog},
     WarehouseIdent,
 };
+use std::collections::HashMap;
 use std::marker::PhantomData;
+
+pub(crate) trait CommonMetadata {
+    fn properties(&self) -> &HashMap<String, String>;
+}
+
+impl CommonMetadata for &TableMetadata {
+    fn properties(&self) -> &HashMap<String, String> {
+        TableMetadata::properties(self)
+    }
+}
+
+impl CommonMetadata for &ViewMetadata {
+    fn properties(&self) -> &HashMap<String, String> {
+        ViewMetadata::properties(self)
+    }
+}
 
 #[derive(Clone, Debug)]
 #[allow(clippy::module_name_repetitions)]
