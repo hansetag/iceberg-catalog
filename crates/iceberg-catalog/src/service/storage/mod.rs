@@ -1,13 +1,14 @@
+mod az;
 mod s3;
 
 use std::collections::HashMap;
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
+use crate::service::storage::az::{AzCredential, AzProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
+use crate::WarehouseIdent;
 pub use s3::{S3Credential, S3Profile};
 use serde::{Deserialize, Serialize};
-
-use crate::WarehouseIdent;
 
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 
@@ -17,6 +18,8 @@ use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 #[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 pub enum StorageProfile {
+    #[serde(rename = "azdls")]
+    Az(AzProfile),
     /// S3 storage profile
     #[serde(rename = "s3")]
     S3(S3Profile),
@@ -32,6 +35,7 @@ pub enum StorageType {
     #[cfg(test)]
     #[strum(serialize = "test")]
     Test,
+    Az,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -45,6 +49,7 @@ impl StorageProfile {
                 overrides: HashMap::default(),
                 defaults: HashMap::default(),
             },
+            StorageProfile::Az(prof) => prof.generate_catalog_config(warehouse_id),
         }
     }
 
@@ -59,6 +64,19 @@ impl StorageProfile {
             (StorageProfile::S3(this_profile), StorageProfile::S3(other_profile)) => {
                 this_profile.can_be_updated_with(other_profile)
             }
+            (StorageProfile::Az(this_profile), StorageProfile::Az(other_profile)) => {
+                this_profile.can_be_updated_with(other_profile)
+            }
+            (_, _) => Err(ErrorModel::bad_request(
+                "Storage profiles are not compatible",
+                "StorageProfilesNotCompatible".to_string(),
+                None,
+            )
+            .append_details(&[
+                format!("This: {:?}", self.storage_type()),
+                format!("Other: {:?}", other.storage_type()),
+            ])
+            .into()),
             #[cfg(test)]
             (StorageProfile::Test(_), _) => Ok(()),
             #[cfg(test)]
@@ -72,9 +90,18 @@ impl StorageProfile {
     /// Fails if the underlying storage profile's file IO creation fails.
     pub fn file_io(&self, secret: Option<&StorageCredential>) -> Result<iceberg::io::FileIO> {
         match self {
-            StorageProfile::S3(profile) => profile.file_io(secret.map(|s| match s {
-                StorageCredential::S3(s) => s,
-            })),
+            StorageProfile::S3(profile) => profile.file_io(
+                secret
+                    .map(|s| match s {
+                        StorageCredential::S3(s) => Ok(s),
+                        _ => Err(ErrorModel::bad_request(
+                            "Invalid storage credential, expected s3 but received: {}",
+                            "InvalidStorageCredential",
+                            None,
+                        )),
+                    })
+                    .transpose()?,
+            ),
             #[cfg(test)]
             StorageProfile::Test(_) => {
                 let file_io = iceberg::io::FileIOBuilder::new("file")
@@ -89,6 +116,20 @@ impl StorageProfile {
                     })?;
                 Ok(file_io)
             }
+            StorageProfile::Az(prof) => prof.file_io(
+                secret
+                    .map(|s| match s {
+                        StorageCredential::Az(s) => Ok(s),
+                        StorageCredential::S3(_) => {
+                            return Err(ErrorModel::bad_request(
+                                "Invalid storage credential, expected az but received: {}",
+                                "InvalidStorageCredential",
+                                None,
+                            ))
+                        }
+                    })
+                    .transpose()?,
+            ),
         }
     }
 
@@ -102,6 +143,7 @@ impl StorageProfile {
             StorageProfile::S3(profile) => profile.tabular_location(namespace_id, table_id),
             #[cfg(test)]
             StorageProfile::Test(_) => format!("/tmp/{namespace_id}/{table_id}"),
+            StorageProfile::Az(profile) => profile.tabular_location(namespace_id, table_id),
         }
     }
 
@@ -119,6 +161,7 @@ impl StorageProfile {
             StorageProfile::S3(_) => StorageType::S3,
             #[cfg(test)]
             StorageProfile::Test(_) => StorageType::Test,
+            StorageProfile::Az(_) => StorageType::Az,
         }
     }
 
@@ -142,14 +185,43 @@ impl StorageProfile {
                         table_id,
                         namespace_id,
                         data_access,
-                        secret.map(|s| match s {
-                            StorageCredential::S3(s) => s,
-                        }),
+                        secret
+                            .map(|s| match s {
+                                StorageCredential::S3(s) => Ok(s),
+                                // TODO error
+                                _ => Err(ErrorModel::bad_request(
+                                    "Invalid storage credential, expected s3 but received: {}",
+                                    "InvalidStorageCredential",
+                                    None,
+                                )),
+                            })
+                            .transpose()?,
                     )
                     .await
             }
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(HashMap::default()),
+            StorageProfile::Az(profile) => {
+                profile
+                    .generate_table_config(
+                        warehouse_id,
+                        table_id,
+                        namespace_id,
+                        data_access,
+                        secret
+                            .map(|s| match s {
+                                StorageCredential::Az(s) => Ok(s),
+                                // TODO error
+                                _ => Err(ErrorModel::bad_request(
+                                    "Invalid storage credential, expected az but received: {}",
+                                    "InvalidStorageCredential",
+                                    None,
+                                )),
+                            })
+                            .transpose()?,
+                    )
+                    .await
+            }
         }
     }
 
@@ -161,13 +233,41 @@ impl StorageProfile {
         match self {
             StorageProfile::S3(profile) => {
                 profile
-                    .validate(secret.map(|s| match s {
-                        StorageCredential::S3(s) => s,
-                    }))
+                    .validate(
+                        secret
+                            .map(|s| match s {
+                                StorageCredential::S3(s) => Ok(s),
+                                // TODO error
+                                _ => Err(ErrorModel::bad_request(
+                                    "Invalid storage credential, expected s3 but received: {}",
+                                    "InvalidStorageCredential",
+                                    None,
+                                )),
+                            })
+                            .transpose()?,
+                    )
                     .await
             }
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(()),
+            StorageProfile::Az(prof) => {
+                prof.validate(
+                    secret
+                        .map(|s| match s {
+                            StorageCredential::Az(s) => Ok(s),
+                            _ => {
+                                // TODO error
+                                Err(ErrorModel::bad_request(
+                                    "Invalid storage credential, expected az but received: {}",
+                                    "InvalidStorageCredential",
+                                    None,
+                                ))
+                            }
+                        })
+                        .transpose()?,
+                )
+                .await
+            }
         }
     }
 
@@ -210,6 +310,8 @@ pub enum StorageCredential {
     /// Credentials for S3 storage
     #[serde(rename = "s3")]
     S3(S3Credential),
+    #[serde(rename = "az")]
+    Az(AzCredential),
 }
 
 impl SecretInStorage for StorageCredential {}
@@ -219,6 +321,7 @@ impl StorageCredential {
     pub fn storage_type(&self) -> StorageType {
         match self {
             StorageCredential::S3(_) => StorageType::S3,
+            StorageCredential::Az(_) => StorageType::Az,
         }
     }
 
