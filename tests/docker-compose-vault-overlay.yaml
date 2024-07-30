@@ -1,0 +1,34 @@
+services:
+  server:
+    environment:
+      - ICEBERG_REST__SECRET_BACKEND=kv2
+      - ICEBERG_REST__VAULT={url="http://hvault:8200", user="test", password="test", secret_mount="secret"}
+    depends_on:
+      hvault:
+        condition: service_healthy
+      inithvault:
+        condition: service_completed_successfully
+  hvault:
+    image: hashicorp/vault:latest
+    ports:
+      - 8200:8200
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=myroot
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: [ "CMD", "vault", "status", "-address", "http://hvault:8200" ]
+      interval: 1s
+      timeout: 5s
+      retries: 2
+      start_period: 20s
+  inithvault:
+    image: hashicorp/vault:latest
+    depends_on:
+      hvault:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: [ "sh", "/init_vault.sh" ]
+    volumes:
+      - ./init_vault.sh:/init_vault.sh

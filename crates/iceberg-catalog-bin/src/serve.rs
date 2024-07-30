@@ -1,8 +1,6 @@
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use iceberg_catalog::api::router::{new_full_router, serve as service_serve};
-use iceberg_catalog::implementations::postgres::{
-    Catalog, CatalogState, SecretsState, SecretsStore,
-};
+use iceberg_catalog::implementations::postgres::{Catalog, CatalogState};
 use iceberg_catalog::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
@@ -10,9 +8,11 @@ use iceberg_catalog::service::event_publisher::{
     NatsBackend,
 };
 use iceberg_catalog::service::health::ServiceHealthProvider;
+use iceberg_catalog::service::secrets::Secrets;
 use iceberg_catalog::service::token_verification::Verifier;
-use iceberg_catalog::CONFIG;
+use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
+
 use std::sync::Arc;
 
 pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -22,7 +22,22 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         iceberg_catalog::implementations::postgres::get_writer_pool(CONFIG.to_pool_opts()).await?;
 
     let catalog_state = CatalogState::from_pools(read_pool.clone(), write_pool.clone());
-    let secrets_state = SecretsState::from_pools(read_pool, write_pool);
+    let secrets_state: Secrets = match CONFIG.secret_backend {
+        SecretBackend::KV2 => iceberg_catalog::implementations::kv2::SecretsState::from_config(
+            CONFIG
+                .vault
+                .as_ref()
+                .ok_or_else(|| anyhow!("Need vault config to use vault as backend"))?,
+        )
+        .await?
+        .into(),
+        SecretBackend::Postgres => {
+            iceberg_catalog::implementations::postgres::SecretsState::from_pools(
+                read_pool, write_pool,
+            )
+            .into()
+        }
+    };
     let auth_state = AllowAllAuthState;
 
     let health_provider = ServiceHealthProvider::new(
@@ -55,43 +70,30 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     };
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
 
-    let (metrics_layer, metrics_future) =
+    let metrics_layer =
         iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?;
 
-    let router = new_full_router::<
-        Catalog,
-        Catalog,
-        AllowAllAuthZHandler,
-        AllowAllAuthZHandler,
-        SecretsStore,
-    >(
-        auth_state,
-        catalog_state,
-        secrets_state,
-        CloudEventsPublisher::new(tx.clone()),
-        ContractVerifiers::new(vec![]),
-        if let Some(uri) = CONFIG.openid_provider_uri.clone() {
-            Some(Verifier::new(uri).await?)
-        } else {
-            None
-        },
-        health_provider,
-        Some(metrics_layer),
-    );
+    let router =
+        new_full_router::<Catalog, Catalog, AllowAllAuthZHandler, AllowAllAuthZHandler, Secrets>(
+            auth_state,
+            catalog_state,
+            secrets_state,
+            CloudEventsPublisher::new(tx.clone()),
+            ContractVerifiers::new(vec![]),
+            if let Some(uri) = CONFIG.openid_provider_uri.clone() {
+                Some(Verifier::new(uri).await?)
+            } else {
+                None
+            },
+            health_provider,
+            Some(metrics_layer),
+        );
 
     let publisher_handle = tokio::task::spawn(async move {
         match x.publish().await {
             Ok(_) => tracing::info!("Exiting publisher task"),
             Err(e) => tracing::error!("Publisher task failed: {e}"),
         };
-    });
-
-    tokio::task::spawn(async move {
-        tracing::info!(
-            "Starting metrics server listening on 0.0.0.0:{} ...",
-            CONFIG.metrics_port
-        );
-        metrics_future.await
     });
 
     service_serve(listener, router).await?;

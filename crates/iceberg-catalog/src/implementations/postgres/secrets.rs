@@ -1,21 +1,54 @@
-use super::SecretsState;
+use super::ReadWrite;
 use crate::api::{ErrorModel, Result};
+use crate::service::health::{Health, HealthExt};
 use crate::service::secrets::{Secret, SecretIdent, SecretStore};
 use crate::CONFIG;
+use async_trait::async_trait;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 
 #[derive(Debug, Clone)]
-pub struct Server {}
+pub struct SecretsState {
+    read_write: ReadWrite,
+}
+
+#[async_trait]
+impl HealthExt for SecretsState {
+    async fn health(&self) -> Vec<Health> {
+        self.read_write.health().await
+    }
+
+    async fn update_health(&self) {
+        self.read_write.update_health().await;
+    }
+}
+
+impl SecretsState {
+    #[must_use]
+    pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
+        Self {
+            read_write: ReadWrite::from_pools(read_pool, write_pool),
+        }
+    }
+
+    #[must_use]
+    pub fn read_pool(&self) -> PgPool {
+        self.read_write.read_pool.clone()
+    }
+
+    #[must_use]
+    pub fn write_pool(&self) -> PgPool {
+        self.read_write.write_pool.clone()
+    }
+}
 
 #[async_trait::async_trait]
-impl SecretStore for Server {
-    type State = SecretsState;
-
+impl SecretStore for SecretsState {
     /// Get the secret for a given warehouse.
     async fn get_secret_by_id<S: for<'de> Deserialize<'de>>(
+        &self,
         secret_id: &SecretIdent,
-        state: SecretsState,
     ) -> Result<Secret<S>> {
         struct SecretRow {
             secret: Option<String>,
@@ -36,7 +69,7 @@ impl SecretStore for Server {
             secret_id.as_uuid(),
             CONFIG.pg_encryption_key
         )
-        .fetch_one(&state.read_pool())
+        .fetch_one(&self.read_write.read_pool)
         .await
         .map_err(|e| match e {
             sqlx::Error::RowNotFound => ErrorModel::builder()
@@ -65,7 +98,7 @@ impl SecretStore for Server {
             })?;
 
         Ok(Secret {
-            secret_id: secret_id.clone(),
+            secret_id: *secret_id,
             secret: inner,
             created_at: secret.created_at,
             updated_at: secret.updated_at,
@@ -74,8 +107,8 @@ impl SecretStore for Server {
 
     /// Create a new secret
     async fn create_secret<S: Send + Sync + Serialize + std::fmt::Debug>(
+        &self,
         secret: S,
-        state: SecretsState,
     ) -> Result<SecretIdent> {
         let secret_str = serde_json::to_string(&secret).map_err(|_e| {
             ErrorModel::builder()
@@ -96,7 +129,7 @@ impl SecretStore for Server {
             secret_str,
             CONFIG.pg_encryption_key,
         )
-        .fetch_one(&state.write_pool())
+        .fetch_one(&self.write_pool())
         .await
         .map_err(|e| {
             ErrorModel::builder()
@@ -111,7 +144,7 @@ impl SecretStore for Server {
     }
 
     /// Delete a secret
-    async fn delete_secret(secret_id: &SecretIdent, state: SecretsState) -> Result<()> {
+    async fn delete_secret(&self, secret_id: &SecretIdent) -> Result<()> {
         sqlx::query!(
             r#"
             DELETE FROM secret
@@ -119,7 +152,7 @@ impl SecretStore for Server {
             "#,
             secret_id.as_uuid()
         )
-        .execute(&state.write_pool())
+        .execute(&self.read_write.write_pool)
         .await
         .map_err(|e| {
             ErrorModel::builder()
@@ -151,11 +184,10 @@ mod tests {
         }
         .into();
 
-        let secret_id = Server::create_secret(secret.clone(), state.clone())
-            .await
-            .unwrap();
+        let secret_id = state.create_secret(secret.clone()).await.unwrap();
 
-        let read_secret = Server::get_secret_by_id::<StorageCredential>(&secret_id, state.clone())
+        let read_secret = state
+            .get_secret_by_id::<StorageCredential>(&secret_id)
             .await
             .unwrap();
 
@@ -172,16 +204,13 @@ mod tests {
         }
         .into();
 
-        let secret_id = Server::create_secret(secret.clone(), state.clone())
-            .await
-            .unwrap();
+        let secret_id = state.create_secret(secret.clone()).await.unwrap();
 
-        Server::delete_secret(&secret_id, state.clone())
-            .await
-            .unwrap();
+        state.delete_secret(&secret_id).await.unwrap();
 
-        let read_secret =
-            Server::get_secret_by_id::<StorageCredential>(&secret_id, state.clone()).await;
+        let read_secret = state
+            .get_secret_by_id::<StorageCredential>(&secret_id)
+            .await;
 
         assert!(read_secret.is_err());
     }

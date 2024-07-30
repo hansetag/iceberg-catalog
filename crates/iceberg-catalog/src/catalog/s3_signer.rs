@@ -22,13 +22,14 @@ use crate::WarehouseIdent;
 const READ_METHODS: &[&str] = &["GET", "HEAD"];
 const WRITE_METHODS: &[&str] = &["PUT", "POST", "DELETE"];
 // Keep only the following headers:
-const HEADERS_TO_SIGN: [&str; 6] = [
+const HEADERS_TO_SIGN: [&str; 7] = [
     "amz-sdk-invocation-id",
     "amz-sdk-request",
     "content-length",
     "content-type",
     "expect",
     "host",
+    "content-md5",
 ];
 
 #[async_trait::async_trait]
@@ -142,12 +143,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // If all is good, we need the storage secret
         let storage_secret = if let Some(storage_secret_ident) = storage_secret_ident {
             Some(
-                S::get_secret_by_id::<StorageCredential>(
-                    &storage_secret_ident,
-                    state.v1_state.secrets,
-                )
-                .await?
-                .secret,
+                state
+                    .v1_state
+                    .secrets
+                    .get_secret_by_id::<StorageCredential>(&storage_secret_ident)
+                    .await?
+                    .secret,
             )
         } else {
             None

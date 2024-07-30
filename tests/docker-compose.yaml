@@ -53,7 +53,7 @@ services:
   server:
     image: ${ICEBERG_REST_TEST_SERVER_IMAGE}
     environment:
-      - ICEBERG_REST__BASE_URI=http://server:8080/catalog/
+      - ICEBERG_REST__BASE_URI=http://server:8080
       - ICEBERG_REST__PG_ENCRYPTION_KEY=abc
       - ICEBERG_REST__PG_DATABASE_URL_READ=postgresql://postgres:postgres@db:2345/postgres
       - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:postgres@db:2345/postgres
@@ -82,7 +82,7 @@ services:
       keycloak:
         condition: service_healthy
     ports:
-      - 1234:8080
+      - 1235:8080
   db:
     image: bitnami/postgresql:15
     environment:

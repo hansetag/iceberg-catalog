@@ -1,8 +1,98 @@
 use crate::api::Result;
-use crate::service::health::HealthExt;
-use serde::{Deserialize, Serialize};
+use crate::service::health::{Health, HealthExt};
+use async_trait::async_trait;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Interface for Handling Secrets.
+#[async_trait]
+#[allow(clippy::module_name_repetitions)]
+pub trait SecretStore
+where
+    Self: Send + Sync + 'static + HealthExt + Clone,
+{
+    /// Get the secret for a given warehouse.
+    async fn get_secret_by_id<S: SecretInStorage + DeserializeOwned>(
+        &self,
+        secret_id: &SecretIdent,
+    ) -> Result<Secret<S>>;
+
+    /// Create a new secret
+    async fn create_secret<S: SecretInStorage + Send + Sync + Serialize + std::fmt::Debug>(
+        &self,
+        secret: S,
+    ) -> Result<SecretIdent>;
+
+    /// Delete a secret
+    async fn delete_secret(&self, secret_id: &SecretIdent) -> Result<()>;
+}
+
+#[derive(Debug, Clone)]
+pub enum Secrets {
+    Postgres(crate::implementations::postgres::SecretsState),
+    KV2(crate::implementations::kv2::SecretsState),
+}
+
+#[async_trait]
+impl SecretStore for Secrets {
+    async fn get_secret_by_id<S: SecretInStorage + DeserializeOwned>(
+        &self,
+        secret_id: &SecretIdent,
+    ) -> crate::api::Result<Secret<S>> {
+        match self {
+            Self::Postgres(state) => state.get_secret_by_id(secret_id).await,
+            Self::KV2(state) => state.get_secret_by_id(secret_id).await,
+        }
+    }
+
+    async fn create_secret<S: SecretInStorage + Send + Sync + Serialize + std::fmt::Debug>(
+        &self,
+        secret: S,
+    ) -> crate::api::Result<SecretIdent> {
+        match self {
+            Self::Postgres(state) => state.create_secret(secret).await,
+            Self::KV2(state) => state.create_secret(secret).await,
+        }
+    }
+
+    async fn delete_secret(&self, secret_id: &SecretIdent) -> crate::api::Result<()> {
+        match self {
+            Self::Postgres(state) => state.delete_secret(secret_id).await,
+            Self::KV2(state) => state.delete_secret(secret_id).await,
+        }
+    }
+}
+
+#[async_trait]
+impl HealthExt for Secrets {
+    async fn health(&self) -> Vec<Health> {
+        match self {
+            Self::Postgres(state) => state.health().await,
+            Self::KV2(state) => state.health().await,
+        }
+    }
+
+    async fn update_health(&self) {
+        match self {
+            Self::Postgres(state) => state.update_health().await,
+            Self::KV2(state) => state.update_health().await,
+        }
+    }
+}
+
+impl From<crate::implementations::postgres::SecretsState> for Secrets {
+    fn from(state: crate::implementations::postgres::SecretsState) -> Self {
+        Self::Postgres(state)
+    }
+}
+
+impl From<crate::implementations::kv2::SecretsState> for Secrets {
+    fn from(state: crate::implementations::kv2::SecretsState) -> Self {
+        Self::KV2(state)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
 // Is UUID here too strict?
@@ -50,28 +140,3 @@ pub struct Secret<T> {
 
 // Prohibits us to store unwanted types in the storage.
 pub trait SecretInStorage {}
-
-/// Interface for Handling Secrets.
-#[async_trait::async_trait]
-#[allow(clippy::module_name_repetitions)]
-pub trait SecretStore
-where
-    Self: Clone + Send + Sync + 'static,
-{
-    type State: Sized + Send + Sync + Clone + 'static + HealthExt;
-
-    /// Get the secret for a given warehouse.
-    async fn get_secret_by_id<S: SecretInStorage + for<'de> Deserialize<'de>>(
-        secret_id: &SecretIdent,
-        state: Self::State,
-    ) -> Result<Secret<S>>;
-
-    /// Create a new secret
-    async fn create_secret<S: SecretInStorage + Send + Sync + Serialize + std::fmt::Debug>(
-        secret: S,
-        state: Self::State,
-    ) -> Result<SecretIdent>;
-
-    /// Delete a secret
-    async fn delete_secret(secret_id: &SecretIdent, state: Self::State) -> Result<()>;
-}

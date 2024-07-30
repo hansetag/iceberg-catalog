@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.1](https://github.com/hansetag/iceberg-catalog/compare/v0.2.0...v0.2.1) (2024-07-29)
+
+
+### Miscellaneous Chores
+
+* release 0.2.1 ([587ea12](https://github.com/hansetag/iceberg-catalog/commit/587ea129780c21a3cd0fa8dd371b6901dede4c20))
+
+## [0.2.0](https://github.com/hansetag/iceberg-catalog/compare/v0.1.0...v0.2.0) (2024-07-26)
+
+
+### Features
+
+* **views:** commit views ([#146](https://github.com/hansetag/iceberg-catalog/issues/146)) ([0f6310b](https://github.com/hansetag/iceberg-catalog/commit/0f6310b2486cc608af6844c35be7a45ebeb998cd))
+
 ## [0.1.0](https://github.com/hansetag/iceberg-catalog/compare/v0.1.0-rc3...v0.1.0) (2024-06-17)
 
 

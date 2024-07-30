@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.1](https://github.com/hansetag/iceberg-catalog/compare/v0.2.0...v0.2.1) (2024-07-29)
+
+
+### Miscellaneous Chores
+
+* release 0.2.1 ([587ea12](https://github.com/hansetag/iceberg-catalog/commit/587ea129780c21a3cd0fa8dd371b6901dede4c20))
+
+## [0.2.0](https://github.com/hansetag/iceberg-catalog/compare/v0.1.0...v0.2.0) (2024-07-26)
+
+
+### Features
+
+* **health:** Service health checks ([#181](https://github.com/hansetag/iceberg-catalog/issues/181)) ([3bf4d4c](https://github.com/hansetag/iceberg-catalog/commit/3bf4d4c99e09b3ae90ea1b4a9aba5136300df514))
+* **openapi:** management openapi spec ([#184](https://github.com/hansetag/iceberg-catalog/issues/184)) ([5f2f8e3](https://github.com/hansetag/iceberg-catalog/commit/5f2f8e30c154dbc31607d4b629070dc207b47652))
+* **prometheus:** add prometheus axum metrics ([#185](https://github.com/hansetag/iceberg-catalog/issues/185)) ([d60d84a](https://github.com/hansetag/iceberg-catalog/commit/d60d84aebf26052a72e26ff6350d9636d4865009))
+* **secrets:** add support for kv2 secret storage ([#192](https://github.com/hansetag/iceberg-catalog/issues/192)) ([a86b13c](https://github.com/hansetag/iceberg-catalog/commit/a86b13c5020cd52073608c74dacc86eff7e1bb60))
+* **server:** make listenport configurable ([#183](https://github.com/hansetag/iceberg-catalog/issues/183)) ([9ffe0c2](https://github.com/hansetag/iceberg-catalog/commit/9ffe0c2e2c78b178bcb3900ed4d6a246e4eaeacb))
+
+
+### Bug Fixes
+
+* **db:** add wait-for-db command ([#196](https://github.com/hansetag/iceberg-catalog/issues/196)) ([c1cd069](https://github.com/hansetag/iceberg-catalog/commit/c1cd069d773906a4c647dcc007c50b0aa6929c29))
+
 ## [0.1.0](https://github.com/hansetag/iceberg-catalog/compare/v0.1.0-rc3...v0.1.0) (2024-06-17)
 
 

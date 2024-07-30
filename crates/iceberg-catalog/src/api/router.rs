@@ -33,7 +33,7 @@ pub fn new_full_router<
 >(
     auth_state: A::State,
     catalog_state: C::State,
-    secrets_state: S::State,
+    secrets_state: S,
     publisher: CloudEventsPublisher,
     table_change_checkers: ContractVerifiers,
     token_verifier: Option<Verifier>,

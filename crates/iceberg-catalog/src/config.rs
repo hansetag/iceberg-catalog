@@ -14,17 +14,26 @@ use veil::Redact;
 use crate::WarehouseIdent;
 
 const DEFAULT_RESERVED_NAMESPACES: [&str; 2] = ["system", "examples"];
+const DEFAULT_ENCRYPTION_KEY: &str = "<This is unsafe, please set a proper key>";
 
 lazy_static::lazy_static! {
     /// Configuration of the service module.
     pub static ref CONFIG: DynAppConfig = {
         let defaults = figment::providers::Serialized::defaults(DynAppConfig::default());
         let mut config = figment::Figment::from(defaults)
-            .merge(figment::providers::Env::prefixed("ICEBERG_REST__"))
+            .merge(figment::providers::Env::prefixed("ICEBERG_REST__").split("__"))
             .extract::<DynAppConfig>()
             .expect("Valid Configuration");
 
         config.reserved_namespaces.extend(DEFAULT_RESERVED_NAMESPACES.into_iter().map(str::to_string));
+
+        // Fail early if the base_uri is not a valid URL
+        config.s3_signer_uri_for_warehouse(WarehouseIdent::from(uuid::Uuid::new_v4()));
+        config.base_uri_catalog();
+        config.base_uri_management();
+        if config.secret_backend == SecretBackend::Postgres && config.pg_encryption_key == DEFAULT_ENCRYPTION_KEY {
+            tracing::warn!("THIS IS UNSAFE! Using default encryption key for secrets in postgres, please set a proper key using ICEBERG_REST__PG_ENCRYPTION_KEY environment variable.");
+        }
 
         config
     };
@@ -99,14 +108,34 @@ pub struct DynAppConfig {
     // ------------- Health -------------
     pub health_check_frequency_seconds: u64,
     pub health_check_jitter_millis: u64,
+
+    // ------------- KV2 -------------
+    pub vault: Option<KV2Config>,
+    // ------------- Secrets -------------
+    pub secret_backend: SecretBackend,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SecretBackend {
+    #[serde(alias = "kv2", alias = "Kv2")]
+    KV2,
+    #[serde(alias = "postgres")]
+    Postgres,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Redact)]
+pub struct KV2Config {
+    pub url: Url,
+    pub user: String,
+    #[redact]
+    pub password: String,
+    pub secret_mount: String,
 }
 
 impl Default for DynAppConfig {
     fn default() -> Self {
         Self {
-            base_uri: "https://localhost:8080/catalog/"
-                .parse()
-                .expect("Valid URL"),
+            base_uri: "https://localhost:8080".parse().expect("Valid URL"),
             metrics_port: 9000,
             default_project_id: None,
             prefix_template: "{warehouse_id}".to_string(),
@@ -114,7 +143,7 @@ impl Default for DynAppConfig {
                 "system".to_string(),
                 "examples".to_string(),
             ])),
-            pg_encryption_key: "<This is unsafe, please set a proper key>".to_string(),
+            pg_encryption_key: DEFAULT_ENCRYPTION_KEY.to_string(),
             pg_database_url_read: None,
             pg_database_url_write: None,
             pg_host_r: None,
@@ -140,6 +169,8 @@ impl Default for DynAppConfig {
             listen_port: 8080,
             health_check_frequency_seconds: 10,
             health_check_jitter_millis: 500,
+            vault: None,
+            secret_backend: SecretBackend::Postgres,
         }
     }
 }
@@ -147,8 +178,16 @@ impl Default for DynAppConfig {
 impl DynAppConfig {
     pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: WarehouseIdent) -> url::Url {
         self.base_uri
-            .join(&format!("v1/{warehouse_id}"))
+            .join(&format!("catalog/v1/{warehouse_id}"))
             .expect("Valid URL")
+    }
+
+    pub fn base_uri_catalog(&self) -> url::Url {
+        self.base_uri.join("catalog").expect("Valid URL")
+    }
+
+    pub fn base_uri_management(&self) -> url::Url {
+        self.base_uri.join("management").expect("Valid URL")
     }
 
     pub fn warehouse_prefix(&self, warehouse_id: WarehouseIdent) -> String {
