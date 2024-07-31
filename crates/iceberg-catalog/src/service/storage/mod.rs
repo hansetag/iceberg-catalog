@@ -3,14 +3,14 @@ mod s3;
 
 use std::collections::HashMap;
 
+use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
 use crate::service::storage::az::{AzCredential, AzProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
+use iceberg::io::FileWrite;
 pub use s3::{S3Credential, S3Profile};
 use serde::{Deserialize, Serialize};
-
-use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
@@ -67,6 +67,10 @@ impl StorageProfile {
             (StorageProfile::Az(this_profile), StorageProfile::Az(other_profile)) => {
                 this_profile.can_be_updated_with(other_profile)
             }
+            #[cfg(test)]
+            (StorageProfile::Test(_), _) => Ok(()),
+            #[cfg(test)]
+            (_, StorageProfile::Test(_)) => Ok(()),
             (_, _) => Err(ErrorModel::bad_request(
                 "Storage profiles are not compatible",
                 "StorageProfilesNotCompatible".to_string(),
@@ -77,10 +81,6 @@ impl StorageProfile {
                 format!("Other: {:?}", other.storage_type()),
             ])
             .into()),
-            #[cfg(test)]
-            (StorageProfile::Test(_), _) => Ok(()),
-            #[cfg(test)]
-            (_, StorageProfile::Test(_)) => Ok(()),
         }
     }
 
@@ -407,4 +407,51 @@ mod tests {
             })
         );
     }
+}
+
+// ToDo: Move somewhere so that other profiles can use it as well?
+async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) -> Result<()> {
+    // Validate the file_io instance by creating a test file.
+
+    let test_file = file_io.new_output(test_location).map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileCreationError",
+            Some(Box::new(e)),
+        )
+    })?;
+    let mut writer = test_file.writer().await.map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileWriterError",
+            Some(Box::new(e)),
+        )
+    })?;
+
+    let buf: &[u8; 4] = b"test";
+    writer.write(buf.to_vec().into()).await.map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileWriterError",
+            Some(Box::new(e)),
+        )
+    })?;
+
+    writer.close().await.map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileCloseError",
+            Some(Box::new(e)),
+        )
+    })?;
+
+    file_io.delete(test_location).await.map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating S3 Storage Profile: {e}"),
+            "S3TestFileDeleteError",
+            Some(Box::new(e)),
+        )
+    })?;
+
+    Ok(())
 }

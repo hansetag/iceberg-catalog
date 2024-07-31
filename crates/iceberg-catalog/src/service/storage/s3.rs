@@ -4,6 +4,7 @@ use crate::{
 };
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
+use crate::service::storage::validate_file_io;
 use crate::service::tabular_idents::TabularIdentUuid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -416,53 +417,6 @@ pub enum S3Credential {
         #[redact(partial)]
         aws_secret_access_key: String,
     },
-}
-
-// ToDo: Move somewhere so that other profiles can use it as well?
-async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) -> Result<()> {
-    // Validate the file_io instance by creating a test file.
-
-    let test_file = file_io.new_output(test_location).map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileCreationError",
-            Some(Box::new(e)),
-        )
-    })?;
-    let mut writer = test_file.writer().await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileWriterError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    let buf: &[u8; 4] = b"test";
-    writer.write(buf.to_vec().into()).await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileWriterError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    writer.close().await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileCloseError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    file_io.delete(test_location).await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileDeleteError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    Ok(())
 }
 
 #[cfg(test)]

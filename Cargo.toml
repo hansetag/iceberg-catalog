@@ -24,8 +24,7 @@ serde_json = { version = "^1.0", features = ["raw_value"] }
 url = { version = "^2.5", features = ["serde"] }
 uuid = { version = "^1.6", features = ["serde", "v4", "v7"] }
 reqwest = { version = "^0.12", default-features = false, features = ["json", "rustls-tls"] }
-iceberg = { path = "../iceberg-rust/crates/iceberg" }
-#iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "tp/pub-viewmetabuilder-rustls" }
+iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "tp/azdls" }
 typed-builder = "^0.18"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }
@@ -48,7 +47,6 @@ headers = { version = "^0.4" }
 hostname = "0.4.0"
 http-body-util = "^0.1"
 jwks_client_rs = { version = "0.5.1", default-features = false, features = ["rustls-tls"] }
-object_store = "0.10.2"
 strum = { version = "^0.26", features = ["derive"] }
 sqlx = { version = "^0.7", default-features = false, features = [
     "runtime-tokio",
