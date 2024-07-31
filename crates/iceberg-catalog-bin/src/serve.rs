@@ -25,7 +25,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     let secrets_state: Secrets = match CONFIG.secret_backend {
         SecretBackend::KV2 => iceberg_catalog::implementations::kv2::SecretsState::from_config(
             CONFIG
-                .vault
+                .kv2
                 .as_ref()
                 .ok_or_else(|| anyhow!("Need vault config to use vault as backend"))?,
         )
