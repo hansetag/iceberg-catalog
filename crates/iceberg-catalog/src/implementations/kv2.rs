@@ -262,7 +262,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_read_secret() {
-        let state = SecretsState::from_config(CONFIG.vault.as_ref().unwrap())
+        let state = SecretsState::from_config(CONFIG.kv2.as_ref().unwrap())
             .await
             .unwrap();
 
@@ -284,7 +284,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_secret() {
-        let state = SecretsState::from_config(CONFIG.vault.as_ref().unwrap())
+        let state = SecretsState::from_config(CONFIG.kv2.as_ref().expect("vault cfg missing"))
             .await
             .unwrap();
 
@@ -294,7 +294,10 @@ mod tests {
         }
         .into();
 
-        let secret_id = state.create_secret(secret.clone()).await.unwrap();
+        let secret_id = state
+            .create_secret(secret.clone())
+            .await
+            .expect("create secret failed");
 
         state.delete_secret(&secret_id).await.unwrap();
 

@@ -110,7 +110,7 @@ pub struct DynAppConfig {
     pub health_check_jitter_millis: u64,
 
     // ------------- KV2 -------------
-    pub vault: Option<KV2Config>,
+    pub kv2: Option<KV2Config>,
     // ------------- Secrets -------------
     pub secret_backend: SecretBackend,
 }
@@ -169,7 +169,7 @@ impl Default for DynAppConfig {
             listen_port: 8080,
             health_check_frequency_seconds: 10,
             health_check_jitter_millis: 500,
-            vault: None,
+            kv2: None,
             secret_backend: SecretBackend::Postgres,
         }
     }
