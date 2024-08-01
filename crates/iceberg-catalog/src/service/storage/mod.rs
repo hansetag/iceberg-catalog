@@ -8,7 +8,6 @@ use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
 use crate::service::storage::az::{AzCredential, AzProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
-use iceberg::io::FileWrite;
 pub use s3::{S3Credential, S3Profile};
 use serde::{Deserialize, Serialize};
 
@@ -208,17 +207,24 @@ impl StorageProfile {
                         table_id,
                         namespace_id,
                         data_access,
-                        secret
-                            .map(|s| match s {
-                                StorageCredential::Az(s) => Ok(s),
-                                // TODO error
-                                _ => Err(ErrorModel::bad_request(
+                        match secret.ok_or_else(|| {
+                            ErrorModel::bad_request(
+                                "Storage credential is required for Azure storage",
+                                "StorageCredentialRequired",
+                                None,
+                            )
+                        })? {
+                            StorageCredential::Az(s) => s,
+                            // TODO error
+                            _ => {
+                                return Err(ErrorModel::bad_request(
                                     "Invalid storage credential, expected az but received: {}",
                                     "InvalidStorageCredential",
                                     None,
-                                )),
-                            })
-                            .transpose()?,
+                                )
+                                .into())
+                            }
+                        },
                     )
                     .await
             }
@@ -344,6 +350,38 @@ impl StorageCredential {
     }
 }
 
+// ToDo: Move somewhere so that other profiles can use it as well?
+async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) -> Result<()> {
+    // Validate the file_io instance by creating a test file.
+    crate::catalog::io::write_metadata_file(test_location, "test", file_io).await?;
+
+    file_io.delete(test_location).await.map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Error validating Storage Profile: {e}"),
+            "TestFileDeleteError",
+            Some(Box::new(e)),
+        )
+    })?;
+
+    Ok(())
+}
+
+pub mod path_utils {
+    use regex_lite::Regex;
+    use std::sync::OnceLock;
+
+    static AZDLS_REGEX: OnceLock<Regex> = OnceLock::new();
+    static AZDLS_STR: &'static str = r"^(?<protocol>abfss?://)[^/@]+@[^/]+(?<path>/.+)";
+
+    pub fn sanitize_azdls_path(path: &str) -> String {
+        let re = AZDLS_REGEX.get_or_init(|| Regex::new(AZDLS_STR).unwrap());
+        let caps = re.captures(path).unwrap();
+        let mut metadata_location = String::new();
+        caps.expand("$protocol$path", &mut metadata_location);
+        metadata_location
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,51 +445,4 @@ mod tests {
             })
         );
     }
-}
-
-// ToDo: Move somewhere so that other profiles can use it as well?
-async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) -> Result<()> {
-    // Validate the file_io instance by creating a test file.
-
-    let test_file = file_io.new_output(test_location).map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileCreationError",
-            Some(Box::new(e)),
-        )
-    })?;
-    let mut writer = test_file.writer().await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileWriterError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    let buf: &[u8; 4] = b"test";
-    writer.write(buf.to_vec().into()).await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileWriterError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    writer.close().await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileCloseError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    file_io.delete(test_location).await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating S3 Storage Profile: {e}"),
-            "S3TestFileDeleteError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    Ok(())
 }

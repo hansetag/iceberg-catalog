@@ -79,6 +79,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
+        tracing::debug!("create_table: {:?}", request);
         // ------------------- VALIDATIONS -------------------
         let NamespaceParameters { namespace, prefix } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
@@ -209,7 +210,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             state.v1_state.publisher.clone(),
         )
         .await;
-
+        tracing::debug!("create_table: {:?}", load_table_result);
         Ok(load_table_result)
     }
 

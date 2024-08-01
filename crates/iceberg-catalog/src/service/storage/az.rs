@@ -1,15 +1,23 @@
 use crate::{
     service::{NamespaceIdentUuid, TableIdentUuid},
-    WarehouseIdent, CONFIG,
+    WarehouseIdent,
 };
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
 use crate::service::storage;
 use crate::service::tabular_idents::TabularIdentUuid;
+use azure_storage::prelude::{BlobSasPermissions, BlobSignedResource};
+use azure_storage::shared_access_signature::service_sas::BlobSharedAccessSignature;
+use azure_storage::shared_access_signature::SasToken;
+use azure_storage::StorageCredentials;
+use futures::StreamExt;
 use iceberg::io::azdls;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::SystemTime;
 use url::Url;
+use uuid::Uuid;
 use veil::Redact;
 
 fn is_valid_bucket_name(bucket: &str) -> Result<()> {
@@ -73,8 +81,11 @@ pub struct AzProfile {
     pub key_prefix: Option<String>,
     pub account_name: String,
     pub authority_host: Option<Url>,
-    pub endpoint: Url,
+    pub endpoint_suffix: Option<String>,
+    pub sas_token_validity_seconds: Option<u64>,
 }
+
+const DEFAULT_ENDPOINT_SUFFIX: &'static str = "dfs.core.windows.net";
 
 impl AzProfile {
     /// Validate the S3 profile.
@@ -96,7 +107,8 @@ impl AzProfile {
             key_prefix,
             account_name: _,
             authority_host: _,
-            endpoint,
+            endpoint_suffix: _,
+            sas_token_validity_seconds: _,
         } = self;
 
         is_valid_bucket_name(filesystem)?;
@@ -113,25 +125,38 @@ impl AzProfile {
             }
         }
 
-        // Protocol must be http or https
-        if endpoint.scheme() != "http" && endpoint.scheme() != "https" {
-            return Err(ErrorModel::bad_request(
-                "Storage Profile `endpoint` must have http or https protocol.",
-                "InvalidS3Endpoint",
-                None,
-            )
-            .into());
-        }
-
         let file_io = self.file_io(credential)?;
-        let test_location = self.tabular_location(
-            uuid::Uuid::now_v7().into(),
-            TabularIdentUuid::Table(uuid::Uuid::now_v7()),
-        );
-
+        let ns_id = uuid::Uuid::now_v7().into();
+        let namespace_location = self.namespace_location(ns_id);
+        let table_id = uuid::Uuid::now_v7();
+        let test_location =
+            self.tabular_location(ns_id, TabularIdentUuid::Table(table_id)) + "/test_file";
+        let sanitized_ns_location = super::path_utils::sanitize_azdls_path(&namespace_location);
         storage::validate_file_io(&file_io, &test_location)
             .await
             .map_err(|e| e.error.append_detail(format!("Profile: {self:?}")))?;
+
+        tracing::debug!(
+            "Successfully validated metadata writing, moving on to validating table config.",
+        );
+
+        self.validate_sas(credential, ns_id, table_id, test_location)
+            .await?;
+
+        tracing::debug!("Successfully validated table_config by using sas token, moving on to cleaning up by deleting contents of: '{}'.", sanitized_ns_location);
+
+        file_io
+            .remove_all(sanitized_ns_location)
+            .await
+            .map_err(|err| {
+                ErrorModel::internal(
+                    "Failed to delete test location.",
+                    "AzStorageDeletionError",
+                    Some(Box::new(err)),
+                )
+            })?;
+
+        tracing::debug!("Cleaned up");
 
         Ok(())
     }
@@ -147,8 +172,8 @@ impl AzProfile {
     pub fn can_be_updated_with(&self, other: &Self) -> Result<()> {
         if self.filesystem != other.filesystem {
             return Err(ErrorModel::bad_request(
-                "Storage Profile `bucket` cannot be updated to prevent data loss.",
-                "InvalidBucket",
+                "Storage Profile `filesystem` cannot be updated to prevent data loss.",
+                "InvalidFileSystem",
                 None,
             )
             .into());
@@ -167,14 +192,10 @@ impl AzProfile {
     }
 
     #[must_use]
-    pub fn generate_catalog_config(&self, warehouse_id: WarehouseIdent) -> CatalogConfig {
+    pub fn generate_catalog_config(&self, _: WarehouseIdent) -> CatalogConfig {
         CatalogConfig {
-            // ToDo: s3.delete-enabled?
             defaults: HashMap::default(),
-            overrides: HashMap::from_iter(vec![(
-                "s3.signer.uri".to_string(),
-                CONFIG.s3_signer_uri_for_warehouse(warehouse_id).to_string(),
-            )]),
+            overrides: HashMap::default(),
         }
     }
 
@@ -184,11 +205,34 @@ impl AzProfile {
         namespace_id: NamespaceIdentUuid,
         tabular_id: TabularIdentUuid,
     ) -> String {
-        // s3://bucket-name/<path_prefix>/<namespace-uuid>/<table-uuid>/
+        format!("{}{tabular_id}", self.namespace_location(namespace_id))
+    }
+
+    fn namespace_location(&self, namespace_id: NamespaceIdentUuid) -> String {
+        format!("{}{namespace_id}/", self.location())
+    }
+
+    fn location(&self) -> String {
         if let Some(key_prefix) = &self.key_prefix {
-            format!("/{key_prefix}/{namespace_id}/{tabular_id}",)
+            format!(
+                "abfss://{}@{}.{}/{}/",
+                self.filesystem,
+                self.account_name,
+                self.endpoint_suffix
+                    .as_deref()
+                    .unwrap_or(DEFAULT_ENDPOINT_SUFFIX),
+                key_prefix.trim_matches('/').to_string()
+            )
         } else {
-            format!("/{namespace_id}/{tabular_id}")
+            format!(
+                "abfss:/{}@{}.{}/",
+                self.filesystem,
+                self.account_name,
+                self.endpoint_suffix
+                    .as_deref()
+                    .unwrap_or(DEFAULT_ENDPOINT_SUFFIX)
+                    .trim_end_matches('/'),
+            )
         }
     }
 
@@ -203,50 +247,29 @@ impl AzProfile {
         _: WarehouseIdent,
         _: TableIdentUuid,
         _: NamespaceIdentUuid,
-        data_access: &DataAccess,
-        _: Option<&AzCredential>,
+        _: &DataAccess,
+        creds: &AzCredential,
     ) -> Result<HashMap<String, String>> {
-        let DataAccess {
-            vended_credentials,
-            remote_signing,
-        } = data_access;
-        // If vended_credentials is False and remote_signing is False,
-        // use remote_signing.
-        let mut remote_signing = if !vended_credentials && !remote_signing {
-            true
-        } else {
-            *remote_signing
-        };
-
+        let AzCredential::ClientCredentials {
+            client_id,
+            tenant_id,
+            client_secret,
+        } = creds;
+        let http_client = azure_core::new_http_client();
+        let token = azure_identity::ClientSecretCredential::new(
+            http_client,
+            self.authority_host
+                .clone()
+                .unwrap_or(Url::parse("https://login.microsoftonline.com").unwrap()),
+            tenant_id.clone(),
+            client_id.clone(),
+            client_secret.clone(),
+        );
+        let cred = azure_storage::StorageCredentials::token_credential(Arc::new(token));
         let mut config = HashMap::new();
 
-        if *vended_credentials {
-            // ToDo: Find a better way.
-            // Vended-Credentials are requested by pyiceberg. However, we can trick pyiceberg in using
-            // remote signing by setting the following config keys:
-            config.insert("s3.signer".to_string(), "S3V4RestSigner".to_string());
-            config.insert(
-                "py-io-impl".to_string(),
-                "pyiceberg.io.fsspec.FsspecFileIO".to_string(),
-            );
-            remote_signing = true;
-
-            // return Err(ErrorModel::builder()
-            //     .code(StatusCode::NOT_IMPLEMENTED.into())
-            //     .message("Vended credentials not supported.".to_string())
-            //     .r#type("VendedCredentialsNotSupported".to_string())
-            //     .build()
-            //     .into());
-        }
-
-        if remote_signing {
-            config.insert("s3.remote-signing-enabled".to_string(), "true".to_string());
-            // Currently per-table signer uris are not supported by Spark.
-            // The URI is cached for one table, and then re-used for another.
-            // let signer_uri = CONFIG.s3_signer_uri_for_table(warehouse_id, namespace_id, table_id);
-            // config.insert("s3.signer.uri".to_string(), signer_uri.to_string());
-        }
-
+        let sas = self.get_sas_token(cred).await?;
+        config.insert(self.iceberg_sas_property_key(), sas);
         Ok(config)
     }
 
@@ -258,7 +281,16 @@ impl AzProfile {
         let mut builder = iceberg::io::FileIOBuilder::new("azdls");
 
         builder = builder
-            .with_prop(azdls::ConfigKeys::Endpoint, self.endpoint.to_string())
+            .with_prop(
+                azdls::ConfigKeys::Endpoint,
+                format!(
+                    "https://{}.{}",
+                    self.account_name,
+                    self.endpoint_suffix
+                        .as_deref()
+                        .unwrap_or(DEFAULT_ENDPOINT_SUFFIX)
+                ),
+            )
             .with_prop(azdls::ConfigKeys::AccountName, self.account_name.clone())
             .with_prop(azdls::ConfigKeys::Filesystem, self.filesystem.clone());
 
@@ -295,6 +327,141 @@ impl AzProfile {
             .into()
         })
     }
+
+    async fn validate_sas(
+        &mut self,
+        credential: Option<&AzCredential>,
+        ns_id: NamespaceIdentUuid,
+        table_id: Uuid,
+        test_location: String,
+    ) -> Result<()> {
+        let table_config = self
+            .generate_table_config(
+                Uuid::now_v7().into(),
+                table_id.into(),
+                ns_id.into(),
+                &DataAccess {
+                    vended_credentials: false,
+                    remote_signing: false,
+                },
+                credential.unwrap(),
+            )
+            .await
+            .map_err(|e| {
+                e.error
+                    .append_detail("Couldn't generate table config while validating.")
+            })?;
+
+        // TODO: replace with iceberg_rust's FileIO + opendal once sas is available
+        let cred = azure_storage::StorageCredentials::sas_token(
+            table_config
+                .get(self.iceberg_sas_property_key().as_str())
+                .ok_or(ErrorModel::internal(
+                    "Couldn't find sas token in table config.",
+                    "AzStorageSasTokenNotFound",
+                    None,
+                ))?,
+        )
+        .map_err(|e| {
+            ErrorModel::internal(
+                "Couldn't create storage credentials from sas token.",
+                "AzStorageSasTokenCreationError",
+                Some(Box::new(e)),
+            )
+        })?;
+        let client =
+            azure_storage_blobs::prelude::BlobServiceClient::new(self.account_name.as_str(), cred);
+        let container = client.container_client(self.filesystem.as_str());
+        let blob = container.blob_client(
+            // Blob client expects the path without protocol
+            super::path_utils::sanitize_azdls_path(test_location.as_str())
+                .trim_start_matches("abfss://"),
+        );
+        let mut get = blob.get().into_stream();
+        while let Some(n) = get.next().await {
+            if let Err(e) = n {
+                return Err(ErrorModel::internal(
+                    "Failed to read test location.",
+                    "AzStorageReadError",
+                    Some(Box::new(e)),
+                )
+                .into());
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn get_sas_token(&self, cred: StorageCredentials) -> Result<String> {
+        let client =
+            azure_storage_blobs::prelude::BlobServiceClient::new(self.account_name.as_str(), cred);
+        let delegation_key = client
+            .get_user_deligation_key(
+                // TODO: should we pull in `time` instead?
+                SystemTime::now().into(),
+                SystemTime::now()
+                    .checked_add(std::time::Duration::from_secs(
+                        self.sas_token_validity_seconds.unwrap_or(3600),
+                    ))
+                    .unwrap()
+                    .into(),
+            )
+            .await
+            .map_err(|e| {
+                ErrorModel::precondition_failed(
+                    "Error getting user delegation key.",
+                    "AzStorageDelegationError",
+                    Some(Box::new(e)),
+                )
+            })?;
+
+        let depth = self
+            .key_prefix
+            .as_ref()
+            .map(|s| s.split('/').count())
+            .unwrap_or(1);
+        let canonicalized_resource = format!(
+            "/blob/{}/{}/{}",
+            self.account_name.as_str(),
+            self.filesystem.as_str(),
+            self.key_prefix.as_deref().unwrap_or("")
+        );
+
+        let sas = BlobSharedAccessSignature::new(
+            delegation_key.user_deligation_key.clone(),
+            canonicalized_resource,
+            BlobSasPermissions {
+                read: true,
+                // create: true,
+                write: true,
+                delete: true,
+                list: true,
+                ..Default::default()
+            },
+            delegation_key.user_deligation_key.signed_expiry,
+            BlobSignedResource::Directory,
+        )
+        .signed_directory_depth(depth);
+
+        sas.token().map_err(|e| {
+            ErrorModel::precondition_failed(
+                "Error getting sas token.",
+                "AzStorageDelegationError",
+                Some(Box::new(e)),
+            )
+            .into()
+        })
+    }
+
+    fn iceberg_sas_property_key(&self) -> String {
+        format!(
+            "adls.sas-token.{}.{}",
+            self.account_name.as_str(),
+            self.endpoint_suffix
+                .as_deref()
+                .unwrap_or("dfs.core.windows.net")
+        )
+    }
 }
 
 #[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -313,28 +480,41 @@ pub enum AzCredential {
 
 #[cfg(test)]
 mod test {
-    use super::{AzCredential, AzProfile};
-    use std::str::FromStr;
-    use url::Url;
+    use needs_env_var::needs_env_var;
 
-    #[tokio::test]
-    async fn test_can_validate() {
-        let account_name = "a";
-        let mut prof = AzProfile {
-            filesystem: "test".to_string(),
-            key_prefix: Some("test".to_string()),
-            account_name: "a".to_string(),
-            authority_host: None,
-            endpoint: Url::from_str(&format!("https://{account_name}.dfs.core.windows.net"))
-                .unwrap(),
-        };
+    #[needs_env_var(TEST_AZURE)]
+    mod azure_tests {
+        use crate::service::storage::AzCredential;
+        use crate::service::storage::AzProfile;
+        use uuid::Uuid;
 
-        prof.validate(Some(&AzCredential::ClientCredentials {
-            client_id: "a".to_string(),
-            tenant_id: "t".to_string(),
-            client_secret: "b".to_string(),
-        }))
-        .await
-        .unwrap();
+        #[tokio::test]
+        async fn test_can_validate() {
+            let account_name = std::env::var("AZURE_STORAGE_ACCOUNT_NAME").unwrap();
+            let client_id = std::env::var("AZURE_CLIENT_ID").unwrap();
+            let client_secret = std::env::var("AZURE_CLIENT_SECRET").unwrap();
+            let tenant_id = std::env::var("AZURE_TENANT_ID").unwrap();
+            let filesystem = std::env::var("AZURE_STORAGE_FILESYSTEM").unwrap();
+            let key_prefix = Uuid::now_v7();
+            eprintln!("");
+            let mut prof = AzProfile {
+                filesystem,
+                key_prefix: Some(key_prefix.to_string()),
+                account_name,
+                authority_host: None,
+                endpoint_suffix: None,
+                sas_token_validity_seconds: None,
+            };
+
+            let cred = AzCredential::ClientCredentials {
+                client_id,
+                client_secret,
+                tenant_id,
+            };
+
+            prof.validate(Some(&cred))
+                .await
+                .expect("failed to validate profile");
+        }
     }
 }

@@ -1,4 +1,5 @@
 use crate::api::{ErrorModel, Result};
+use crate::service::storage::path_utils;
 use flate2::{write::GzEncoder, Compression};
 use iceberg::io::FileIO;
 use serde::Serialize;
@@ -9,6 +10,14 @@ pub(crate) async fn write_metadata_file(
     table_metadata: impl Serialize,
     file_io: &FileIO,
 ) -> Result<()> {
+    tracing::debug!("Received location: {}", metadata_location);
+    let metadata_location = if metadata_location.starts_with("abfs") {
+        path_utils::sanitize_azdls_path(metadata_location)
+    } else {
+        metadata_location.to_string()
+    };
+    tracing::debug!("Going to write metadata file to {}", metadata_location);
+
     let metadata_file = file_io.new_output(metadata_location).map_err(|e| {
         ErrorModel::failed_dependency(
             "Failed to create metadata file. Please check the storage credentials.",
