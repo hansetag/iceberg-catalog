@@ -1,12 +1,11 @@
 #!/bin/sh
 set -eux
 
-vault login -address http://hvault:8200 myroot
-vault auth  enable -address http://hvault:8200  userpass
+VAULT_ADDR=${1:-http://hvault:8200}
+
+vault login -address "$VAULT_ADDR" myroot
+vault auth enable -address "$VAULT_ADDR" userpass
 echo "path \"secret/*\" { capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"] }" > /tmp/app.hcl
-vault policy write -address http://hvault:8200 app /tmp/app.hcl
-vault write -address http://hvault:8200 auth/userpass/users/test password=test policies=app
-vault status -address http://hvault:8200
-# grant access to the secrets kv store to test user
-
-
+vault policy write -address "$VAULT_ADDR" app /tmp/app.hcl
+vault write -address "$VAULT_ADDR" auth/userpass/users/test password=test policies=app
+vault status -address "$VAULT_ADDR"
