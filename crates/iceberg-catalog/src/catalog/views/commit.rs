@@ -253,7 +253,8 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         }
     }
 
-    let metadata_location = storage_profile.metadata_location(&view_location, Uuid::now_v7());
+    let metadata_location =
+        storage_profile.initial_metadata_location(&view_location, Uuid::now_v7());
 
     C::update_view_metadata(
         namespace_id,
@@ -288,7 +289,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         None
     };
 
-    let file_io = storage_profile.file_io(storage_secret.as_ref())?;
+    let file_io = storage_profile.file_io(storage_secret.as_ref(), false)?;
     write_metadata_file(metadata_location.as_str(), &updated_meta, &file_io).await?;
     tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
     // Generate the storage profile. This requires the storage secret
@@ -304,6 +305,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             TableIdentUuid::from(*view_id),
             &data_access,
             storage_secret.as_ref(),
+            updated_meta.location.as_str(),
         )
         .await?;
     transaction.commit().await?;

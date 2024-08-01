@@ -110,6 +110,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             view_metadata.uuid().into(),
             &data_access,
             storage_secret.as_ref(),
+            view_metadata.location.as_ref(),
         )
         .await?;
     let load_table_result = LoadViewResult {

@@ -5,6 +5,7 @@ use crate::{
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
 use crate::service::storage;
+use crate::service::storage::path_utils::reduce_scheme_string;
 use crate::service::tabular_idents::TabularIdentUuid;
 use azure_storage::prelude::{BlobSasPermissions, BlobSignedResource};
 use azure_storage::shared_access_signature::service_sas::BlobSharedAccessSignature;
@@ -74,21 +75,25 @@ fn is_valid_bucket_name(bucket: &str) -> Result<()> {
 #[schema(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub struct AzProfile {
-    /// Name of the S3 bucket
+    /// Name of the azdls filesystem, in blobstorage also known as container.
     pub filesystem: String,
-    /// Subpath in the bucket to use.
+    /// Subpath in the filesystem to use.
     /// The same prefix can be used for multiple warehouses.
     pub key_prefix: Option<String>,
+    /// Name of the azure storage account.
     pub account_name: String,
+    /// The authority host to use for authentication. Default: `https://login.microsoftonline.com`.
     pub authority_host: Option<Url>,
+    /// The endpoint suffix to use for the storage account. Default: `dfs.core.windows.net`.
     pub endpoint_suffix: Option<String>,
+    /// The validity of the sas token in seconds. Default: 3600.
     pub sas_token_validity_seconds: Option<u64>,
 }
 
-const DEFAULT_ENDPOINT_SUFFIX: &'static str = "dfs.core.windows.net";
+const DEFAULT_ENDPOINT_SUFFIX: &str = "dfs.core.windows.net";
 
 impl AzProfile {
-    /// Validate the S3 profile.
+    /// Validate the Azure storage profile.
     ///
     /// # Errors
     /// - Fails if the bucket name is invalid.
@@ -113,7 +118,7 @@ impl AzProfile {
 
         is_valid_bucket_name(filesystem)?;
 
-        // Aws supports a max of 1024 chars and we need some buffer for tables.
+        // Azure supports a max of 1024 chars and we need some buffer for tables.
         if let Some(key_prefix) = key_prefix {
             if key_prefix.len() > 512 {
                 return Err(ErrorModel::bad_request(
@@ -126,12 +131,12 @@ impl AzProfile {
         }
 
         let file_io = self.file_io(credential)?;
-        let ns_id = uuid::Uuid::now_v7().into();
-        let namespace_location = self.namespace_location(ns_id);
-        let table_id = uuid::Uuid::now_v7();
+        let ns_id = Uuid::now_v7().into();
+        let namespace_location = self.initial_namespace_location(ns_id);
+        let table_id = Uuid::now_v7();
         let test_location =
-            self.tabular_location(ns_id, TabularIdentUuid::Table(table_id)) + "/test_file";
-        let sanitized_ns_location = super::path_utils::sanitize_azdls_path(&namespace_location);
+            self.initial_tabular_location(ns_id, TabularIdentUuid::Table(table_id)) + "/test_file";
+        let sanitized_ns_location = reduce_scheme_string(&namespace_location, false);
         storage::validate_file_io(&file_io, &test_location)
             .await
             .map_err(|e| e.error.append_detail(format!("Profile: {self:?}")))?;
@@ -140,8 +145,19 @@ impl AzProfile {
             "Successfully validated metadata writing, moving on to validating table config.",
         );
 
-        self.validate_sas(credential, ns_id, table_id, test_location)
-            .await?;
+        self.validate_sas(
+            credential.ok_or_else(|| {
+                ErrorModel::bad_request(
+                    "Storage Profile `credential` must be provided.",
+                    "InvalidCredential",
+                    None,
+                )
+            })?,
+            ns_id,
+            table_id,
+            test_location,
+        )
+        .await?;
 
         tracing::debug!("Successfully validated table_config by using sas token, moving on to cleaning up by deleting contents of: '{}'.", sanitized_ns_location);
 
@@ -149,7 +165,7 @@ impl AzProfile {
             .remove_all(sanitized_ns_location)
             .await
             .map_err(|err| {
-                ErrorModel::internal(
+                ErrorModel::precondition_failed(
                     "Failed to delete test location.",
                     "AzStorageDeletionError",
                     Some(Box::new(err)),
@@ -191,6 +207,8 @@ impl AzProfile {
         Ok(())
     }
 
+    // may change..
+    #[allow(clippy::unused_self)]
     #[must_use]
     pub fn generate_catalog_config(&self, _: WarehouseIdent) -> CatalogConfig {
         CatalogConfig {
@@ -200,15 +218,18 @@ impl AzProfile {
     }
 
     #[must_use]
-    pub fn tabular_location(
+    pub fn initial_tabular_location(
         &self,
         namespace_id: NamespaceIdentUuid,
         tabular_id: TabularIdentUuid,
     ) -> String {
-        format!("{}{tabular_id}", self.namespace_location(namespace_id))
+        format!(
+            "{}{tabular_id}",
+            self.initial_namespace_location(namespace_id)
+        )
     }
 
-    fn namespace_location(&self, namespace_id: NamespaceIdentUuid) -> String {
+    fn initial_namespace_location(&self, namespace_id: NamespaceIdentUuid) -> String {
         format!("{}{namespace_id}/", self.location())
     }
 
@@ -221,7 +242,7 @@ impl AzProfile {
                 self.endpoint_suffix
                     .as_deref()
                     .unwrap_or(DEFAULT_ENDPOINT_SUFFIX),
-                key_prefix.trim_matches('/').to_string()
+                key_prefix.trim_matches('/')
             )
         } else {
             format!(
@@ -236,18 +257,17 @@ impl AzProfile {
         }
     }
 
-    // Vended credentials will be async.
-    #[allow(clippy::unused_async)]
-    /// Generate the table configuration for S3.
+    /// Generate the table configuration for Azure Datalake Storage Gen2.
     ///
     /// # Errors
-    /// Fails if vended credentials are used - currently not supported.
+    /// Fails if sas token cannot be generated.
     pub async fn generate_table_config(
         &self,
         _: WarehouseIdent,
         _: TableIdentUuid,
         _: NamespaceIdentUuid,
         _: &DataAccess,
+        table_location: &str,
         creds: &AzCredential,
     ) -> Result<HashMap<String, String>> {
         let AzCredential::ClientCredentials {
@@ -268,7 +288,7 @@ impl AzProfile {
         let cred = azure_storage::StorageCredentials::token_credential(Arc::new(token));
         let mut config = HashMap::new();
 
-        let sas = self.get_sas_token(cred).await?;
+        let sas = self.get_sas_token(table_location, cred).await?;
         config.insert(self.iceberg_sas_property_key(), sas);
         Ok(config)
     }
@@ -320,8 +340,8 @@ impl AzProfile {
 
         builder.build().map_err(|e| {
             ErrorModel::precondition_failed(
-                "Error creating S3 filesystem.",
-                "S3FileIOError",
+                "Error creating Azure FileIO.",
+                "AZFileIOError",
                 Some(Box::new(e)),
             )
             .into()
@@ -330,7 +350,7 @@ impl AzProfile {
 
     async fn validate_sas(
         &mut self,
-        credential: Option<&AzCredential>,
+        credential: &AzCredential,
         ns_id: NamespaceIdentUuid,
         table_id: Uuid,
         test_location: String,
@@ -339,12 +359,13 @@ impl AzProfile {
             .generate_table_config(
                 Uuid::now_v7().into(),
                 table_id.into(),
-                ns_id.into(),
+                ns_id,
                 &DataAccess {
                     vended_credentials: false,
                     remote_signing: false,
                 },
-                credential.unwrap(),
+                test_location.as_str(),
+                credential,
             )
             .await
             .map_err(|e| {
@@ -374,8 +395,7 @@ impl AzProfile {
         let container = client.container_client(self.filesystem.as_str());
         let blob = container.blob_client(
             // Blob client expects the path without protocol
-            super::path_utils::sanitize_azdls_path(test_location.as_str())
-                .trim_start_matches("abfss://"),
+            reduce_scheme_string(test_location.as_str(), false).trim_start_matches("abfss://"),
         );
         let mut get = blob.get().into_stream();
         while let Some(n) = get.next().await {
@@ -392,7 +412,7 @@ impl AzProfile {
         Ok(())
     }
 
-    async fn get_sas_token(&self, cred: StorageCredentials) -> Result<String> {
+    async fn get_sas_token(&self, path: &str, cred: StorageCredentials) -> Result<String> {
         let client =
             azure_storage_blobs::prelude::BlobServiceClient::new(self.account_name.as_str(), cred);
         let delegation_key = client
@@ -414,25 +434,21 @@ impl AzProfile {
                     Some(Box::new(e)),
                 )
             })?;
-
-        let depth = self
-            .key_prefix
-            .as_ref()
-            .map(|s| s.split('/').count())
-            .unwrap_or(1);
-        let canonicalized_resource = format!(
+        let path = reduce_scheme_string(path, true);
+        let rootless_path = path.trim_start_matches('/');
+        let depth = rootless_path.split('/').count();
+        let canonical_resource = format!(
             "/blob/{}/{}/{}",
             self.account_name.as_str(),
             self.filesystem.as_str(),
-            self.key_prefix.as_deref().unwrap_or("")
+            rootless_path
         );
 
         let sas = BlobSharedAccessSignature::new(
             delegation_key.user_deligation_key.clone(),
-            canonicalized_resource,
+            canonical_resource,
             BlobSasPermissions {
                 read: true,
-                // create: true,
                 write: true,
                 delete: true,
                 list: true,

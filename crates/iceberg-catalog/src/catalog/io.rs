@@ -12,7 +12,7 @@ pub(crate) async fn write_metadata_file(
 ) -> Result<()> {
     tracing::debug!("Received location: {}", metadata_location);
     let metadata_location = if metadata_location.starts_with("abfs") {
-        path_utils::sanitize_azdls_path(metadata_location)
+        path_utils::reduce_scheme_string(metadata_location, false)
     } else {
         metadata_location.to_string()
     };

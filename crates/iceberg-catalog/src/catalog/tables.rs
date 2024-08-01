@@ -124,7 +124,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         require_active_warehouse(status)?;
 
         let table_id: TabularIdentUuid = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-        let table_location = storage_profile.tabular_location(namespace_id, table_id);
+        let table_location = storage_profile.initial_tabular_location(namespace_id, table_id);
 
         // This is the only place where we change request
         request.location = Some(table_location.clone());
@@ -135,7 +135,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             None
         } else {
             let metadata_id = uuid::Uuid::now_v7();
-            Some(storage_profile.metadata_location(&table_location, metadata_id))
+            Some(storage_profile.initial_metadata_location(&table_location, metadata_id))
         };
 
         // serialize body before moving it
@@ -166,7 +166,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         };
 
         if let Some(metadata_location) = &metadata_location {
-            let file_io = storage_profile.file_io(storage_secret.as_ref())?;
+            let file_io = storage_profile.file_io(storage_secret.as_ref(), false)?;
             write_metadata_file(metadata_location, &table_metadata, &file_io).await?;
         }
 
@@ -183,6 +183,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 TableIdentUuid::from(*table_id),
                 &data_access,
                 storage_secret.as_ref(),
+                table_metadata.location(),
             )
             .await?;
         let load_table_result = LoadTableResult {
@@ -302,7 +303,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } else {
             None
         };
-
+        let table_location = table_metadata.location().to_string();
         let load_table_result = LoadTableResult {
             metadata_location,
             metadata: table_metadata,
@@ -314,6 +315,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                         table_id,
                         &data_access,
                         storage_secret.as_ref(),
+                        table_location.as_ref(),
                     )
                     .await?,
             ),
@@ -489,7 +491,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let file_io = result
             .storage_config
             .storage_profile
-            .file_io(storage_secret.as_ref())?;
+            .file_io(storage_secret.as_ref(), false)?;
         write_metadata_file(
             &result.commit_response.metadata_location,
             &result.commit_response.metadata,
@@ -914,7 +916,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 let file_io = r
                     .storage_config
                     .storage_profile
-                    .file_io(storage_secret.as_ref())
+                    .file_io(storage_secret.as_ref(), false)
                     .map(|io| (r, io));
                 file_io
             })

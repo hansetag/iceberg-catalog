@@ -36,6 +36,7 @@ const HEADERS_TO_SIGN: [&str; 7] = [
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     crate::api::iceberg::v1::s3_signer::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
+    #[allow(clippy::too_many_lines)]
     async fn sign(
         prefix: Option<Prefix>,
         _namespace: Option<String>,
@@ -86,7 +87,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
             // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63/data/00001-1-840f0dc8-a888-4522-a327-12187ce32dbd-0-00001.parquet
             // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63
-
             (table_metadata.table_id, Some(table_metadata))
         };
 
@@ -155,8 +155,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
         .map(|secret| {
             secret
-                .try_into_s3(http::StatusCode::INTERNAL_SERVER_ERROR.into())
+                .try_to_s3(http::StatusCode::INTERNAL_SERVER_ERROR.into())
                 .map_err(extend_err)
+                .cloned()
         })
         .transpose()?;
 

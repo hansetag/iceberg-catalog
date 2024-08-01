@@ -2473,11 +2473,11 @@ dependencies = [
  "itertools",
  "jsonwebtoken",
  "jwks_client_rs",
+ "lazy-regex",
  "lazy_static",
  "maplit",
  "needs_env_var",
  "rand 0.8.5",
- "regex-lite",
  "reqwest 0.12.5",
  "serde",
  "serde_json",
@@ -2689,6 +2689,30 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "lazy-regex"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "576c8060ecfdf2e56995cf3274b4f2d71fa5e4fa3607c1c0b63c10180ee58741"
+dependencies = [
+ "lazy-regex-proc_macros",
+ "once_cell",
+ "regex",
+ "regex-lite",
+]
+
+[[package]]
+name = "lazy-regex-proc_macros"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9efb9e65d4503df81c615dc33ff07042a9408ac7f26b45abee25566f7fbfd12c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 2.0.66",
 ]
 
 [[package]]
