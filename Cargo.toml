@@ -48,7 +48,7 @@ hostname = "0.4.0"
 http-body-util = "^0.1"
 jwks_client_rs = { version = "0.5.1", default-features = false, features = ["rustls-tls"] }
 strum = { version = "^0.26", features = ["derive"] }
-sqlx = { version = "^0.7", default-features = false, features = [
+sqlx = { version = "^0.8.0", default-features = false, features = [
     "runtime-tokio",
     "tls-rustls",
     "postgres",

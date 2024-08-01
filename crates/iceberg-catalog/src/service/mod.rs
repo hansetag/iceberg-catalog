@@ -215,12 +215,6 @@ pub enum WarehouseStatus {
     Inactive,
 }
 
-impl sqlx::postgres::PgHasArrayType for WarehouseStatus {
-    fn array_type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("_warehouse_status")
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
