@@ -20,11 +20,16 @@ lazy_static::lazy_static! {
     pub static ref CONFIG: DynAppConfig = {
         let defaults = figment::providers::Serialized::defaults(DynAppConfig::default());
         let mut config = figment::Figment::from(defaults)
-            .merge(figment::providers::Env::prefixed("ICEBERG_REST__"))
+            .merge(figment::providers::Env::prefixed("ICEBERG_REST__").split("__"))
             .extract::<DynAppConfig>()
             .expect("Valid Configuration");
 
         config.reserved_namespaces.extend(DEFAULT_RESERVED_NAMESPACES.into_iter().map(str::to_string));
+
+        // Fail early if the base_uri is not a valid URL
+        config.s3_signer_uri_for_warehouse(WarehouseIdent::from(uuid::Uuid::new_v4()));
+        config.base_uri_catalog();
+        config.base_uri_management();
 
         config
     };
@@ -38,6 +43,10 @@ pub struct DynAppConfig {
     /// This is used as the "uri" and "s3.signer.url"
     /// while generating the Catalog Config
     pub base_uri: url::Url,
+    /// Port under which we serve metrics
+    pub metrics_port: u16,
+    /// Port to listen on.
+    pub listen_port: u16,
     /// The default Project ID to use. We recommend setting this
     /// only for singe-project deployments. A single project
     /// can still contain multiple warehouses.
@@ -95,14 +104,35 @@ pub struct DynAppConfig {
     // ------------- Health -------------
     pub health_check_frequency_seconds: u64,
     pub health_check_jitter_millis: u64,
+
+    // ------------- KV2 -------------
+    pub vault: Option<KV2Config>,
+    // ------------- Secrets -------------
+    pub secret_backend: SecretBackend,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum SecretBackend {
+    #[serde(alias = "kv2", alias = "Kv2")]
+    KV2,
+    #[serde(alias = "postgres")]
+    Postgres,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Redact)]
+pub struct KV2Config {
+    pub url: Url,
+    pub user: String,
+    #[redact]
+    pub password: String,
+    pub secret_mount: String,
 }
 
 impl Default for DynAppConfig {
     fn default() -> Self {
         Self {
-            base_uri: "https://localhost:8080/catalog/"
-                .parse()
-                .expect("Valid URL"),
+            base_uri: "https://localhost:8080".parse().expect("Valid URL"),
+            metrics_port: 9000,
             default_project_id: None,
             prefix_template: "{warehouse_id}".to_string(),
             reserved_namespaces: ReservedNamespaces(HashSet::from([
@@ -132,8 +162,11 @@ impl Default for DynAppConfig {
             nats_password: None,
             nats_token: None,
             openid_provider_uri: None,
+            listen_port: 8080,
             health_check_frequency_seconds: 10,
             health_check_jitter_millis: 500,
+            vault: None,
+            secret_backend: SecretBackend::Postgres,
         }
     }
 }
@@ -141,8 +174,16 @@ impl Default for DynAppConfig {
 impl DynAppConfig {
     pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: WarehouseIdent) -> url::Url {
         self.base_uri
-            .join(&format!("v1/{warehouse_id}"))
+            .join(&format!("catalog/v1/{warehouse_id}"))
             .expect("Valid URL")
+    }
+
+    pub fn base_uri_catalog(&self) -> url::Url {
+        self.base_uri.join("catalog").expect("Valid URL")
+    }
+
+    pub fn base_uri_management(&self) -> url::Url {
+        self.base_uri.join("management").expect("Valid URL")
     }
 
     pub fn warehouse_prefix(&self, warehouse_id: WarehouseIdent) -> String {

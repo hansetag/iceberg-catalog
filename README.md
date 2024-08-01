@@ -4,6 +4,9 @@
 [![Unittests](https://github.com/hansetag/iceberg-catalog/actions/workflows/unittests.yml/badge.svg)](https://github.com/hansetag/iceberg-catalog/actions/workflows/unittests.yml)
 [![Spark Integration](https://github.com/hansetag/iceberg-catalog/actions/workflows/spark-integration.yml/badge.svg)](https://github.com/hansetag/iceberg-catalog/actions/workflows/spark-integration.yml)
 [![Pyiceberg Integration](https://github.com/hansetag/iceberg-catalog/actions/workflows/pyiceberg-integration.yml/badge.svg)](https://github.com/hansetag/iceberg-catalog/actions/workflows/pyiceberg-integration.yml)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/iceberg-catalog)](https://artifacthub.io/packages/search?repo=iceberg-catalog)
+[![Docker on quay](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://quay.io/repository/hansetag/iceberg-catalog?tab=tags&filter_tag_name=like%3Av)
+[![Helm Chart](https://img.shields.io/badge/Helm-0F1689?style=for-the-badge&logo=Helm&labelColor=0F1689)](https://github.com/hansetag/iceberg-catalog-charts/tree/main/charts/iceberg-catalog)
 
 This is TIP: A Rust-native implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification based on [apache/iceberg-rust](https://github.com/apache/iceberg-rust).
 
@@ -39,6 +42,9 @@ docker compose up
 
 Then open your browser and head to `localhost:8888`.
 
+For more information on deployment, please check the [User Guide](USER_GUIDE.md).
+
+
 # Status
 
 ### Supported Operations - Iceberg-Rest
@@ -70,10 +76,10 @@ Then open your browser and head to `localhost:8888`.
 
 ### Supported Secret Stores
 
-| Backend              | Status  | Comment |
-|----------------------|:-------:|---------|
-| Postgres             | ![done] |         |
-| HashiCorp-Vault-Like | ![open] |         |
+| Backend         | Status  | Comment       |
+|-----------------|:-------:|---------------|
+| Postgres        | ![done] |               |
+| kv2 (hcp-vault) | ![done] | userpass auth |
 
 ### Supported Event Stores
 
@@ -132,9 +138,12 @@ Following options are global and apply to all warehouses:
 
 | Variable                            | Example                                | Description                                                                                                                                                                                                                    |
 |-------------------------------------|----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ICEBERG_REST__BASE_URI`            | `https://example.com:8080/catalog/ `   | Base URL where the catalog is externally reachable. Default: `https://localhost:8080/catalog/`                                                                                                                                 |
+| `ICEBERG_REST__BASE_URI`            | `https://example.com:8080 `            | Base URL where the catalog is externally reachable. Default: `https://localhost:8080`                                                                                                                                          |
 | `ICEBERG_REST__DEFAULT_PROJECT_ID`  | `00000000-0000-0000-0000-000000000000` | The default project ID to use if the user does not specify a project when connecting. We recommend setting the Project-ID only in single Project setups. Each Project can still contain multiple Warehouses. Default: Not set. |
 | `ICEBERG_REST__RESERVED_NAMESPACES` | `system,examples`                      | Reserved Namespaces that cannot be created via the REST interface                                                                                                                                                              |
+| `ICEBERG_REST__METRICS_PORT`        | `9000`                                 | Port where the metrics endpoint is reachable. Default: `9000`                                                                                                                                                                  |
+| `ICEBERG_REST__LISTEN_PORT`         | `8080`                                 | Port the server listens on. Default: `8080`                                                                                                                                                                                    |
+| `ICEBERG_REST__SECRET_BACKEND`      | `postgres`                             | The secret backend to use. If `kv2` is chosen, you need to provide additional parameters found under []() Default: `postgres`, one-of: [`postgres`, `kv2`]                                                                     |
 
 ### Postgres
 
@@ -159,6 +168,19 @@ Configuration parameters if Postgres is used as a backend, you may either provid
 | `ICEBERG_REST__PG_CONNECTION_MAX_LIFETIME`  | `1800`                                                | Maximum lifetime of connections in seconds            |
 
 
+### KV2 (HCP Vault)
+
+Configuration parameters if a KV2 compatible storage is used as a backend. Currently, we only support the `userpass` authentication method. You may provide the envs as single values like `ICEBERG_REST__KV2__URL=http://vault.local` etc. or as a compound value like:
+`ICEBERG_REST__KV2='{url="http://localhost:1234", user="test", password="test", secret_mount="secret"}'`
+
+| Variable                          | Example               | Description                                      |
+|-----------------------------------|-----------------------|--------------------------------------------------|
+| `ICEBERG_REST__KV2__URL`          | `https://vault.local` | URL of the KV2 backend                           |
+| `ICEBERG_REST__KV2__USER`         | `admin`               | Username to authenticate against the KV2 backend |
+| `ICEBERG_REST__KV2__PASSWORD`     | `password`            | Password to authenticate against the KV2 backend |
+| `ICEBERG_REST__KV2__SECRET_MOUNT` | `kv/data/iceberg`     | Path to the secret mount in the KV2 backend      |
+
+
 ### Nats
 
 If you want the server to publish events to a NATS server, set the following environment variables:
@@ -174,7 +196,8 @@ If you want the server to publish events to a NATS server, set the following env
 
 ### OpenID Connect
 
-If you want to limit access to the API, set `ICEBERG_REST__OPENID_PROVIDER_URI` to the URI of your OpenID Connect Provider. The catalog will then verify access tokens against this provider. The provider must have the `.well-known/openid-configuration` endpoint under `${ICEBERG_REST__OPENID_PROVIDER_URI}/.well-known/openid-configuration` and the openid-configuration needs to have the `jwks_uri` and `issuer` defined.
+If you want to limit ac
+cess to the API, set `ICEBERG_REST__OPENID_PROVIDER_URI` to the URI of your OpenID Connect Provider. The catalog will then verify access tokens against this provider. The provider must have the `.well-known/openid-configuration` endpoint under `${ICEBERG_REST__OPENID_PROVIDER_URI}/.well-known/openid-configuration` and the openid-configuration needs to have the `jwks_uri` and `issuer` defined.
 
 If `ICEBERG_REST__OPENID_PROVIDER_URI` is set, every request needs have an authorization header, e.g. 
 ```sh

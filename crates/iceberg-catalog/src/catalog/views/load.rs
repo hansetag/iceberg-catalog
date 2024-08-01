@@ -92,7 +92,10 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     // We don't commit the transaction yet, first we need to write the metadata file.
     let storage_secret: Option<StorageCredential> = if let Some(secret_id) = &storage_secret_id {
         Some(
-            S::get_secret_by_id(secret_id, state.v1_state.secrets)
+            state
+                .v1_state
+                .secrets
+                .get_secret_by_id(secret_id)
                 .await?
                 .secret,
         )
@@ -125,7 +128,7 @@ pub(crate) mod test {
     use crate::api::ApiContext;
     use crate::catalog::CatalogServer;
 
-    use crate::implementations::postgres::secrets::Server;
+    use crate::implementations::postgres::secrets::SecretsState;
 
     use crate::implementations::postgres::Catalog;
     use crate::implementations::AllowAllAuthZHandler;
@@ -141,11 +144,11 @@ pub(crate) mod test {
     use crate::catalog::views::test::setup;
 
     pub(crate) async fn load_view(
-        api_context: ApiContext<State<AllowAllAuthZHandler, Catalog, Server>>,
+        api_context: ApiContext<State<AllowAllAuthZHandler, Catalog, SecretsState>>,
         params: ViewParameters,
     ) -> crate::api::Result<LoadViewResult> {
-        <CatalogServer<Catalog, AllowAllAuthZHandler, Server> as views::Service<
-            State<AllowAllAuthZHandler, Catalog, Server>,
+        <CatalogServer<Catalog, AllowAllAuthZHandler, SecretsState> as views::Service<
+            State<AllowAllAuthZHandler, Catalog, SecretsState>,
         >>::load_view(
             params,
             api_context,

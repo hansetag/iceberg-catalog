@@ -5,5 +5,6 @@ pub const DEFAULT_PROJECT_ID: uuid::Uuid = uuid::uuid!("00000000-0000-0000-0000-
 pub mod postgres;
 
 mod authz;
+pub mod kv2;
 
 pub use authz::{AllowAllAuthState, AllowAllAuthZHandler};

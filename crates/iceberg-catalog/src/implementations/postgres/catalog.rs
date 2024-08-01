@@ -14,6 +14,7 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
+use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
@@ -137,8 +138,16 @@ impl Catalog for super::Catalog {
         namespace: &NamespaceIdent,
         include_staged: bool,
         catalog_state: CatalogState,
-    ) -> Result<HashMap<TableIdentUuid, TableIdent>> {
-        list_tables(warehouse_id, namespace, include_staged, catalog_state).await
+        pagination_query: PaginationQuery,
+    ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
+        list_tables(
+            warehouse_id,
+            namespace,
+            include_staged,
+            catalog_state,
+            pagination_query,
+        )
+        .await
     }
 
     async fn load_table(
@@ -318,8 +327,9 @@ impl Catalog for super::Catalog {
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         catalog_state: Self::State,
-    ) -> Result<HashMap<TableIdentUuid, TableIdent>> {
-        list_views(warehouse_id, namespace, catalog_state).await
+        pagination_query: PaginationQuery,
+    ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
+        list_views(warehouse_id, namespace, catalog_state, pagination_query).await
     }
 
     async fn update_view_metadata(

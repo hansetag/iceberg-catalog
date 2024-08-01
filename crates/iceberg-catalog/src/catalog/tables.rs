@@ -34,7 +34,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     /// List all table identifiers underneath a given namespace
     async fn list_tables(
         parameters: NamespaceParameters,
-        _query: PaginationQuery,
+        pagination_query: PaginationQuery,
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<ListTablesResponse> {
@@ -59,6 +59,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             &namespace,
             include_staged,
             state.v1_state.catalog,
+            pagination_query,
         )
         .await?;
 
@@ -68,6 +69,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Create a table in the given namespace
     async fn create_table(
         parameters: NamespaceParameters,
@@ -151,7 +153,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // We don't commit the transaction yet, first we need to write the metadata file.
         let storage_secret = if let Some(secret_id) = &storage_secret_id {
             Some(
-                S::get_secret_by_id(secret_id, state.v1_state.secrets)
+                state
+                    .v1_state
+                    .secrets
+                    .get_secret_by_id(secret_id)
                     .await?
                     .secret,
             )
@@ -286,7 +291,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // not be required based on the `data_access` parameter.
         let storage_secret = if let Some(secret_id) = storage_secret_ident {
             Some(
-                S::get_secret_by_id(&secret_id, state.v1_state.secrets)
+                state
+                    .v1_state
+                    .secrets
+                    .get_secret_by_id(&secret_id)
                     .await?
                     .secret,
             )
@@ -465,7 +473,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // We don't commit the transaction yet, first we need to write the metadata file.
         let storage_secret = if let Some(secret_id) = &result.storage_config.storage_secret_ident {
             Some(
-                S::get_secret_by_id(secret_id, state.v1_state.secrets)
+                state
+                    .v1_state
+                    .secrets
+                    .get_secret_by_id(secret_id)
                     .await?
                     .secret,
             )
@@ -881,7 +892,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 //unique
                 .collect::<HashSet<_>>()
                 .into_iter()
-                .map(|secret_id| S::get_secret_by_id(secret_id, state.v1_state.secrets.clone())),
+                .map(|secret_id| state.v1_state.secrets.get_secret_by_id(secret_id)),
         )
         .await?;
         let storage_secrets: HashMap<_, StorageCredential> = storage_secrets
@@ -1018,8 +1029,17 @@ where
     I: IntoIterator<Item = &'a String>,
 {
     for prop in properties {
+        if prop.starts_with("write.metadata") || prop.starts_with("write.data.path") {
+            return Err(ErrorModel::conflict(
+                format!("Properties contain unsupported property: '{prop}'"),
+                "FailedToSetProperties",
+                None,
+            )
+            .into());
+        }
         validate_lowercase_property(prop)?;
     }
+
     Ok(())
 }
 
@@ -1031,12 +1051,12 @@ pub(crate) fn validate_table_or_view_ident(table: &TableIdent) -> Result<()> {
     validate_namespace_ident(namespace)?;
 
     if name.is_empty() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("name of the identifier cannot be empty".to_string())
-            .r#type("IdentifierNameEmpty".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "name of the identifier cannot be empty",
+            "IdentifierNameEmpty",
+            None,
+        )
+        .into());
     }
     Ok(())
 }

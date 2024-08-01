@@ -1,21 +1,22 @@
 mod catalog;
 pub(crate) mod dbutils;
 pub(crate) mod namespace;
+mod pagination;
 pub(crate) mod secrets;
 pub(crate) mod tabular;
 pub(crate) mod warehouse;
 
 use self::dbutils::DBErrorHandler;
 use crate::api::Result;
-use crate::config::PgSslMode;
+use crate::config::{DynAppConfig, PgSslMode};
 use crate::service::health::{Health, HealthExt, HealthStatus};
 use crate::CONFIG;
 use anyhow::anyhow;
 use async_trait::async_trait;
-pub use secrets::Server as SecretsStore;
-use sqlx::migrate::Migrate;
-use sqlx::postgres::PgConnectOptions;
-use sqlx::{ConnectOptions, Executor, PgPool};
+pub use secrets::SecretsState as SecretsStore;
+use sqlx::migrate::{Migrate, MigrateError};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::{ConnectOptions, Error, Executor, PgPool};
 use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -23,8 +24,8 @@ use tokio::sync::RwLock;
 
 /// # Errors
 /// Returns an error if the pool creation fails.
-pub async fn get_reader_pool() -> anyhow::Result<sqlx::PgPool> {
-    let pool = build_opts()
+pub async fn get_reader_pool(pool_opts: PgPoolOptions) -> anyhow::Result<sqlx::PgPool> {
+    let pool = pool_opts
         .connect_with(build_connect_ops(ConnectionType::Read)?)
         .await
         .map_err(|e| anyhow::anyhow!(e).context("Error creating read pool."))?;
@@ -33,8 +34,8 @@ pub async fn get_reader_pool() -> anyhow::Result<sqlx::PgPool> {
 
 /// # Errors
 /// Returns an error if the pool cannot be created.
-pub async fn get_writer_pool() -> anyhow::Result<sqlx::PgPool> {
-    let pool = build_opts()
+pub async fn get_writer_pool(pool_opts: PgPoolOptions) -> anyhow::Result<sqlx::PgPool> {
+    let pool = pool_opts
         .connect_with(build_connect_ops(ConnectionType::Write)?)
         .await
         .map_err(|e| anyhow::anyhow!(e).context("Error creating write pool."))?;
@@ -53,10 +54,25 @@ pub async fn migrate(pool: &sqlx::PgPool) -> anyhow::Result<()> {
 
 /// # Errors
 /// Returns an error if db connection fails or if migrations are missing.
-pub async fn ensure_migrations_applied(pool: &sqlx::PgPool) -> anyhow::Result<()> {
+pub async fn check_migration_status(pool: &sqlx::PgPool) -> anyhow::Result<MigrationState> {
     let mut conn = pool.acquire().await?;
     let m = sqlx::migrate!();
-    let applied_migrations = conn.list_applied_migrations().await?;
+    let applied_migrations = match conn.list_applied_migrations().await {
+        Ok(migrations) => migrations,
+        Err(e) => {
+            if let MigrateError::Execute(Error::Database(db)) = &e {
+                if db.code().as_deref() == Some("42P01") {
+                    tracing::debug!(?db, "No migrations have been applied.");
+                    return Ok(MigrationState::NoMigrationsTable);
+                };
+            };
+            // we discard the error here since sqlx prefixes db errors with "while executing
+            // migrations" which is not what we are doing here.
+            tracing::debug!(?e, "Error listing applied migrations, even though the error may say different things, we are not applying migrations here.");
+            return Err(anyhow!("Error listing applied migrations"));
+        }
+    };
+
     let to_be_applied = m
         .migrations
         .iter()
@@ -69,10 +85,19 @@ pub async fn ensure_migrations_applied(pool: &sqlx::PgPool) -> anyhow::Result<()
     let missing = to_be_applied.difference(&applied).collect::<HashSet<_>>();
 
     if missing.is_empty() {
-        Ok(())
+        tracing::debug!("Migrations are up to date.");
+        Ok(MigrationState::Complete)
     } else {
-        Err(anyhow!("Missing migrations: {:?}", missing))
+        tracing::debug!(?missing, "Migrations are missing.");
+        Ok(MigrationState::Missing)
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum MigrationState {
+    Complete,
+    Missing,
+    NoMigrationsTable,
 }
 
 #[derive(Debug, Clone)]
@@ -230,69 +255,35 @@ impl CatalogState {
         self.read_write.write_pool.clone()
     }
 }
+pub use secrets::SecretsState;
 
-#[derive(Clone, Debug)]
-#[allow(clippy::module_name_repetitions)]
-pub struct SecretsState {
-    pub read_write: ReadWrite,
-}
-
-#[async_trait]
-impl HealthExt for SecretsState {
-    async fn health(&self) -> Vec<Health> {
-        self.read_write.health().await
-    }
-
-    async fn update_health(&self) {
-        self.read_write.update_health().await;
-    }
-}
-
-impl SecretsState {
-    #[must_use]
-    pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
-        Self {
-            read_write: ReadWrite::from_pools(read_pool, write_pool),
-        }
-    }
-
-    #[must_use]
-    pub fn read_pool(&self) -> PgPool {
-        self.read_write.read_pool.clone()
-    }
-
-    #[must_use]
-    pub fn write_pool(&self) -> PgPool {
-        self.read_write.write_pool.clone()
-    }
-}
-
-fn build_opts() -> sqlx::pool::PoolOptions<sqlx::Postgres> {
-    sqlx::pool::PoolOptions::default()
-        .test_before_acquire(CONFIG.pg_test_before_acquire)
-        .max_lifetime(
-            CONFIG
-                .pg_connection_max_lifetime
-                .map(core::time::Duration::from_secs),
-        )
-        .after_connect(|_conn, meta| {
-            Box::pin(async move {
-                tracing::debug!(metadata = ?meta, "pg pool established a new connection");
-                Ok(())
+impl DynAppConfig {
+    pub fn to_pool_opts(&self) -> PgPoolOptions {
+        sqlx::pool::PoolOptions::default()
+            .test_before_acquire(self.pg_test_before_acquire)
+            .max_lifetime(
+                self.pg_connection_max_lifetime
+                    .map(core::time::Duration::from_secs),
+            )
+            .after_connect(|_conn, meta| {
+                Box::pin(async move {
+                    tracing::debug!(metadata = ?meta, "pg pool established a new connection");
+                    Ok(())
+                })
             })
-        })
-        .before_acquire(|_conn, meta| {
-            Box::pin(async move {
-                tracing::trace!(metadata = ?meta, "acquiring connection from pg pool");
-                Ok(true)
+            .before_acquire(|_conn, meta| {
+                Box::pin(async move {
+                    tracing::trace!(metadata = ?meta, "acquiring connection from pg pool");
+                    Ok(true)
+                })
             })
-        })
-        .after_release(|_conn, meta| {
-            Box::pin(async move {
-                tracing::trace!(metadata = ?meta, "connection was released back to pg pool");
-                Ok(true)
+            .after_release(|_conn, meta| {
+                Box::pin(async move {
+                    tracing::trace!(metadata = ?meta, "connection was released back to pg pool");
+                    Ok(true)
+                })
             })
-        })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

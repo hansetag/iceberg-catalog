@@ -130,25 +130,6 @@ jobs:
         with:
           tool: cross
 
-      - name: Migrate database [-nix]
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: |
-          sudo apt-get install libpq-dev -y
-          cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
-          cd crates/iceberg-catalog
-          sqlx database create
-          sqlx migrate run
-          cd -
-          cargo sqlx prepare --workspace
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-
-      - name: Test [Cargo]
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: cargo test --all-features --release --locked --target ${{ matrix.target }} --workspace
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-
       - name: Build [Cargo]
         if: matrix.cross == false
         run: cargo build --all-features --release --locked --target ${{ matrix.target }}

@@ -41,3 +41,4 @@ update-openapi:
     # yq e '.components.schemas.Namespace.properties.length.type = "integer"' -i openapi/rest-catalog-open-api.yaml
     # Replace 5XX with 500 (gnu-sed)
     # gsed -i 's/5XX/500/g' openapi/rest-catalog-open-api.yaml
+    cargo run management-openapi > openapi/management-open-api.yaml
