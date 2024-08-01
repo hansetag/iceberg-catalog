@@ -12,9 +12,7 @@ use crate::api::iceberg::v1::{
     ViewParameters,
 };
 use crate::request_metadata::RequestMetadata;
-use http::StatusCode;
-use iceberg::spec::view_properties::{METADATA_COMPRESSION, METADATA_COMPRESSION_DEFAULT};
-use iceberg_ext::catalog::rest::{ErrorModel, ViewUpdate};
+use iceberg_ext::catalog::rest::ViewUpdate;
 
 use super::tables::validate_table_properties;
 use super::CatalogServer;
