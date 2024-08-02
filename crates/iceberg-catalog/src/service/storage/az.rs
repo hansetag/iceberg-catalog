@@ -264,7 +264,7 @@ impl AzProfile {
         Ok(config)
     }
 
-    /// Create a new `FileIO` instance for S3.
+    /// Create a new `FileIO` instance for Azdls.
     ///
     /// # Errors
     /// Fails if the `FileIO` instance cannot be created.
