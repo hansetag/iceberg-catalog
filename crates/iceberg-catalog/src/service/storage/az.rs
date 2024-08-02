@@ -1,5 +1,5 @@
 use crate::{
-    service::{NamespaceIdentUuid, TableIdentUuid},
+    service::{storage::TestMetadata, NamespaceIdentUuid, TableIdentUuid},
     WarehouseIdent,
 };
 
@@ -107,7 +107,8 @@ impl AzdlsProfile {
         let sanitized_ns_location = reduce_scheme_string(&namespace_location, false);
 
         // Validate the file_io instance by creating a test file.
-        crate::catalog::io::write_metadata_file(&test_location, "test", &file_io)
+        let test_metadata = TestMetadata::new();
+        crate::catalog::io::write_metadata_file(&test_location, test_metadata, &file_io)
             .await
             .map_err(|e| {
                 ValidationError::IoOperationFailed(e, Box::new(StorageProfile::Azdls(self.clone())))

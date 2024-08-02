@@ -2,6 +2,7 @@ use crate::api::{ErrorModel, Result};
 use crate::service::storage::path_utils;
 use flate2::{write::GzEncoder, Compression};
 use iceberg::{io::FileIO, spec::view_properties::METADATA_COMPRESSION};
+use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use serde::Serialize;
 use std::io::Write;
 
@@ -29,14 +30,7 @@ pub(crate) async fn write_metadata_file(
         .await
         .map_err(IoError::FileWriterCreation)?;
 
-    let buf = serde_json::to_vec(&metadata).map_err(|e| {
-        ErrorModel::internal(
-            "Failed to serialize table metadata.",
-            "TableMetadataSerializationFailed",
-            Some(Box::new(e)),
-        )
-    })?;
-
+    let buf = serde_json::to_vec(&metadata).map_err(IoError::Serialization)?;
     let do_compression = match metadata.properties().get(METADATA_COMPRESSION) {
         Some(value) if value.to_lowercase().trim() == "gzip" => true,
         None => true,
@@ -44,40 +38,23 @@ pub(crate) async fn write_metadata_file(
     };
     let metadata_bytes = if do_compression {
         let mut compressed_metadata = GzEncoder::new(Vec::new(), Compression::default());
-        compressed_metadata.write_all(&buf).map_err(|e| {
-            ErrorModel::internal(
-                "Failed to write table metadata to compressed buffer.",
-                "TableMetadataWriteFailed",
-                Some(Box::new(e)),
-            )
-        })?;
+        compressed_metadata
+            .write_all(&buf)
+            .map_err(IoError::FileCompression)?;
 
-        compressed_metadata.finish().map_err(|e| {
-            ErrorModel::internal(
-                "Failed to finish compressing metadata file.",
-                "MetadataFileCompressionFailed",
-                Some(Box::new(e)),
-            )
-        })?
+        compressed_metadata
+            .finish()
+            .map_err(IoError::FileCompression)?
     } else {
         buf
     };
 
-    writer.write(metadata_bytes.into()).await.map_err(|e| {
-        ErrorModel::failed_dependency(
-            "Failed to write metadata file. Please check the storage credentials.",
-            "MetadataFileWriteFailed",
-            Some(Box::new(e)),
-        )
-    })?;
+    writer
+        .write(metadata_bytes.into())
+        .await
+        .map_err(IoError::FileWrite)?;
 
-    writer.close().await.map_err(|e| {
-        ErrorModel::failed_dependency(
-            "Failed to close metadata file. Please check the storage credentials.",
-            "MetadataFileCloseFailed",
-            Some(Box::new(e)),
-        )
-    })?;
+    writer.close().await.map_err(IoError::FileClose)?;
 
     Ok(())
 }

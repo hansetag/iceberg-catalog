@@ -1,5 +1,5 @@
 use crate::{
-    service::{NamespaceIdentUuid, TableIdentUuid},
+    service::{storage::TestMetadata, NamespaceIdentUuid, TableIdentUuid},
     WarehouseIdent, CONFIG,
 };
 
@@ -164,7 +164,8 @@ impl S3Profile {
         );
 
         // Test that we can write a metadata file
-        crate::catalog::io::write_metadata_file(&test_location, "test", &file_io)
+        let test_metadata = TestMetadata::new();
+        crate::catalog::io::write_metadata_file(&test_location, test_metadata, &file_io)
             .await
             .map_err(|e| {
                 ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
