@@ -193,15 +193,15 @@ impl S3Profile {
     /// Fails if the `bucket`, `region` or `key_prefix` is different.
     pub fn can_be_updated_with(&self, other: &Self) -> Result<(), UpdateError> {
         if self.bucket != other.bucket {
-            return Err(UpdateError::Field("bucket".to_string()));
+            return Err(UpdateError::ImmutableField("bucket".to_string()));
         }
 
         if self.region != other.region {
-            return Err(UpdateError::Field("region".to_string()));
+            return Err(UpdateError::ImmutableField("region".to_string()));
         }
 
         if self.key_prefix != other.key_prefix {
-            return Err(UpdateError::Field("key_prefix".to_string()));
+            return Err(UpdateError::ImmutableField("key_prefix".to_string()));
         }
 
         Ok(())

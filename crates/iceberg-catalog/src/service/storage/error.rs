@@ -100,8 +100,8 @@ impl From<TableConfigError> for IcebergErrorResponse {
 
 #[derive(thiserror::Error, Debug)]
 pub enum UpdateError {
-    #[error("Field `{0}` cannot be updated to prevent dataloss.")]
-    FieldUnchangable(String),
+    #[error("Field `{0}` cannot be updated to prevent loss of data.")]
+    ImmutableField(String),
     #[error("Incompatible profiles: {0} cannot be updated with {0}")]
     IncompatibleProfiles(String, String),
 }

@@ -160,19 +160,19 @@ impl AzdlsProfile {
     /// Fails if the `bucket`, `region` or `key_prefix` is different.
     pub fn can_be_updated_with(&self, other: &Self) -> Result<(), UpdateError> {
         if self.filesystem != other.filesystem {
-            return Err(UpdateError::Field("filesystem".to_string()));
+            return Err(UpdateError::ImmutableField("filesystem".to_string()));
         }
 
         if self.key_prefix != other.key_prefix {
-            return Err(UpdateError::Field("key_prefix".to_string()));
+            return Err(UpdateError::ImmutableField("key_prefix".to_string()));
         }
 
         if self.authority_host != other.authority_host {
-            return Err(UpdateError::Field("authority_host".to_string()));
+            return Err(UpdateError::ImmutableField("authority_host".to_string()));
         }
 
         if self.endpoint_suffix != other.endpoint_suffix {
-            return Err(UpdateError::Field("endpoint_suffix".to_string()));
+            return Err(UpdateError::ImmutableField("endpoint_suffix".to_string()));
         }
 
         Ok(())
