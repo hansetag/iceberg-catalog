@@ -5,7 +5,7 @@ info:
     Implementation of the Iceberg REST Catalog server.
   license:
     name: Apache-2.0
-  version: 0.1.0
+  version: 0.2.1
 paths:
   management/v1/project:
     get:
@@ -224,6 +224,59 @@ paths:
           description: Storage credential updated successfully
 components:
   schemas:
+    AzCredential:
+      oneOf:
+      - type: object
+        required:
+        - client-id
+        - tenant-id
+        - client-secret
+        - credential-type
+        properties:
+          client-id:
+            type: string
+          client-secret:
+            type: string
+          credential-type:
+            type: string
+            enum:
+            - client-credentials
+          tenant-id:
+            type: string
+      discriminator:
+        propertyName: credential-type
+    AzdlsProfile:
+      type: object
+      required:
+      - filesystem
+      - account-name
+      properties:
+        account-name:
+          type: string
+          description: Name of the azure storage account.
+        authority-host:
+          allOf:
+          - $ref: '#/components/schemas/Url'
+          nullable: true
+        endpoint-suffix:
+          type: string
+          description: 'The endpoint suffix to use for the storage account. Default: `dfs.core.windows.net`.'
+          nullable: true
+        filesystem:
+          type: string
+          description: Name of the azdls filesystem, in blobstorage also known as container.
+        key-prefix:
+          type: string
+          description: |-
+            Subpath in the filesystem to use.
+            The same prefix can be used for multiple warehouses.
+          nullable: true
+        sas-token-validity-seconds:
+          type: integer
+          format: int64
+          description: 'The validity of the sas token in seconds. Default: 3600.'
+          nullable: true
+          minimum: 0
     CreateWarehouseRequest:
       type: object
       required:
@@ -398,11 +451,31 @@ components:
               type: string
               enum:
               - s3
+      - allOf:
+        - $ref: '#/components/schemas/AzCredential'
+        - type: object
+          required:
+          - type
+          properties:
+            type:
+              type: string
+              enum:
+              - az
       description: Storage secret for a warehouse.
       discriminator:
         propertyName: type
     StorageProfile:
       oneOf:
+      - allOf:
+        - $ref: '#/components/schemas/AzdlsProfile'
+        - type: object
+          required:
+          - type
+          properties:
+            type:
+              type: string
+              enum:
+              - azdls
       - allOf:
         - $ref: '#/components/schemas/S3Profile'
         - type: object

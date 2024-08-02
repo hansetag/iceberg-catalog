@@ -150,9 +150,12 @@ where
 
     let mut args = statically_checked_query
         .take_arguments()
+        .map_err(|e| {
+            ErrorModel::internal("Failed to build dynamic query", "DatabaseError", Some(e))
+        })?
         .unwrap_or_default();
 
-    append_dynamic_filters(batch_tables.as_slice(), &mut query_builder, &mut args);
+    append_dynamic_filters(batch_tables.as_slice(), &mut query_builder, &mut args)?;
 
     let query = query_builder.build();
 
@@ -203,7 +206,7 @@ fn append_dynamic_filters(
     batch_tables: &[(&NamespaceIdent, &String, TabularType)],
     query_builder: &mut QueryBuilder<'_, Postgres>,
     args: &mut PgArguments,
-) {
+) -> Result<()> {
     query_builder.push(r" AND (n.namespace_name, t.name, t.typ) IN ");
     query_builder.push("(");
 
@@ -211,18 +214,24 @@ fn append_dynamic_filters(
     for (i, (ns_ident, name, typ)) in batch_tables.iter().enumerate() {
         query_builder.push(format!("(${arg_idx}"));
         arg_idx += 1;
-        args.add(ns_ident.as_ref());
+        args.add(ns_ident.as_ref()).map_err(|e| {
+            ErrorModel::internal("Failed to add namespace to query", "DatabaseError", Some(e))
+        })?;
 
         query_builder.push(", ");
 
         query_builder.push(format!("${arg_idx}"));
         arg_idx += 1;
-        args.add(name);
+        args.add(name).map_err(|e| {
+            ErrorModel::internal("Failed to add name to query", "DatabaseError", Some(e))
+        })?;
         query_builder.push(", ");
 
         query_builder.push(format!("${arg_idx}"));
         arg_idx += 1;
-        args.add(*typ);
+        args.add(*typ).map_err(|e| {
+            ErrorModel::internal("Failed to add type to query", "DatabaseError", Some(e))
+        })?;
 
         query_builder.push(")");
         if i != batch_tables.len() - 1 {
@@ -230,6 +239,7 @@ fn append_dynamic_filters(
         }
     }
     query_builder.push(")");
+    Ok(())
 }
 
 pub(crate) struct CreateTabular<'a> {

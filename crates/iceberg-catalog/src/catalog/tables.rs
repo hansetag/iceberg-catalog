@@ -79,6 +79,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
+        tracing::debug!("create_table: {:?}", request);
         // ------------------- VALIDATIONS -------------------
         let NamespaceParameters { namespace, prefix } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
@@ -123,7 +124,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         require_active_warehouse(status)?;
 
         let table_id: TabularIdentUuid = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-        let table_location = storage_profile.tabular_location(namespace_id, table_id);
+        let table_location = storage_profile.initial_tabular_location(namespace_id, table_id);
 
         // This is the only place where we change request
         request.location = Some(table_location.clone());
@@ -134,7 +135,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             None
         } else {
             let metadata_id = uuid::Uuid::now_v7();
-            Some(storage_profile.metadata_location(&table_location, metadata_id))
+            Some(storage_profile.initial_metadata_location(&table_location, metadata_id))
         };
 
         // serialize body before moving it
@@ -182,6 +183,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 TableIdentUuid::from(*table_id),
                 &data_access,
                 storage_secret.as_ref(),
+                table_metadata.location(),
             )
             .await?;
         let load_table_result = LoadTableResult {
@@ -209,7 +211,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             state.v1_state.publisher.clone(),
         )
         .await;
-
+        tracing::debug!("create_table: {:?}", load_table_result);
         Ok(load_table_result)
     }
 
@@ -301,7 +303,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } else {
             None
         };
-
+        let table_location = table_metadata.location().to_string();
         let load_table_result = LoadTableResult {
             metadata_location,
             metadata: table_metadata,
@@ -313,6 +315,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                         table_id,
                         &data_access,
                         storage_secret.as_ref(),
+                        table_location.as_ref(),
                     )
                     .await?,
             ),
@@ -914,7 +917,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     .storage_config
                     .storage_profile
                     .file_io(storage_secret.as_ref())
-                    .map(|io| (r, io));
+                    .map(|io| (r, io))
+                    .map_err(Into::into);
                 file_io
             })
             .collect::<Result<Vec<_>>>()?;
