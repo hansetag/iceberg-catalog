@@ -8,9 +8,9 @@ use std::collections::HashMap;
 
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
-use crate::service::storage::az::{AzCredential, AzProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
+pub use az::{AzCredential, AzdlsProfile};
 use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 pub enum StorageProfile {
     /// Azure storage profile
     #[serde(rename = "azdls")]
-    Azdls(AzProfile),
+    Azdls(AzdlsProfile),
     /// S3 storage profile
     #[serde(rename = "s3")]
     S3(S3Profile),
@@ -228,7 +228,7 @@ impl StorageProfile {
     ///
     /// # Errors
     /// Fails if the profile is not an Az profile.
-    pub fn try_into_az(self) -> Result<AzProfile, ConversionError> {
+    pub fn try_into_az(self) -> Result<AzdlsProfile, ConversionError> {
         match self {
             Self::Azdls(profile) => Ok(profile),
             _ => Err(ConversionError {

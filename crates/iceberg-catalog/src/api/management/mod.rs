@@ -12,11 +12,11 @@ pub mod v1 {
     use axum::extract::{Path, Query, State as AxumState};
     use axum::routing::{get, post};
     use warehouse::{
-        CreateWarehouseRequest, CreateWarehouseResponse, GetWarehouseResponse,
-        ListProjectsResponse, ListWarehousesRequest, ListWarehousesResponse, ProjectResponse,
-        RenameWarehouseRequest, S3Credential, S3Profile, Service, StorageCredential,
-        StorageProfile, UpdateWarehouseCredentialRequest, UpdateWarehouseStorageRequest,
-        WarehouseStatus,
+        AzCredential, AzdlsProfile, CreateWarehouseRequest, CreateWarehouseResponse,
+        GetWarehouseResponse, ListProjectsResponse, ListWarehousesRequest, ListWarehousesResponse,
+        ProjectResponse, RenameWarehouseRequest, S3Credential, S3Profile, Service,
+        StorageCredential, StorageProfile, UpdateWarehouseCredentialRequest,
+        UpdateWarehouseStorageRequest, WarehouseStatus,
     };
 
     #[derive(Debug, OpenApi)]
@@ -37,6 +37,8 @@ pub mod v1 {
             update_storage_profile
         ),
         components(schemas(
+            AzCredential,
+            AzdlsProfile,
             CreateWarehouseRequest,
             CreateWarehouseResponse,
             GetWarehouseResponse,
@@ -52,7 +54,6 @@ pub mod v1 {
             UpdateWarehouseCredentialRequest,
             UpdateWarehouseStorageRequest,
             WarehouseStatus
-
         ))
     )]
     pub struct ManagementApiDoc;

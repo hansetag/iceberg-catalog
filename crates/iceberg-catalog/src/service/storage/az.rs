@@ -29,7 +29,7 @@ use veil::Redact;
 #[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
-pub struct AzProfile {
+pub struct AzdlsProfile {
     /// Name of the azdls filesystem, in blobstorage also known as container.
     pub filesystem: String,
     /// Subpath in the filesystem to use.
@@ -47,7 +47,7 @@ pub struct AzProfile {
 
 const DEFAULT_ENDPOINT_SUFFIX: &str = "dfs.core.windows.net";
 
-impl AzProfile {
+impl AzdlsProfile {
     /// Validate the Azure storage profile.
     ///
     /// # Errors
@@ -65,7 +65,7 @@ impl AzProfile {
             *key_prefix = key_prefix.trim_matches('/').to_string();
         }
 
-        let AzProfile {
+        let AzdlsProfile {
             filesystem,
             key_prefix,
             account_name: _,
@@ -469,7 +469,10 @@ fn is_valid_container_name(container: &str) -> Result<(), ValidationError> {
     }
 
     // Container names can consist only of lowercase letters, numbers, and hyphens (-).
-    if !container.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+    if !container
+        .iter()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
+    {
         return Err(ValidationError::InvalidProfile {
             source: None,
             reason:
@@ -557,7 +560,7 @@ mod test {
     #[needs_env_var(TEST_AZURE)]
     mod azure_tests {
         use crate::service::storage::AzCredential;
-        use crate::service::storage::AzProfile;
+        use crate::service::storage::AzdlsProfile;
 
         #[tokio::test]
         async fn test_can_validate() {

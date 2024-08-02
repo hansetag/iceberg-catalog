@@ -1,7 +1,9 @@
 use crate::api::management::v1::ApiServer;
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
-pub use crate::service::storage::{S3Credential, S3Profile, StorageCredential, StorageProfile};
+pub use crate::service::storage::{
+    AzCredential, AzdlsProfile, S3Credential, S3Profile, StorageCredential, StorageProfile,
+};
 
 #[allow(clippy::module_name_repetitions)]
 pub use crate::service::WarehouseStatus;
