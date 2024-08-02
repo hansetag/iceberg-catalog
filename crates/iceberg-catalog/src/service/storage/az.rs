@@ -232,6 +232,11 @@ impl AzdlsProfile {
     ///
     /// # Errors
     /// Fails if sas token cannot be generated.
+    ///
+    /// # Panics
+    /// This function internally parses "<https://login.microsoftonline.com>" into a `Url`, if this
+    /// fails it'll panic which should never happen since "<https://login.microsoftonline.com>" is a
+    /// valid `Url`.
     pub async fn generate_table_config(
         &self,
         _: WarehouseIdent,
@@ -484,14 +489,8 @@ fn is_valid_container_name(container: &str) -> Result<(), ValidationError> {
 
     // Container names must begin and end with a letter or number.
     // Unwrap will not fail as the length is already checked.
-    if !container
-        .first()
-        .map(|c| c.is_ascii_alphanumeric())
-        .unwrap_or(false)
-        || !container
-            .last()
-            .map(|c| c.is_ascii_alphanumeric())
-            .unwrap_or(false)
+    if !container.first().is_some_and(char::is_ascii_alphanumeric)
+        || !container.last().is_some_and(char::is_ascii_alphanumeric)
     {
         return Err(ValidationError::InvalidProfile {
             source: None,
@@ -570,7 +569,7 @@ mod test {
             let tenant_id = std::env::var("AZURE_TENANT_ID").unwrap();
             let filesystem = std::env::var("AZURE_STORAGE_FILESYSTEM").unwrap();
             let key_prefix = vec!['b'; 512].into_iter().collect::<String>();
-            let mut prof = AzProfile {
+            let mut prof = AzdlsProfile {
                 filesystem,
                 key_prefix: Some(key_prefix.to_string()),
                 account_name,
