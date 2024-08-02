@@ -55,6 +55,7 @@ serde_json = { workspace = true, features = ["preserve_order"] }
 sqlx = { workspace = true, optional = true, features = ["tls-rustls"] }
 strum = { workspace = true }
 strum_macros = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true, optional = true, features = [

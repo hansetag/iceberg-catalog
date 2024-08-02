@@ -1,15 +1,19 @@
 #![allow(clippy::match_wildcard_for_single_variants)]
 
 mod az;
+mod error;
 mod s3;
 
 use std::collections::HashMap;
 
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
-use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
+use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::service::storage::az::{AzCredential, AzProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
+use error::{
+    ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
+};
 pub use s3::{S3Credential, S3Profile};
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +25,7 @@ use serde::{Deserialize, Serialize};
 pub enum StorageProfile {
     /// Azure storage profile
     #[serde(rename = "azdls")]
-    Az(AzProfile),
+    Azdls(AzProfile),
     /// S3 storage profile
     #[serde(rename = "s3")]
     S3(S3Profile),
@@ -34,8 +38,8 @@ pub enum StorageProfile {
 pub enum StorageType {
     #[strum(serialize = "s3")]
     S3,
-    #[strum(serialize = "az")]
-    Az,
+    #[strum(serialize = "azdls")]
+    Azdls,
     #[cfg(test)]
     #[strum(serialize = "test")]
     Test,
@@ -52,7 +56,7 @@ impl StorageProfile {
                 overrides: HashMap::default(),
                 defaults: HashMap::default(),
             },
-            StorageProfile::Az(prof) => prof.generate_catalog_config(warehouse_id),
+            StorageProfile::Azdls(prof) => prof.generate_catalog_config(warehouse_id),
         }
     }
 
@@ -62,28 +66,22 @@ impl StorageProfile {
     ///
     /// # Errors
     /// Fails if the profiles are not compatible, typically because the location changed
-    pub fn can_be_updated_with(&self, other: &Self) -> Result<()> {
+    pub fn can_be_updated_with(&self, other: &Self) -> Result<(), UpdateError> {
         match (self, other) {
             (StorageProfile::S3(this_profile), StorageProfile::S3(other_profile)) => {
                 this_profile.can_be_updated_with(other_profile)
             }
-            (StorageProfile::Az(this_profile), StorageProfile::Az(other_profile)) => {
+            (StorageProfile::Azdls(this_profile), StorageProfile::Azdls(other_profile)) => {
                 this_profile.can_be_updated_with(other_profile)
             }
             #[cfg(test)]
             (StorageProfile::Test(_), _) => Ok(()),
             #[cfg(test)]
             (_, StorageProfile::Test(_)) => Ok(()),
-            (_, _) => Err(ErrorModel::bad_request(
-                "Storage profiles are not compatible",
-                "StorageProfilesNotCompatible".to_string(),
-                None,
-            )
-            .append_details(&[
-                format!("This: {:?}", self.storage_type()),
-                format!("Other: {:?}", other.storage_type()),
-            ])
-            .into()),
+            (_, _) => Err(UpdateError::IncompatibleProfiles(
+                self.storage_type().to_string(),
+                other.storage_type().to_string(),
+            )),
         }
     }
 
@@ -94,34 +92,14 @@ impl StorageProfile {
     pub fn file_io(
         &self,
         secret: Option<&StorageCredential>,
-        validating: bool,
-    ) -> Result<iceberg::io::FileIO> {
-        let potential_error_code = if validating { 400 } else { 500 };
+    ) -> Result<iceberg::io::FileIO, FileIoError> {
         match self {
-            StorageProfile::S3(profile) => profile.file_io(
-                secret
-                    .map(|s| s.try_to_s3(potential_error_code))
-                    .transpose()?,
-            ),
-            StorageProfile::Az(prof) => prof.file_io(
-                secret
-                    .map(|s| s.try_to_az(potential_error_code))
-                    .transpose()?,
-            ),
-            #[cfg(test)]
-            StorageProfile::Test(_) => {
-                let file_io = iceberg::io::FileIOBuilder::new("file")
-                    .build()
-                    .map_err(|e| {
-                        ErrorModel::builder()
-                            .code(potential_error_code)
-                            .message("Failed to create file IO".to_string())
-                            .r#type("FileIOCreationFailed".to_string())
-                            .stack(vec![format!("{:?}", e)])
-                            .build()
-                    })?;
-                Ok(file_io)
+            StorageProfile::S3(profile) => {
+                profile.file_io(secret.map(|s| s.try_to_s3()).transpose()?)
             }
+            StorageProfile::Azdls(prof) => prof.file_io(secret.map(|s| s.try_to_az()).transpose()?),
+            #[cfg(test)]
+            StorageProfile::Test(_) => Ok(iceberg::io::FileIOBuilder::new("file").build()?),
         }
     }
 
@@ -133,7 +111,9 @@ impl StorageProfile {
     ) -> String {
         match self {
             StorageProfile::S3(profile) => profile.tabular_location(namespace_id, table_id),
-            StorageProfile::Az(profile) => profile.initial_tabular_location(namespace_id, table_id),
+            StorageProfile::Azdls(profile) => {
+                profile.initial_tabular_location(namespace_id, table_id)
+            }
             #[cfg(test)]
             StorageProfile::Test(_) => format!("/tmp/{namespace_id}/{table_id}"),
         }
@@ -157,7 +137,7 @@ impl StorageProfile {
             StorageProfile::S3(_) => StorageType::S3,
             #[cfg(test)]
             StorageProfile::Test(_) => StorageType::Test,
-            StorageProfile::Az(_) => StorageType::Az,
+            StorageProfile::Azdls(_) => StorageType::Azdls,
         }
     }
 
@@ -173,7 +153,7 @@ impl StorageProfile {
         data_access: &DataAccess,
         secret: Option<&StorageCredential>,
         table_location: &str,
-    ) -> Result<HashMap<String, String>> {
+    ) -> Result<HashMap<String, String>, TableConfigError> {
         match self {
             StorageProfile::S3(profile) => {
                 profile
@@ -182,11 +162,11 @@ impl StorageProfile {
                         table_id,
                         namespace_id,
                         data_access,
-                        secret.map(|s| s.try_to_s3(500)).transpose()?,
+                        secret.map(|s| s.try_to_s3()).transpose()?,
                     )
                     .await
             }
-            StorageProfile::Az(profile) => {
+            StorageProfile::Azdls(profile) => {
                 profile
                     .generate_table_config(
                         warehouse_id,
@@ -196,13 +176,9 @@ impl StorageProfile {
                         table_location,
                         secret
                             .ok_or_else(|| {
-                                ErrorModel::bad_request(
-                                    "Storage credential is required for Azure storage",
-                                    "StorageCredentialRequired",
-                                    None,
-                                )
+                                CredentialsError::MissingCredential(self.storage_type())
                             })?
-                            .try_to_az(500)?,
+                            .try_to_az()?,
                     )
                     .await
             }
@@ -215,15 +191,18 @@ impl StorageProfile {
     ///
     /// # Errors
     /// Fails if the underlying storage profile's validation fails.
-    pub async fn validate(&mut self, secret: Option<&StorageCredential>) -> Result<()> {
+    pub async fn validate(
+        &mut self,
+        secret: Option<&StorageCredential>,
+    ) -> Result<(), ValidationError> {
         match self {
             StorageProfile::S3(profile) => {
                 profile
-                    .validate(secret.map(|s| s.try_to_s3(400)).transpose()?)
+                    .validate(secret.map(|s| s.try_to_s3()).transpose()?)
                     .await
             }
-            StorageProfile::Az(prof) => {
-                prof.validate(secret.map(|s| s.try_to_az(400)).transpose()?)
+            StorageProfile::Azdls(prof) => {
+                prof.validate(secret.map(|s| s.try_to_az()).transpose()?)
                     .await
             }
             #[cfg(test)]
@@ -235,16 +214,13 @@ impl StorageProfile {
     ///
     /// # Errors
     /// Fails if the profile is not an S3 profile.
-    pub fn try_into_s3(self, code: u16) -> Result<S3Profile> {
+    pub fn try_into_s3(self) -> Result<S3Profile, ConversionError> {
         match self {
             Self::S3(profile) => Ok(profile),
-            _ => Err(ErrorModel::builder()
-                .code(code)
-                .message("Storage profile is not S3".to_string())
-                .r#type("StorageProfileNotS3".to_string())
-                .stack(vec![format!("Storage Type: {}", self.storage_type())])
-                .build()
-                .into()),
+            _ => Err(ConversionError {
+                is: self.storage_type(),
+                to: StorageType::S3,
+            }),
         }
     }
 
@@ -252,16 +228,13 @@ impl StorageProfile {
     ///
     /// # Errors
     /// Fails if the profile is not an Az profile.
-    pub fn try_into_az(self, code: u16) -> Result<AzProfile> {
+    pub fn try_into_az(self) -> Result<AzProfile, ConversionError> {
         match self {
-            Self::Az(profile) => Ok(profile),
-            _ => Err(ErrorModel::builder()
-                .code(code)
-                .message("Storage profile is not Az".to_string())
-                .r#type("StorageProfileNotAz".to_string())
-                .stack(vec![format!("Storage Type: {}", self.storage_type())])
-                .build()
-                .into()),
+            Self::Azdls(profile) => Ok(profile),
+            _ => Err(ConversionError {
+                is: self.storage_type(),
+                to: StorageType::Azdls,
+            }),
         }
     }
 }
@@ -289,7 +262,7 @@ impl StorageCredential {
     pub fn storage_type(&self) -> StorageType {
         match self {
             StorageCredential::S3(_) => StorageType::S3,
-            StorageCredential::Az(_) => StorageType::Az,
+            StorageCredential::Az(_) => StorageType::Azdls,
         }
     }
 
@@ -297,16 +270,14 @@ impl StorageCredential {
     ///
     /// # Errors
     /// Fails if the credential is not an S3 credential.
-    pub fn try_to_s3(&self, code: u16) -> Result<&S3Credential> {
+    pub fn try_to_s3(&self) -> Result<&S3Credential, CredentialsError> {
         match self {
             Self::S3(profile) => Ok(profile),
-            _ => Err(ErrorModel::builder()
-                .code(code)
-                .message("Storage profile is not S3".to_string())
-                .r#type("StorageProfileNotS3".to_string())
-                .stack(vec![format!("Storage Type: {}", self.storage_type())])
-                .build()
-                .into()),
+            _ => Err(ConversionError {
+                is: self.storage_type(),
+                to: StorageType::S3,
+            }
+            .into()),
         }
     }
 
@@ -314,34 +285,16 @@ impl StorageCredential {
     ///
     /// # Errors
     /// Fails if the credential is not an Az credential.
-    pub fn try_to_az(&self, code: u16) -> Result<&AzCredential> {
+    pub fn try_to_az(&self) -> Result<&AzCredential, CredentialsError> {
         match self {
             Self::Az(profile) => Ok(profile),
-            _ => Err(ErrorModel::builder()
-                .code(code)
-                .message("Storage profile is not Az".to_string())
-                .r#type("StorageProfileNotAz".to_string())
-                .stack(vec![format!("Storage Type: {}", self.storage_type())])
-                .build()
-                .into()),
+            _ => Err(ConversionError {
+                is: self.storage_type(),
+                to: StorageType::Azdls,
+            }
+            .into()),
         }
     }
-}
-
-// ToDo: Move somewhere so that other profiles can use it as well?
-async fn validate_file_io(file_io: &iceberg::io::FileIO, test_location: &str) -> Result<()> {
-    // Validate the file_io instance by creating a test file.
-    crate::catalog::io::write_metadata_file(test_location, "test", file_io).await?;
-
-    file_io.delete(test_location).await.map_err(|e| {
-        ErrorModel::bad_request(
-            format!("Error validating Storage Profile: {e}"),
-            "TestFileDeleteError",
-            Some(Box::new(e)),
-        )
-    })?;
-
-    Ok(())
 }
 
 pub mod path_utils {

@@ -166,7 +166,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         };
 
         if let Some(metadata_location) = &metadata_location {
-            let file_io = storage_profile.file_io(storage_secret.as_ref(), false)?;
+            let file_io = storage_profile.file_io(storage_secret.as_ref())?;
             write_metadata_file(metadata_location, &table_metadata, &file_io).await?;
         }
 
@@ -491,7 +491,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let file_io = result
             .storage_config
             .storage_profile
-            .file_io(storage_secret.as_ref(), false)?;
+            .file_io(storage_secret.as_ref())?;
         write_metadata_file(
             &result.commit_response.metadata_location,
             &result.commit_response.metadata,
@@ -916,8 +916,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 let file_io = r
                     .storage_config
                     .storage_profile
-                    .file_io(storage_secret.as_ref(), false)
-                    .map(|io| (r, io));
+                    .file_io(storage_secret.as_ref())
+                    .map(|io| (r, io))
+                    .map_err(Into::into);
                 file_io
             })
             .collect::<Result<Vec<_>>>()?;

@@ -134,8 +134,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         };
 
         let storage_profile = storage_profile
-            .try_into_s3(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-            .map_err(extend_err)?;
+            .try_into_s3()
+            .map_err(|e| extend_err(IcebergErrorResponse::from(e)))?;
 
         validate_uri(&request_url, &location, &storage_profile).map_err(extend_err)?;
         validate_region(&request_region, &storage_profile).map_err(extend_err)?;
@@ -155,15 +155,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
         .map(|secret| {
             secret
-                .try_to_s3(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-                .map_err(extend_err)
+                .try_to_s3()
+                .map_err(|e| extend_err(IcebergErrorResponse::from(e)))
                 .cloned()
         })
         .transpose()?;
 
         let credentials: aws_credential_types::Credentials = storage_profile
             .get_aws_sdk_credentials(storage_secret.as_ref())
-            .map_err(extend_err)?;
+            .map_err(|e| extend_err(IcebergErrorResponse::from(e)))?;
 
         sign(
             credentials,

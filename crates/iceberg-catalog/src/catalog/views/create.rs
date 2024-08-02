@@ -141,7 +141,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         None
     };
 
-    let file_io = storage_profile.file_io(storage_secret.as_ref(), false)?;
+    let file_io = storage_profile.file_io(storage_secret.as_ref())?;
     write_metadata_file(metadata_location.as_str(), &metadata, &file_io).await?;
     tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
 

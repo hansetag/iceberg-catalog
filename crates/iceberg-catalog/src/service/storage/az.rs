@@ -3,9 +3,13 @@ use crate::{
     WarehouseIdent,
 };
 
-use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
-use crate::service::storage;
+use crate::api::{iceberg::v1::DataAccess, CatalogConfig, Result};
+use crate::catalog::io::IoError;
+use crate::service::storage::error::{
+    CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
+};
 use crate::service::storage::path_utils::reduce_scheme_string;
+use crate::service::storage::{StorageProfile, StorageType};
 use crate::service::tabular_idents::TabularIdentUuid;
 use azure_storage::prelude::{BlobSasPermissions, BlobSignedResource};
 use azure_storage::shared_access_signature::service_sas::BlobSharedAccessSignature;
@@ -20,55 +24,6 @@ use std::time::SystemTime;
 use url::Url;
 use uuid::Uuid;
 use veil::Redact;
-
-fn is_valid_bucket_name(bucket: &str) -> Result<()> {
-    // Bucket names must be between 3 (min) and 63 (max) characters long.
-    if bucket.len() < 3 || bucket.len() > 63 {
-        return Err(ErrorModel::bad_request(
-            "Bucket name must be between 3 and 63 characters long.",
-            "InvalidBucketName",
-            None,
-        )
-        .into());
-    }
-
-    // Bucket names can consist only of lowercase letters, numbers, dots (.), and hyphens (-).
-    if !bucket
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
-    {
-        return Err(ErrorModel::bad_request(
-            "Bucket name can consist only of lowercase letters, numbers, dots (.), and hyphens (-).",
-            "InvalidBucketName",
-            None,
-        ).into());
-    }
-
-    // Bucket names must begin and end with a letter or number.
-    // Unwrap will not fail as the length is already checked.
-    if !bucket.chars().next().unwrap().is_ascii_alphanumeric()
-        || !bucket.chars().last().unwrap().is_ascii_alphanumeric()
-    {
-        return Err(ErrorModel::bad_request(
-            "Bucket name must begin and end with a letter or number.",
-            "InvalidBucketName",
-            None,
-        )
-        .into());
-    }
-
-    // Bucket names must not contain two adjacent periods.
-    if bucket.contains("..") {
-        return Err(ErrorModel::bad_request(
-            "Bucket name must not contain two adjacent periods.",
-            "InvalidBucketName",
-            None,
-        )
-        .into());
-    }
-
-    Ok(())
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[allow(clippy::module_name_repetitions)]
@@ -101,7 +56,10 @@ impl AzProfile {
     /// - Fails if the key prefix is too long.
     /// - Fails if the region or endpoint is missing.
     /// - Fails if the endpoint is not a valid URL.
-    pub async fn validate(&mut self, credential: Option<&AzCredential>) -> Result<()> {
+    pub async fn validate(
+        &mut self,
+        credential: Option<&AzCredential>,
+    ) -> Result<(), ValidationError> {
         // If key_prefix is provided, remove any trailing and leading slashes.
         if let Some(key_prefix) = self.key_prefix.as_mut() {
             *key_prefix = key_prefix.trim_matches('/').to_string();
@@ -112,22 +70,35 @@ impl AzProfile {
             key_prefix,
             account_name: _,
             authority_host: _,
-            endpoint_suffix: _,
+            endpoint_suffix,
             sas_token_validity_seconds: _,
         } = self;
 
-        is_valid_bucket_name(filesystem)?;
+        if endpoint_suffix
+            .as_deref()
+            .is_some_and(|s| s.contains('/'))
+        {
+            return Err(ValidationError::InvalidProfile {
+                source: None,
+                reason: "Storage Profile `endpoint_suffix` must not contain slashes.".to_string(),
+                entity: "EndpointSuffix".to_string(),
+            });
+        }
+
+        is_valid_container_name(filesystem)?;
 
         // Azure supports a max of 1024 chars and we need some buffer for tables.
         if let Some(key_prefix) = key_prefix {
             if key_prefix.len() > 512 {
-                return Err(ErrorModel::bad_request(
-                    "Storage Profile `key_prefix` must be less than 512 characters.",
-                    "InvalidKeyPrefix",
-                    None,
-                )
-                .into());
+                return Err(ValidationError::InvalidProfile {
+                    source: None,
+
+                    reason: "Storage Profile `key_prefix` must be less than 512 characters."
+                        .to_string(),
+                    entity: "KeyPrefix".to_string(),
+                });
             }
+            is_valid_directory_path(key_prefix)?;
         }
 
         let file_io = self.file_io(credential)?;
@@ -137,38 +108,43 @@ impl AzProfile {
         let test_location =
             self.initial_tabular_location(ns_id, TabularIdentUuid::Table(table_id)) + "/test_file";
         let sanitized_ns_location = reduce_scheme_string(&namespace_location, false);
-        storage::validate_file_io(&file_io, &test_location)
+
+        // Validate the file_io instance by creating a test file.
+        crate::catalog::io::write_metadata_file(&test_location, "test", &file_io)
             .await
-            .map_err(|e| e.error.append_detail(format!("Profile: {self:?}")))?;
+            .map_err(|e| {
+                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::Azdls(self.clone())))
+            })?;
 
         tracing::debug!(
             "Successfully validated metadata writing, moving on to validating table config.",
         );
 
+        // Validate the table config by generating a sas token and reading the test file using it.
         self.validate_sas(
-            credential.ok_or_else(|| {
-                ErrorModel::bad_request(
-                    "Storage Profile `credential` must be provided.",
-                    "InvalidCredential",
-                    None,
-                )
-            })?,
+            credential.ok_or_else(|| CredentialsError::MissingCredential(StorageType::Azdls))?,
             ns_id,
             table_id,
-            test_location,
+            &test_location,
         )
         .await?;
-
         tracing::debug!("Successfully validated table_config by using sas token, moving on to cleaning up by deleting contents of: '{}'.", sanitized_ns_location);
 
+        // Test that we can delete the test file
+        crate::catalog::io::delete_file(&file_io, &test_location)
+            .await
+            .map_err(|e| {
+                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::Azdls(self.clone())))
+            })?;
+
+        // Remove the test namespace location
         file_io
             .remove_all(sanitized_ns_location)
             .await
-            .map_err(|err| {
-                ErrorModel::precondition_failed(
-                    "Failed to delete test location.",
-                    "AzStorageDeletionError",
-                    Some(Box::new(err)),
+            .map_err(|e| {
+                ValidationError::IoOperationFailed(
+                    IoError::FileDelete(e),
+                    Box::new(StorageProfile::Azdls(self.clone())),
                 )
             })?;
 
@@ -185,23 +161,21 @@ impl AzProfile {
     ///
     /// # Errors
     /// Fails if the `bucket`, `region` or `key_prefix` is different.
-    pub fn can_be_updated_with(&self, other: &Self) -> Result<()> {
+    pub fn can_be_updated_with(&self, other: &Self) -> Result<(), UpdateError> {
         if self.filesystem != other.filesystem {
-            return Err(ErrorModel::bad_request(
-                "Storage Profile `filesystem` cannot be updated to prevent data loss.",
-                "InvalidFileSystem",
-                None,
-            )
-            .into());
+            return Err(UpdateError::Field("filesystem".to_string()));
         }
 
         if self.key_prefix != other.key_prefix {
-            return Err(ErrorModel::bad_request(
-                "Storage Profile `key_prefix` cannot be updated to prevent data loss.",
-                "InvalidKeyPrefix",
-                None,
-            )
-            .into());
+            return Err(UpdateError::Field("key_prefix".to_string()));
+        }
+
+        if self.authority_host != other.authority_host {
+            return Err(UpdateError::Field("authority_host".to_string()));
+        }
+
+        if self.endpoint_suffix != other.endpoint_suffix {
+            return Err(UpdateError::Field("endpoint_suffix".to_string()));
         }
 
         Ok(())
@@ -269,7 +243,7 @@ impl AzProfile {
         _: &DataAccess,
         table_location: &str,
         creds: &AzCredential,
-    ) -> Result<HashMap<String, String>> {
+    ) -> Result<HashMap<String, String>, TableConfigError> {
         let AzCredential::ClientCredentials {
             client_id,
             tenant_id,
@@ -297,7 +271,10 @@ impl AzProfile {
     ///
     /// # Errors
     /// Fails if the `FileIO` instance cannot be created.
-    pub fn file_io(&self, credential: Option<&AzCredential>) -> Result<iceberg::io::FileIO> {
+    pub fn file_io(
+        &self,
+        credential: Option<&AzCredential>,
+    ) -> Result<iceberg::io::FileIO, FileIoError> {
         let mut builder = iceberg::io::FileIOBuilder::new("azdls");
 
         builder = builder
@@ -338,14 +315,7 @@ impl AzProfile {
             }
         }
 
-        builder.build().map_err(|e| {
-            ErrorModel::precondition_failed(
-                "Error creating Azure FileIO.",
-                "AZFileIOError",
-                Some(Box::new(e)),
-            )
-            .into()
-        })
+        Ok(builder.build()?)
     }
 
     async fn validate_sas(
@@ -353,8 +323,8 @@ impl AzProfile {
         credential: &AzCredential,
         ns_id: NamespaceIdentUuid,
         table_id: Uuid,
-        test_location: String,
-    ) -> Result<()> {
+        test_location: &str,
+    ) -> Result<(), ValidationError> {
         let table_config = self
             .generate_table_config(
                 Uuid::now_v7().into(),
@@ -364,55 +334,46 @@ impl AzProfile {
                     vended_credentials: false,
                     remote_signing: false,
                 },
-                test_location.as_str(),
+                test_location,
                 credential,
             )
-            .await
-            .map_err(|e| {
-                e.error
-                    .append_detail("Couldn't generate table config while validating.")
-            })?;
+            .await?;
 
         // TODO: replace with iceberg_rust's FileIO + opendal once sas is available
         let cred = azure_storage::StorageCredentials::sas_token(
             table_config
                 .get(self.iceberg_sas_property_key().as_str())
-                .ok_or(ErrorModel::internal(
-                    "Couldn't find sas token in table config.",
-                    "AzStorageSasTokenNotFound",
-                    None,
-                ))?,
+                .ok_or(CredentialsError::ShortTermCredential {
+                    reason: "Couldn't find sas token in table config.".to_string(),
+                    source: None,
+                })?,
         )
-        .map_err(|e| {
-            ErrorModel::internal(
-                "Couldn't create storage credentials from sas token.",
-                "AzStorageSasTokenCreationError",
-                Some(Box::new(e)),
-            )
+        .map_err(|e| CredentialsError::ShortTermCredential {
+            reason: "Error creating azure sas token.".to_string(),
+            source: Some(Box::new(e)),
         })?;
         let client =
             azure_storage_blobs::prelude::BlobServiceClient::new(self.account_name.as_str(), cred);
         let container = client.container_client(self.filesystem.as_str());
-        let blob = container.blob_client(
-            // Blob client expects the path without protocol
-            reduce_scheme_string(test_location.as_str(), false).trim_start_matches("abfss://"),
-        );
+        let blob = container.blob_client(reduce_scheme_string(test_location, true));
         let mut get = blob.get().into_stream();
         while let Some(n) = get.next().await {
             if let Err(e) = n {
-                return Err(ErrorModel::internal(
-                    "Failed to read test location.",
-                    "AzStorageReadError",
-                    Some(Box::new(e)),
-                )
-                .into());
+                return Err(ValidationError::IoOperationFailed(
+                    IoError::FileRead(Box::new(e)),
+                    Box::new(StorageProfile::Azdls(self.clone())),
+                ));
             }
         }
 
         Ok(())
     }
 
-    async fn get_sas_token(&self, path: &str, cred: StorageCredentials) -> Result<String> {
+    async fn get_sas_token(
+        &self,
+        path: &str,
+        cred: StorageCredentials,
+    ) -> Result<String, CredentialsError> {
         let client =
             azure_storage_blobs::prelude::BlobServiceClient::new(self.account_name.as_str(), cred);
         let delegation_key = client
@@ -427,12 +388,9 @@ impl AzProfile {
                     .into(),
             )
             .await
-            .map_err(|e| {
-                ErrorModel::precondition_failed(
-                    "Error getting user delegation key.",
-                    "AzStorageDelegationError",
-                    Some(Box::new(e)),
-                )
+            .map_err(|e| CredentialsError::ShortTermCredential {
+                reason: "Error getting azure user delegation key.".to_string(),
+                source: Some(Box::new(e)),
             })?;
         let path = reduce_scheme_string(path, true);
         let rootless_path = path.trim_start_matches('/');
@@ -459,14 +417,11 @@ impl AzProfile {
         )
         .signed_directory_depth(depth);
 
-        sas.token().map_err(|e| {
-            ErrorModel::precondition_failed(
-                "Error getting sas token.",
-                "AzStorageDelegationError",
-                Some(Box::new(e)),
-            )
-            .into()
-        })
+        sas.token()
+            .map_err(|e| CredentialsError::ShortTermCredential {
+                reason: "Error getting azure sas token.".to_string(),
+                source: Some(Box::new(e)),
+            })
     }
 
     fn iceberg_sas_property_key(&self) -> String {
@@ -494,6 +449,106 @@ pub enum AzCredential {
     },
 }
 
+// https://learn.microsoft.com/en-us/rest/api/storageservices/naming-and-referencing-containers--blobs--and-metadata
+fn is_valid_container_name(container: &str) -> Result<(), ValidationError> {
+    // Container names must be between 3 (min) and 63 (max) characters long.
+    if container.len() < 3 || container.len() > 63 {
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason: "Storage Profile `container` must be between 3 and 63 characters long."
+                .to_string(),
+            entity: "ContainerName".to_string(),
+        });
+    }
+
+    // Container names can consist only of lowercase letters, numbers, and hyphens (-).
+    if !container
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason:
+                "Container name can consist only of lowercase letters, numbers, and hyphens (-)."
+                    .to_string(),
+            entity: "ContainerName".to_string(),
+        });
+    }
+
+    // Container names must begin and end with a letter or number.
+    // Unwrap will not fail as the length is already checked.
+    if !container.chars().next().unwrap().is_ascii_alphanumeric()
+        || !container.chars().last().unwrap().is_ascii_alphanumeric()
+    {
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason: "Container name must begin and end with a letter or number.".to_string(),
+            entity: "ContainerName".to_string(),
+        });
+    }
+
+    // Container names must not contain consecutive hyphens.
+    if container.contains("--") {
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason: "Container name must not contain consecutive hyphens.".to_string(),
+            entity: "ContainerName".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+// https://learn.microsoft.com/en-us/rest/api/storageservices/naming-and-referencing-containers--blobs--and-metadata
+fn is_valid_directory_path(path: &str) -> Result<(), ValidationError> {
+    for path_segment in path.split('/') {
+        // Check if the path contains reserved URL characters that are not properly escaped.
+        if path_segment.contains(|c: char| {
+            c == ' '
+                || c == '!'
+                || c == '*'
+                || c == '\''
+                || c == '('
+                || c == ')'
+                || c == ';'
+                || c == ':'
+                || c == '@'
+                || c == '&'
+                || c == '='
+                || c == '+'
+                || c == '$'
+                || c == ','
+                || c == '/'
+                || c == '?'
+                || c == '%'
+                || c == '#'
+                || c == '['
+                || c == ']'
+        }) {
+            return Err(ValidationError::InvalidProfile {
+                source: None,
+                reason:
+                    "Directory path contains reserved URL characters that are not properly escaped."
+                        .to_string(),
+                entity: "DirectoryPath".to_string(),
+            });
+        }
+
+        // Check if the directory name ends with a dot (.), a backslash (\), or a combination of these.
+        if path_segment.ends_with('.') || path_segment.ends_with('\\') {
+            return Err(ValidationError::InvalidProfile {
+                source: None,
+                reason: format!(
+                    "Directory: '{path_segment}' must not end with a dot (.), or a backslash (\\)."
+                ),
+                entity: "DirectoryPath".to_string(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use needs_env_var::needs_env_var;
@@ -502,7 +557,6 @@ mod test {
     mod azure_tests {
         use crate::service::storage::AzCredential;
         use crate::service::storage::AzProfile;
-        use uuid::Uuid;
 
         #[tokio::test]
         async fn test_can_validate() {
@@ -511,8 +565,7 @@ mod test {
             let client_secret = std::env::var("AZURE_CLIENT_SECRET").unwrap();
             let tenant_id = std::env::var("AZURE_TENANT_ID").unwrap();
             let filesystem = std::env::var("AZURE_STORAGE_FILESYSTEM").unwrap();
-            let key_prefix = Uuid::now_v7();
-            eprintln!("");
+            let key_prefix = vec!['b'; 512].into_iter().collect::<String>();
             let mut prof = AzProfile {
                 filesystem,
                 key_prefix: Some(key_prefix.to_string()),
@@ -531,6 +584,113 @@ mod test {
             prof.validate(Some(&cred))
                 .await
                 .expect("failed to validate profile");
+        }
+    }
+
+    use super::*;
+
+    #[test]
+    fn test_valid_container_names() {
+        for name in &[
+            "abc", "a1b2c3", "a-b-c", "1-2-3", "a1-b2-c3", "abc123", "123abc",
+        ] {
+            assert!(is_valid_container_name(name).is_ok(), "{}", name);
+        }
+    }
+
+    #[test]
+    fn test_invalid_container_length() {
+        assert!(is_valid_container_name("ab").is_err(), "ab");
+        assert!(
+            is_valid_container_name(&"a".repeat(64)).is_err(),
+            "64 character long string"
+        );
+    }
+
+    #[test]
+    fn test_invalid_container_characters() {
+        for name in &[
+            "Abc",     // Uppercase letter
+            "abc!",    // Special character
+            "abc.def", // Dot character
+            "abc_def", // Underscore character
+        ] {
+            assert!(is_valid_container_name(name).is_err(), "{}", name);
+        }
+    }
+
+    #[test]
+    fn test_invalid_start_end() {
+        for name in &[
+            "-abc",   // Starts with hyphen
+            "abc-",   // Ends with hyphen
+            "-abc-",  // Starts and ends with hyphen
+            "1-2-3-", // Ends with hyphen
+        ] {
+            assert!(is_valid_container_name(name).is_err(), "{}", name);
+        }
+    }
+
+    #[test]
+    fn test_consecutive_hyphens_container_name() {
+        for name in &[
+            "a--b", // Consecutive hyphens
+            "1--2", // Consecutive hyphens
+            "a--1", // Consecutive hyphens
+        ] {
+            assert!(is_valid_container_name(name).is_err(), "{}", name);
+        }
+    }
+
+    #[test]
+    fn test_valid_directory_paths() {
+        for path in &[
+            "valid/path",
+            "another/valid/path",
+            "valid/path/with123",
+            "valid/path/with-dash",
+            "valid/path/with_underscore",
+        ] {
+            assert!(is_valid_directory_path(path).is_ok(), "{}", path);
+        }
+    }
+
+    #[test]
+    fn test_path_reserved_characters() {
+        for path in &[
+            "invalid path",
+            "invalid/path!",
+            "invalid/path*",
+            "invalid/path'",
+            "invalid/path(",
+            "invalid/path)",
+            "invalid/path;",
+            "invalid/path:",
+            "invalid/path@",
+            "invalid/path&",
+            "invalid/path=",
+            "invalid/path+",
+            "invalid/path$",
+            "invalid/path,",
+            "invalid/path?",
+            "invalid/path%",
+            "invalid/path#",
+            "invalid/path[",
+            "invalid/path]",
+        ] {
+            assert!(is_valid_directory_path(path).is_err(), "{}", path);
+        }
+    }
+
+    #[test]
+    fn test_path_ending_characters() {
+        for path in &[
+            "invalid/path.",
+            "invalid/path\\",
+            "invalid/path/.",
+            "invalid/path/\\",
+        ] {
+            assert!(is_valid_directory_path(path).is_err(), "{}", path);
         }
     }
 }

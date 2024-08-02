@@ -289,7 +289,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         None
     };
 
-    let file_io = storage_profile.file_io(storage_secret.as_ref(), false)?;
+    let file_io = storage_profile.file_io(storage_secret.as_ref())?;
     write_metadata_file(metadata_location.as_str(), &updated_meta, &file_io).await?;
     tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
     // Generate the storage profile. This requires the storage secret

@@ -3,22 +3,25 @@ use crate::{
     WarehouseIdent, CONFIG,
 };
 
-use crate::api::{iceberg::v1::DataAccess, CatalogConfig, ErrorModel, Result};
-use crate::service::storage::validate_file_io;
+use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
+use crate::service::storage::error::{
+    CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
+};
+use crate::service::storage::{StorageProfile, StorageType};
 use crate::service::tabular_idents::TabularIdentUuid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use veil::Redact;
 
-fn is_valid_bucket_name(bucket: &str) -> Result<()> {
+fn is_valid_bucket_name(bucket: &str) -> Result<(), ValidationError> {
     // Bucket names must be between 3 (min) and 63 (max) characters long.
     if bucket.len() < 3 || bucket.len() > 63 {
-        return Err(ErrorModel::bad_request(
-            "Bucket name must be between 3 and 63 characters long.",
-            "InvalidBucketName",
-            None,
-        )
-        .into());
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason: "Storage Profile `bucket` must be between 3 and 63 characters long."
+                .to_string(),
+            entity: "BucketName".to_string(),
+        });
     }
 
     // Bucket names can consist only of lowercase letters, numbers, dots (.), and hyphens (-).
@@ -26,11 +29,13 @@ fn is_valid_bucket_name(bucket: &str) -> Result<()> {
         .chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
     {
-        return Err(ErrorModel::bad_request(
-            "Bucket name can consist only of lowercase letters, numbers, dots (.), and hyphens (-).",
-            "InvalidBucketName",
-            None,
-        ).into());
+        return Err(
+            ValidationError::InvalidProfile {
+                source: None,
+                reason: "Bucket name can consist only of lowercase letters, numbers, dots (.), and hyphens (-).".to_string(),
+                entity: "BucketName".to_string(),
+            }
+            );
     }
 
     // Bucket names must begin and end with a letter or number.
@@ -38,22 +43,20 @@ fn is_valid_bucket_name(bucket: &str) -> Result<()> {
     if !bucket.chars().next().unwrap().is_ascii_alphanumeric()
         || !bucket.chars().last().unwrap().is_ascii_alphanumeric()
     {
-        return Err(ErrorModel::bad_request(
-            "Bucket name must begin and end with a letter or number.",
-            "InvalidBucketName",
-            None,
-        )
-        .into());
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason: "Bucket name must begin and end with a letter or number.".to_string(),
+            entity: "BucketName".to_string(),
+        });
     }
 
     // Bucket names must not contain two adjacent periods.
     if bucket.contains("..") {
-        return Err(ErrorModel::bad_request(
-            "Bucket name must not contain two adjacent periods.",
-            "InvalidBucketName",
-            None,
-        )
-        .into());
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason: "Bucket name must not contain two adjacent periods.".to_string(),
+            entity: "BucketName".to_string(),
+        });
     }
 
     Ok(())
@@ -93,7 +96,10 @@ impl S3Profile {
     /// - Fails if the key prefix is too long.
     /// - Fails if the region or endpoint is missing.
     /// - Fails if the endpoint is not a valid URL.
-    pub async fn validate(&mut self, credential: Option<&S3Credential>) -> Result<()> {
+    pub async fn validate(
+        &mut self,
+        credential: Option<&S3Credential>,
+    ) -> Result<(), ValidationError> {
         // If key_prefix is provided, remove any trailing and leading slashes.
         if let Some(key_prefix) = self.key_prefix.as_mut() {
             *key_prefix = key_prefix.trim_matches('/').to_string();
@@ -113,43 +119,41 @@ impl S3Profile {
         is_valid_bucket_name(bucket)?;
 
         if region.len() > 128 {
-            return Err(ErrorModel::bad_request(
-                "Storage Profile `region` must be less than 128 characters.",
-                "InvalidRegion",
-                None,
-            )
-            .into());
+            return Err(ValidationError::InvalidProfile {
+                source: None,
+                reason: "Storage Profile `region` must be less than 128 characters.".to_string(),
+                entity: "region".to_string(),
+            });
         }
 
         // Aws supports a max of 1024 chars and we need some buffer for tables.
         if let Some(key_prefix) = key_prefix {
             if key_prefix.len() > 512 {
-                return Err(ErrorModel::bad_request(
-                    "Storage Profile `key_prefix` must be less than 512 characters.",
-                    "InvalidKeyPrefix",
-                    None,
-                )
-                .into());
+                return Err(ValidationError::InvalidProfile {
+                    source: None,
+                    reason: "Storage Profile `key_prefix` must be less than 512 characters."
+                        .to_string(),
+                    entity: "key_prefix".to_string(),
+                });
             }
         }
 
         if let Some(endpoint) = endpoint {
-            let endpoint = url::Url::parse(endpoint).map_err(|e| {
-                ErrorModel::bad_request(
-                    "Storage Profile `endpoint` is not a valid URL.",
-                    "InvalidS3Endpoint",
-                    Some(Box::new(e)),
-                )
-            })?;
+            let endpoint =
+                url::Url::parse(endpoint).map_err(|e| ValidationError::InvalidProfile {
+                    source: Some(Box::new(e)),
+                    reason: "Storage Profile `endpoint` is not a valid URL.".to_string(),
+                    entity: "S3Endpoint".to_string(),
+                })?;
 
             // Protocol must be http or https
             if endpoint.scheme() != "http" && endpoint.scheme() != "https" {
-                return Err(ErrorModel::bad_request(
-                    "Storage Profile `endpoint` must have http or https protocol.",
-                    "InvalidS3Endpoint",
-                    None,
-                )
-                .into());
+                return Err(ValidationError::InvalidProfile {
+                    source: None,
+                    reason: "Storage Profile `endpoint` must have http or https protocol."
+                        .to_string(),
+                    entity: "S3Endpoint".to_string(),
+                });
             }
         }
 
@@ -159,9 +163,22 @@ impl S3Profile {
             TabularIdentUuid::Table(uuid::Uuid::now_v7()),
         );
 
-        validate_file_io(&file_io, &test_location)
+        // Test that we can write a metadata file
+        crate::catalog::io::write_metadata_file(&test_location, "test", &file_io)
             .await
-            .map_err(|e| e.error.append_detail(format!("Profile: {self:?}")))?;
+            .map_err(|e| {
+                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
+            })?;
+        tracing::debug!("Successfully wrote test file to: {}", test_location);
+
+        // Test that we can delete the test file
+        crate::catalog::io::delete_file(&file_io, &test_location)
+            .await
+            .map_err(|e| {
+                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
+            })?;
+
+        tracing::debug!("Successfully deleted test file at: {}", test_location);
 
         Ok(())
     }
@@ -174,32 +191,17 @@ impl S3Profile {
     ///
     /// # Errors
     /// Fails if the `bucket`, `region` or `key_prefix` is different.
-    pub fn can_be_updated_with(&self, other: &Self) -> Result<()> {
+    pub fn can_be_updated_with(&self, other: &Self) -> Result<(), UpdateError> {
         if self.bucket != other.bucket {
-            return Err(ErrorModel::bad_request(
-                "Storage Profile `bucket` cannot be updated to prevent data loss.",
-                "InvalidBucket",
-                None,
-            )
-            .into());
+            return Err(UpdateError::Field("bucket".to_string()));
         }
 
         if self.region != other.region {
-            return Err(ErrorModel::bad_request(
-                "Storage Profile `region` cannot be updated to prevent data loss.",
-                "InvalidRegion",
-                None,
-            )
-            .into());
+            return Err(UpdateError::Field("region".to_string()));
         }
 
         if self.key_prefix != other.key_prefix {
-            return Err(ErrorModel::bad_request(
-                "Storage Profile `key_prefix` cannot be updated to prevent data loss.",
-                "InvalidKeyPrefix",
-                None,
-            )
-            .into());
+            return Err(UpdateError::Field("key_prefix".to_string()));
         }
 
         Ok(())
@@ -214,7 +216,7 @@ impl S3Profile {
     pub fn get_aws_sdk_credentials(
         &self,
         credential: Option<&S3Credential>,
-    ) -> Result<aws_credential_types::Credentials> {
+    ) -> Result<aws_credential_types::Credentials, CredentialsError> {
         let Self {
             assume_role_arn,
             endpoint: _,
@@ -226,12 +228,9 @@ impl S3Profile {
 
         // assume_role_arn is not supported currently
         if let Some(_assume_role_arn) = assume_role_arn {
-            return Err(ErrorModel::not_implemented(
-                "S3 Assume role ARN not supported.",
-                "S3AssumeRoleNotSupported",
-                None,
-            )
-            .into());
+            return Err(CredentialsError::UnsupportedCredential(
+                "S3 Assume role ARN not supported.".to_string(),
+            ));
         }
 
         // Currently there is no supported configuration without Credential
@@ -252,12 +251,7 @@ impl S3Profile {
                 }
             }
         } else {
-            Err(ErrorModel::bad_request(
-                "Storage Credentials missing.",
-                "MissingStorageCredential",
-                None,
-            )
-            .into())
+            Err(CredentialsError::MissingCredential(StorageType::S3))
         }
     }
 
@@ -303,7 +297,7 @@ impl S3Profile {
         _: NamespaceIdentUuid,
         data_access: &DataAccess,
         _: Option<&S3Credential>,
-    ) -> Result<HashMap<String, String>> {
+    ) -> Result<HashMap<String, String>, TableConfigError> {
         let DataAccess {
             vended_credentials,
             remote_signing,
@@ -366,7 +360,10 @@ impl S3Profile {
     ///
     /// # Errors
     /// Fails if the `FileIO` instance cannot be created.
-    pub fn file_io(&self, credential: Option<&S3Credential>) -> Result<iceberg::io::FileIO> {
+    pub fn file_io(
+        &self,
+        credential: Option<&S3Credential>,
+    ) -> Result<iceberg::io::FileIO, FileIoError> {
         let mut builder = iceberg::io::FileIOBuilder::new("s3");
 
         builder = builder.with_prop(iceberg::io::S3_REGION, self.region.clone());
@@ -375,12 +372,9 @@ impl S3Profile {
             builder = builder.with_prop(iceberg::io::S3_ENDPOINT, endpoint);
         }
         if let Some(_assume_role_arn) = &self.assume_role_arn {
-            return Err(ErrorModel::not_implemented(
-                "S3 Assume role ARN not supported.",
-                "S3AssumeRoleNotSupported",
-                None,
-            )
-            .into());
+            return Err(FileIoError::UnsupportedAction(
+                "S3 Assume role ARN".to_string(),
+            ));
         }
         if let Some(credential) = credential {
             match credential {
@@ -395,14 +389,7 @@ impl S3Profile {
             }
         }
 
-        builder.build().map_err(|e| {
-            ErrorModel::precondition_failed(
-                "Error creating S3 filesystem.",
-                "S3FileIOError",
-                Some(Box::new(e)),
-            )
-            .into()
-        })
+        Ok(builder.build()?)
     }
 }
 
