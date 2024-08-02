@@ -7,8 +7,11 @@
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/iceberg-catalog)](https://artifacthub.io/packages/search?repo=iceberg-catalog)
 [![Docker on quay](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://quay.io/repository/hansetag/iceberg-catalog?tab=tags&filter_tag_name=like%3Av)
 [![Helm Chart](https://img.shields.io/badge/Helm-0F1689?style=for-the-badge&logo=Helm&labelColor=0F1689)](https://github.com/hansetag/iceberg-catalog-charts/tree/main/charts/iceberg-catalog)
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/S2ubHBxT)
 
 This is TIP: A Rust-native implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification based on [apache/iceberg-rust](https://github.com/apache/iceberg-rust).
+
+If you have questions, feature requests or just want a chat, we are hanging around in [Discord](https://discord.gg/S2ubHBxT)!
 
 # Scope and Features
 
@@ -149,23 +152,24 @@ Following options are global and apply to all warehouses:
 
 Configuration parameters if Postgres is used as a backend, you may either provide connection strings or use the `PG_*` environment variables, connection strings take precedence:
 
-| Variable                                    | Example                                               | Description                                           |
-|---------------------------------------------|-------------------------------------------------------|-------------------------------------------------------|
-| `ICEBERG_REST__PG_DATABASE_URL_READ`        | `postgres://postgres:password@localhost:5432/iceberg` | Postgres Database connection string used for reading  |
-| `ICEBERG_REST__PG_DATABASE_URL_WRITE`       | `postgres://postgres:password@localhost:5432/iceberg` | Postgres Database connection string used for writing. |
-| `ICEBERG_REST__PG_READ_POOL_CONNECTIONS`    | `10`                                                  | Number of connections in the read pool                |
-| `ICEBERG_REST__PG_WRITE_POOL_CONNECTIONS`   | `5`                                                   | Number of connections in the write pool               |
-| `ICEBERG_REST__PG_HOST_R`                   | `localhost`                                           | Hostname for read operations                          |
-| `ICEBERG_REST__PG_HOST_W`                   | `localhost`                                           | Hostname for write operations                         |
-| `ICEBERG_REST__PG_PORT`                     | `5432`                                                | Port number                                           |
-| `ICEBERG_REST__PG_USER`                     | `postgres`                                            | Username for authentication                           |
-| `ICEBERG_REST__PG_PASSWORD`                 | `password`                                            | Password for authentication                           |
-| `ICEBERG_REST__PG_DATABASE`                 | `iceberg`                                             | Database name                                         |
-| `ICEBERG_REST__PG_SSL_MODE`                 | `require`                                             | SSL mode (disable, allow, prefer, require)            |
-| `ICEBERG_REST__PG_SSL_ROOT_CERT`            | `/path/to/root/cert`                                  | Path to SSL root certificate                          |
-| `ICEBERG_REST__PG_ENABLE_STATEMENT_LOGGING` | `true`                                                | Enable SQL statement logging                          |
-| `ICEBERG_REST__PG_TEST_BEFORE_ACQUIRE`      | `true`                                                | Test connections before acquiring from the pool       |
-| `ICEBERG_REST__PG_CONNECTION_MAX_LIFETIME`  | `1800`                                                | Maximum lifetime of connections in seconds            |
+| Variable                                    | Example                                               | Description                                                                                                                                |
+|---------------------------------------------|-------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| `ICEBERG_REST__PG_DATABASE_URL_READ`        | `postgres://postgres:password@localhost:5432/iceberg` | Postgres Database connection string used for reading                                                                                       |
+| `ICEBERG_REST__PG_DATABASE_URL_WRITE`       | `postgres://postgres:password@localhost:5432/iceberg` | Postgres Database connection string used for writing.                                                                                      |
+| `ICEBERG_REST__PG_ENCRYPTION_KEY`           | `<This is unsafe, please set a proper key>`           | If `ICEBERG_REST__SECRET_BACKEND=postgres`, this key is used to encrypt secrets. It is required to change this for production deployments. |
+| `ICEBERG_REST__PG_READ_POOL_CONNECTIONS`    | `10`                                                  | Number of connections in the read pool                                                                                                     |
+| `ICEBERG_REST__PG_WRITE_POOL_CONNECTIONS`   | `5`                                                   | Number of connections in the write pool                                                                                                    |
+| `ICEBERG_REST__PG_HOST_R`                   | `localhost`                                           | Hostname for read operations                                                                                                               |
+| `ICEBERG_REST__PG_HOST_W`                   | `localhost`                                           | Hostname for write operations                                                                                                              |
+| `ICEBERG_REST__PG_PORT`                     | `5432`                                                | Port number                                                                                                                                |
+| `ICEBERG_REST__PG_USER`                     | `postgres`                                            | Username for authentication                                                                                                                |
+| `ICEBERG_REST__PG_PASSWORD`                 | `password`                                            | Password for authentication                                                                                                                |
+| `ICEBERG_REST__PG_DATABASE`                 | `iceberg`                                             | Database name                                                                                                                              |
+| `ICEBERG_REST__PG_SSL_MODE`                 | `require`                                             | SSL mode (disable, allow, prefer, require)                                                                                                 |
+| `ICEBERG_REST__PG_SSL_ROOT_CERT`            | `/path/to/root/cert`                                  | Path to SSL root certificate                                                                                                               |
+| `ICEBERG_REST__PG_ENABLE_STATEMENT_LOGGING` | `true`                                                | Enable SQL statement logging                                                                                                               |
+| `ICEBERG_REST__PG_TEST_BEFORE_ACQUIRE`      | `true`                                                | Test connections before acquiring from the pool                                                                                            |
+| `ICEBERG_REST__PG_CONNECTION_MAX_LIFETIME`  | `1800`                                                | Maximum lifetime of connections in seconds                                                                                                 |
 
 
 ### KV2 (HCP Vault)

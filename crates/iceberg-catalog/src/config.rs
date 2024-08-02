@@ -14,6 +14,7 @@ use veil::Redact;
 use crate::WarehouseIdent;
 
 const DEFAULT_RESERVED_NAMESPACES: [&str; 2] = ["system", "examples"];
+const DEFAULT_ENCRYPTION_KEY: &str = "<This is unsafe, please set a proper key>";
 
 lazy_static::lazy_static! {
     /// Configuration of the service module.
@@ -30,6 +31,9 @@ lazy_static::lazy_static! {
         config.s3_signer_uri_for_warehouse(WarehouseIdent::from(uuid::Uuid::new_v4()));
         config.base_uri_catalog();
         config.base_uri_management();
+        if config.secret_backend == SecretBackend::Postgres && config.pg_encryption_key == DEFAULT_ENCRYPTION_KEY {
+            tracing::warn!("THIS IS UNSAFE! Using default encryption key for secrets in postgres, please set a proper key using ICEBERG_REST__PG_ENCRYPTION_KEY environment variable.");
+        }
 
         config
     };
@@ -106,7 +110,7 @@ pub struct DynAppConfig {
     pub health_check_jitter_millis: u64,
 
     // ------------- KV2 -------------
-    pub vault: Option<KV2Config>,
+    pub kv2: Option<KV2Config>,
     // ------------- Secrets -------------
     pub secret_backend: SecretBackend,
 }
@@ -139,7 +143,7 @@ impl Default for DynAppConfig {
                 "system".to_string(),
                 "examples".to_string(),
             ])),
-            pg_encryption_key: "<This is unsafe, please set a proper key>".to_string(),
+            pg_encryption_key: DEFAULT_ENCRYPTION_KEY.to_string(),
             pg_database_url_read: None,
             pg_database_url_write: None,
             pg_host_r: None,
@@ -165,7 +169,7 @@ impl Default for DynAppConfig {
             listen_port: 8080,
             health_check_frequency_seconds: 10,
             health_check_jitter_millis: 500,
-            vault: None,
+            kv2: None,
             secret_backend: SecretBackend::Postgres,
         }
     }

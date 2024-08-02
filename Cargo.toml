@@ -29,7 +29,7 @@ url = { version = "^2.5", features = ["serde"] }
 uuid = { version = "^1.6", features = ["serde", "v4", "v7"] }
 reqwest = { version = "^0.12", default-features = false, features = ["json", "rustls-tls"] }
 iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "tp/azdls" }
-typed-builder = "^0.18"
+typed-builder = "^0.19.1"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }
 axum-prometheus = "0.7.0"
@@ -53,7 +53,7 @@ http-body-util = "^0.1"
 jwks_client_rs = { version = "0.5.1", default-features = false, features = ["rustls-tls"] }
 lazy-regex = { version = "3.2.0", features = ["lite"] }
 strum = { version = "^0.26", features = ["derive"] }
-sqlx = { version = "^0.7", default-features = false, features = [
+sqlx = { version = "^0.8.0", default-features = false, features = [
     "runtime-tokio",
     "tls-rustls",
     "postgres",

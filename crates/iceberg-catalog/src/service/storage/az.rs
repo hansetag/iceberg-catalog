@@ -74,10 +74,7 @@ impl AzProfile {
             sas_token_validity_seconds: _,
         } = self;
 
-        if endpoint_suffix
-            .as_deref()
-            .is_some_and(|s| s.contains('/'))
-        {
+        if endpoint_suffix.as_deref().is_some_and(|s| s.contains('/')) {
             return Err(ValidationError::InvalidProfile {
                 source: None,
                 reason: "Storage Profile `endpoint_suffix` must not contain slashes.".to_string(),
