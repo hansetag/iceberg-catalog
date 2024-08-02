@@ -541,7 +541,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
         let metadata_id = uuid::Uuid::now_v7();
         let metadata_location = context
             .storage_profile
-            .metadata_location(&previous_location, metadata_id);
+            .initial_metadata_location(&previous_location, metadata_id);
         let previous_table_metadata = context.metadata.clone();
         let mut builder = TableMetadataAggregate::new_from_metadata(context.metadata);
         for update in context.updates {

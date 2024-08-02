@@ -92,9 +92,9 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     let view_id: TabularIdentUuid = TabularIdentUuid::View(uuid::Uuid::now_v7());
 
-    let view_location = storage_profile.tabular_location(namespace_id, view_id);
+    let view_location = storage_profile.initial_tabular_location(namespace_id, view_id);
     let mut request = request;
-    let metadata_location = storage_profile.metadata_location(&view_location, *view_id);
+    let metadata_location = storage_profile.initial_metadata_location(&view_location, *view_id);
     request.location = Some(view_location.clone());
     let request = request;
     // serialize body before moving it
@@ -158,6 +158,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             TableIdentUuid::from(*view_id),
             &data_access,
             storage_secret.as_ref(),
+            metadata.location.as_ref(),
         )
         .await?;
 

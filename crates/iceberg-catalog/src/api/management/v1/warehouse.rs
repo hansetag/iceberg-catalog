@@ -1,7 +1,9 @@
 use crate::api::management::v1::ApiServer;
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
-pub use crate::service::storage::{S3Credential, S3Profile, StorageCredential, StorageProfile};
+pub use crate::service::storage::{
+    AzCredential, AzdlsProfile, S3Credential, S3Profile, StorageCredential, StorageProfile,
+};
 
 #[allow(clippy::module_name_repetitions)]
 pub use crate::service::WarehouseStatus;
@@ -522,7 +524,7 @@ mod test {
             request.project_id,
             uuid::Uuid::parse_str("f47ac10b-58cc-4372-a567-0e02b2c3d479").unwrap()
         );
-        let s3_profile = request.storage_profile.try_into_s3(409).unwrap();
+        let s3_profile = request.storage_profile.try_into_s3().unwrap();
         assert_eq!(s3_profile.bucket, "test");
         assert_eq!(s3_profile.region, "dummy");
         assert_eq!(s3_profile.path_style_access, Some(true));

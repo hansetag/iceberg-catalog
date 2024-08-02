@@ -16,6 +16,10 @@ license = "Apache-2.0"
 [workspace.dependencies]
 async-nats = "0.35.1"
 async-compression = { version = "^0.4", features = ["tokio", "gzip"] }
+azure_core = { version = "0.20.0", default-features = false, features = ["hmac_rust", "enable_reqwest_rustls"] }
+azure_storage = { version = "0.20.0", default-features = false, features = ["enable_reqwest_rustls"] }
+azure_storage_blobs = { version = "0.20.0", default-features = false, features = ["enable_reqwest_rustls"] }
+azure_identity = { version = "0.20.0", default-features = false, features = ["enable_reqwest_rustls"] }
 figment = { version = "0.10.19", features = ["env"] }
 serde = { version = "^1.0", features = ["rc"] }
 serde_derive = "^1.0"
@@ -24,7 +28,7 @@ serde_json = { version = "^1.0", features = ["raw_value"] }
 url = { version = "^2.5", features = ["serde"] }
 uuid = { version = "^1.6", features = ["serde", "v4", "v7"] }
 reqwest = { version = "^0.12", default-features = false, features = ["json", "rustls-tls"] }
-iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "tp/pub-viewmetabuilder-rustls" }
+iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "tp/azdls" }
 typed-builder = "^0.19.1"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }
@@ -47,6 +51,7 @@ headers = { version = "^0.4" }
 hostname = "0.4.0"
 http-body-util = "^0.1"
 jwks_client_rs = { version = "0.5.1", default-features = false, features = ["rustls-tls"] }
+lazy-regex = { version = "3.2.0", features = ["lite"] }
 strum = { version = "^0.26", features = ["derive"] }
 sqlx = { version = "^0.8.0", default-features = false, features = [
     "runtime-tokio",
@@ -58,6 +63,7 @@ sqlx = { version = "^0.8.0", default-features = false, features = [
     "uuid",
     "chrono",
 ] }
+thiserror = "1.0.63"
 tokio = { version = "1", default-features = false, features = [
     "signal",
     "rt-multi-thread",
@@ -76,3 +82,4 @@ urlencoding = "^2.1"
 utoipa = { version = "4.2.3", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
 veil = "0.1.7"
+needs_env_var = "1.0.0"
