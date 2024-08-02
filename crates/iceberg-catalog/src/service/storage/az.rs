@@ -448,6 +448,16 @@ pub enum AzCredential {
 
 // https://learn.microsoft.com/en-us/rest/api/storageservices/naming-and-referencing-containers--blobs--and-metadata
 fn is_valid_container_name(container: &str) -> Result<(), ValidationError> {
+    // Container names must not contain consecutive hyphens.
+    if container.contains("--") {
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason: "Container name must not contain consecutive hyphens.".to_string(),
+            entity: "ContainerName".to_string(),
+        });
+    }
+
+    let container = container.chars().collect::<Vec<char>>();
     // Container names must be between 3 (min) and 63 (max) characters long.
     if container.len() < 3 || container.len() > 63 {
         return Err(ValidationError::InvalidProfile {
@@ -459,10 +469,7 @@ fn is_valid_container_name(container: &str) -> Result<(), ValidationError> {
     }
 
     // Container names can consist only of lowercase letters, numbers, and hyphens (-).
-    if !container
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-    {
+    if !container.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
         return Err(ValidationError::InvalidProfile {
             source: None,
             reason:
@@ -474,21 +481,18 @@ fn is_valid_container_name(container: &str) -> Result<(), ValidationError> {
 
     // Container names must begin and end with a letter or number.
     // Unwrap will not fail as the length is already checked.
-    if !container.chars().next().unwrap().is_ascii_alphanumeric()
-        || !container.chars().last().unwrap().is_ascii_alphanumeric()
+    if !container
+        .first()
+        .map(|c| c.is_ascii_alphanumeric())
+        .unwrap_or(false)
+        || !container
+            .last()
+            .map(|c| c.is_ascii_alphanumeric())
+            .unwrap_or(false)
     {
         return Err(ValidationError::InvalidProfile {
             source: None,
             reason: "Container name must begin and end with a letter or number.".to_string(),
-            entity: "ContainerName".to_string(),
-        });
-    }
-
-    // Container names must not contain consecutive hyphens.
-    if container.contains("--") {
-        return Err(ValidationError::InvalidProfile {
-            source: None,
-            reason: "Container name must not contain consecutive hyphens.".to_string(),
             entity: "ContainerName".to_string(),
         });
     }
