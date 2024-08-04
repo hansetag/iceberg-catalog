@@ -253,21 +253,30 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         }
     }
 
-    let metadata_location =
-        storage_profile.initial_metadata_location(&view_location, Uuid::now_v7());
+    let requested_update_metadata = m.build().map_err(|e| {
+        ErrorModel::builder()
+            .code(StatusCode::BAD_REQUEST.into())
+            .message(format!("Error building metadata: {e}"))
+            .r#type("BuildMetadataError".to_string())
+            .build()
+    })?;
+
+    // TODO: Check this: this only works iff compression cannot be set to none on
+    // view creation. Otherwise, if no change to compression property is requested,
+    // and it was initially none, then this would create a metadata location
+    // with the ".gz" extension.
+    let metadata_location = storage_profile.initial_metadata_location(
+        &view_location,
+        Some(requested_update_metadata.properties()),
+        Uuid::now_v7(),
+    );
 
     C::update_view_metadata(
         namespace_id,
         view_id,
         &parameters.view,
         metadata_location.as_str(),
-        m.build().map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(format!("Error building metadata: {e}"))
-                .r#type("BuildMetadataError".to_string())
-                .build()
-        })?,
+        requested_update_metadata,
         transaction.transaction(),
     )
     .await?;

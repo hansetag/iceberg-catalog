@@ -94,7 +94,11 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     let view_location = storage_profile.initial_tabular_location(namespace_id, view_id);
     let mut request = request;
-    let metadata_location = storage_profile.initial_metadata_location(&view_location, *view_id);
+    let metadata_location = storage_profile.initial_metadata_location(
+        &view_location,
+        Some(&request.properties),
+        *view_id,
+    );
     request.location = Some(view_location.clone());
     let request = request;
     // serialize body before moving it

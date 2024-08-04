@@ -32,9 +32,19 @@ pub(crate) async fn write_metadata_file(
 
     let buf = serde_json::to_vec(&metadata).map_err(IoError::Serialization)?;
     let do_compression = match metadata.properties().get(METADATA_COMPRESSION) {
-        Some(value) if value.to_lowercase().trim() == "gzip" => true,
-        None => true,
-        _ => false,
+        Some(value) if value == "gzip" => true,
+        Some(value) if value == "none" => false,
+        None => true, // this is TIPs' default
+        // TODO: This is not a IoError...
+        // Or silently "coerce" to TIPs' default "Gzip Compresion"
+        Some(other_value) => {
+            tracing::error!(
+                "Unexpted value {} for property {}",
+                other_value,
+                METADATA_COMPRESSION
+            );
+            panic!("Unexpted value {other_value} for property {METADATA_COMPRESSION}");
+        }
     };
     let metadata_bytes = if do_compression {
         let mut compressed_metadata = GzEncoder::new(Vec::new(), Compression::default());
