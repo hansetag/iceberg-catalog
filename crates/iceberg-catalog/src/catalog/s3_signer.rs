@@ -551,6 +551,7 @@ mod test {
             assume_role_arn: None,
             path_style_access: None,
             key_prefix: None,
+            sts_role_arn: None,
         }
     }
 
@@ -750,6 +751,7 @@ mod test {
             assume_role_arn: None,
             path_style_access: None,
             key_prefix: None,
+            sts_role_arn: None,
         };
 
         let result = validate_region("my-region", &storage_profile);

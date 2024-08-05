@@ -22,6 +22,15 @@ impl From<TableConfigError> for ValidationError {
     fn from(value: TableConfigError) -> Self {
         match value {
             TableConfigError::Credentials(e) => e.into(),
+            // TODO: not sure about this mapping, it ends up being a 400
+            TableConfigError::FailedDependency(_) => {
+                let reason = value.to_string();
+                ValidationError::InvalidProfile {
+                    source: Some(Box::new(value)),
+                    reason,
+                    entity: "TableConfig".to_string(),
+                }
+            }
         }
     }
 }
@@ -88,12 +97,18 @@ impl From<FileIoError> for IcebergErrorResponse {
 pub enum TableConfigError {
     #[error(transparent)]
     Credentials(#[from] CredentialsError),
+    #[error("Failed Dependency: '{0}', please check your storage provider configuration.")]
+    FailedDependency(String),
 }
 
 impl From<TableConfigError> for IcebergErrorResponse {
     fn from(value: TableConfigError) -> Self {
         match value {
             TableConfigError::Credentials(e) => e.into(),
+            e @ TableConfigError::FailedDependency(_) => {
+                ErrorModel::failed_dependency(e.to_string(), "FailedDependency", Some(Box::new(e)))
+                    .into()
+            }
         }
     }
 }

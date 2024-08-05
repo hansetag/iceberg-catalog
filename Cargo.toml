@@ -20,6 +20,8 @@ azure_core = { version = "0.20.0", default-features = false, features = ["hmac_r
 azure_storage = { version = "0.20.0", default-features = false, features = ["enable_reqwest_rustls"] }
 azure_storage_blobs = { version = "0.20.0", default-features = false, features = ["enable_reqwest_rustls"] }
 azure_identity = { version = "0.20.0", default-features = false, features = ["enable_reqwest_rustls"] }
+aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
+aws-sdk-sts = "1.36.0"
 figment = { version = "0.10.19", features = ["env"] }
 serde = { version = "^1.0", features = ["rc"] }
 serde_derive = "^1.0"

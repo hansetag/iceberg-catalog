@@ -9,6 +9,9 @@ use crate::service::storage::error::{
 };
 use crate::service::storage::{StorageProfile, StorageType};
 use crate::service::tabular_idents::TabularIdentUuid;
+use aws_config::BehaviorVersion;
+
+use crate::catalog::io::IoError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use veil::Redact;
@@ -85,6 +88,8 @@ pub struct S3Profile {
     /// Path style access for S3 requests.
     #[serde(default)]
     pub path_style_access: Option<bool>,
+    /// Optional ARN to assume when accessing the bucket
+    pub sts_role_arn: Option<String>,
 }
 
 impl S3Profile {
@@ -96,14 +101,8 @@ impl S3Profile {
     /// - Fails if the key prefix is too long.
     /// - Fails if the region or endpoint is missing.
     /// - Fails if the endpoint is not a valid URL.
-    pub async fn validate(
-        &mut self,
-        credential: Option<&S3Credential>,
-    ) -> Result<(), ValidationError> {
+    pub async fn validate(&self, credential: Option<&S3Credential>) -> Result<(), ValidationError> {
         // If key_prefix is provided, remove any trailing and leading slashes.
-        if let Some(key_prefix) = self.key_prefix.as_mut() {
-            *key_prefix = key_prefix.trim_matches('/').to_string();
-        }
 
         let S3Profile {
             bucket,
@@ -114,7 +113,13 @@ impl S3Profile {
             region,
             // Validated via file_io
             path_style_access: _,
+            sts_role_arn: _,
         } = self;
+
+        let key_prefix = key_prefix
+            .as_deref()
+            .unwrap_or_default()
+            .trim_start_matches('/');
 
         is_valid_bucket_name(bucket)?;
 
@@ -127,15 +132,13 @@ impl S3Profile {
         }
 
         // Aws supports a max of 1024 chars and we need some buffer for tables.
-        if let Some(key_prefix) = key_prefix {
-            if key_prefix.len() > 512 {
-                return Err(ValidationError::InvalidProfile {
-                    source: None,
-                    reason: "Storage Profile `key_prefix` must be less than 512 characters."
-                        .to_string(),
-                    entity: "key_prefix".to_string(),
-                });
-            }
+        if key_prefix.len() > 512 {
+            return Err(ValidationError::InvalidProfile {
+                source: None,
+                reason: "Storage Profile `key_prefix` must be less than 512 characters."
+                    .to_string(),
+                entity: "key_prefix".to_string(),
+            });
         }
 
         if let Some(endpoint) = endpoint {
@@ -161,7 +164,7 @@ impl S3Profile {
         let test_location = self.tabular_location(
             uuid::Uuid::now_v7().into(),
             TabularIdentUuid::Table(uuid::Uuid::now_v7()),
-        );
+        ) + "/test.txt.gz";
 
         // Test that we can write a metadata file
         crate::catalog::io::write_metadata_file(&test_location, "test", &file_io)
@@ -170,6 +173,16 @@ impl S3Profile {
                 ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
             })?;
         tracing::debug!("Successfully wrote test file to: {}", test_location);
+
+        if let Some(sts_role_arn) = self.sts_role_arn.as_ref() {
+            self.validate_sts_token(
+                credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
+                bucket,
+                &test_location,
+                sts_role_arn,
+            )
+            .await?;
+        }
 
         // Test that we can delete the test file
         crate::catalog::io::delete_file(&file_io, &test_location)
@@ -180,6 +193,68 @@ impl S3Profile {
 
         tracing::debug!("Successfully deleted test file at: {}", test_location);
 
+        Ok(())
+    }
+
+    async fn validate_sts_token(
+        &self,
+        credential: &S3Credential,
+        bucket: &String,
+        test_location: &String,
+        sts_role_arn: &String,
+    ) -> Result<(), ValidationError> {
+        let aws_sdk_sts::types::Credentials {
+            access_key_id,
+            secret_access_key,
+            session_token,
+            expiration: _,
+            ..
+        } = self
+            .get_aws_sts_token(test_location, credential, sts_role_arn)
+            .await?;
+        tracing::debug!("Successfully got STS token");
+
+        // iceberg_rust FileIO doesn't seem to work with STS tokens, perhaps due to not accepting
+        // session_tokens on its interface, so we use the aws_sdk_s3 client to test the STS token.
+        let cfg = aws_config::ConfigLoader::default()
+            .region(Some(aws_config::Region::new(
+                self.region.as_str().to_string(),
+            )))
+            .behavior_version(BehaviorVersion::latest())
+            .credentials_provider(aws_credential_types::Credentials::new(
+                access_key_id.clone(),
+                secret_access_key.clone(),
+                Some(session_token.clone()),
+                None,
+                "iceberg-rest-secret-storage",
+            ))
+            .load()
+            .await;
+
+        let s3 = aws_sdk_s3::Client::new(&cfg);
+
+        let _ = s3
+            .get_object()
+            .bucket(bucket)
+            .key(test_location.trim_start_matches(&format!("s3://{bucket}/")))
+            .send()
+            .await
+            .map_err(|e| {
+                ValidationError::IoOperationFailed(
+                    IoError::FileRead(Box::new(e)),
+                    Box::new(StorageProfile::S3(self.clone())),
+                )
+            })?
+            .body
+            .collect()
+            .await
+            .map_err(|e| {
+                ValidationError::IoOperationFailed(
+                    IoError::FileRead(Box::new(e)),
+                    Box::new(StorageProfile::S3(self.clone())),
+                )
+            })?;
+        tracing::debug!("Successfully read test file from: {}", test_location);
         Ok(())
     }
 
@@ -224,6 +299,7 @@ impl S3Profile {
             path_style_access: _,
             bucket: _,
             key_prefix: _,
+            sts_role_arn: _,
         } = self;
 
         // assume_role_arn is not supported currently
@@ -296,7 +372,8 @@ impl S3Profile {
         _: TableIdentUuid,
         _: NamespaceIdentUuid,
         data_access: &DataAccess,
-        _: Option<&S3Credential>,
+        table_location: &str,
+        cred: Option<&S3Credential>,
     ) -> Result<HashMap<String, String>, TableConfigError> {
         let DataAccess {
             vended_credentials,
@@ -305,7 +382,7 @@ impl S3Profile {
         // If vended_credentials is False and remote_signing is False,
         // use remote_signing.
         let mut remote_signing = if !vended_credentials && !remote_signing {
-            true
+            false
         } else {
             *remote_signing
         };
@@ -351,9 +428,81 @@ impl S3Profile {
             // The URI is cached for one table, and then re-used for another.
             // let signer_uri = CONFIG.s3_signer_uri_for_table(warehouse_id, namespace_id, table_id);
             // config.insert("s3.signer.uri".to_string(), signer_uri.to_string());
+        } else if let (Some(cred), Some(arn)) = (cred, self.sts_role_arn.as_ref()) {
+            let aws_sdk_sts::types::Credentials {
+                access_key_id,
+                secret_access_key,
+                session_token,
+                expiration: _,
+                ..
+            } = self.get_aws_sts_token(table_location, cred, arn).await?;
+            config.insert("s3.access-key-id".into(), access_key_id);
+            config.insert("s3.secret-access-key".into(), secret_access_key);
+            config.insert("s3.session-token".into(), session_token);
         }
 
         Ok(config)
+    }
+
+    async fn get_aws_sts_token(
+        &self,
+        table_location: &str,
+        cred: &S3Credential,
+        arn: &String,
+    ) -> Result<aws_sdk_sts::types::Credentials, TableConfigError> {
+        let cred = aws_config::ConfigLoader::default()
+            .region(Some(aws_config::Region::new(
+                self.region.as_str().to_string(),
+            )))
+            .behavior_version(BehaviorVersion::latest())
+            .credentials_provider(self.get_aws_sdk_credentials(Some(cred))?)
+            .load()
+            .await;
+
+        let v = aws_sdk_sts::Client::new(&cred)
+            .assume_role()
+            .role_arn(arn)
+            .role_session_name("iceberg")
+            .policy(Self::get_aws_policy_string(table_location))
+            .send()
+            .await
+            .map_err(|e| {
+                TableConfigError::FailedDependency(format!(
+                    "aws::sts::assume_role token call failed: {e}"
+                ))
+            })?;
+        v.credentials.ok_or(TableConfigError::FailedDependency(
+            "aws::sts::assume_role token call response didn't contain credentials".to_string(),
+        ))
+    }
+
+    fn get_aws_policy_string(table_location: &str) -> String {
+        let resource = format!(
+            "arn:aws:s3:::{}",
+            table_location.trim_start_matches("s3://")
+        );
+        format!(
+            r#"{{
+        "Version": "2012-10-17",
+        "Statement": [
+            {{
+                "Sid": "{}",
+                "Effect": "Allow",
+                "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:ListBucket",
+                    "s3:DeleteObject"
+                ],
+                "Resource": [
+                    "{}"
+                ]
+            }}
+        ]
+    }}"#,
+            uuid::Uuid::now_v7().simple(),
+            resource
+        )
     }
 
     /// Create a new `FileIO` instance for S3.
@@ -410,6 +559,7 @@ pub enum S3Credential {
 mod test {
     use super::*;
     use crate::service::tabular_idents::TabularIdentUuid;
+    use needs_env_var::needs_env_var;
 
     #[test]
     fn test_is_valid_bucket_name() {
@@ -452,6 +602,7 @@ mod test {
             endpoint: None,
             region: "dummy".to_string(),
             path_style_access: Some(true),
+            sts_role_arn: None,
         };
 
         let namespace_id = NamespaceIdentUuid::from(uuid::Uuid::now_v7());
@@ -471,5 +622,40 @@ mod test {
             location,
             format!("s3://test_bucket/{namespace_id}/{table_id}")
         );
+    }
+
+    #[needs_env_var(TEST_AWS)]
+    mod aws {
+        use super::super::*;
+
+        #[tokio::test]
+        async fn test_can_validate() {
+            let bucket = std::env::var("AWS_S3_BUCKET").unwrap();
+            let region = std::env::var("AWS_S3_REGION").unwrap();
+            let sts_role_arn = std::env::var("AWS_S3_STS_ROLE_ARN").unwrap();
+            let cred = S3Credential::AccessKey {
+                aws_access_key_id: std::env::var("AWS_S3_ACCESS_KEY_ID").unwrap(),
+                aws_secret_access_key: std::env::var("AWS_S3_SECRET_ACCESS_KEY").unwrap(),
+            };
+
+            let profile = S3Profile {
+                bucket,
+                key_prefix: Some("test_prefix".to_string()),
+                assume_role_arn: None,
+                endpoint: None,
+                region,
+                path_style_access: Some(true),
+                sts_role_arn: Some(sts_role_arn),
+            };
+
+            profile.validate(Some(&cred)).await.unwrap();
+        }
+    }
+
+    #[test]
+    fn policy_string_is_json() {
+        let table_location = "s3://bucket-name/path/to/table";
+        let policy = S3Profile::get_aws_policy_string(table_location);
+        let _ = serde_json::from_str::<serde_json::Value>(&policy).unwrap();
     }
 }

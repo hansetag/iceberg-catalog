@@ -162,6 +162,7 @@ impl StorageProfile {
                         table_id,
                         namespace_id,
                         data_access,
+                        table_location,
                         secret.map(|s| s.try_to_s3()).transpose()?,
                     )
                     .await
@@ -358,6 +359,7 @@ mod tests {
                 assume_role_arn: None,
                 path_style_access: None,
                 key_prefix: None,
+                sts_role_arn: None,
             })
         );
     }
