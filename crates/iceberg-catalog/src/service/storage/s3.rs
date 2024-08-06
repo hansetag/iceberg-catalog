@@ -51,15 +51,11 @@ pub struct S3Profile {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
 #[schema(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum S3Flavor {
+    #[default]
     Aws,
     Minio,
-}
-
-impl Default for S3Flavor {
-    fn default() -> Self {
-        S3Flavor::Aws
-    }
 }
 
 #[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
