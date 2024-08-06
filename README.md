@@ -61,14 +61,14 @@ For more information on deployment, please check the [User Guide](USER_GUIDE.md)
 
 ### Storage Profile Support
 
-| Storage              |    Status    | Comment                                                          |
-|----------------------|:------------:|------------------------------------------------------------------|
-| S3 - AWS             | ![semi-done] | No vended-credentials - only remote-signing, assume role missing |
-| S3 - Custom          |   ![done]    | Vended-Credentials not possible (AWS STS is missing)             |
-| Azure Blob           |   ![open]    |                                                                  |
-| Azure ADLS Gen2      |   ![open]    |                                                                  |
-| Microsoft OneLake    |   ![open]    |                                                                  |
-| Google Cloud Storage |   ![open]    |                                                                  |
+| Storage              |    Status    | Comment                                                  |
+|----------------------|:------------:|----------------------------------------------------------|
+| S3 - AWS             | ![semi-done] | vended-credentials & remote-signing, assume role missing |
+| S3 - Custom          |   ![done]    |                                                          |
+| Azure Blob           |   ![open]    |                                                          |
+| Azure ADLS Gen2      |   ![done]    |                                                          |
+| Microsoft OneLake    |   ![open]    |                                                          |
+| Google Cloud Storage |   ![open]    |                                                          |
 
 ### Supported Catalog Backends
 

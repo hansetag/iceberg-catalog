@@ -94,6 +94,8 @@ jobs:
           MINIO_CONSOLE_PORT_NUMBER: 9001
           MINIO_SCHEME: http
           MINIO_DEFAULT_BUCKETS: tests
+        volumes:
+          - ${{ github.workspace }}/data:/data
         ports:
           - 9000:9000
           - 9001:9001
