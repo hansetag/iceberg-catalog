@@ -14,7 +14,7 @@ pub use az::{AzCredential, AzdlsProfile};
 use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
-pub use s3::{S3Credential, S3Profile};
+pub use s3::{S3Credential, S3Flavor, S3Profile};
 use serde::{Deserialize, Serialize};
 
 /// Storage profile for a warehouse.
@@ -360,6 +360,7 @@ mod tests {
                 path_style_access: None,
                 key_prefix: None,
                 sts_role_arn: None,
+                flavor: S3Flavor::Aws,
             })
         );
     }

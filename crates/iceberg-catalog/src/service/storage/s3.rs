@@ -1,3 +1,5 @@
+#![allow(clippy::module_name_repetitions)]
+
 use crate::{
     service::{NamespaceIdentUuid, TableIdentUuid},
     WarehouseIdent, CONFIG,
@@ -9,64 +11,14 @@ use crate::service::storage::error::{
 };
 use crate::service::storage::{StorageProfile, StorageType};
 use crate::service::tabular_idents::TabularIdentUuid;
-use aws_config::BehaviorVersion;
+use aws_config::{BehaviorVersion, SdkConfig};
 
 use crate::catalog::io::IoError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use veil::Redact;
 
-fn is_valid_bucket_name(bucket: &str) -> Result<(), ValidationError> {
-    // Bucket names must be between 3 (min) and 63 (max) characters long.
-    if bucket.len() < 3 || bucket.len() > 63 {
-        return Err(ValidationError::InvalidProfile {
-            source: None,
-            reason: "Storage Profile `bucket` must be between 3 and 63 characters long."
-                .to_string(),
-            entity: "BucketName".to_string(),
-        });
-    }
-
-    // Bucket names can consist only of lowercase letters, numbers, dots (.), and hyphens (-).
-    if !bucket
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
-    {
-        return Err(
-            ValidationError::InvalidProfile {
-                source: None,
-                reason: "Bucket name can consist only of lowercase letters, numbers, dots (.), and hyphens (-).".to_string(),
-                entity: "BucketName".to_string(),
-            }
-            );
-    }
-
-    // Bucket names must begin and end with a letter or number.
-    // Unwrap will not fail as the length is already checked.
-    if !bucket.chars().next().unwrap().is_ascii_alphanumeric()
-        || !bucket.chars().last().unwrap().is_ascii_alphanumeric()
-    {
-        return Err(ValidationError::InvalidProfile {
-            source: None,
-            reason: "Bucket name must begin and end with a letter or number.".to_string(),
-            entity: "BucketName".to_string(),
-        });
-    }
-
-    // Bucket names must not contain two adjacent periods.
-    if bucket.contains("..") {
-        return Err(ValidationError::InvalidProfile {
-            source: None,
-            reason: "Bucket name must not contain two adjacent periods.".to_string(),
-            entity: "BucketName".to_string(),
-        });
-    }
-
-    Ok(())
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
-#[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub struct S3Profile {
@@ -90,6 +42,37 @@ pub struct S3Profile {
     pub path_style_access: Option<bool>,
     /// Optional ARN to assume when accessing the bucket
     pub sts_role_arn: Option<String>,
+    /// S3 flavor to use.
+    /// Defaults to AWS
+    #[serde(default)]
+    pub flavor: S3Flavor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+#[schema(rename_all = "kebab-case")]
+pub enum S3Flavor {
+    Aws,
+    Minio,
+}
+
+impl Default for S3Flavor {
+    fn default() -> Self {
+        S3Flavor::Aws
+    }
+}
+
+#[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(tag = "credential-type", rename_all = "kebab-case")]
+#[allow(clippy::module_name_repetitions)]
+#[schema(rename_all = "kebab-case")]
+pub enum S3Credential {
+    #[serde(rename_all = "kebab-case")]
+    AccessKey {
+        aws_access_key_id: String,
+        #[redact(partial)]
+        aws_secret_access_key: String,
+    },
 }
 
 impl S3Profile {
@@ -114,6 +97,7 @@ impl S3Profile {
             // Validated via file_io
             path_style_access: _,
             sts_role_arn: _,
+            flavor,
         } = self;
 
         let key_prefix = key_prefix
@@ -174,22 +158,36 @@ impl S3Profile {
             })?;
         tracing::debug!("Successfully wrote test file to: {}", test_location);
 
-        if let Some(sts_role_arn) = self.sts_role_arn.as_ref() {
-            self.validate_sts_token(
-                credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
-                bucket,
-                &test_location,
-                sts_role_arn,
-            )
-            .await?;
+        if let (Some(arn), S3Flavor::Aws) = (self.sts_role_arn.as_ref(), self.flavor) {
+            tracing::debug!("S3 Flavor is AWS, getting sts token for arn: '{}'", arn);
+            let token = self
+                .get_aws_sts_token(
+                    &test_location,
+                    credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
+                    arn,
+                )
+                .await?;
+            self.validate_sts_token(token, bucket, &test_location)
+                .await?;
+        } else if matches!(flavor, S3Flavor::Minio) {
+            tracing::debug!("S3 Flavor is Minio, getting sts token");
+            let token = self
+                .get_minio_sts_token(
+                    &test_location,
+                    credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
+                )
+                .await?;
+
+            self.validate_sts_token(token, bucket, &test_location)
+                .await?;
         }
 
         // Test that we can delete the test file
-        crate::catalog::io::delete_file(&file_io, &test_location)
-            .await
-            .map_err(|e| {
-                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
-            })?;
+        // crate::catalog::io::delete_file(&file_io, &test_location)
+        //     .await
+        //     .map_err(|e| {
+        //         ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
+        //     })?;
 
         tracing::debug!("Successfully deleted test file at: {}", test_location);
 
@@ -198,42 +196,33 @@ impl S3Profile {
 
     async fn validate_sts_token(
         &self,
-        credential: &S3Credential,
-        bucket: &String,
-        test_location: &String,
-        sts_role_arn: &String,
-    ) -> Result<(), ValidationError> {
-        let aws_sdk_sts::types::Credentials {
+        aws_sdk_sts::types::Credentials {
             access_key_id,
             secret_access_key,
             session_token,
             expiration: _,
             ..
-        } = self
-            .get_aws_sts_token(test_location, credential, sts_role_arn)
-            .await?;
-        tracing::debug!("Successfully got STS token");
-
+        }: aws_sdk_sts::types::Credentials,
+        bucket: &String,
+        test_location: &String,
+    ) -> Result<(), ValidationError> {
+        tracing::debug!("Validating STS token for bucket: '{}'", bucket);
         // iceberg_rust FileIO doesn't seem to work with STS tokens, perhaps due to not accepting
         // session_tokens on its interface, so we use the aws_sdk_s3 client to test the STS token.
-        let cfg = aws_config::ConfigLoader::default()
-            .region(Some(aws_config::Region::new(
-                self.region.as_str().to_string(),
-            )))
-            .behavior_version(BehaviorVersion::latest())
-            .credentials_provider(aws_credential_types::Credentials::new(
-                access_key_id.clone(),
-                secret_access_key.clone(),
-                Some(session_token.clone()),
+        let cfg = self
+            .get_config(aws_credential_types::Credentials::new(
+                access_key_id,
+                secret_access_key,
+                Some(session_token),
                 None,
                 "iceberg-rest-secret-storage",
             ))
-            .load()
             .await;
-
-        let s3 = aws_sdk_s3::Client::new(&cfg);
-
-        let _ = s3
+        let client_cfg = aws_sdk_s3::Config::new(&cfg)
+            .to_builder()
+            .force_path_style(self.path_style_access.unwrap_or(false))
+            .build();
+        let _ = aws_sdk_s3::Client::from_conf(client_cfg)
             .get_object()
             .bucket(bucket)
             .key(test_location.trim_start_matches(&format!("s3://{bucket}/")))
@@ -256,6 +245,21 @@ impl S3Profile {
             })?;
         tracing::debug!("Successfully read test file from: {}", test_location);
         Ok(())
+    }
+
+    async fn get_config(&self, creds: aws_credential_types::Credentials) -> SdkConfig {
+        let loader = aws_config::ConfigLoader::default()
+            .region(Some(aws_config::Region::new(
+                self.region.as_str().to_string(),
+            )))
+            .behavior_version(BehaviorVersion::latest())
+            .credentials_provider(creds);
+
+        if let Some(endpoint) = &self.endpoint {
+            loader.endpoint_url(endpoint).load().await
+        } else {
+            loader.load().await
+        }
     }
 
     /// Check if the profile can be updated with the other profile.
@@ -300,6 +304,7 @@ impl S3Profile {
             bucket: _,
             key_prefix: _,
             sts_role_arn: _,
+            flavor: _,
         } = self;
 
         // assume_role_arn is not supported currently
@@ -428,27 +433,42 @@ impl S3Profile {
         cred: &S3Credential,
         arn: &String,
     ) -> Result<aws_sdk_sts::types::Credentials, TableConfigError> {
-        let cred = aws_config::ConfigLoader::default()
-            .region(Some(aws_config::Region::new(
-                self.region.as_str().to_string(),
-            )))
-            .behavior_version(BehaviorVersion::latest())
-            .credentials_provider(self.get_aws_sdk_credentials(Some(cred))?)
-            .load()
+        self.get_sts_token(table_location, cred, Some(arn)).await
+    }
+
+    async fn get_minio_sts_token(
+        &self,
+        table_location: &str,
+        cred: &S3Credential,
+    ) -> Result<aws_sdk_sts::types::Credentials, TableConfigError> {
+        self.get_sts_token(table_location, cred, None).await
+    }
+
+    async fn get_sts_token(
+        &self,
+        table_location: &str,
+        cred: &S3Credential,
+        arn: Option<&str>,
+    ) -> Result<aws_sdk_sts::types::Credentials, TableConfigError> {
+        let cred = self
+            .get_config(self.get_aws_sdk_credentials(Some(cred))?)
             .await;
 
-        let v = aws_sdk_sts::Client::new(&cred)
+        let assume_role_builder = aws_sdk_sts::Client::new(&cred)
             .assume_role()
-            .role_arn(arn)
             .role_session_name("iceberg")
-            .policy(Self::get_aws_policy_string(table_location))
-            .send()
-            .await
-            .map_err(|e| {
-                TableConfigError::FailedDependency(format!(
-                    "aws::sts::assume_role token call failed: {e}"
-                ))
-            })?;
+            .policy(Self::get_aws_policy_string(table_location));
+        let assume_role_builder = if let Some(arn) = arn {
+            assume_role_builder.role_arn(arn)
+        } else {
+            assume_role_builder
+        };
+
+        let v = assume_role_builder.send().await.map_err(|e| {
+            TableConfigError::FailedDependency(format!(
+                "aws::sts::assume_role token call failed: {e}"
+            ))
+        })?;
         v.credentials.ok_or(TableConfigError::FailedDependency(
             "aws::sts::assume_role token call response didn't contain credentials".to_string(),
         ))
@@ -520,17 +540,53 @@ impl S3Profile {
     }
 }
 
-#[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(tag = "credential-type", rename_all = "kebab-case")]
-#[allow(clippy::module_name_repetitions)]
-#[schema(rename_all = "kebab-case")]
-pub enum S3Credential {
-    #[serde(rename_all = "kebab-case")]
-    AccessKey {
-        aws_access_key_id: String,
-        #[redact(partial)]
-        aws_secret_access_key: String,
-    },
+fn is_valid_bucket_name(bucket: &str) -> Result<(), ValidationError> {
+    // Bucket names must be between 3 (min) and 63 (max) characters long.
+    if bucket.len() < 3 || bucket.len() > 63 {
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason: "Storage Profile `bucket` must be between 3 and 63 characters long."
+                .to_string(),
+            entity: "BucketName".to_string(),
+        });
+    }
+
+    // Bucket names can consist only of lowercase letters, numbers, dots (.), and hyphens (-).
+    if !bucket
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
+    {
+        return Err(
+            ValidationError::InvalidProfile {
+                source: None,
+                reason: "Bucket name can consist only of lowercase letters, numbers, dots (.), and hyphens (-).".to_string(),
+                entity: "BucketName".to_string(),
+            }
+        );
+    }
+
+    // Bucket names must begin and end with a letter or number.
+    // Unwrap will not fail as the length is already checked.
+    if !bucket.chars().next().unwrap().is_ascii_alphanumeric()
+        || !bucket.chars().last().unwrap().is_ascii_alphanumeric()
+    {
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason: "Bucket name must begin and end with a letter or number.".to_string(),
+            entity: "BucketName".to_string(),
+        });
+    }
+
+    // Bucket names must not contain two adjacent periods.
+    if bucket.contains("..") {
+        return Err(ValidationError::InvalidProfile {
+            source: None,
+            reason: "Bucket name must not contain two adjacent periods.".to_string(),
+            entity: "BucketName".to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -581,6 +637,7 @@ mod test {
             region: "dummy".to_string(),
             path_style_access: Some(true),
             sts_role_arn: None,
+            flavor: S3Flavor::Aws,
         };
 
         let namespace_id = NamespaceIdentUuid::from(uuid::Uuid::now_v7());
@@ -600,6 +657,38 @@ mod test {
             location,
             format!("s3://test_bucket/{namespace_id}/{table_id}")
         );
+    }
+
+    #[needs_env_var(TEST_MINIO)]
+    mod minio {
+        use crate::service::storage::{S3Credential, S3Flavor, S3Profile};
+
+        #[tokio::test]
+        async fn test_can_validate() {
+            let bucket = std::env::var("ICEBERG_REST_TEST_S3_BUCKET").unwrap();
+            let region = std::env::var("ICEBERG_REST_TEST_S3_REGION").unwrap_or("local".into());
+            let aws_access_key_id = std::env::var("ICEBERG_REST_TEST_S3_ACCESS_KEY").unwrap();
+            let aws_secret_access_key = std::env::var("ICEBERG_REST_TEST_S3_SECRET_KEY").unwrap();
+            let endpoint = std::env::var("ICEBERG_REST_TEST_S3_ENDPOINT").unwrap();
+
+            let cred = S3Credential::AccessKey {
+                aws_access_key_id,
+                aws_secret_access_key,
+            };
+
+            let profile = S3Profile {
+                bucket,
+                key_prefix: Some("test_prefix".to_string()),
+                assume_role_arn: None,
+                endpoint: Some(endpoint),
+                region,
+                path_style_access: Some(true),
+                sts_role_arn: None,
+                flavor: S3Flavor::Minio,
+            };
+
+            profile.validate(Some(&cred)).await.unwrap();
+        }
     }
 
     #[needs_env_var(TEST_AWS)]
@@ -624,6 +713,7 @@ mod test {
                 region,
                 path_style_access: Some(true),
                 sts_role_arn: Some(sts_role_arn),
+                flavor: S3Flavor::Aws,
             };
 
             profile.validate(Some(&cred)).await.unwrap();

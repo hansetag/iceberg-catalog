@@ -446,6 +446,7 @@ fn validate_warehouse_name(warehouse_name: &str) -> Result<()> {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
+    use crate::service::storage::S3Flavor;
     use crate::{
         implementations::postgres::PostgresTransaction,
         service::{storage::S3Profile, Catalog as _, Transaction as _},
@@ -472,6 +473,7 @@ pub(crate) mod test {
             path_style_access: None,
             key_prefix: None,
             sts_role_arn: None,
+            flavor: S3Flavor::Minio,
         }));
 
         let warehouse_id = Catalog::create_warehouse(
