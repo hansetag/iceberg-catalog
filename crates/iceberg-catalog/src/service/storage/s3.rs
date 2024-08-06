@@ -360,8 +360,6 @@ impl S3Profile {
         }
     }
 
-    // Vended credentials will be async.
-    #[allow(clippy::unused_async)]
     /// Generate the table configuration for S3.
     ///
     /// # Errors
@@ -371,21 +369,16 @@ impl S3Profile {
         _: WarehouseIdent,
         _: TableIdentUuid,
         _: NamespaceIdentUuid,
-        data_access: &DataAccess,
+        DataAccess {
+            vended_credentials,
+            remote_signing,
+        }: &DataAccess,
         table_location: &str,
         cred: Option<&S3Credential>,
     ) -> Result<HashMap<String, String>, TableConfigError> {
-        let DataAccess {
-            vended_credentials,
-            remote_signing,
-        } = data_access;
         // If vended_credentials is False and remote_signing is False,
         // use remote_signing.
-        let mut remote_signing = if !vended_credentials && !remote_signing {
-            false
-        } else {
-            *remote_signing
-        };
+        let remote_signing = !vended_credentials || *remote_signing;
 
         let mut config = HashMap::new();
 
@@ -404,22 +397,18 @@ impl S3Profile {
         }
 
         if *vended_credentials {
-            // ToDo: Find a better way.
-            // Vended-Credentials are requested by pyiceberg. However, we can trick pyiceberg in using
-            // remote signing by setting the following config keys:
-            config.insert("s3.signer".to_string(), "S3V4RestSigner".to_string());
-            config.insert(
-                "py-io-impl".to_string(),
-                "pyiceberg.io.fsspec.FsspecFileIO".to_string(),
-            );
-            remote_signing = true;
-
-            // return Err(ErrorModel::builder()
-            //     .code(StatusCode::NOT_IMPLEMENTED.into())
-            //     .message("Vended credentials not supported.".to_string())
-            //     .r#type("VendedCredentialsNotSupported".to_string())
-            //     .build()
-            //     .into());
+            if let (Some(cred), Some(arn)) = (cred, self.sts_role_arn.as_ref()) {
+                let aws_sdk_sts::types::Credentials {
+                    access_key_id,
+                    secret_access_key,
+                    session_token,
+                    expiration: _,
+                    ..
+                } = self.get_aws_sts_token(table_location, cred, arn).await?;
+                config.insert("s3.access-key-id".into(), access_key_id);
+                config.insert("s3.secret-access-key".into(), secret_access_key);
+                config.insert("s3.session-token".into(), session_token);
+            }
         }
 
         if remote_signing {
@@ -428,17 +417,6 @@ impl S3Profile {
             // The URI is cached for one table, and then re-used for another.
             // let signer_uri = CONFIG.s3_signer_uri_for_table(warehouse_id, namespace_id, table_id);
             // config.insert("s3.signer.uri".to_string(), signer_uri.to_string());
-        } else if let (Some(cred), Some(arn)) = (cred, self.sts_role_arn.as_ref()) {
-            let aws_sdk_sts::types::Credentials {
-                access_key_id,
-                secret_access_key,
-                session_token,
-                expiration: _,
-                ..
-            } = self.get_aws_sts_token(table_location, cred, arn).await?;
-            config.insert("s3.access-key-id".into(), access_key_id);
-            config.insert("s3.secret-access-key".into(), secret_access_key);
-            config.insert("s3.session-token".into(), session_token);
         }
 
         Ok(config)
