@@ -179,11 +179,11 @@ impl S3Profile {
         }
 
         // Test that we can delete the test file
-        // crate::catalog::io::delete_file(&file_io, &test_location)
-        //     .await
-        //     .map_err(|e| {
-        //         ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
-        //     })?;
+        crate::catalog::io::delete_file(&file_io, &test_location)
+            .await
+            .map_err(|e| {
+                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
+            })?;
 
         tracing::debug!("Successfully deleted test file at: {}", test_location);
 
