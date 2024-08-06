@@ -86,7 +86,7 @@ jobs:
         ports:
           - 5432:5432
       minio:
-        image: minio/minio:latest
+        image: bitnami/minio:latest
         env:
           MINIO_ROOT_USER: minio-root-user
           MINIO_ROOT_PASSWORD: minio-root-password
@@ -94,12 +94,11 @@ jobs:
           MINIO_CONSOLE_PORT_NUMBER: 9001
           MINIO_SCHEME: http
           MINIO_DEFAULT_BUCKETS: tests
-        volumes:
-          - ${{ github.workspace }}/data:/data
         ports:
           - 9000:9000
           - 9001:9001
-    #        options: --health-cmd "curl -I http://localhost:9000/minio/health/live"
+        options: --health-cmd "curl -I http://localhost:9000/minio/health/live"
+
     steps:
       - uses: actions/checkout@v4
 
