@@ -22,15 +22,7 @@ impl From<TableConfigError> for ValidationError {
     fn from(value: TableConfigError) -> Self {
         match value {
             TableConfigError::Credentials(e) => e.into(),
-            TableConfigError::FailedDependency(_) => {
-                let reason = value.to_string();
-                ValidationError::InvalidProfile {
-                    source: Some(Box::new(value)),
-                    reason,
-                    entity: "TableConfig".to_string(),
-                }
-            }
-            TableConfigError::Misconfiguration(_) => {
+            TableConfigError::FailedDependency(_) | TableConfigError::Misconfiguration(_) => {
                 let reason = value.to_string();
                 ValidationError::InvalidProfile {
                     source: Some(Box::new(value)),
