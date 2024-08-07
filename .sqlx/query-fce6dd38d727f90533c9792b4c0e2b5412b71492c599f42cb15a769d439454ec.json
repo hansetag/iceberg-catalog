@@ -6,7 +6,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Int8",
+        "Int4",
         {
           "Custom": {
             "name": "view_representation_type",

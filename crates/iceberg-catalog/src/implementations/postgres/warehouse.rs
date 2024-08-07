@@ -473,6 +473,7 @@ pub(crate) mod test {
             path_style_access: None,
             key_prefix: None,
             sts_role_arn: None,
+            sts_enabled: false,
             flavor: S3Flavor::Minio,
         }));
 

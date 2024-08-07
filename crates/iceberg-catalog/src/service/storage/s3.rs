@@ -219,7 +219,7 @@ impl S3Profile {
         self.validate_file_io(&file_io, &test_location).await?;
         tracing::debug!("Validated FileIO for S3 profile");
 
-        if sts_enabled {
+        if self.sts_enabled {
             if let (Some(arn), S3Flavor::Aws) = (self.sts_role_arn.as_ref(), self.flavor) {
                 tracing::debug!("S3 Flavor is AWS, getting sts token for arn: '{}'", arn);
                 let token = self
@@ -679,6 +679,7 @@ mod test {
             region: "dummy".to_string(),
             path_style_access: Some(true),
             sts_role_arn: None,
+            sts_enabled: false,
             flavor: S3Flavor::Aws,
         };
 
@@ -727,6 +728,7 @@ mod test {
                 path_style_access: Some(true),
                 sts_role_arn: None,
                 flavor: S3Flavor::Minio,
+                sts_enabled: true,
             };
 
             profile.validate(Some(&cred)).await.unwrap();
@@ -756,6 +758,7 @@ mod test {
                 path_style_access: Some(true),
                 sts_role_arn: Some(sts_role_arn),
                 flavor: S3Flavor::Aws,
+                sts_enabled: true,
             };
 
             profile.validate(Some(&cred)).await.unwrap();

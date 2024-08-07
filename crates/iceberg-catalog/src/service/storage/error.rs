@@ -30,6 +30,14 @@ impl From<TableConfigError> for ValidationError {
                     entity: "TableConfig".to_string(),
                 }
             }
+            TableConfigError::Misconfiguration(_) => {
+                let reason = value.to_string();
+                ValidationError::InvalidProfile {
+                    source: Some(Box::new(value)),
+                    reason,
+                    entity: "TableConfig".to_string(),
+                }
+            }
         }
     }
 }
