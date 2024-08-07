@@ -1,7 +1,7 @@
 use crate::api::iceberg::types::Prefix;
 use crate::api::iceberg::v1::{DataAccess, NamespaceParameters};
 use crate::api::ApiContext;
-use crate::catalog::io::write_metadata_file;
+use crate::catalog::io::{write_metadata_file, CompressionCodec};
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{
     maybe_body_to_json, require_active_warehouse, require_no_location_specified,
@@ -96,7 +96,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let mut request = request;
     let metadata_location = storage_profile.initial_metadata_location(
         &view_location,
-        Some(&request.properties),
+        &CompressionCodec::try_from_properties(&request.properties)?,
         *view_id,
     );
     request.location = Some(view_location.clone());

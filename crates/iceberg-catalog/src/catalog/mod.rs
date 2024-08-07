@@ -19,7 +19,7 @@ use crate::{
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
-pub(crate) trait CommonMetadata {
+pub trait CommonMetadata {
     fn properties(&self) -> &HashMap<String, String>;
 }
 

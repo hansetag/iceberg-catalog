@@ -7,6 +7,7 @@ use crate::api::iceberg::v1::{
     NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
     TableIdent, TableParameters,
 };
+use crate::catalog::io::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
@@ -137,7 +138,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             let metadata_id = uuid::Uuid::now_v7();
             Some(storage_profile.initial_metadata_location(
                 &table_location,
-                request.properties.as_ref(),
+                &CompressionCodec::try_from_maybe_properties(request.properties.as_ref())?,
                 metadata_id,
             ))
         };
@@ -172,7 +173,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         if let Some(metadata_location) = &metadata_location {
             let file_io = storage_profile.file_io(storage_secret.as_ref())?;
             write_metadata_file(metadata_location, &table_metadata, &file_io).await?;
-        }
+        };
 
         // Generate the storage profile. This requires the storage secret
         // because the table config might contain vended-credentials based

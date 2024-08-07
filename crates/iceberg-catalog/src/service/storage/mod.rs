@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
+use crate::catalog::io::CompressionCodec;
 use crate::catalog::CommonMetadata;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
@@ -15,7 +16,6 @@ pub use az::{AzCredential, AzdlsProfile};
 use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
-use iceberg::spec::view_properties::METADATA_COMPRESSION;
 pub use s3::{S3Credential, S3Profile};
 use serde::{Deserialize, Serialize};
 
@@ -145,34 +145,13 @@ impl StorageProfile {
     }
 
     #[must_use]
-
     pub fn initial_metadata_location(
         &self,
         table_location: &str,
-        metadata_properties: Option<&HashMap<String, String>>,
+        compression_codec: &CompressionCodec,
         metadata_id: uuid::Uuid,
     ) -> String {
-        // TODO: METADATA_COMPRESSION is only defined for ViewMetadata, not TableMetadata.
-        // Currently, both properties are the same, but still...
-        let filename_extension_compression = match metadata_properties {
-            Some(metadata_properties) => match metadata_properties.get(METADATA_COMPRESSION) {
-                Some(value) if value == "gzip" => ".gz",
-                Some(value) if value == "none" => "",
-                None => ".gz", // this is TIPs' default
-                // TODO: this should probably return an Err, but which one? Define a new one? Or
-                // silently "coerce" to TIPs' default "Gzip Compresion"
-                Some(other_value) => {
-                    tracing::error!(
-                        "Unexpted value {} for property {}",
-                        other_value,
-                        METADATA_COMPRESSION
-                    );
-                    panic!("Unexpted value {other_value} for property {METADATA_COMPRESSION}");
-                }
-            },
-            None => ".gz", // this is TIPs' default
-        };
-
+        let filename_extension_compression = compression_codec.as_file_extension();
         format!(
             "{}/metadata/{metadata_id}{filename_extension_compression}.metadata.json",
             table_location.trim_end_matches('/')

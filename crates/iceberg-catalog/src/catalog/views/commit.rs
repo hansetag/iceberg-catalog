@@ -2,7 +2,7 @@ use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, DataAccess, ErrorModel, LoadViewResult, Prefix, Result,
     TableIdent, ViewParameters,
 };
-use crate::catalog::io::write_metadata_file;
+use crate::catalog::io::{write_metadata_file, CompressionCodec};
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{
     maybe_body_to_json, require_active_warehouse, validate_table_or_view_ident,
@@ -267,7 +267,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     // with the ".gz" extension.
     let metadata_location = storage_profile.initial_metadata_location(
         &view_location,
-        Some(requested_update_metadata.properties()),
+        &CompressionCodec::try_from_properties(requested_update_metadata.properties())?,
         Uuid::now_v7(),
     );
 
