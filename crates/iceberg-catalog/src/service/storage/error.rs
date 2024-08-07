@@ -98,6 +98,8 @@ pub enum TableConfigError {
     Credentials(#[from] CredentialsError),
     #[error("Failed Dependency: '{0}', please check your storage provider configuration.")]
     FailedDependency(String),
+    #[error("Misconfiguration: {0}")]
+    Misconfiguration(String),
 }
 
 impl From<TableConfigError> for IcebergErrorResponse {
@@ -107,6 +109,9 @@ impl From<TableConfigError> for IcebergErrorResponse {
             e @ TableConfigError::FailedDependency(_) => {
                 ErrorModel::failed_dependency(e.to_string(), "FailedDependency", Some(Box::new(e)))
                     .into()
+            }
+            e @ TableConfigError::Misconfiguration(_) => {
+                ErrorModel::bad_request(e.to_string(), "Misconfiguration", Some(Box::new(e))).into()
             }
         }
     }

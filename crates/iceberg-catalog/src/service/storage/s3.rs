@@ -42,6 +42,7 @@ pub struct S3Profile {
     pub path_style_access: Option<bool>,
     /// Optional role ARN to assume for sts vended-credentials
     pub sts_role_arn: Option<String>,
+    pub sts_enabled: bool,
     /// S3 flavor to use.
     /// Defaults to AWS
     #[serde(default)]
@@ -145,8 +146,26 @@ impl S3Profile {
             // Validated via file_io
             path_style_access: _,
             sts_role_arn: _,
+            sts_enabled,
             flavor,
         } = self;
+
+        if *sts_enabled && matches!(flavor, S3Flavor::Aws) && self.sts_role_arn.is_none() {
+            return Err(ValidationError::InvalidProfile {
+                source: None,
+                reason: "Storage Profile `sts_role_arn` is required for AWS flavor.".to_string(),
+                entity: "sts_role_arn".to_string(),
+            });
+        }
+
+        if *sts_enabled && credential.is_none() {
+            return Err(ValidationError::InvalidProfile {
+                source: None,
+                reason: "Storage Profile `credential` is required for STS enabled profiles."
+                    .to_string(),
+                entity: "credential".to_string(),
+            });
+        }
 
         let key_prefix = key_prefix
             .as_deref()
@@ -200,32 +219,32 @@ impl S3Profile {
         self.validate_file_io(&file_io, &test_location).await?;
         tracing::debug!("Validated FileIO for S3 profile");
 
-        if let (Some(arn), S3Flavor::Aws) = (self.sts_role_arn.as_ref(), self.flavor) {
-            tracing::debug!("S3 Flavor is AWS, getting sts token for arn: '{}'", arn);
-            let token = self
-                .get_aws_sts_token(
-                    &test_location,
-                    credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
-                    arn,
-                )
-                .await?;
-            tracing::debug!("Validating STS token.");
-            self.validate_sts_token(token, bucket, &test_location)
-                .await?;
-        } else if matches!(flavor, S3Flavor::Minio) {
-            tracing::debug!("S3 Flavor is Minio, getting sts token");
-            let token = self
-                .get_minio_sts_token(
-                    &test_location,
-                    credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
-                )
-                .await?;
-            tracing::debug!("Validating STS token.");
-            self.validate_sts_token(token, bucket, &test_location)
-                .await?;
+        if sts_enabled {
+            if let (Some(arn), S3Flavor::Aws) = (self.sts_role_arn.as_ref(), self.flavor) {
+                tracing::debug!("S3 Flavor is AWS, getting sts token for arn: '{}'", arn);
+                let token = self
+                    .get_aws_sts_token(
+                        &test_location,
+                        credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
+                        arn,
+                    )
+                    .await?;
+                tracing::debug!("Validating STS token.");
+                self.validate_sts_token(token, bucket, &test_location)
+                    .await?;
+            } else if matches!(flavor, S3Flavor::Minio) {
+                tracing::debug!("S3 Flavor is Minio, getting sts token");
+                let token = self
+                    .get_minio_sts_token(
+                        &test_location,
+                        credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
+                    )
+                    .await?;
+                tracing::debug!("Validating STS token.");
+                self.validate_sts_token(token, bucket, &test_location)
+                    .await?;
+            }
         }
-
-        tracing::debug!("Successfully deleted test file at: {}", test_location);
 
         Ok(())
     }
@@ -299,6 +318,7 @@ impl S3Profile {
             bucket: _,
             key_prefix: _,
             sts_role_arn: _,
+            sts_enabled: _,
             flavor: _,
         } = self;
 
@@ -378,7 +398,7 @@ impl S3Profile {
     ) -> Result<HashMap<String, String>, TableConfigError> {
         // If vended_credentials is False and remote_signing is False,
         // use remote_signing.
-        let remote_signing = !vended_credentials || *remote_signing;
+        let mut remote_signing = !vended_credentials || *remote_signing;
 
         let mut config = HashMap::new();
 
@@ -397,17 +417,30 @@ impl S3Profile {
         }
 
         if *vended_credentials {
-            if let (Some(cred), Some(arn)) = (cred, self.sts_role_arn.as_ref()) {
+            if self.sts_enabled {
                 let aws_sdk_sts::types::Credentials {
                     access_key_id,
                     secret_access_key,
                     session_token,
                     expiration: _,
                     ..
-                } = self.get_aws_sts_token(table_location, cred, arn).await?;
+                } = if let (S3Flavor::Minio, Some(cred)) = (self.flavor, cred) {
+                    self.get_minio_sts_token(table_location, cred).await?
+                } else if let (Some(cred), Some(arn)) = (cred, self.sts_role_arn.as_ref()) {
+                    self.get_aws_sts_token(table_location, cred, arn).await?
+                } else {
+                    // This error should never be returned since we validate this when creating the profile.
+                    // We should consider using an enum instead of 3 independent fields.
+                    return Err(TableConfigError::Misconfiguration(
+                        "STS either needs Flavor Minio and credentials OR Flavor aws, credentials and a sts role arn.".to_string(),
+                    ));
+                };
                 config.insert("s3.access-key-id".into(), access_key_id);
                 config.insert("s3.secret-access-key".into(), secret_access_key);
                 config.insert("s3.session-token".into(), session_token);
+            } else {
+                insert_pyiceberg_hack(&mut config);
+                remote_signing = true;
             }
         }
 
@@ -588,6 +621,14 @@ fn is_valid_bucket_name(bucket: &str) -> Result<(), ValidationError> {
     }
 
     Ok(())
+}
+
+fn insert_pyiceberg_hack(config: &mut HashMap<String, String>) {
+    config.insert("s3.signer".to_string(), "S3V4RestSigner".to_string());
+    config.insert(
+        "py-io-impl".to_string(),
+        "pyiceberg.io.fsspec.FsspecFileIO".to_string(),
+    );
 }
 
 #[cfg(test)]
