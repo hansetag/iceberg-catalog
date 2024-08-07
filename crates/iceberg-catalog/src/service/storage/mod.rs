@@ -350,7 +350,8 @@ mod tests {
             "type": "s3",
             "bucket": "my-bucket",
             "endpoint": "http://localhost:9000",
-            "region": "us-east-1"
+            "region": "us-east-1",
+            "sts-enabled": false,
         });
 
         let profile: StorageProfile = serde_json::from_value(value).unwrap();
