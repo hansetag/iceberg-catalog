@@ -1,6 +1,8 @@
 import conftest
 import pyarrow as pa
 import pytest
+import pandas as pd
+import pyarrow as pa
 
 
 def test_create_namespace(warehouse: conftest.Warehouse):
@@ -113,3 +115,32 @@ def test_list_tables(namespace: conftest.Namespace):
     assert len(tables) == 2
     assert (*namespace.name, table_name_1) in tables
     assert (*namespace.name, table_name_2) in tables
+
+
+def test_write_read(namespace: conftest.Namespace):
+    catalog = namespace.pyiceberg_catalog
+    table_name = "my_table"
+    schema = pa.schema(
+        [
+            pa.field("my_ints", pa.int64()),
+            pa.field("my_floats", pa.float64()),
+            pa.field("strings", pa.string()),
+        ]
+    )
+    catalog.create_table((*namespace.name, table_name), schema=schema)
+    table = catalog.load_table((*namespace.name, table_name))
+
+    df = pd.DataFrame(
+        {
+            "my_ints": [1, 2, 3],
+            "my_floats": [1.1, 2.2, 3.3],
+            "strings": ["a", "b", "c"],
+        }
+    )
+    data = pa.Table.from_pandas(df)
+    table.append(data)
+
+    read_table = table.scan().to_arrow()
+    read_df = read_table.to_pandas()
+
+    assert read_df.equals(df)
