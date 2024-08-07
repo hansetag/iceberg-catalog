@@ -16,7 +16,8 @@ use azure_storage::shared_access_signature::service_sas::BlobSharedAccessSignatu
 use azure_storage::shared_access_signature::SasToken;
 use azure_storage::StorageCredentials;
 use futures::StreamExt;
-use iceberg::io::azdls;
+
+use iceberg::io::AzdlsConfigKeys;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -281,7 +282,7 @@ impl AzdlsProfile {
 
         builder = builder
             .with_prop(
-                azdls::ConfigKeys::Endpoint,
+                AzdlsConfigKeys::Endpoint,
                 format!(
                     "https://{}.{}",
                     self.account_name,
@@ -290,8 +291,8 @@ impl AzdlsProfile {
                         .unwrap_or(DEFAULT_ENDPOINT_SUFFIX)
                 ),
             )
-            .with_prop(azdls::ConfigKeys::AccountName, self.account_name.clone())
-            .with_prop(azdls::ConfigKeys::Filesystem, self.filesystem.clone());
+            .with_prop(AzdlsConfigKeys::AccountName, self.account_name.clone())
+            .with_prop(AzdlsConfigKeys::Filesystem, self.filesystem.clone());
 
         if let Some(credential) = credential {
             match credential {
@@ -302,16 +303,14 @@ impl AzdlsProfile {
                 } => {
                     builder = builder
                         .with_prop(
-                            azdls::ConfigKeys::ClientSecret.to_string(),
+                            AzdlsConfigKeys::ClientSecret.to_string(),
                             client_secret.to_string(),
                         )
-                        .with_prop(azdls::ConfigKeys::ClientId, client_id.to_string())
-                        .with_prop(azdls::ConfigKeys::TenantId, tenant_id.to_string());
+                        .with_prop(AzdlsConfigKeys::ClientId, client_id.to_string())
+                        .with_prop(AzdlsConfigKeys::TenantId, tenant_id.to_string());
                     if let Some(authority_host) = &self.authority_host {
-                        builder = builder.with_prop(
-                            azdls::ConfigKeys::AuthorityHost,
-                            authority_host.to_string(),
-                        );
+                        builder = builder
+                            .with_prop(AzdlsConfigKeys::AuthorityHost, authority_host.to_string());
                     }
                 }
             }

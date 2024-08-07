@@ -241,15 +241,15 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
                         .r#type("AppendViewVersionError".to_string())
                         .build()
                 })?,
-            ViewUpdate::SetCurrentViewVersion { view_version_id } => m
-                .set_current_version_id(i64::from(view_version_id))
-                .map_err(|e| {
+            ViewUpdate::SetCurrentViewVersion { view_version_id } => {
+                m.set_current_version_id(view_version_id).map_err(|e| {
                     ErrorModel::builder()
                         .code(StatusCode::BAD_REQUEST.into())
                         .message(format!("Error setting current view version: {e}"))
                         .r#type("SetCurrentViewVersionError".to_string())
                         .build()
-                })?,
+                })?
+            }
         }
     }
 
@@ -321,7 +321,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
                 tabular_id: TabularIdentUuid::View(*view_id),
                 warehouse_id: *warehouse_id,
                 name: parameters.view.name,
-                namespace: parameters.view.namespace.encode_in_url(),
+                namespace: parameters.view.namespace.to_url_string(),
                 prefix: parameters
                     .prefix
                     .map(Prefix::into_string)

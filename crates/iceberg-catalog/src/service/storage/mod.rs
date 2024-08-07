@@ -94,9 +94,13 @@ impl StorageProfile {
         secret: Option<&StorageCredential>,
     ) -> Result<iceberg::io::FileIO, FileIoError> {
         match self {
-            StorageProfile::S3(profile) => {
-                profile.file_io(secret.map(|s| s.try_to_s3()).transpose()?)
-            }
+            StorageProfile::S3(profile) => profile.file_io(
+                secret
+                    .map(|s| s.try_to_s3())
+                    .transpose()?
+                    .map(Into::into)
+                    .as_ref(),
+            ),
             StorageProfile::Azdls(prof) => prof.file_io(secret.map(|s| s.try_to_az()).transpose()?),
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(iceberg::io::FileIOBuilder::new("file").build()?),
@@ -360,6 +364,7 @@ mod tests {
                 path_style_access: None,
                 key_prefix: None,
                 sts_role_arn: None,
+                sts_enabled: false,
                 flavor: S3Flavor::Aws,
             })
         );
