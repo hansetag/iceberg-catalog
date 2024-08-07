@@ -13,7 +13,7 @@ use crate::service::storage::{StorageProfile, StorageType};
 use crate::service::tabular_idents::TabularIdentUuid;
 use aws_config::{BehaviorVersion, SdkConfig};
 
-use crate::catalog::io::IoError;
+use iceberg::io::FileIO;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use veil::Redact;
@@ -40,7 +40,7 @@ pub struct S3Profile {
     /// Path style access for S3 requests.
     #[serde(default)]
     pub path_style_access: Option<bool>,
-    /// Optional ARN to assume when accessing the bucket
+    /// Optional role ARN to assume for sts vended-credentials
     pub sts_role_arn: Option<String>,
     /// S3 flavor to use.
     /// Defaults to AWS
@@ -71,7 +71,59 @@ pub enum S3Credential {
     },
 }
 
+impl From<&S3Credential> for aws_credential_types::Credentials {
+    fn from(cred: &S3Credential) -> Self {
+        match &cred {
+            S3Credential::AccessKey {
+                aws_access_key_id,
+                aws_secret_access_key,
+            } => aws_credential_types::Credentials::new(
+                aws_access_key_id.clone(),
+                aws_secret_access_key.clone(),
+                None,
+                None,
+                "iceberg-rest-secret-storage",
+            ),
+        }
+    }
+}
+
 impl S3Profile {
+    /// Create a new `FileIO` instance for S3.
+    ///
+    /// # Errors
+    /// Fails if the `FileIO` instance cannot be created.
+    pub fn file_io(
+        &self,
+        credential: Option<&aws_credential_types::Credentials>,
+    ) -> Result<iceberg::io::FileIO, FileIoError> {
+        let mut builder = iceberg::io::FileIOBuilder::new("s3");
+
+        builder = builder.with_prop(iceberg::io::S3_REGION, self.region.clone());
+
+        if let Some(endpoint) = &self.endpoint {
+            builder = builder.with_prop(iceberg::io::S3_ENDPOINT, endpoint);
+        }
+        if let Some(_assume_role_arn) = &self.assume_role_arn {
+            return Err(FileIoError::UnsupportedAction(
+                "S3 Assume role ARN".to_string(),
+            ));
+        }
+        if let Some(credential) = credential {
+            if let Some(session_token) = &credential.session_token() {
+                builder = builder.with_prop(iceberg::io::S3_SESSION_TOKEN, session_token);
+            }
+            builder = builder
+                .with_prop(iceberg::io::S3_ACCESS_KEY_ID, credential.access_key_id())
+                .with_prop(
+                    iceberg::io::S3_SECRET_ACCESS_KEY,
+                    credential.secret_access_key(),
+                );
+        }
+
+        Ok(builder.build()?)
+    }
+
     /// Validate the S3 profile.
     ///
     /// # Errors
@@ -140,19 +192,13 @@ impl S3Profile {
             }
         }
 
-        let file_io = self.file_io(credential)?;
+        let file_io = self.file_io(credential.map(Into::into).as_ref())?;
         let test_location = self.tabular_location(
             uuid::Uuid::now_v7().into(),
             TabularIdentUuid::Table(uuid::Uuid::now_v7()),
-        ) + "/test.txt.gz";
-
-        // Test that we can write a metadata file
-        crate::catalog::io::write_metadata_file(&test_location, "test", &file_io)
-            .await
-            .map_err(|e| {
-                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
-            })?;
-        tracing::debug!("Successfully wrote test file to: {}", test_location);
+        );
+        self.validate_file_io(&file_io, &test_location).await?;
+        tracing::debug!("Validated FileIO for S3 profile");
 
         if let (Some(arn), S3Flavor::Aws) = (self.sts_role_arn.as_ref(), self.flavor) {
             tracing::debug!("S3 Flavor is AWS, getting sts token for arn: '{}'", arn);
@@ -163,6 +209,7 @@ impl S3Profile {
                     arn,
                 )
                 .await?;
+            tracing::debug!("Validating STS token.");
             self.validate_sts_token(token, bucket, &test_location)
                 .await?;
         } else if matches!(flavor, S3Flavor::Minio) {
@@ -173,89 +220,41 @@ impl S3Profile {
                     credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
                 )
                 .await?;
-
+            tracing::debug!("Validating STS token.");
             self.validate_sts_token(token, bucket, &test_location)
                 .await?;
         }
-
-        // Test that we can delete the test file
-        crate::catalog::io::delete_file(&file_io, &test_location)
-            .await
-            .map_err(|e| {
-                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
-            })?;
 
         tracing::debug!("Successfully deleted test file at: {}", test_location);
 
         Ok(())
     }
 
-    async fn validate_sts_token(
+    async fn validate_file_io(
         &self,
-        aws_sdk_sts::types::Credentials {
-            access_key_id,
-            secret_access_key,
-            session_token,
-            expiration: _,
-            ..
-        }: aws_sdk_sts::types::Credentials,
-        bucket: &String,
-        test_location: &String,
+        file_io: &FileIO,
+        test_location: &str,
     ) -> Result<(), ValidationError> {
-        tracing::debug!("Validating STS token for bucket: '{}'", bucket);
-        // iceberg_rust FileIO doesn't seem to work with STS tokens, perhaps due to not accepting
-        // session_tokens on its interface, so we use the aws_sdk_s3 client to test the STS token.
-        let cfg = self
-            .get_config(aws_credential_types::Credentials::new(
-                access_key_id,
-                secret_access_key,
-                Some(session_token),
-                None,
-                "iceberg-rest-secret-storage",
-            ))
-            .await;
-        let client_cfg = aws_sdk_s3::Config::new(&cfg)
-            .to_builder()
-            .force_path_style(self.path_style_access.unwrap_or(false))
-            .build();
-        let _ = aws_sdk_s3::Client::from_conf(client_cfg)
-            .get_object()
-            .bucket(bucket)
-            .key(test_location.trim_start_matches(&format!("s3://{bucket}/")))
-            .send()
+        let test_location = dbg!(test_location.trim_end_matches('/').to_string() + "/test.txt.gz");
+        // Test that we can write a metadata file
+        crate::catalog::io::write_metadata_file(&test_location, "test", file_io)
             .await
             .map_err(|e| {
-                ValidationError::IoOperationFailed(
-                    IoError::FileRead(Box::new(e)),
-                    Box::new(StorageProfile::S3(self.clone())),
-                )
-            })?
-            .body
-            .collect()
-            .await
-            .map_err(|e| {
-                ValidationError::IoOperationFailed(
-                    IoError::FileRead(Box::new(e)),
-                    Box::new(StorageProfile::S3(self.clone())),
-                )
+                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
             })?;
-        tracing::debug!("Successfully read test file from: {}", test_location);
+        tracing::debug!("Successfully wrote test file to: {}", test_location);
+        crate::catalog::io::read_file(file_io, &test_location)
+            .await
+            .map_err(|e| {
+                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
+            })?;
+        // Test that we can delete the test file
+        crate::catalog::io::delete_file(file_io, &test_location)
+            .await
+            .map_err(|e| {
+                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
+            })?;
         Ok(())
-    }
-
-    async fn get_config(&self, creds: aws_credential_types::Credentials) -> SdkConfig {
-        let loader = aws_config::ConfigLoader::default()
-            .region(Some(aws_config::Region::new(
-                self.region.as_str().to_string(),
-            )))
-            .behavior_version(BehaviorVersion::latest())
-            .credentials_provider(creds);
-
-        if let Some(endpoint) = &self.endpoint {
-            loader.endpoint_url(endpoint).load().await
-        } else {
-            loader.load().await
-        }
     }
 
     /// Check if the profile can be updated with the other profile.
@@ -462,19 +461,61 @@ impl S3Profile {
 
         let v = assume_role_builder.send().await.map_err(|e| {
             TableConfigError::FailedDependency(format!(
-                "aws::sts::assume_role token call failed: {e}"
+                "aws::sts::assume_role token call failed: {e:?}"
             ))
         })?;
+
         v.credentials.ok_or(TableConfigError::FailedDependency(
             "aws::sts::assume_role token call response didn't contain credentials".to_string(),
         ))
     }
 
+    async fn validate_sts_token(
+        &self,
+        aws_sdk_sts::types::Credentials {
+            access_key_id,
+            secret_access_key,
+            session_token,
+            expiration: _,
+            ..
+        }: aws_sdk_sts::types::Credentials,
+        bucket: &String,
+        test_location: &String,
+    ) -> Result<(), ValidationError> {
+        tracing::debug!("Validating STS token for bucket: '{}'", bucket);
+        let file_io = self.file_io(Some(&aws_credential_types::Credentials::new(
+            access_key_id,
+            secret_access_key,
+            Some(session_token),
+            None,
+            "iceberg-rest-secret-storage",
+        )))?;
+
+        self.validate_file_io(&file_io, test_location).await?;
+        tracing::debug!("Successfully read test file from: {}", test_location);
+        Ok(())
+    }
+
+    async fn get_config(&self, creds: aws_credential_types::Credentials) -> SdkConfig {
+        let loader = aws_config::ConfigLoader::default()
+            .region(Some(aws_config::Region::new(
+                self.region.as_str().to_string(),
+            )))
+            .behavior_version(BehaviorVersion::latest())
+            .credentials_provider(creds);
+
+        if let Some(endpoint) = &self.endpoint {
+            loader.endpoint_url(endpoint).load().await
+        } else {
+            loader.load().await
+        }
+    }
+
     fn get_aws_policy_string(table_location: &str) -> String {
-        let resource = format!(
-            "arn:aws:s3:::{}",
+        let resource = dbg!(format!(
+            "arn:aws:s3:::{}/*",
             table_location.trim_start_matches("s3://")
-        );
+        ));
         format!(
             r#"{{
         "Version": "2012-10-17",
@@ -497,42 +538,6 @@ impl S3Profile {
             uuid::Uuid::now_v7().simple(),
             resource
         )
-    }
-
-    /// Create a new `FileIO` instance for S3.
-    ///
-    /// # Errors
-    /// Fails if the `FileIO` instance cannot be created.
-    pub fn file_io(
-        &self,
-        credential: Option<&S3Credential>,
-    ) -> Result<iceberg::io::FileIO, FileIoError> {
-        let mut builder = iceberg::io::FileIOBuilder::new("s3");
-
-        builder = builder.with_prop(iceberg::io::S3_REGION, self.region.clone());
-
-        if let Some(endpoint) = &self.endpoint {
-            builder = builder.with_prop(iceberg::io::S3_ENDPOINT, endpoint);
-        }
-        if let Some(_assume_role_arn) = &self.assume_role_arn {
-            return Err(FileIoError::UnsupportedAction(
-                "S3 Assume role ARN".to_string(),
-            ));
-        }
-        if let Some(credential) = credential {
-            match credential {
-                S3Credential::AccessKey {
-                    aws_access_key_id,
-                    aws_secret_access_key,
-                } => {
-                    builder = builder
-                        .with_prop(iceberg::io::S3_ACCESS_KEY_ID, aws_access_key_id)
-                        .with_prop(iceberg::io::S3_SECRET_ACCESS_KEY, aws_secret_access_key);
-                }
-            }
-        }
-
-        Ok(builder.build()?)
     }
 }
 

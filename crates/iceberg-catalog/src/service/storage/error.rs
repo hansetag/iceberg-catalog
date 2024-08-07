@@ -22,7 +22,6 @@ impl From<TableConfigError> for ValidationError {
     fn from(value: TableConfigError) -> Self {
         match value {
             TableConfigError::Credentials(e) => e.into(),
-            // TODO: not sure about this mapping, it ends up being a 400
             TableConfigError::FailedDependency(_) => {
                 let reason = value.to_string();
                 ValidationError::InvalidProfile {

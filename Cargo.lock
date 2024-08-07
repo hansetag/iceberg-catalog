@@ -2756,7 +2756,7 @@ dependencies = [
 [[package]]
 name = "iceberg"
 version = "0.2.0"
-source = "git+https://github.com/hansetag/iceberg-rust.git?branch=tp/azdls-upstream-20240807#8ebf260f4214c8be32f2add2d736d469fa26eda6"
+source = "git+https://github.com/hansetag/iceberg-rust.git?branch=tp/azdls-upstream-20240807#a373ccc54a41b8755639d5e340f85ec559ce1c41"
 dependencies = [
  "anyhow",
  "apache-avro",
@@ -2846,6 +2846,7 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+ "tracing-subscriber",
  "url",
  "urlencoding",
  "utoipa",
@@ -4496,9 +4497,9 @@ dependencies = [
 
 [[package]]
 name = "rust-ini"
-version = "0.21.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d625ed57d8f49af6cfa514c42e1a71fadcff60eb0b1c517ff82fe41aa025b41"
+checksum = "4e310ef0e1b6eeb79169a1171daf9abcb87a2e17c03bee2c4bb100b55c75409f"
 dependencies = [
  "cfg-if",
  "ordered-multimap",
