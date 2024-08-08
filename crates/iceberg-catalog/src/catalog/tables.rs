@@ -189,7 +189,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let load_table_result = LoadTableResult {
             metadata_location,
             metadata: table_metadata,
-            config: Some(config),
+            config: Some(config.into()),
         };
 
         // Metadata file written, now we can commit the transaction
@@ -317,7 +317,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                         storage_secret.as_ref(),
                         table_location.as_ref(),
                     )
-                    .await?,
+                    .await?
+                    .into(),
             ),
         };
 

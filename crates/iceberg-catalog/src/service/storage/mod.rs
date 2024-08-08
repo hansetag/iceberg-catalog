@@ -4,8 +4,6 @@ mod az;
 mod error;
 mod s3;
 
-use std::collections::HashMap;
-
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::service::tabular_idents::TabularIdentUuid;
@@ -14,6 +12,7 @@ pub use az::{AzCredential, AzdlsProfile};
 use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
+use iceberg_ext::table_config::TableConfig;
 pub use s3::{S3Credential, S3Flavor, S3Profile};
 use serde::{Deserialize, Serialize};
 
@@ -52,10 +51,13 @@ impl StorageProfile {
         match self {
             StorageProfile::S3(profile) => profile.generate_catalog_config(warehouse_id),
             #[cfg(test)]
-            StorageProfile::Test(_) => CatalogConfig {
-                overrides: HashMap::default(),
-                defaults: HashMap::default(),
-            },
+            StorageProfile::Test(_) => {
+                use std::collections::HashMap;
+                CatalogConfig {
+                    overrides: HashMap::default(),
+                    defaults: HashMap::default(),
+                }
+            }
             StorageProfile::Azdls(prof) => prof.generate_catalog_config(warehouse_id),
         }
     }
@@ -157,7 +159,7 @@ impl StorageProfile {
         data_access: &DataAccess,
         secret: Option<&StorageCredential>,
         table_location: &str,
-    ) -> Result<HashMap<String, String>, TableConfigError> {
+    ) -> Result<TableConfig, TableConfigError> {
         match self {
             StorageProfile::S3(profile) => {
                 profile
@@ -188,7 +190,7 @@ impl StorageProfile {
                     .await
             }
             #[cfg(test)]
-            StorageProfile::Test(_) => Ok(HashMap::default()),
+            StorageProfile::Test(_) => Ok(TableConfig::default()),
         }
     }
 

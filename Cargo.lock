@@ -2889,6 +2889,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_with",
+ "strum 0.26.3",
  "strum_macros 0.26.4",
  "tokio",
  "tracing",

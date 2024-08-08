@@ -14,6 +14,7 @@ use crate::service::tabular_idents::TabularIdentUuid;
 use aws_config::{BehaviorVersion, SdkConfig};
 
 use iceberg::io::FileIO;
+use iceberg_ext::table_config::{client, custom, s3, TableConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use veil::Redact;
@@ -395,25 +396,26 @@ impl S3Profile {
         }: &DataAccess,
         table_location: &str,
         cred: Option<&S3Credential>,
-    ) -> Result<HashMap<String, String>, TableConfigError> {
+    ) -> Result<TableConfig, TableConfigError> {
         // If vended_credentials is False and remote_signing is False,
         // use remote_signing.
         let mut remote_signing = !vended_credentials || *remote_signing;
 
-        let mut config = HashMap::new();
+        let mut config = TableConfig::default();
 
-        if let Some(path_style_access) = self.path_style_access {
-            if path_style_access {
-                config.insert("s3.path-style-access".to_string(), "true".to_string());
-            }
+        if let Some(true) = self.path_style_access {
+            config.insert(&s3::PathStyleAccess(true));
         }
 
-        config.insert("s3.region".to_string(), self.region.to_string());
-        config.insert("region".to_string(), self.region.to_string());
-        config.insert("client.region".to_string(), self.region.to_string());
+        config.insert(&s3::Region(self.region.to_string()));
+        config.insert(&custom::Pair {
+            key: "region".to_string(),
+            value: self.region.to_string(),
+        });
+        config.insert(&client::Region(self.region.to_string()));
 
         if let Some(endpoint) = &self.endpoint {
-            config.insert("s3.endpoint".to_string(), endpoint.to_string());
+            config.insert(&s3::Endpoint(endpoint.to_string()));
         }
 
         if *vended_credentials {
@@ -435,9 +437,9 @@ impl S3Profile {
                         "STS either needs Flavor Minio and credentials OR Flavor aws, credentials and a sts role arn.".to_string(),
                     ));
                 };
-                config.insert("s3.access-key-id".into(), access_key_id);
-                config.insert("s3.secret-access-key".into(), secret_access_key);
-                config.insert("s3.session-token".into(), session_token);
+                config.insert(&s3::AccessKeyId(access_key_id));
+                config.insert(&s3::SecretAccessKey(secret_access_key));
+                config.insert(&s3::SessionToken(session_token));
             } else {
                 insert_pyiceberg_hack(&mut config);
                 remote_signing = true;
@@ -445,7 +447,7 @@ impl S3Profile {
         }
 
         if remote_signing {
-            config.insert("s3.remote-signing-enabled".to_string(), "true".to_string());
+            config.insert(&s3::RemoteSigningEnabled(true));
             // Currently per-table signer uris are not supported by Spark.
             // The URI is cached for one table, and then re-used for another.
             // let signer_uri = CONFIG.s3_signer_uri_for_table(warehouse_id, namespace_id, table_id);
@@ -623,12 +625,12 @@ fn is_valid_bucket_name(bucket: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
-fn insert_pyiceberg_hack(config: &mut HashMap<String, String>) {
-    config.insert("s3.signer".to_string(), "S3V4RestSigner".to_string());
-    config.insert(
-        "py-io-impl".to_string(),
-        "pyiceberg.io.fsspec.FsspecFileIO".to_string(),
-    );
+fn insert_pyiceberg_hack(config: &mut TableConfig) {
+    config.insert(&s3::Signer("S3V4RestSigner".to_string()));
+    config.insert(&custom::Pair {
+        key: "py-io-impl".to_string(),
+        value: "pyiceberg.io.fsspec.FsspecFileIO".to_string(),
+    });
 }
 
 #[cfg(test)]

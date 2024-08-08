@@ -336,7 +336,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     Ok(LoadViewResult {
         metadata_location,
         metadata: updated_meta,
-        config: Some(config),
+        config: Some(config.into()),
     })
 }
 

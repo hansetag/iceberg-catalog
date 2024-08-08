@@ -18,6 +18,7 @@ use azure_storage::StorageCredentials;
 use futures::StreamExt;
 
 use iceberg::io::AzdlsConfigKeys;
+use iceberg_ext::table_config::{custom, TableConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -246,7 +247,7 @@ impl AzdlsProfile {
         _: &DataAccess,
         table_location: &str,
         creds: &AzCredential,
-    ) -> Result<HashMap<String, String>, TableConfigError> {
+    ) -> Result<TableConfig, TableConfigError> {
         let AzCredential::ClientCredentials {
             client_id,
             tenant_id,
@@ -263,10 +264,13 @@ impl AzdlsProfile {
             client_secret.clone(),
         );
         let cred = azure_storage::StorageCredentials::token_credential(Arc::new(token));
-        let mut config = HashMap::new();
+        let mut config = TableConfig::default();
 
         let sas = self.get_sas_token(table_location, cred).await?;
-        config.insert(self.iceberg_sas_property_key(), sas);
+        config.insert(&custom::Pair {
+            key: self.iceberg_sas_property_key(),
+            value: sas,
+        });
         Ok(config)
     }
 
@@ -343,7 +347,7 @@ impl AzdlsProfile {
         // TODO: replace with iceberg_rust's FileIO + opendal once sas is available
         let cred = azure_storage::StorageCredentials::sas_token(
             table_config
-                .get(self.iceberg_sas_property_key().as_str())
+                .get_string_prop(self.iceberg_sas_property_key().as_str())
                 .ok_or(CredentialsError::ShortTermCredential {
                     reason: "Couldn't find sas token in table config.".to_string(),
                     source: None,
