@@ -2,7 +2,8 @@ use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, DataAccess, ErrorModel, LoadViewResult, Prefix, Result,
     TableIdent, ViewParameters,
 };
-use crate::catalog::io::{write_metadata_file, CompressionCodec};
+use crate::catalog::compression_codec::CompressionCodec;
+use crate::catalog::io::write_metadata_file;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{
     maybe_body_to_json, require_active_warehouse, validate_table_or_view_ident,
@@ -299,7 +300,14 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     };
 
     let file_io = storage_profile.file_io(storage_secret.as_ref())?;
-    write_metadata_file(metadata_location.as_str(), &updated_meta, &file_io).await?;
+    let compression_codec = CompressionCodec::try_from_metadata(&updated_meta)?;
+    write_metadata_file(
+        metadata_location.as_str(),
+        &updated_meta,
+        compression_codec,
+        &file_io,
+    )
+    .await?;
     tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
     // Generate the storage profile. This requires the storage secret
     // because the table config might contain vended-credentials based

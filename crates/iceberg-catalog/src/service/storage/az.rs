@@ -1,4 +1,5 @@
 use crate::{
+    catalog::compression_codec::CompressionCodec,
     service::{storage::TestMetadata, NamespaceIdentUuid, TableIdentUuid},
     WarehouseIdent,
 };
@@ -108,11 +109,18 @@ impl AzdlsProfile {
 
         // Validate the file_io instance by creating a test file.
         let test_metadata = TestMetadata::new();
-        crate::catalog::io::write_metadata_file(&test_location, test_metadata, &file_io)
-            .await
-            .map_err(|e| {
-                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::Azdls(self.clone())))
-            })?;
+        let compression_codec = CompressionCodec::try_from_metadata(&test_metadata)
+            .map_err(ValidationError::UnsupportedCompressionCodec)?;
+        crate::catalog::io::write_metadata_file(
+            &test_location,
+            test_metadata,
+            compression_codec,
+            &file_io,
+        )
+        .await
+        .map_err(|e| {
+            ValidationError::IoOperationFailed(e, Box::new(StorageProfile::Azdls(self.clone())))
+        })?;
 
         tracing::debug!(
             "Successfully validated metadata writing, moving on to validating table config.",

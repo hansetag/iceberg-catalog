@@ -1,3 +1,4 @@
+use crate::catalog::compression_codec::UnsupportedCompressionCodec;
 use crate::catalog::io::IoError;
 use crate::service::storage::{StorageProfile, StorageType};
 use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
@@ -16,6 +17,8 @@ pub enum ValidationError {
     },
     #[error(transparent)]
     FileIoError(#[from] FileIoError),
+    #[error(transparent)]
+    UnsupportedCompressionCodec(#[from] UnsupportedCompressionCodec),
 }
 
 impl From<TableConfigError> for ValidationError {
@@ -48,6 +51,12 @@ impl From<ValidationError> for IcebergErrorResponse {
                 entity,
             } => ErrorModel::bad_request(reason, format!("Invalid{entity}"), source).into(),
             ValidationError::FileIoError(e) => e.into(),
+            ValidationError::UnsupportedCompressionCodec(e) => ErrorModel::bad_request(
+                e.to_string(),
+                "UnsupportedCompressionCodec",
+                Some(Box::new(e)),
+            )
+            .into(),
         }
     }
 }

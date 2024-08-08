@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
-use crate::catalog::io::CompressionCodec;
+use crate::catalog::compression_codec::CompressionCodec;
 use crate::catalog::CommonMetadata;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;

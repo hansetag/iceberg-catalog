@@ -1,4 +1,5 @@
 use crate::{
+    catalog::compression_codec::CompressionCodec,
     service::{storage::TestMetadata, NamespaceIdentUuid, TableIdentUuid},
     WarehouseIdent, CONFIG,
 };
@@ -165,11 +166,18 @@ impl S3Profile {
 
         // Test that we can write a metadata file
         let test_metadata = TestMetadata::new();
-        crate::catalog::io::write_metadata_file(&test_location, test_metadata, &file_io)
-            .await
-            .map_err(|e| {
-                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
-            })?;
+        let compression_codec = CompressionCodec::try_from_metadata(&test_metadata)
+            .map_err(ValidationError::UnsupportedCompressionCodec)?;
+        crate::catalog::io::write_metadata_file(
+            &test_location,
+            test_metadata,
+            compression_codec,
+            &file_io,
+        )
+        .await
+        .map_err(|e| {
+            ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))
+        })?;
         tracing::debug!("Successfully wrote test file to: {}", test_location);
 
         // Test that we can delete the test file

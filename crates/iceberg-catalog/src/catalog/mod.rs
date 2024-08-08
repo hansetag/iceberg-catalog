@@ -1,3 +1,4 @@
+pub(crate) mod compression_codec;
 mod config;
 pub(crate) mod io;
 mod metrics;
@@ -23,13 +24,13 @@ pub trait CommonMetadata {
     fn properties(&self) -> &HashMap<String, String>;
 }
 
-impl CommonMetadata for &TableMetadata {
+impl CommonMetadata for TableMetadata {
     fn properties(&self) -> &HashMap<String, String> {
         TableMetadata::properties(self)
     }
 }
 
-impl CommonMetadata for &ViewMetadata {
+impl CommonMetadata for ViewMetadata {
     fn properties(&self) -> &HashMap<String, String> {
         ViewMetadata::properties(self)
     }

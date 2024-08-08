@@ -7,7 +7,7 @@ use crate::api::iceberg::v1::{
     NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
     TableIdent, TableParameters,
 };
-use crate::catalog::io::CompressionCodec;
+use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
@@ -172,7 +172,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         if let Some(metadata_location) = &metadata_location {
             let file_io = storage_profile.file_io(storage_secret.as_ref())?;
-            write_metadata_file(metadata_location, &table_metadata, &file_io).await?;
+            let compression_codec = CompressionCodec::try_from_metadata(&table_metadata)?;
+            write_metadata_file(
+                metadata_location,
+                &table_metadata,
+                compression_codec,
+                &file_io,
+            )
+            .await?;
         };
 
         // Generate the storage profile. This requires the storage secret
@@ -497,9 +504,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .storage_config
             .storage_profile
             .file_io(storage_secret.as_ref())?;
+        let compression_codec =
+            CompressionCodec::try_from_metadata(&result.commit_response.metadata)?;
         write_metadata_file(
             &result.commit_response.metadata_location,
             &result.commit_response.metadata,
+            compression_codec,
             &file_io,
         )
         .await?;
@@ -931,9 +941,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let mut write_futures = vec![];
         for response in &commit_response_with_io {
             let (r, io) = response;
+            let compression_codec =
+                CompressionCodec::try_from_metadata(&r.commit_response.metadata)?;
             write_futures.push(write_metadata_file(
                 &r.commit_response.metadata_location,
                 &r.commit_response.metadata,
+                compression_codec,
                 io,
             ));
         }

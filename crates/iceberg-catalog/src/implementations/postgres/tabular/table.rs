@@ -1,4 +1,4 @@
-use crate::catalog::io::CompressionCodec;
+use crate::catalog::compression_codec::CompressionCodec;
 use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogState};
 use crate::{
     service::{
