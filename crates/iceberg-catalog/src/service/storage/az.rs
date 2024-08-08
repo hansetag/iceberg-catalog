@@ -347,7 +347,7 @@ impl AzdlsProfile {
         // TODO: replace with iceberg_rust's FileIO + opendal once sas is available
         let cred = azure_storage::StorageCredentials::sas_token(
             table_config
-                .get_string_prop(self.iceberg_sas_property_key().as_str())
+                .get_custom_prop(self.iceberg_sas_property_key().as_str())
                 .ok_or(CredentialsError::ShortTermCredential {
                     reason: "Couldn't find sas token in table config.".to_string(),
                     source: None,
