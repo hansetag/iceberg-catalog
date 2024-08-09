@@ -4,7 +4,7 @@ use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{require_active_warehouse, validate_table_or_view_ident};
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
-use crate::service::storage::StorageCredential;
+use crate::service::storage::{StorageCredential, StoragePermissions};
 use crate::service::{Catalog, SecretStore, State, Transaction, ViewMetadataWithLocation};
 use crate::service::{GetWarehouseResponse, Result};
 use http::StatusCode;
@@ -111,6 +111,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             &data_access,
             storage_secret.as_ref(),
             view_metadata.location.as_ref(),
+            StoragePermissions::ReadWriteDelete,
         )
         .await?;
     let load_table_result = LoadViewResult {

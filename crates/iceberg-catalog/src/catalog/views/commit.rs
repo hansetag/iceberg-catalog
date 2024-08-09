@@ -22,6 +22,7 @@ use iceberg::NamespaceIdent;
 use iceberg_ext::catalog::rest::ViewUpdate;
 use iceberg_ext::catalog::ViewRequirement;
 use uuid::Uuid;
+use crate::service::storage::StoragePermissions;
 
 /// Commit updates to a view
 // TODO: break up into smaller fns
@@ -306,6 +307,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             &data_access,
             storage_secret.as_ref(),
             updated_meta.location.as_str(),
+            StoragePermissions::ReadWriteDelete,
         )
         .await?;
     transaction.commit().await?;
