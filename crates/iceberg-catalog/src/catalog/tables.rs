@@ -528,8 +528,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     async fn drop_table(
         parameters: TableParameters,
         state: ApiContext<State<A, C, S>>,
+        purge: bool,
         request_metadata: RequestMetadata,
     ) -> Result<()> {
+        tracing::debug!("drop_table: {:?}, purge: {purge}", parameters);
         // ------------------- VALIDATIONS -------------------
         let TableParameters { prefix, table } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
@@ -566,7 +568,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .r#type("TableNotFound".to_string())
                 .build()
         })?;
-        C::drop_table(table_id, transaction.transaction()).await?;
+        let location = C::drop_table(table_id, transaction.transaction()).await?;
 
         // ToDo: Delete metadata files
         state

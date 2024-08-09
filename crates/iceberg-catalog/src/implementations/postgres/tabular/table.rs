@@ -426,7 +426,7 @@ pub(crate) async fn rename_table(
 pub(crate) async fn drop_table<'a>(
     table_id: TableIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<()> {
+) -> Result<String> {
     let _ = sqlx::query!(
         r#"
         DELETE FROM "table"
@@ -443,8 +443,7 @@ pub(crate) async fn drop_table<'a>(
         e.into_error_model("Error dropping table".to_string())
     })?;
 
-    drop_tabular(TabularIdentUuid::Table(*table_id), transaction).await?;
-    Ok(())
+    drop_tabular(TabularIdentUuid::Table(*table_id), transaction).await
 }
 
 #[derive(Debug)]

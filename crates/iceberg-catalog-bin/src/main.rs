@@ -82,19 +82,32 @@ enum Commands {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-
-    tracing_subscriber::fmt()
-        .json()
-        .flatten_event(true)
-        .with_current_span(true)
-        .with_file(true)
-        .with_line_number(true)
-        .with_env_filter(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::INFO.into())
-                .from_env_lossy(),
-        )
-        .init();
+    let readable = true;
+    if readable {
+        tracing_subscriber::fmt()
+            .pretty()
+            .with_line_number(true)
+            .with_file(true)
+            .with_env_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy(),
+            )
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .json()
+            .flatten_event(true)
+            .with_current_span(true)
+            .with_file(true)
+            .with_line_number(true)
+            .with_env_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy(),
+            )
+            .init();
+    }
 
     match cli.command {
         Some(Commands::WaitForDB {

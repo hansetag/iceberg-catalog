@@ -479,13 +479,13 @@ pub(crate) async fn rename_tabular(
 pub(crate) async fn drop_tabular<'a>(
     tabular_id: TabularIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<()> {
-    let _ = sqlx::query!(
+) -> Result<String> {
+    let r = sqlx::query!(
         r#"
         DELETE FROM tabular
         WHERE tabular_id = $1 AND typ = $2
         AND tabular_id IN (select tabular_id from active_tabulars)
-        RETURNING "tabular_id"
+        RETURNING tabular_id, location
         "#,
         *tabular_id,
         TabularType::from(tabular_id) as _
@@ -505,7 +505,7 @@ pub(crate) async fn drop_tabular<'a>(
         }
     })?;
 
-    Ok(())
+    Ok(r.location)
 }
 
 fn try_parse_namespace_ident(namespace: Vec<String>) -> Result<NamespaceIdent> {

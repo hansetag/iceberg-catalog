@@ -44,7 +44,7 @@
         "Uuid",
         {
           "Custom": {
-            "name": "_warehouse_status",
+            "name": "warehouse_status[]",
             "kind": {
               "Array": {
                 "Custom": {

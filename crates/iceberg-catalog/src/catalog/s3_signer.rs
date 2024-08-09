@@ -83,6 +83,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     .r#type("InvalidLocation".to_string())
                     .source(Some(Box::new(e.error)))
                     .build()
+                    .append_details(&[location, request_url.to_string(), warehouse_id.to_string()])
             })?;
 
             // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63/data/00001-1-840f0dc8-a888-4522-a327-12187ce32dbd-0-00001.parquet
