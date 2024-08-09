@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/hansetag/iceberg-catalog/compare/v0.2.1...v0.2.2) (2024-08-09)
+
+
+### Bug Fixes
+
+* **kv2:** extend docs & fix mismatch between docs and expected env values ([#224](https://github.com/hansetag/iceberg-catalog/issues/224)) ([be3e3e6](https://github.com/hansetag/iceberg-catalog/commit/be3e3e60181acdb501303b7fb4215d79e65dd79e))
+
 ## [0.2.1](https://github.com/hansetag/iceberg-catalog/compare/v0.2.0...v0.2.1) (2024-07-29)
 
 

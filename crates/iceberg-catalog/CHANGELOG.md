@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/hansetag/iceberg-catalog/compare/v0.2.1...v0.3.0) (2024-08-09)
+
+
+### Features
+
+* **storage:** azdls ([#223](https://github.com/hansetag/iceberg-catalog/issues/223)) ([fd11428](https://github.com/hansetag/iceberg-catalog/commit/fd1142852555d239e8ea8dac2cb9d5db76457ab1))
+
+
+### Bug Fixes
+
+* **kv2:** extend docs & fix mismatch between docs and expected env values ([#224](https://github.com/hansetag/iceberg-catalog/issues/224)) ([be3e3e6](https://github.com/hansetag/iceberg-catalog/commit/be3e3e60181acdb501303b7fb4215d79e65dd79e))
+
 ## [0.2.1](https://github.com/hansetag/iceberg-catalog/compare/v0.2.0...v0.2.1) (2024-07-29)
 
 
