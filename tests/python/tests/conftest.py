@@ -52,6 +52,8 @@ def get_storage_config() -> dict:
             "region": ICEBERG_REST_TEST_S3_REGION,
             "path-style-access": path_style_access,
             "endpoint": ICEBERG_REST_TEST_S3_ENDPOINT,
+            "flavor": "minio",
+            "sts-enabled": True
         },
         "storage-credential": {
             "type": "s3",

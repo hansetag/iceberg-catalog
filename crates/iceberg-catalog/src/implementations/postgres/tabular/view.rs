@@ -14,7 +14,7 @@ use crate::implementations::postgres::tabular::{
 };
 use crate::implementations::postgres::{tabular, CatalogState};
 use chrono::{DateTime, Utc};
-use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersionRef};
+use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersionId, ViewVersionRef};
 use iceberg::NamespaceIdent;
 use serde::Deserialize;
 use sqlx::{FromRow, Postgres, Transaction};
@@ -120,8 +120,15 @@ pub(crate) async fn create_view(
     for history in &metadata.version_log {
         insert_view_version_log(
             view_id,
-            history.version_id,
-            Some(history.timestamp()),
+            history.version_id(),
+            // TODO: it's really really unfortunate to perhaps fail here.
+            Some(history.timestamp().map_err(|e| {
+                ErrorModel::internal(
+                    "Error converting timestamp_ms into datetime.",
+                    "ViewVersionTimestampError",
+                    Some(Box::new(e)),
+                )
+            })?),
             transaction,
         )
         .await?;
@@ -189,7 +196,7 @@ pub(crate) async fn rename_view(
 // TODO: do we wanna do this via a trigger?
 async fn insert_view_version_log(
     view_id: Uuid,
-    version_id: i64,
+    version_id: ViewVersionId,
     timestamp_ms: Option<DateTime<Utc>>,
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<()> {
@@ -291,7 +298,7 @@ pub(crate) async fn create_view_schema(
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, FromRow, Clone, Copy)]
 struct ViewVersionResponse {
-    version_id: i64,
+    version_id: ViewVersionId,
     view_id: Uuid,
 }
 
@@ -341,7 +348,14 @@ async fn create_view_version(
                 view_id,
                 version_id,
                 schema_id,
-                view_version.timestamp(),
+                view_version.timestamp().map_err(|e|
+                    ErrorModel::builder()
+                        .code(StatusCode::INTERNAL_SERVER_ERROR.into())
+                        .message("Error converting timestamp_ms into datetime.".to_string())
+                        .r#type("ViewVersionTimestampError".to_string())
+                        .source(Some(Box::new(e)))
+                        .build()
+                )?,
                 default_namespace_id,
                 default_cat,
                 summary
@@ -369,7 +383,7 @@ async fn create_view_version(
             }
     })?;
 
-    for rep in view_version.representations() {
+    for rep in view_version.representations().iter() {
         insert_representation(rep, transaction, insert_response).await?;
     }
 
@@ -383,7 +397,7 @@ async fn create_view_version(
 }
 
 pub(crate) async fn set_current_view_metadata_version(
-    version_id: i64,
+    version_id: ViewVersionId,
     view_id: Uuid,
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<()> {
@@ -450,7 +464,7 @@ async fn insert_representation(
     transaction: &mut Transaction<'_, Postgres>,
     view_version_response: ViewVersionResponse,
 ) -> Result<()> {
-    let ViewRepresentation::SqlViewRepresentation(repr) = rep;
+    let ViewRepresentation::Sql(repr) = rep;
     sqlx::query!(
         r#"
             INSERT INTO view_representation (view_id, view_version_id, typ, sql, dialect)
@@ -488,7 +502,7 @@ pub(crate) enum ViewRepresentationType {
 impl From<&iceberg::spec::ViewRepresentation> for ViewRepresentationType {
     fn from(value: &ViewRepresentation) -> Self {
         match value {
-            ViewRepresentation::SqlViewRepresentation(_) => Self::Sql,
+            ViewRepresentation::Sql(_) => Self::Sql,
         }
     }
 }

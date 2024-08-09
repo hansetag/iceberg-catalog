@@ -11,13 +11,13 @@
       {
         "ordinal": 1,
         "name": "version_id",
-        "type_info": "Int8"
+        "type_info": "Int4"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
-        "Int8",
+        "Int4",
         "Int4",
         "Timestamptz",
         "Uuid",

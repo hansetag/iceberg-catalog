@@ -15,6 +15,7 @@ services:
     ports:
       - "8080:8080"
     command: [ "start-dev", "--metrics-enabled=true", "--health-enabled=true",  "--import-realm" ]
+
   spark:
     image: ${ICEBERG_REST_TEST_SPARK_IMAGE}
     profiles:

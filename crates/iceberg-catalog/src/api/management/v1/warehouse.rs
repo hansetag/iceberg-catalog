@@ -509,6 +509,7 @@ mod test {
                 "region": "dummy",
                 "path-style-access": true,
                 "endpoint": "http://localhost:9000",
+                "sts-enabled": true,
             },
             "storage-credential": {
                 "type": "s3",

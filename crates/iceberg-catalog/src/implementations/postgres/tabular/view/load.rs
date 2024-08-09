@@ -4,7 +4,8 @@ use crate::implementations::postgres::tabular::view::{ViewFormatVersion, ViewRep
 use crate::service::{TableIdentUuid, ViewMetadataWithLocation};
 use chrono::{DateTime, Utc};
 use iceberg::spec::{
-    Schema, SqlViewRepresentation, ViewMetadata, ViewRepresentation, ViewVersion, ViewVersionLog,
+    Schema, SqlViewRepresentation, ViewMetadata, ViewRepresentation, ViewRepresentations,
+    ViewVersion, ViewVersionId, ViewVersionLog,
 };
 use iceberg::NamespaceIdent;
 use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
@@ -89,7 +90,7 @@ async fn query(view_id: Uuid, conn: &mut PgConnection) -> Result<Query, IcebergE
        vs.schemas                       as "schemas: Vec<Json<Schema>>",
        vp.view_properties_keys,
        vp.view_properties_values,
-       vvr.version_ids                  as "version_ids!: Json<Vec<i64>>",
+       vvr.version_ids                  as "version_ids!: Json<Vec<ViewVersionId>>",
        vvr.version_schema_ids,
        vvr.version_timestamps,
        vvr.version_default_namespace_ids AS "version_default_namespace_ids!: Vec<Option<Uuid>>",
@@ -163,7 +164,7 @@ async fn prepare_versions(
         view_representation_sql,
         view_representation_dialect,
     }: VersionsPrep,
-) -> Result<HashMap<i64, Arc<ViewVersion>>, IcebergErrorResponse> {
+) -> Result<HashMap<ViewVersionId, Arc<ViewVersion>>, IcebergErrorResponse> {
     let version_ids = version_ids.0;
     let version_schema_ids =
         unwrap_or_500(version_schema_ids, "Failed to read version_schema_ids")?;
@@ -216,13 +217,11 @@ async fn prepare_versions(
         let reps = izip!(typs, dialects, sqls)
             .map(|(typ, dialect, sql)| match typ {
                 ViewRepresentationType::Sql => {
-                    ViewRepresentation::SqlViewRepresentation(SqlViewRepresentation {
-                        sql,
-                        dialect,
-                    })
+                    ViewRepresentation::Sql(SqlViewRepresentation { sql, dialect })
                 }
             })
             .collect();
+        let reps = ViewRepresentations::new(reps);
 
         let builder = ViewVersion::builder()
             .with_timestamp_ms(timestamp.timestamp_millis())
@@ -240,7 +239,7 @@ async fn prepare_versions(
 }
 
 fn prepare_version_log(
-    version_log_ids: Option<Vec<i64>>,
+    version_log_ids: Option<Vec<ViewVersionId>>,
     version_log_timestamps: Option<Vec<DateTime<Utc>>>,
 ) -> Result<Vec<ViewVersionLog>, IcebergErrorResponse> {
     let version_log_ids = unwrap_or_500(version_log_ids, "Failed to read version_log_ids")?;
@@ -251,10 +250,7 @@ fn prepare_version_log(
     let version_log = version_log_ids
         .into_iter()
         .zip(version_log_timestamps)
-        .map(|(id, ts)| ViewVersionLog {
-            version_id: id,
-            timestamp_ms: ts.timestamp_millis(),
-        })
+        .map(|(id, ts)| ViewVersionLog::new(id, ts.timestamp_millis()))
         .collect();
     Ok(version_log)
 }
@@ -352,18 +348,18 @@ struct Query {
     view_format_version: ViewFormatVersion,
     view_location: String,
     metadata_location: String,
-    current_version_id: i64,
+    current_version_id: ViewVersionId,
     schema_ids: Option<Vec<i32>>,
     schemas: Option<Vec<Json<Schema>>>,
     view_properties_keys: Option<Vec<String>>,
     view_properties_values: Option<Vec<String>>,
-    version_ids: Json<Vec<i64>>,
+    version_ids: Json<Vec<ViewVersionId>>,
     version_schema_ids: Option<Vec<i32>>,
     version_timestamps: Option<Vec<chrono::DateTime<Utc>>>,
     version_default_namespace_ids: Vec<Option<Uuid>>,
     version_default_catalogs: Vec<Option<String>>,
     version_metadata_summaries: Option<Vec<Json<HashMap<String, String>>>>,
-    version_log_ids: Option<Vec<i64>>,
+    version_log_ids: Option<Vec<ViewVersionId>>,
     version_log_timestamps: Option<Vec<chrono::DateTime<Utc>>>,
     view_representation_typ: Option<Json<Vec<Vec<ViewRepresentationType>>>>,
     view_representation_sql: Option<Json<Vec<Vec<String>>>>,
@@ -371,7 +367,7 @@ struct Query {
 }
 
 struct VersionsPrep {
-    version_ids: Json<Vec<i64>>,
+    version_ids: Json<Vec<ViewVersionId>>,
     version_schema_ids: Option<Vec<i32>>,
     version_timestamps: Option<Vec<DateTime<Utc>>>,
     version_default_namespace_ids: Vec<Option<Uuid>>,
