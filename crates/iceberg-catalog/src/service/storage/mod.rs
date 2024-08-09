@@ -8,6 +8,8 @@ use std::collections::HashMap;
 
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
+use crate::catalog::io::CompressionCodec;
+use crate::catalog::CommonMetadata;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
 pub use az::{AzCredential, AzdlsProfile};
@@ -43,6 +45,29 @@ pub enum StorageType {
     #[cfg(test)]
     #[strum(serialize = "test")]
     Test,
+}
+
+// write_metadata expects Serialize + CommonMetadata, so for "test writes"
+// we use a TestMetadata struct with empty properties
+// TODO: define somewhere else?
+// TODO: current default is to compress metadata, introducing a tiny overhead for test writes
+#[derive(serde::Serialize)]
+struct TestMetadata {
+    test_properties: HashMap<String, String>,
+}
+
+impl TestMetadata {
+    fn new() -> TestMetadata {
+        TestMetadata {
+            test_properties: HashMap::new(),
+        }
+    }
+}
+
+impl CommonMetadata for TestMetadata {
+    fn properties(&self) -> &HashMap<String, String> {
+        &self.test_properties
+    }
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -123,10 +148,12 @@ impl StorageProfile {
     pub fn initial_metadata_location(
         &self,
         table_location: &str,
+        compression_codec: &CompressionCodec,
         metadata_id: uuid::Uuid,
     ) -> String {
+        let filename_extension_compression = compression_codec.as_file_extension();
         format!(
-            "{}/metadata/{metadata_id}.gz.metadata.json",
+            "{}/metadata/{metadata_id}{filename_extension_compression}.metadata.json",
             table_location.trim_end_matches('/')
         )
     }

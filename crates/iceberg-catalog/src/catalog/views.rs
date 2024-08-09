@@ -12,9 +12,7 @@ use crate::api::iceberg::v1::{
     ViewParameters,
 };
 use crate::request_metadata::RequestMetadata;
-use http::StatusCode;
-use iceberg::spec::view_properties::{METADATA_COMPRESSION, METADATA_COMPRESSION_DEFAULT};
-use iceberg_ext::catalog::rest::{ErrorModel, ViewUpdate};
+use iceberg_ext::catalog::rest::ViewUpdate;
 
 use super::tables::validate_table_properties;
 use super::CatalogServer;
@@ -106,20 +104,6 @@ fn validate_view_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
     for update in updates {
         match update {
             ViewUpdate::SetProperties { updates } => {
-                let compression = updates
-                    .get(METADATA_COMPRESSION)
-                    .map_or(METADATA_COMPRESSION_DEFAULT, String::as_str);
-                if compression != METADATA_COMPRESSION_DEFAULT {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::BAD_REQUEST.into())
-                        .message(format!(
-                            "Only gzip compression is supported, got: '{compression:?}'"
-                        ))
-                        .r#type("UnsupportedCompression".to_string())
-                        .build()
-                        .into());
-                }
-
                 validate_view_properties(updates.keys())?;
             }
             ViewUpdate::RemoveProperties { removals } => {
