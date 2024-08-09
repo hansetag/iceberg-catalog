@@ -7,7 +7,7 @@ use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::service::storage::error::{
     CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
-use crate::service::storage::{StorageProfile, StorageType};
+use crate::service::storage::{StoragePermissions, StorageProfile, StorageType};
 use crate::service::tabular_idents::TabularIdentUuid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -297,6 +297,7 @@ impl S3Profile {
         _: NamespaceIdentUuid,
         data_access: &DataAccess,
         _: Option<&S3Credential>,
+        _: StoragePermissions,
     ) -> Result<HashMap<String, String>, TableConfigError> {
         let DataAccess {
             vended_credentials,

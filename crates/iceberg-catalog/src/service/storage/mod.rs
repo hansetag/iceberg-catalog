@@ -45,6 +45,13 @@ pub enum StorageType {
     Test,
 }
 
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum StoragePermissions {
+    Read,
+    ReadWrite,
+    ReadWriteDelete,
+}
+
 #[allow(clippy::module_name_repetitions)]
 impl StorageProfile {
     #[must_use]
@@ -153,6 +160,7 @@ impl StorageProfile {
         data_access: &DataAccess,
         secret: Option<&StorageCredential>,
         table_location: &str,
+        access: StoragePermissions,
     ) -> Result<HashMap<String, String>, TableConfigError> {
         match self {
             StorageProfile::S3(profile) => {
@@ -163,6 +171,7 @@ impl StorageProfile {
                         namespace_id,
                         data_access,
                         secret.map(|s| s.try_to_s3()).transpose()?,
+                        access,
                     )
                     .await
             }
@@ -179,6 +188,7 @@ impl StorageProfile {
                                 CredentialsError::MissingCredential(self.storage_type())
                             })?
                             .try_to_az()?,
+                        access,
                     )
                     .await
             }

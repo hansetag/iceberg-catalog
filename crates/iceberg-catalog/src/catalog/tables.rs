@@ -19,7 +19,7 @@ use super::{
 };
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::storage::StorageCredential;
+use crate::service::storage::{StorageCredential, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
@@ -184,6 +184,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 &data_access,
                 storage_secret.as_ref(),
                 table_metadata.location(),
+                StoragePermissions::ReadWriteDelete,
             )
             .await?;
         let load_table_result = LoadTableResult {
@@ -316,6 +317,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                         &data_access,
                         storage_secret.as_ref(),
                         table_location.as_ref(),
+                        StoragePermissions::ReadWriteDelete,
                     )
                     .await?,
             ),
