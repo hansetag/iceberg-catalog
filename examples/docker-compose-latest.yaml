@@ -4,6 +4,13 @@ services:
     build:
       context: ..
       dockerfile: docker/full.Dockerfile
+  db:
+    ports:
+      - "2345:5432"
   migrate:
     image: localhost/iceberg-catalog-local:latest
     pull_policy: never
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"

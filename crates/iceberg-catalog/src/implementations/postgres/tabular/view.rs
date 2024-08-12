@@ -169,7 +169,7 @@ pub(crate) async fn drop_view<'a>(
         }
     })?;
 
-    drop_tabular(TabularIdentUuid::View(*view_id), transaction).await?;
+    drop_tabular(TabularIdentUuid::View(*view_id), true, transaction).await?;
     Ok(())
 }
 

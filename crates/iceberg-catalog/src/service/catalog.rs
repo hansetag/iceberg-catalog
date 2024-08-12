@@ -216,6 +216,7 @@ where
         warehouse_id: WarehouseIdent,
         location: &str,
         include_staged: bool,
+        include_deleted: bool,
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse>;
 
@@ -235,7 +236,7 @@ where
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<()>;
+    ) -> Result<Option<String>>;
 
     /// Commit changes to a table.
     /// The table might be staged or not.

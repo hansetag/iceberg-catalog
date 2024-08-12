@@ -171,10 +171,17 @@ impl Catalog for super::Catalog {
         warehouse_id: WarehouseIdent,
         location: &str,
         include_staged: bool,
+        include_deleted: bool,
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse> {
-        get_table_metadata_by_s3_location(warehouse_id, location, include_staged, catalog_state)
-            .await
+        get_table_metadata_by_s3_location(
+            warehouse_id,
+            location,
+            include_staged,
+            include_deleted,
+            catalog_state,
+        )
+        .await
     }
 
     async fn table_ident_to_id(
@@ -205,7 +212,7 @@ impl Catalog for super::Catalog {
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<()> {
+    ) -> Result<Option<String>> {
         drop_table(table_id, transaction).await
     }
 

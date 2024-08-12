@@ -335,6 +335,7 @@ pub(crate) async fn list_tabulars(
         WHERE n.warehouse_id = $1
             AND namespace_name = $2
             AND w.status = 'active'
+            AND t.deleted_at IS NULL
             AND (t."metadata_location" IS NOT NULL OR $3)
             AND (t.typ = $4 OR $4 IS NULL)
             AND ((t.created_at > $5 OR $5 IS NULL) OR (t.created_at = $5 AND t.tabular_id > $6))
@@ -410,10 +411,12 @@ pub(crate) async fn rename_tabular(
             r#"
             UPDATE tabular ti
             SET name = $1
-            WHERE tabular_id = $2 AND typ = $3 AND metadata_location IS NOT NULL
-            AND $4 IN (
-                SELECT warehouse_id FROM warehouse WHERE status = 'active'
-            )
+            WHERE tabular_id = $2 AND typ = $3
+                AND metadata_location IS NOT NULL
+                AND ti.deleted_at IS NULL
+                AND $4 IN (
+                    SELECT warehouse_id FROM warehouse WHERE status = 'active'
+                )
             RETURNING tabular_id
             "#,
             &**dest_name,
@@ -441,10 +444,11 @@ pub(crate) async fn rename_tabular(
                 WHERE warehouse_id = $2 AND namespace_name = $3
             )
             WHERE tabular_id = $4 AND typ = $5 AND metadata_location IS NOT NULL
-            AND ti.name = $6
-            AND $2 IN (
-                SELECT warehouse_id FROM warehouse WHERE status = 'active'
-            )
+                AND ti.name = $6
+                AND ti.deleted_at IS NULL
+                AND $2 IN (
+                    SELECT warehouse_id FROM warehouse WHERE status = 'active'
+                )
             RETURNING tabular_id
             "#,
             &**dest_name,
@@ -478,17 +482,66 @@ pub(crate) async fn rename_tabular(
 // ToDo: Switch to a soft delete
 pub(crate) async fn drop_tabular<'a>(
     tabular_id: TabularIdentUuid,
+    hard_delete: bool,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<()> {
-    let _ = sqlx::query!(
+) -> Result<Option<String>> {
+    // Set deleted_at to now() for rows that have metadata_location
+    // Drop the row if it doesn't have metadata_location
+
+    if hard_delete {
+        let r = sqlx::query!(
+            r#"DELETE FROM tabular
+                WHERE tabular_id = $1
+                    AND typ = $2
+                    AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
+               RETURNING tabular_id, metadata_location"#,
+            *tabular_id,
+            TabularType::from(tabular_id) as _
+        )
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|e| {
+            if let sqlx::Error::RowNotFound = e {
+                ErrorModel::builder()
+                    .code(StatusCode::NOT_FOUND.into())
+                    .message(format!("{} not found", tabular_id.typ_str()))
+                    .r#type("NoSuchTabularError".to_string())
+                    .build()
+            } else {
+                tracing::warn!("Error dropping tabular: {}", e);
+                e.into_error_model(format!("Error dropping {}", tabular_id.typ_str()))
+            }
+        })?;
+        return Ok(r.metadata_location);
+    }
+
+    let r = sqlx::query!(
         r#"
+    WITH updated AS (
+        UPDATE tabular
+        -- Append a suffix to the name to avoid conflicts with new tables
+        SET deleted_at = now(), name = name || $3
+        WHERE tabular_id = $1
+        AND typ = $2
+        AND metadata_location IS NOT NULL
+        AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
+        RETURNING tabular_id, metadata_location
+    ),
+    deleted AS (
         DELETE FROM tabular
-        WHERE tabular_id = $1 AND typ = $2
-        AND tabular_id IN (select tabular_id from active_tabulars)
-        RETURNING "tabular_id"
-        "#,
+        WHERE tabular_id = $1
+        AND typ = $2
+        AND metadata_location IS NULL
+        AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
+        RETURNING tabular_id, metadata_location
+    )
+    SELECT tabular_id, metadata_location FROM updated
+    UNION ALL
+    SELECT tabular_id, metadata_location FROM deleted
+    "#,
         *tabular_id,
-        TabularType::from(tabular_id) as _
+        TabularType::from(tabular_id) as _,
+        Uuid::now_v7().to_string()
     )
     .fetch_one(&mut **transaction)
     .await
@@ -497,7 +550,7 @@ pub(crate) async fn drop_tabular<'a>(
             ErrorModel::builder()
                 .code(StatusCode::NOT_FOUND.into())
                 .message(format!("{} not found", tabular_id.typ_str()))
-                .r#type("NoSuchTableError".to_string())
+                .r#type("NoSuchTabularError".to_string())
                 .build()
         } else {
             tracing::warn!("Error dropping tabular: {}", e);
@@ -505,7 +558,7 @@ pub(crate) async fn drop_tabular<'a>(
         }
     })?;
 
-    Ok(())
+    Ok(r.metadata_location)
 }
 
 fn try_parse_namespace_ident(namespace: Vec<String>) -> Result<NamespaceIdent> {

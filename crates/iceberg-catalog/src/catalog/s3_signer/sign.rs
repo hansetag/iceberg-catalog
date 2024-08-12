@@ -75,6 +75,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 warehouse_id,
                 &parsed_url.location.to_string(),
                 include_staged,
+                true,
                 state.v1_state.catalog.clone(),
             )
             .await

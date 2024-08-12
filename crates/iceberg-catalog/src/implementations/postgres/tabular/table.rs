@@ -209,6 +209,7 @@ pub(crate) async fn load_table(
         WHERE w.warehouse_id = $1 AND namespace_name = $2 AND ti.name = $3
         AND w.status = 'active'
         AND ti."metadata_location" IS NOT NULL
+        AND ti.deleted_at IS NULL
         "#,
         *warehouse_id,
         &**namespace,
@@ -291,7 +292,8 @@ pub(crate) async fn get_table_metadata_by_id(
         INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1 AND t."table_id" = $2
-        AND w.status = 'active'
+            AND w.status = 'active'
+            AND ti.deleted_at IS NULL
         "#,
         *warehouse_id,
         *table
@@ -336,6 +338,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
     warehouse_id: WarehouseIdent,
     location: &str,
     include_staged: bool,
+    include_deleted: bool,
     catalog_state: CatalogState,
 ) -> Result<GetTableMetadataResponse> {
     // Location might also be a subpath of the table location.
@@ -359,10 +362,13 @@ pub(crate) async fn get_table_metadata_by_s3_location(
             AND $2 like ti."location" || '%'
             AND LENGTH(ti."location") <= $3
             AND w.status = 'active'
+            AND (ti.deleted_at IS NULL OR $4)
+
         "#,
         *warehouse_id,
         location,
-        i32::try_from(location.len()).unwrap_or(i32::MAX)
+        i32::try_from(location.len()).unwrap_or(i32::MAX),
+        include_deleted
     )
     .fetch_one(&catalog_state.read_pool())
     .await
@@ -427,10 +433,10 @@ pub(crate) async fn rename_table(
 pub(crate) async fn drop_table<'a>(
     table_id: TableIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let _ = sqlx::query!(
         r#"
-        DELETE FROM "table"
+        UPDATE "table" SET deleted_at = now()
         WHERE table_id = $1
         AND table_id IN (select table_id from active_tables)
         RETURNING "table_id"
@@ -444,8 +450,7 @@ pub(crate) async fn drop_table<'a>(
         e.into_error_model("Error dropping table".to_string())
     })?;
 
-    drop_tabular(TabularIdentUuid::Table(*table_id), transaction).await?;
-    Ok(())
+    drop_tabular(TabularIdentUuid::Table(*table_id), false, transaction).await
 }
 
 #[derive(Debug)]
@@ -481,7 +486,8 @@ async fn get_commit_context<'a>(
         INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE "table_id" = ANY($1)
-        AND w.status = 'active'
+            AND w.status = 'active'
+            AND ti.deleted_at IS NULL
         "#,
         &table_ids.values().map(|id| **id).collect::<Vec<_>>()
     )
@@ -1398,6 +1404,7 @@ pub(crate) mod tests {
             warehouse_id,
             &metadata.location,
             false,
+            false,
             state.clone(),
         )
         .await
@@ -1411,6 +1418,7 @@ pub(crate) mod tests {
             warehouse_id,
             &format!("{}/data/foo.parquet", &metadata.location),
             false,
+            false,
             state.clone(),
         )
         .await
@@ -1420,6 +1428,7 @@ pub(crate) mod tests {
         get_table_metadata_by_s3_location(
             warehouse_id,
             &metadata.location[0..metadata.location.len() - 1],
+            false,
             false,
             state.clone(),
         )
