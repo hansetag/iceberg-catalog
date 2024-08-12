@@ -254,7 +254,7 @@ impl S3Profile {
         file_io: &FileIO,
         test_location: &str,
     ) -> Result<(), ValidationError> {
-        let test_location = dbg!(test_location.trim_end_matches('/').to_string() + "/test.txt.gz");
+        let test_location = test_location.trim_end_matches('/').to_string() + "/test.txt.gz";
         // Test that we can write a metadata file
         crate::catalog::io::write_metadata_file(&test_location, "test", file_io)
             .await
@@ -572,10 +572,10 @@ impl S3Profile {
         table_location: &str,
         storage_permissions: StoragePermissions,
     ) -> String {
-        let resource = dbg!(format!(
+        let resource = format!(
             "arn:aws:s3:::{}/*",
             table_location.trim_start_matches("s3://")
-        ));
+        );
         format!(
             r#"{{
         "Version": "2012-10-17",
