@@ -135,6 +135,7 @@ impl S3Profile {
     /// - Fails if the key prefix is too long.
     /// - Fails if the region or endpoint is missing.
     /// - Fails if the endpoint is not a valid URL.
+    #[allow(clippy::too_many_lines)]
     pub async fn validate(&self, credential: Option<&S3Credential>) -> Result<(), ValidationError> {
         // If key_prefix is provided, remove any trailing and leading slashes.
 
