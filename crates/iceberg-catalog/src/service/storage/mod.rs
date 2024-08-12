@@ -44,6 +44,13 @@ pub enum StorageType {
     Test,
 }
 
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum StoragePermissions {
+    Read,
+    ReadWrite,
+    ReadWriteDelete,
+}
+
 #[allow(clippy::module_name_repetitions)]
 impl StorageProfile {
     #[must_use]
@@ -153,32 +160,28 @@ impl StorageProfile {
     /// Fails if the underlying storage profile's generation fails.
     pub async fn generate_table_config(
         &self,
-        warehouse_id: WarehouseIdent,
-        namespace_id: NamespaceIdentUuid,
-        table_id: TableIdentUuid,
+        idents: Idents,
         data_access: &DataAccess,
         secret: Option<&StorageCredential>,
         table_location: &str,
+        storage_permissions: StoragePermissions,
     ) -> Result<TableConfig, TableConfigError> {
         match self {
             StorageProfile::S3(profile) => {
                 profile
                     .generate_table_config(
-                        warehouse_id,
-                        table_id,
-                        namespace_id,
+                        idents,
                         data_access,
-                        table_location,
                         secret.map(|s| s.try_to_s3()).transpose()?,
+                        table_location,
+                        storage_permissions,
                     )
                     .await
             }
             StorageProfile::Azdls(profile) => {
                 profile
                     .generate_table_config(
-                        warehouse_id,
-                        table_id,
-                        namespace_id,
+                        idents,
                         data_access,
                         table_location,
                         secret
@@ -186,6 +189,7 @@ impl StorageProfile {
                                 CredentialsError::MissingCredential(self.storage_type())
                             })?
                             .try_to_az()?,
+                        storage_permissions,
                     )
                     .await
             }
@@ -244,6 +248,13 @@ impl StorageProfile {
             }),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Idents {
+    pub warehouse_ident: WarehouseIdent,
+    pub namespace_ident: NamespaceIdentUuid,
+    pub table_ident: TableIdentUuid,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

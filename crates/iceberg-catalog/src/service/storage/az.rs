@@ -1,7 +1,4 @@
-use crate::{
-    service::{NamespaceIdentUuid, TableIdentUuid},
-    WarehouseIdent,
-};
+use crate::{service::NamespaceIdentUuid, WarehouseIdent};
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, Result};
 use crate::catalog::io::IoError;
@@ -9,7 +6,7 @@ use crate::service::storage::error::{
     CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
 use crate::service::storage::path_utils::reduce_scheme_string;
-use crate::service::storage::{StorageProfile, StorageType};
+use crate::service::storage::{Idents, StoragePermissions, StorageProfile, StorageType};
 use crate::service::tabular_idents::TabularIdentUuid;
 use azure_storage::prelude::{BlobSasPermissions, BlobSignedResource};
 use azure_storage::shared_access_signature::service_sas::BlobSharedAccessSignature;
@@ -241,12 +238,15 @@ impl AzdlsProfile {
     /// valid `Url`.
     pub async fn generate_table_config(
         &self,
-        _: WarehouseIdent,
-        _: TableIdentUuid,
-        _: NamespaceIdentUuid,
+        Idents {
+            warehouse_ident: _,
+            namespace_ident: _,
+            table_ident: _,
+        }: Idents,
         _: &DataAccess,
         table_location: &str,
         creds: &AzCredential,
+        permissions: StoragePermissions,
     ) -> Result<TableConfig, TableConfigError> {
         let AzCredential::ClientCredentials {
             client_id,
@@ -266,7 +266,9 @@ impl AzdlsProfile {
         let cred = azure_storage::StorageCredentials::token_credential(Arc::new(token));
         let mut config = TableConfig::default();
 
-        let sas = self.get_sas_token(table_location, cred).await?;
+        let sas = self
+            .get_sas_token(table_location, cred, permissions)
+            .await?;
         config.insert(&custom::Pair {
             key: self.iceberg_sas_property_key(),
             value: sas,
@@ -332,15 +334,19 @@ impl AzdlsProfile {
     ) -> Result<(), ValidationError> {
         let table_config = self
             .generate_table_config(
-                Uuid::now_v7().into(),
-                table_id.into(),
-                ns_id,
+                Idents {
+                    warehouse_ident: Uuid::now_v7().into(),
+                    table_ident: table_id.into(),
+                    namespace_ident: ns_id,
+                },
                 &DataAccess {
                     vended_credentials: false,
                     remote_signing: false,
                 },
                 test_location,
                 credential,
+                // TODO: This should be a permission based on authz
+                StoragePermissions::ReadWriteDelete,
             )
             .await?;
 
@@ -378,6 +384,7 @@ impl AzdlsProfile {
         &self,
         path: &str,
         cred: StorageCredentials,
+        permissions: StoragePermissions,
     ) -> Result<String, CredentialsError> {
         let client =
             azure_storage_blobs::prelude::BlobServiceClient::new(self.account_name.as_str(), cred);
@@ -410,13 +417,7 @@ impl AzdlsProfile {
         let sas = BlobSharedAccessSignature::new(
             delegation_key.user_deligation_key.clone(),
             canonical_resource,
-            BlobSasPermissions {
-                read: true,
-                write: true,
-                delete: true,
-                list: true,
-                ..Default::default()
-            },
+            permissions.into(),
             delegation_key.user_deligation_key.signed_expiry,
             BlobSignedResource::Directory,
         )
@@ -452,6 +453,35 @@ pub enum AzCredential {
         #[redact(partial)]
         client_secret: String,
     },
+}
+
+impl From<StoragePermissions> for BlobSasPermissions {
+    fn from(value: StoragePermissions) -> Self {
+        match value {
+            StoragePermissions::Read => BlobSasPermissions {
+                read: true,
+                list: true,
+                ..Default::default()
+            },
+            StoragePermissions::ReadWrite => BlobSasPermissions {
+                read: true,
+                write: true,
+                tags: true,
+                add: true,
+                ..Default::default()
+            },
+            StoragePermissions::ReadWriteDelete => BlobSasPermissions {
+                read: true,
+                write: true,
+                tags: true,
+                add: true,
+                delete: true,
+                delete_version: true,
+                permanent_delete: true,
+                ..Default::default()
+            },
+        }
+    }
 }
 
 // https://learn.microsoft.com/en-us/rest/api/storageservices/naming-and-referencing-containers--blobs--and-metadata

@@ -1,15 +1,12 @@
 #![allow(clippy::module_name_repetitions)]
 
-use crate::{
-    service::{NamespaceIdentUuid, TableIdentUuid},
-    WarehouseIdent, CONFIG,
-};
+use crate::{service::NamespaceIdentUuid, WarehouseIdent, CONFIG};
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::service::storage::error::{
     CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
-use crate::service::storage::{StorageProfile, StorageType};
+use crate::service::storage::{Idents, StoragePermissions, StorageProfile, StorageType};
 use crate::service::tabular_idents::TabularIdentUuid;
 use aws_config::{BehaviorVersion, SdkConfig};
 
@@ -228,6 +225,7 @@ impl S3Profile {
                         &test_location,
                         credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
                         arn,
+                        StoragePermissions::ReadWriteDelete,
                     )
                     .await?;
                 tracing::debug!("Validating STS token.");
@@ -239,6 +237,7 @@ impl S3Profile {
                     .get_minio_sts_token(
                         &test_location,
                         credential.ok_or(CredentialsError::MissingCredential(StorageType::S3))?,
+                        StoragePermissions::ReadWriteDelete,
                     )
                     .await?;
                 tracing::debug!("Validating STS token.");
@@ -387,15 +386,18 @@ impl S3Profile {
     /// Fails if vended credentials are used - currently not supported.
     pub async fn generate_table_config(
         &self,
-        _: WarehouseIdent,
-        _: TableIdentUuid,
-        _: NamespaceIdentUuid,
+        Idents {
+            warehouse_ident: _,
+            namespace_ident: _,
+            table_ident: _,
+        }: Idents,
         DataAccess {
             vended_credentials,
             remote_signing,
         }: &DataAccess,
-        table_location: &str,
         cred: Option<&S3Credential>,
+        table_location: &str,
+        storage_permissions: StoragePermissions,
     ) -> Result<TableConfig, TableConfigError> {
         // If vended_credentials is False and remote_signing is False,
         // use remote_signing.
@@ -427,9 +429,11 @@ impl S3Profile {
                     expiration: _,
                     ..
                 } = if let (S3Flavor::Minio, Some(cred)) = (self.flavor, cred) {
-                    self.get_minio_sts_token(table_location, cred).await?
+                    self.get_minio_sts_token(table_location, cred, storage_permissions)
+                        .await?
                 } else if let (Some(cred), Some(arn)) = (cred, self.sts_role_arn.as_ref()) {
-                    self.get_aws_sts_token(table_location, cred, arn).await?
+                    self.get_aws_sts_token(table_location, cred, arn, storage_permissions)
+                        .await?
                 } else {
                     // This error should never be returned since we validate this when creating the profile.
                     // We should consider using an enum instead of 3 independent fields.
@@ -462,16 +466,20 @@ impl S3Profile {
         table_location: &str,
         cred: &S3Credential,
         arn: &String,
+        storage_permissions: StoragePermissions,
     ) -> Result<aws_sdk_sts::types::Credentials, TableConfigError> {
-        self.get_sts_token(table_location, cred, Some(arn)).await
+        self.get_sts_token(table_location, cred, Some(arn), storage_permissions)
+            .await
     }
 
     async fn get_minio_sts_token(
         &self,
         table_location: &str,
         cred: &S3Credential,
+        storage_permissions: StoragePermissions,
     ) -> Result<aws_sdk_sts::types::Credentials, TableConfigError> {
-        self.get_sts_token(table_location, cred, None).await
+        self.get_sts_token(table_location, cred, None, storage_permissions)
+            .await
     }
 
     async fn get_sts_token(
@@ -479,6 +487,7 @@ impl S3Profile {
         table_location: &str,
         cred: &S3Credential,
         arn: Option<&str>,
+        storage_permissions: StoragePermissions,
     ) -> Result<aws_sdk_sts::types::Credentials, TableConfigError> {
         let cred = self
             .get_config(self.get_aws_sdk_credentials(Some(cred))?)
@@ -487,7 +496,10 @@ impl S3Profile {
         let assume_role_builder = aws_sdk_sts::Client::new(&cred)
             .assume_role()
             .role_session_name("iceberg")
-            .policy(Self::get_aws_policy_string(table_location));
+            .policy(Self::get_aws_policy_string(
+                table_location,
+                storage_permissions,
+            ));
         let assume_role_builder = if let Some(arn) = arn {
             assume_role_builder.role_arn(arn)
         } else {
@@ -546,7 +558,20 @@ impl S3Profile {
         }
     }
 
-    fn get_aws_policy_string(table_location: &str) -> String {
+    fn permission_to_actions(storage_permissions: StoragePermissions) -> &'static str {
+        match storage_permissions {
+            StoragePermissions::Read => "\"s3:GetObject\"",
+            StoragePermissions::ReadWrite => "\"s3:GetObject\", \"s3:PutObject\"",
+            StoragePermissions::ReadWriteDelete => {
+                "\"s3:GetObject\", \"s3:PutObject\", \"s3:DeleteObject\", \"s3:ListBucket\""
+            }
+        }
+    }
+
+    fn get_aws_policy_string(
+        table_location: &str,
+        storage_permissions: StoragePermissions,
+    ) -> String {
         let resource = dbg!(format!(
             "arn:aws:s3:::{}/*",
             table_location.trim_start_matches("s3://")
@@ -559,10 +584,7 @@ impl S3Profile {
                 "Sid": "{}",
                 "Effect": "Allow",
                 "Action": [
-                    "s3:PutObject",
-                    "s3:GetObject",
-                    "s3:ListBucket",
-                    "s3:DeleteObject"
+                    {}
                 ],
                 "Resource": [
                     "{}"
@@ -571,6 +593,7 @@ impl S3Profile {
         ]
     }}"#,
             uuid::Uuid::now_v7().simple(),
+            Self::permission_to_actions(storage_permissions),
             resource
         )
     }
@@ -770,7 +793,8 @@ mod test {
     #[test]
     fn policy_string_is_json() {
         let table_location = "s3://bucket-name/path/to/table";
-        let policy = S3Profile::get_aws_policy_string(table_location);
+        let policy =
+            S3Profile::get_aws_policy_string(table_location, StoragePermissions::ReadWriteDelete);
         let _ = serde_json::from_str::<serde_json::Value>(&policy).unwrap();
     }
 }
