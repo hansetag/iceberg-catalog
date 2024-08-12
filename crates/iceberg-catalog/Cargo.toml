@@ -67,6 +67,7 @@ tower-http = { workspace = true, optional = true, features = [
     "util",
 ] }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
 utoipa = { workspace = true, features = ["uuid"] }

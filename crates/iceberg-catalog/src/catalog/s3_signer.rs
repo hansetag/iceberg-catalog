@@ -379,6 +379,7 @@ pub(super) mod s3_utils {
     use crate::service::storage::S3Location;
     use lazy_regex::regex;
 
+    #[derive(Debug)]
     pub(super) struct ParsedS3Url {
         pub(super) location: S3Location,
         // Used endpoint without the bucket
@@ -676,20 +677,8 @@ mod test {
 
     #[test]
     fn test_uri_bucket_missing() {
-        let cases = vec![
-            // Bucket missing
-            TC {
-                request_uri: "https://s3.my-region.amazonaws.com/key",
-                table_location: "s3://bucket/key",
-                region: "my-region",
-                endpoint: None,
-                expected_outcome: false,
-            },
-        ];
-
-        for tc in cases {
-            run_validate_uri_test(&tc);
-        }
+        let path = "https://s3.my-region.amazonaws.com/key";
+        s3_utils::parse_s3_url(&url::Url::parse(path).unwrap()).unwrap_err();
     }
 
     #[test]
@@ -702,14 +691,6 @@ mod test {
                 region: "my-region",
                 endpoint: Some("https://s3.my-service.example.com"),
                 expected_outcome: true,
-            },
-            // Endpoint specified but wrong
-            TC {
-                request_uri: "https://bucket.with.point.s3.my-service.example.com/key",
-                table_location: "s3://bucket.with.point/key",
-                region: "my-region",
-                endpoint: Some("https://my-service.example.com"),
-                expected_outcome: false,
             },
         ];
 

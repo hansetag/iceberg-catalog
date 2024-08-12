@@ -806,7 +806,7 @@ mod test {
                 bucket,
                 key_prefix: Some("test_prefix".to_string()),
                 assume_role_arn: None,
-                endpoint: Some(endpoint),
+                endpoint: Some(endpoint.parse().unwrap()),
                 region,
                 path_style_access: Some(true),
                 sts_role_arn: None,
