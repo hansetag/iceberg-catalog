@@ -1,6 +1,6 @@
 use crate::{
     catalog::compression_codec::CompressionCodec,
-    service::{storage::TestMetadata, NamespaceIdentUuid, TableIdentUuid},
+    service::{NamespaceIdentUuid, TableIdentUuid},
     WarehouseIdent,
 };
 
@@ -110,12 +110,11 @@ impl AzdlsProfile {
         let sanitized_ns_location = reduce_scheme_string(&namespace_location, false);
 
         // Validate the file_io instance by creating a test file.
-        let test_metadata = TestMetadata::new();
-        let compression_codec = CompressionCodec::try_from_metadata(&test_metadata)
+        let compression_codec = CompressionCodec::try_from_maybe_properties(None)
             .map_err(ValidationError::UnsupportedCompressionCodec)?;
         crate::catalog::io::write_metadata_file(
             &test_location,
-            test_metadata,
+            "test",
             compression_codec,
             &file_io,
         )

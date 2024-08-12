@@ -7,7 +7,6 @@ mod s3;
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::catalog::compression_codec::CompressionCodec;
-use crate::catalog::CommonMetadata;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
 pub use az::{AzCredential, AzdlsProfile};
@@ -44,29 +43,6 @@ pub enum StorageType {
     #[cfg(test)]
     #[strum(serialize = "test")]
     Test,
-}
-
-// write_metadata expects Serialize + CommonMetadata, so for "test writes"
-// we use a TestMetadata struct with empty properties
-// TODO: define somewhere else?
-// TODO: current default is to compress metadata, introducing a tiny overhead for test writes
-#[derive(serde::Serialize)]
-struct TestMetadata {
-    test_properties: HashMap<String, String>,
-}
-
-impl TestMetadata {
-    fn new() -> TestMetadata {
-        TestMetadata {
-            test_properties: HashMap::new(),
-        }
-    }
-}
-
-impl CommonMetadata for TestMetadata {
-    fn properties(&self) -> &HashMap<String, String> {
-        &self.test_properties
-    }
 }
 
 #[allow(clippy::module_name_repetitions)]

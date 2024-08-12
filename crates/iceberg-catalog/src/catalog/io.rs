@@ -4,7 +4,7 @@ use iceberg::io::FileIO;
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use serde::Serialize;
 
-use super::compression_codec::{CompressionCodec, UnsupportedCompressionCodec};
+use super::compression_codec::CompressionCodec;
 
 pub(crate) async fn write_metadata_file(
     metadata_location: &str,
@@ -86,8 +86,6 @@ pub enum IoError {
     FileClose(#[source] iceberg::Error),
     #[error("Failed to delete file. Please check the storage credentials.")]
     FileDelete(#[source] iceberg::Error),
-    #[error(transparent)]
-    UnsupportedCompressionCodec(#[from] UnsupportedCompressionCodec),
 }
 
 impl IoError {
@@ -110,10 +108,6 @@ impl From<IoError> for IcebergErrorResponse {
             | IoError::FileWriterCreation(_)
             | IoError::FileCreation(_) => {
                 ErrorModel::failed_dependency(message, typ, Some(boxed)).into()
-            }
-
-            IoError::UnsupportedCompressionCodec(_) => {
-                ErrorModel::bad_request(message, typ, Some(boxed)).into()
             }
 
             IoError::FileCompression(_) | IoError::Write(_) | IoError::Serialization(_) => {

@@ -2,7 +2,7 @@
 
 use crate::{
     catalog::compression_codec::CompressionCodec,
-    service::{storage::TestMetadata, NamespaceIdentUuid, TableIdentUuid},
+    service::{NamespaceIdentUuid, TableIdentUuid},
     WarehouseIdent, CONFIG,
 };
 
@@ -258,7 +258,9 @@ impl S3Profile {
     ) -> Result<(), ValidationError> {
         let test_location = dbg!(test_location.trim_end_matches('/').to_string() + "/test.txt.gz");
         // Test that we can write a metadata file
-        crate::catalog::io::write_metadata_file(&test_location, "test", file_io)
+        let compression_codec = CompressionCodec::try_from_maybe_properties(None)
+            .map_err(ValidationError::UnsupportedCompressionCodec)?;
+        crate::catalog::io::write_metadata_file(&test_location, "test", compression_codec, file_io)
             .await
             .map_err(|e| {
                 ValidationError::IoOperationFailed(e, Box::new(StorageProfile::S3(self.clone())))

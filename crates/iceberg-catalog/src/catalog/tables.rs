@@ -1052,9 +1052,6 @@ where
     I: IntoIterator<Item = &'a String>,
 {
     for prop in properties {
-        // TODO: #150 says properties like write.metadata.previous-version-max or write.data.path
-        // or write.metadata.path should be supportedm but PR #197 introduces this check and
-        // deniues these (and similar) properties...
         if (prop.starts_with("write.metadata") && prop != "write.metadata.compression-codec")
             || prop.starts_with("write.data.path")
         {
