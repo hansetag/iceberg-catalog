@@ -34,8 +34,9 @@ pub struct S3Profile {
     /// Optional endpoint to use for S3 requests, if not provided
     /// the region will be used to determine the endpoint.
     /// If both region and endpoint are provided, the endpoint will be used.
+    /// Example: `http://s3-de.my-domain.com:9000`
     #[serde(default)]
-    pub endpoint: Option<String>,
+    pub endpoint: Option<url::Url>,
     /// Region to use for S3 requests.
     pub region: String,
     /// Path style access for S3 requests.
@@ -194,19 +195,21 @@ impl S3Profile {
         }
 
         if let Some(endpoint) = endpoint {
-            let endpoint =
-                url::Url::parse(endpoint).map_err(|e| ValidationError::InvalidProfile {
-                    source: Some(Box::new(e)),
-                    reason: "Storage Profile `endpoint` is not a valid URL.".to_string(),
-                    entity: "S3Endpoint".to_string(),
-                })?;
-
             // Protocol must be http or https
             if endpoint.scheme() != "http" && endpoint.scheme() != "https" {
                 return Err(ValidationError::InvalidProfile {
                     source: None,
                     reason: "Storage Profile `endpoint` must have http or https protocol."
                         .to_string(),
+                    entity: "S3Endpoint".to_string(),
+                });
+            }
+
+            // No path allowed
+            if !endpoint.path().is_empty() && endpoint.path() != "/" {
+                return Err(ValidationError::InvalidProfile {
+                    source: None,
+                    reason: "Storage Profile `endpoint` must not have a path.".to_string(),
                     entity: "S3Endpoint".to_string(),
                 });
             }
@@ -540,7 +543,7 @@ impl S3Profile {
             .credentials_provider(creds);
 
         if let Some(endpoint) = &self.endpoint {
-            loader.endpoint_url(endpoint).load().await
+            loader.endpoint_url(endpoint.to_string()).load().await
         } else {
             loader.load().await
         }
@@ -631,6 +634,84 @@ fn insert_pyiceberg_hack(config: &mut TableConfig) {
         key: "py-io-impl".to_string(),
         value: "pyiceberg.io.fsspec.FsspecFileIO".to_string(),
     });
+}
+
+// S3Location exists as part of aws_sdk_s3::types, however we don't depend on it yet
+// and there is no parse() function available. The prefix is also represented as a
+// String, which makes it harder to work with.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct S3Location {
+    pub(crate) bucket_name: String,
+    pub(crate) prefix: Vec<String>,
+}
+
+impl std::fmt::Display for S3Location {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "s3://{}/{}", self.bucket_name, self.prefix.join("/"))
+    }
+}
+
+impl S3Location {
+    // Check if the location is a sublocation of the other location.
+    // If the locations are the same, it is considered a sublocation.
+    pub(crate) fn is_sublocation_of(&self, other: &S3Location) -> bool {
+        if self.bucket_name != other.bucket_name {
+            return false;
+        }
+
+        let other_is_folder = other.prefix.last() == Some(&String::new());
+
+        // Other is a folder if the last prefix element is empty.
+        let other_prefix = if other_is_folder {
+            &other.prefix[..other.prefix.len() - 1]
+        } else {
+            &other.prefix
+        };
+
+        // Check if the other prefix is a prefix of the current prefix.
+        self.prefix.starts_with(other_prefix)
+    }
+}
+
+/// Parse the location of an object in S3. Will fail if only the bucket name is provided.
+/// prefix has at least one element, which might be an empty string.
+pub(crate) fn parse_s3_location(location: &str) -> Result<S3Location, ValidationError> {
+    let location = url::Url::parse(location).map_err(|e| ValidationError::InvalidS3Location {
+        reason: "S3 location is no valid URL.".to_string(),
+        location: location.to_string(),
+        source: Some(Box::new(e)),
+    })?;
+
+    // Protocol must be s3
+    if location.scheme() != "s3" {
+        return Err(ValidationError::InvalidS3Location {
+            reason: "S3 location must use s3 protocol.".to_string(),
+            location: location.to_string(),
+            source: None,
+        });
+    }
+
+    let bucket_name = location
+        .host_str()
+        .ok_or_else(|| ValidationError::InvalidS3Location {
+            reason: "S3 location does not have a bucket name.".to_string(),
+            location: location.to_string(),
+            source: None,
+        })?;
+
+    let prefix: Vec<String> = location
+        .path_segments()
+        .map(|segments| segments.map(std::string::ToString::to_string).collect())
+        .ok_or(ValidationError::InvalidS3Location {
+            reason: "S3 location does not have a table key.".to_string(),
+            location: location.to_string(),
+            source: None,
+        })?;
+
+    Ok(S3Location {
+        bucket_name: bucket_name.to_string(),
+        prefix,
+    })
 }
 
 #[cfg(test)]
@@ -768,9 +849,70 @@ mod test {
     }
 
     #[test]
+    fn test_parse_s3_location() {
+        let cases = vec![
+            (
+                "s3://test_bucket/test_prefix/namespace/table",
+                "test_bucket",
+                vec!["test_prefix", "namespace", "table"],
+            ),
+            (
+                "s3://test_bucket/test_prefix/namespace/table/",
+                "test_bucket",
+                vec!["test_prefix", "namespace", "table", ""],
+            ),
+            (
+                "s3://test_bucket/test_prefix",
+                "test_bucket",
+                vec!["test_prefix"],
+            ),
+            (
+                "s3://test_bucket/test_prefix/",
+                "test_bucket",
+                vec!["test_prefix", ""],
+            ),
+            ("s3://test_bucket/", "test_bucket", vec![""]),
+        ];
+
+        for (location, bucket, prefix) in cases {
+            let result = parse_s3_location(location).unwrap();
+            assert_eq!(result.bucket_name, bucket);
+            assert_eq!(result.prefix, prefix);
+        }
+    }
+
+    #[test]
     fn policy_string_is_json() {
         let table_location = "s3://bucket-name/path/to/table";
         let policy = S3Profile::get_aws_policy_string(table_location);
         let _ = serde_json::from_str::<serde_json::Value>(&policy).unwrap();
+    }
+
+    #[test]
+    fn test_parse_s3_location_bucket_only() {
+        parse_s3_location("s3://test_bucket").unwrap_err();
+    }
+
+    #[test]
+    fn test_parse_s3_location_invalid_proto() {
+        parse_s3_location("adls://test_bucket/foo/").unwrap_err();
+    }
+
+    #[test]
+    fn test_is_sublocation_of() {
+        let cases = vec![
+            ("s3://bucket/foo", "s3://bucket/foo", true),
+            ("s3://bucket/foo/", "s3://bucket/foo/bar", true),
+            ("s3://bucket/foo", "s3://bucket/foo/bar", true),
+            ("s3://bucket/foo", "s3://bucket/baz/bar", false),
+            ("s3://bucket/foo", "s3://bucket/foo-bar", false),
+        ];
+
+        for (parent, maybe_sublocation, expected) in cases {
+            let parent = parse_s3_location(parent).unwrap();
+            let maybe_sublocation = parse_s3_location(maybe_sublocation).unwrap();
+            let result = maybe_sublocation.is_sublocation_of(&parent);
+            assert_eq!(result, expected);
+        }
     }
 }
