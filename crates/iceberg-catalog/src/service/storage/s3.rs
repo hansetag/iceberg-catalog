@@ -1,13 +1,10 @@
-use crate::{
-    service::{NamespaceIdentUuid, TableIdentUuid},
-    WarehouseIdent, CONFIG,
-};
+use crate::{service::NamespaceIdentUuid, WarehouseIdent, CONFIG};
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::service::storage::error::{
     CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
-use crate::service::storage::{StoragePermissions, StorageProfile, StorageType};
+use crate::service::storage::{Idents, StoragePermissions, StorageProfile, StorageType};
 use crate::service::tabular_idents::TabularIdentUuid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -292,9 +289,11 @@ impl S3Profile {
     /// Fails if vended credentials are used - currently not supported.
     pub async fn generate_table_config(
         &self,
-        _: WarehouseIdent,
-        _: TableIdentUuid,
-        _: NamespaceIdentUuid,
+        Idents {
+            warehouse_ident: _,
+            namespace_ident: _,
+            table_ident: _,
+        }: Idents,
         data_access: &DataAccess,
         _: Option<&S3Credential>,
         _: StoragePermissions,

@@ -1,7 +1,4 @@
-use crate::{
-    service::{NamespaceIdentUuid, TableIdentUuid},
-    WarehouseIdent,
-};
+use crate::{service::NamespaceIdentUuid, WarehouseIdent};
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, Result};
 use crate::catalog::io::IoError;
@@ -9,7 +6,7 @@ use crate::service::storage::error::{
     CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
 use crate::service::storage::path_utils::reduce_scheme_string;
-use crate::service::storage::{StoragePermissions, StorageProfile, StorageType};
+use crate::service::storage::{Idents, StoragePermissions, StorageProfile, StorageType};
 use crate::service::tabular_idents::TabularIdentUuid;
 use azure_storage::prelude::{BlobSasPermissions, BlobSignedResource};
 use azure_storage::shared_access_signature::service_sas::BlobSharedAccessSignature;
@@ -239,9 +236,11 @@ impl AzdlsProfile {
     /// valid `Url`.
     pub async fn generate_table_config(
         &self,
-        _: WarehouseIdent,
-        _: TableIdentUuid,
-        _: NamespaceIdentUuid,
+        Idents {
+            warehouse_ident: _,
+            namespace_ident: _,
+            table_ident: _,
+        }: Idents,
         _: &DataAccess,
         table_location: &str,
         creds: &AzCredential,
@@ -332,9 +331,11 @@ impl AzdlsProfile {
     ) -> Result<(), ValidationError> {
         let table_config = self
             .generate_table_config(
-                Uuid::now_v7().into(),
-                table_id.into(),
-                ns_id,
+                Idents {
+                    warehouse_ident: Uuid::now_v7().into(),
+                    table_ident: table_id.into(),
+                    namespace_ident: ns_id,
+                },
                 &DataAccess {
                     vended_credentials: false,
                     remote_signing: false,

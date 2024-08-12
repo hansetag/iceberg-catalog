@@ -11,7 +11,7 @@ use crate::catalog::views::validate_view_properties;
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
 use crate::service::event_publisher::EventMetadata;
-use crate::service::storage::StoragePermissions;
+use crate::service::storage::{Idents, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{Catalog, SecretStore, State, TableIdentUuid, Transaction};
 use crate::service::{GetWarehouseResponse, Result};
@@ -154,9 +154,11 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     // is a stage-create, we still fetch the secret.
     let config = storage_profile
         .generate_table_config(
-            warehouse_id,
-            namespace_id,
-            TableIdentUuid::from(*view_id),
+            Idents {
+                warehouse_ident: warehouse_id,
+                namespace_ident: namespace_id,
+                table_ident: TableIdentUuid::from(*view_id),
+            },
             &data_access,
             storage_secret.as_ref(),
             metadata.location.as_ref(),

@@ -154,9 +154,7 @@ impl StorageProfile {
     /// Fails if the underlying storage profile's generation fails.
     pub async fn generate_table_config(
         &self,
-        warehouse_id: WarehouseIdent,
-        namespace_id: NamespaceIdentUuid,
-        table_id: TableIdentUuid,
+        idents: Idents,
         data_access: &DataAccess,
         secret: Option<&StorageCredential>,
         table_location: &str,
@@ -166,9 +164,7 @@ impl StorageProfile {
             StorageProfile::S3(profile) => {
                 profile
                     .generate_table_config(
-                        warehouse_id,
-                        table_id,
-                        namespace_id,
+                        idents,
                         data_access,
                         secret.map(|s| s.try_to_s3()).transpose()?,
                         access,
@@ -178,9 +174,7 @@ impl StorageProfile {
             StorageProfile::Azdls(profile) => {
                 profile
                     .generate_table_config(
-                        warehouse_id,
-                        table_id,
-                        namespace_id,
+                        idents,
                         data_access,
                         table_location,
                         secret
@@ -247,6 +241,13 @@ impl StorageProfile {
             }),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Idents {
+    pub warehouse_ident: WarehouseIdent,
+    pub namespace_ident: NamespaceIdentUuid,
+    pub table_ident: TableIdentUuid,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
