@@ -560,9 +560,11 @@ impl S3Profile {
 
     fn permission_to_actions(storage_permissions: StoragePermissions) -> &'static str {
         match storage_permissions {
-            StoragePermissions::Read => "s3:GetObject",
-            StoragePermissions::ReadWrite => "s3:GetObject, s3:PutObject",
-            StoragePermissions::ReadWriteDelete => "s3:GetObject, s3:PutObject, s3:DeleteObject",
+            StoragePermissions::Read => "\"s3:GetObject\"",
+            StoragePermissions::ReadWrite => "\"s3:GetObject\", \"s3:PutObject\"",
+            StoragePermissions::ReadWriteDelete => {
+                "\"s3:GetObject\", \"s3:PutObject\", \"s3:DeleteObject\", \"s3:ListBucket\""
+            }
         }
     }
 
