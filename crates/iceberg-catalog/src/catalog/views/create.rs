@@ -187,7 +187,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
                 tabular_id: TabularIdentUuid::View(*view_id),
                 warehouse_id: *warehouse_id.as_uuid(),
                 name: view.name,
-                namespace: view.namespace.encode_in_url(),
+                namespace: view.namespace.to_url_string(),
                 prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
                 num_events: 1,
                 sequence_number: 0,
@@ -199,7 +199,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let load_view_result = LoadViewResult {
         metadata_location,
         metadata,
-        config: Some(config),
+        config: Some(config.into()),
     };
 
     Ok(load_view_result)

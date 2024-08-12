@@ -534,6 +534,7 @@ fn parse_s3_url_to_location(uri: &url::Url) -> Result<String> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::service::storage::S3Flavor;
 
     struct TC {
         request_uri: &'static str,
@@ -551,6 +552,9 @@ mod test {
             assume_role_arn: None,
             path_style_access: None,
             key_prefix: None,
+            sts_role_arn: None,
+            sts_enabled: false,
+            flavor: S3Flavor::Minio,
         }
     }
 
@@ -750,6 +754,9 @@ mod test {
             assume_role_arn: None,
             path_style_access: None,
             key_prefix: None,
+            sts_role_arn: None,
+            sts_enabled: false,
+            flavor: S3Flavor::Minio,
         };
 
         let result = validate_region("my-region", &storage_profile);

@@ -201,7 +201,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let load_table_result = LoadTableResult {
             metadata_location,
             metadata: table_metadata,
-            config: Some(config),
+            config: Some(config.into()),
         };
 
         // Metadata file written, now we can commit the transaction
@@ -212,7 +212,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 tabular_id: TabularIdentUuid::Table(*table_id),
                 warehouse_id: *warehouse_id,
                 name: table.name.clone(),
-                namespace: table.namespace.encode_in_url(),
+                namespace: table.namespace.to_url_string(),
                 prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
                 num_events: 1,
                 sequence_number: 0,
@@ -329,7 +329,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                         storage_secret.as_ref(),
                         table_location.as_ref(),
                     )
-                    .await?,
+                    .await?
+                    .into(),
             ),
         };
 
@@ -520,7 +521,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 tabular_id: TabularIdentUuid::Table(*table_id),
                 warehouse_id: *warehouse_id,
                 name: parameters.table.name,
-                namespace: parameters.table.namespace.encode_in_url(),
+                namespace: parameters.table.namespace.to_url_string(),
                 prefix: parameters
                     .prefix
                     .map(crate::api::iceberg::types::Prefix::into_string)
@@ -598,7 +599,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 tabular_id: TabularIdentUuid::Table(*table_id),
                 warehouse_id: *warehouse_id,
                 name: table.name,
-                namespace: table.namespace.encode_in_url(),
+                namespace: table.namespace.to_url_string(),
                 prefix: prefix
                     .map(crate::api::iceberg::types::Prefix::into_string)
                     .unwrap_or_default(),
@@ -745,7 +746,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 tabular_id: TabularIdentUuid::Table(*source_id),
                 warehouse_id: *warehouse_id,
                 name: source.name,
-                namespace: source.namespace.encode_in_url(),
+                namespace: source.namespace.to_url_string(),
                 prefix: prefix.map(Prefix::into_string).unwrap_or_default(),
                 num_events: 1,
                 sequence_number: 0,
@@ -964,7 +965,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     tabular_id: TabularIdentUuid::Table(*table_id),
                     warehouse_id: *warehouse_id,
                     name: table_ident.name,
-                    namespace: table_ident.namespace.encode_in_url(),
+                    namespace: table_ident.namespace.to_url_string(),
                     prefix: prefix
                         .clone()
                         .map(|p| p.as_str().to_string())

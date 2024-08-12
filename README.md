@@ -7,11 +7,11 @@
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/iceberg-catalog)](https://artifacthub.io/packages/search?repo=iceberg-catalog)
 [![Docker on quay](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://quay.io/repository/hansetag/iceberg-catalog?tab=tags&filter_tag_name=like%3Av)
 [![Helm Chart](https://img.shields.io/badge/Helm-0F1689?style=for-the-badge&logo=Helm&labelColor=0F1689)](https://github.com/hansetag/iceberg-catalog-charts/tree/main/charts/iceberg-catalog)
-[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/S2ubHBxT)
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/YSztUqbx)
 
 This is TIP: A Rust-native implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification based on [apache/iceberg-rust](https://github.com/apache/iceberg-rust).
 
-If you have questions, feature requests or just want a chat, we are hanging around in [Discord](https://discord.gg/S2ubHBxT)!
+If you have questions, feature requests or just want a chat, we are hanging around in [Discord](https://discord.gg/YSztUqbx)!
 
 # Scope and Features
 
@@ -61,14 +61,16 @@ For more information on deployment, please check the [User Guide](USER_GUIDE.md)
 
 ### Storage Profile Support
 
-| Storage              |    Status    | Comment                                                          |
-|----------------------|:------------:|------------------------------------------------------------------|
-| S3 - AWS             | ![semi-done] | No vended-credentials - only remote-signing, assume role missing |
-| S3 - Custom          |   ![done]    | Vended-Credentials not possible (AWS STS is missing)             |
-| Azure Blob           |   ![open]    |                                                                  |
-| Azure ADLS Gen2      |   ![open]    |                                                                  |
-| Microsoft OneLake    |   ![open]    |                                                                  |
-| Google Cloud Storage |   ![open]    |                                                                  |
+| Storage              |    Status    | Comment                                                   |
+|----------------------|:------------:|-----------------------------------------------------------|
+| S3 - AWS             | ![semi-done] | vended-credentials & remote-signing, assume role missing  |
+| S3 - Custom          |   ![done]    | vended-credentials & remote-signing, tested against minio |
+| Azure ADLS Gen2      |   ![done]    |                                                           |
+| Azure Blob           |   ![open]    |                                                           |
+| Microsoft OneLake    |   ![open]    |                                                           |
+| Google Cloud Storage |   ![open]    |                                                           |
+
+Details on how to configure the storage profiles can be found in the [Storage Guide](STORAGE.md).
 
 ### Supported Catalog Backends
 
@@ -213,12 +215,6 @@ curl {your-catalog-url}/catalog/v1/transactions/commit -X POST -H "authorization
 |-------------------------------------|----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `ICEBERG_REST__OPENID_PROVIDER_URI` | `https://keycloak.local/realms/{your-realm}` | OpenID Provider URL, with keycloak this is the url pointing to your realm, for Azure App Registration it would be something like `https://login.microsoftonline.com/{your-tenant-id-here}/v2.0/`. If this variable is not set, endpoints are **not** secured |
 
-
-# Limitations
-
-- Table Metadata is currently limited to `256Mb` for the `postgres` implementation. If you need more, you should
-  probably vaccum your table ;)
-- Views are not supported yet
 
 ## License
 

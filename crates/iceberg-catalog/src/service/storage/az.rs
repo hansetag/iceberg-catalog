@@ -17,7 +17,9 @@ use azure_storage::shared_access_signature::service_sas::BlobSharedAccessSignatu
 use azure_storage::shared_access_signature::SasToken;
 use azure_storage::StorageCredentials;
 use futures::StreamExt;
-use iceberg::io::azdls;
+
+use iceberg::io::AzdlsConfigKeys;
+use iceberg_ext::table_config::{custom, TableConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -254,7 +256,7 @@ impl AzdlsProfile {
         _: &DataAccess,
         table_location: &str,
         creds: &AzCredential,
-    ) -> Result<HashMap<String, String>, TableConfigError> {
+    ) -> Result<TableConfig, TableConfigError> {
         let AzCredential::ClientCredentials {
             client_id,
             tenant_id,
@@ -271,10 +273,13 @@ impl AzdlsProfile {
             client_secret.clone(),
         );
         let cred = azure_storage::StorageCredentials::token_credential(Arc::new(token));
-        let mut config = HashMap::new();
+        let mut config = TableConfig::default();
 
         let sas = self.get_sas_token(table_location, cred).await?;
-        config.insert(self.iceberg_sas_property_key(), sas);
+        config.insert(&custom::Pair {
+            key: self.iceberg_sas_property_key(),
+            value: sas,
+        });
         Ok(config)
     }
 
@@ -290,7 +295,7 @@ impl AzdlsProfile {
 
         builder = builder
             .with_prop(
-                azdls::ConfigKeys::Endpoint,
+                AzdlsConfigKeys::Endpoint,
                 format!(
                     "https://{}.{}",
                     self.account_name,
@@ -299,8 +304,8 @@ impl AzdlsProfile {
                         .unwrap_or(DEFAULT_ENDPOINT_SUFFIX)
                 ),
             )
-            .with_prop(azdls::ConfigKeys::AccountName, self.account_name.clone())
-            .with_prop(azdls::ConfigKeys::Filesystem, self.filesystem.clone());
+            .with_prop(AzdlsConfigKeys::AccountName, self.account_name.clone())
+            .with_prop(AzdlsConfigKeys::Filesystem, self.filesystem.clone());
 
         if let Some(credential) = credential {
             match credential {
@@ -311,16 +316,14 @@ impl AzdlsProfile {
                 } => {
                     builder = builder
                         .with_prop(
-                            azdls::ConfigKeys::ClientSecret.to_string(),
+                            AzdlsConfigKeys::ClientSecret.to_string(),
                             client_secret.to_string(),
                         )
-                        .with_prop(azdls::ConfigKeys::ClientId, client_id.to_string())
-                        .with_prop(azdls::ConfigKeys::TenantId, tenant_id.to_string());
+                        .with_prop(AzdlsConfigKeys::ClientId, client_id.to_string())
+                        .with_prop(AzdlsConfigKeys::TenantId, tenant_id.to_string());
                     if let Some(authority_host) = &self.authority_host {
-                        builder = builder.with_prop(
-                            azdls::ConfigKeys::AuthorityHost,
-                            authority_host.to_string(),
-                        );
+                        builder = builder
+                            .with_prop(AzdlsConfigKeys::AuthorityHost, authority_host.to_string());
                     }
                 }
             }
@@ -353,7 +356,7 @@ impl AzdlsProfile {
         // TODO: replace with iceberg_rust's FileIO + opendal once sas is available
         let cred = azure_storage::StorageCredentials::sas_token(
             table_config
-                .get(self.iceberg_sas_property_key().as_str())
+                .get_custom_prop(self.iceberg_sas_property_key().as_str())
                 .ok_or(CredentialsError::ShortTermCredential {
                     reason: "Couldn't find sas token in table config.".to_string(),
                     source: None,

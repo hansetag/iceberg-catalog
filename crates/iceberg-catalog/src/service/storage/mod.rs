@@ -4,8 +4,6 @@ mod az;
 mod error;
 mod s3;
 
-use std::collections::HashMap;
-
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::catalog::compression_codec::CompressionCodec;
@@ -16,7 +14,8 @@ pub use az::{AzCredential, AzdlsProfile};
 use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
-pub use s3::{S3Credential, S3Profile};
+use iceberg_ext::table_config::TableConfig;
+pub use s3::{S3Credential, S3Flavor, S3Profile};
 use serde::{Deserialize, Serialize};
 
 /// Storage profile for a warehouse.
@@ -77,10 +76,13 @@ impl StorageProfile {
         match self {
             StorageProfile::S3(profile) => profile.generate_catalog_config(warehouse_id),
             #[cfg(test)]
-            StorageProfile::Test(_) => CatalogConfig {
-                overrides: HashMap::default(),
-                defaults: HashMap::default(),
-            },
+            StorageProfile::Test(_) => {
+                use std::collections::HashMap;
+                CatalogConfig {
+                    overrides: HashMap::default(),
+                    defaults: HashMap::default(),
+                }
+            }
             StorageProfile::Azdls(prof) => prof.generate_catalog_config(warehouse_id),
         }
     }
@@ -119,9 +121,13 @@ impl StorageProfile {
         secret: Option<&StorageCredential>,
     ) -> Result<iceberg::io::FileIO, FileIoError> {
         match self {
-            StorageProfile::S3(profile) => {
-                profile.file_io(secret.map(|s| s.try_to_s3()).transpose()?)
-            }
+            StorageProfile::S3(profile) => profile.file_io(
+                secret
+                    .map(|s| s.try_to_s3())
+                    .transpose()?
+                    .map(Into::into)
+                    .as_ref(),
+            ),
             StorageProfile::Azdls(prof) => prof.file_io(secret.map(|s| s.try_to_az()).transpose()?),
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(iceberg::io::FileIOBuilder::new("file").build()?),
@@ -180,7 +186,7 @@ impl StorageProfile {
         data_access: &DataAccess,
         secret: Option<&StorageCredential>,
         table_location: &str,
-    ) -> Result<HashMap<String, String>, TableConfigError> {
+    ) -> Result<TableConfig, TableConfigError> {
         match self {
             StorageProfile::S3(profile) => {
                 profile
@@ -189,6 +195,7 @@ impl StorageProfile {
                         table_id,
                         namespace_id,
                         data_access,
+                        table_location,
                         secret.map(|s| s.try_to_s3()).transpose()?,
                     )
                     .await
@@ -210,7 +217,7 @@ impl StorageProfile {
                     .await
             }
             #[cfg(test)]
-            StorageProfile::Test(_) => Ok(HashMap::default()),
+            StorageProfile::Test(_) => Ok(TableConfig::default()),
         }
     }
 
@@ -372,7 +379,8 @@ mod tests {
             "type": "s3",
             "bucket": "my-bucket",
             "endpoint": "http://localhost:9000",
-            "region": "us-east-1"
+            "region": "us-east-1",
+            "sts-enabled": false,
         });
 
         let profile: StorageProfile = serde_json::from_value(value).unwrap();
@@ -385,6 +393,9 @@ mod tests {
                 assume_role_arn: None,
                 path_style_access: None,
                 key_prefix: None,
+                sts_role_arn: None,
+                sts_enabled: false,
+                flavor: S3Flavor::Aws,
             })
         );
     }
