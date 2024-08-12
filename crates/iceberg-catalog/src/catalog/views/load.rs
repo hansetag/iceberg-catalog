@@ -119,7 +119,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let load_table_result = LoadViewResult {
         metadata_location: metadata_location.clone(),
         metadata: view_metadata,
-        config: Some(access),
+        config: Some(access.into()),
     };
 
     transaction.commit().await?;

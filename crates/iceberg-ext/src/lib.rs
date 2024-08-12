@@ -8,6 +8,7 @@
 
 pub mod catalog;
 pub mod spec;
+pub mod table_config;
 pub mod validation;
 
 pub use iceberg::{

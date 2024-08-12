@@ -79,6 +79,44 @@ $ docker run -d -p 8200:8200 --cap-add=IPC_LOCK -e 'VAULT_DEV_ROOT_TOKEN_ID=myro
 $ ./scripts/vault-setup.sh localhost:8200
 ```
 
+## Test cloud storage profiles
+
+Currently, we're not aware of a good way of testing cloud storage integration against local deployments. That means, in order to test against AWS s3 & Azure Datalake Storage Gen 2, you need to set the following environment variables for more information take a look at the storage guide ([STORAGE.md](STORAGE.md)), a sample `.env` could look like this:
+
+```sh
+# TEST_AZURE=<some-value> controls a proc macro which either includes or excludes the azure tests
+# if you compiled without TEST_AZURE, you'll have to change a file or do a cargo clean before rerunning tests. The same applies for the TEST_AWS and TEST_MINIO env vars.
+export TEST_AZURE=1
+export AZURE_TENANT_ID=<your tenant id>
+export AZURE_CLIENT_ID=<your entra id app registration client id>
+export AZURE_CLIENT_SECRET=<your entra id app registration client secret>
+export AZURE_STORAGE_ACCOUNT_NAME=<your azure storage account name>
+export AZURE_STORAGE_FILESYSTEM=<your azure adls filesystem name>
+
+export TEST_AWS=1
+export AWS_S3_BUCKET=<your aws s3 bucket>
+export AWS_S3_REGION=<your aws s3 region>
+# replace with actual values
+export AWS_S3_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+export AWS_S3_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+export AWS_S3_STS_ROLE_ARN=arn:aws:iam::123456789012:role/role-name
+
+# the values below should work with the default minio in our docker-compose
+export TEST_MINIO=1
+export ICEBERG_REST_TEST_S3_BUCKET=tests
+export ICEBERG_REST_TEST_S3_REGION=local
+export ICEBERG_REST_TEST_S3_ACCESS_KEY=minio-root-user
+export ICEBERG_REST_TEST_S3_SECRET_KEY=minio-root-password
+export ICEBERG_REST_TEST_S3_ENDPOINT=http://localhost:9000
+```
+
+You may then run a test via:
+
+```sh
+source .example.env-from-above
+cargo test service::storage::s3::test::aws::test_can_validate
+```
+
 ## Running integration test
 
 Please check the [Integration Test Docs](tests/README.md).

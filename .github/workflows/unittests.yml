@@ -66,11 +66,11 @@ jobs:
         env:
           VAULT_DEV_ROOT_TOKEN_ID: myroot
           VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
-          options: >-
-            --health-cmd "vault status -address http://localhost:1234"
-            --health-interval 10s
-            --health-timeout 5s
-            --health-retries 5
+        options: >-
+          --health-cmd "vault status -address http://localhost:8200"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
       postgres:
         image: postgres:16
@@ -85,6 +85,22 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: minio-root-user
+          MINIO_ROOT_PASSWORD: minio-root-password
+          MINIO_API_PORT_NUMBER: 9000
+          MINIO_CONSOLE_PORT_NUMBER: 9001
+          MINIO_SCHEME: http
+          MINIO_DEFAULT_BUCKETS: tests
+        volumes:
+          - ${{ github.workspace }}/data:/data
+        ports:
+          - 9000:9000
+          - 9001:9001
+        options: --health-cmd "curl -I http://localhost:9000/minio/health/live"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -126,6 +142,13 @@ jobs:
           ICEBERG_REST__KV2__USER: test
           ICEBERG_REST__KV2__PASSWORD: test
           ICEBERG_REST__KV2__SECRET_MOUNT: secret
+          # minio test envs
+          TEST_MINIO: 1
+          ICEBERG_REST_TEST_S3_BUCKET: tests
+          ICEBERG_REST_TEST_S3_REGION: local
+          ICEBERG_REST_TEST_S3_ACCESS_KEY: minio-root-user
+          ICEBERG_REST_TEST_S3_SECRET_KEY: minio-root-password
+          ICEBERG_REST_TEST_S3_ENDPOINT: http://localhost:9000
       - name: Doc Test
         run: cargo test --no-fail-fast --doc --all-features --workspace
         env:

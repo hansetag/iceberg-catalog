@@ -32,6 +32,8 @@ tracing = { workspace = true }
 typed-builder = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
+strum = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 lazy_static = { workspace = true }
