@@ -9,7 +9,7 @@ Currently, we support the following storage profiles:
 
 We support remote signing and vended-credentials with minio & aws. Remote signing works for both out of the box, vended-credentials needs some additional setup for aws.
 
-### AWS 
+### AWS
 
 To use vended-credentials with aws, your storage profile needs to contain
 
@@ -38,25 +38,24 @@ To use vended-credentials with aws, your storage profile needs to contain
 
 The `sts_role_arn` is the role the temporary credentials are assume.
 
-The storage-credential, i.e. `aws-access-key-id` & `aws-secret-access-key` should belong to a user which has `[s3:GetObject, s3:PutObject, s3:DeleteObject]` and the `[sts:AssumeRole]` permissions. 
+The storage-credential, i.e. `aws-access-key-id` & `aws-secret-access-key` should belong to a user which has `[s3:GetObject, s3:PutObject, s3:DeleteObject]` and the `[sts:AssumeRole]` permissions.
 
 The `sts_role_arn` also needs a trust relationship to the user, e.g.:
 
 ```json
 {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Principal": {
-                "AWS": "arn:aws:iam::....:user/...."
-            },
-            "Action": "sts:AssumeRole"
-        }
-    ]
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::....:user/...."
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
 }
 ```
-
 
 ### Minio
 
@@ -74,7 +73,8 @@ For minio, the setup does not require any additional configuration, we use Assum
         "region": "local-01",
         "path-style-access": true,
         "sts_role_arn": null,
-        "flavor": "minio"
+        "flavor": "minio",
+        "sts-enabled": false
     },
     "storage-credential": {
         "type": "s3",
@@ -91,7 +91,7 @@ For Azure Data Lake Storage Gen 2, the app registration your client creds belong
 
 - `Storage Blob Data Contributor`
 - `Storage Blob Delegator`
- 
+
 A sample storage profile could look like this:
 
 ```
@@ -112,3 +112,4 @@ A sample storage profile could look like this:
   }
 }
 ```
+
