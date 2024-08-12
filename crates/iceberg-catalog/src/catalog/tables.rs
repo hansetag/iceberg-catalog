@@ -20,7 +20,7 @@ use super::{
 };
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::storage::StorageCredential;
+use crate::service::storage::{Idents, StorageCredential, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
@@ -190,12 +190,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // is a stage-create, we still fetch the secret.
         let config = storage_profile
             .generate_table_config(
-                warehouse_id,
-                namespace_id,
-                TableIdentUuid::from(*table_id),
+                Idents {
+                    warehouse_ident: warehouse_id,
+                    namespace_ident: namespace_id,
+                    table_ident: TableIdentUuid::from(*table_id),
+                },
                 &data_access,
                 storage_secret.as_ref(),
                 table_metadata.location(),
+                // TODO: This should be a permission based on authz
+                StoragePermissions::ReadWriteDelete,
             )
             .await?;
         let load_table_result = LoadTableResult {
@@ -322,12 +326,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             config: Some(
                 storage_profile
                     .generate_table_config(
-                        warehouse_id,
-                        namespace_id,
-                        table_id,
+                        Idents {
+                            warehouse_ident: warehouse_id,
+                            namespace_ident: namespace_id,
+                            table_ident: TableIdentUuid::from(*table_id),
+                        },
                         &data_access,
                         storage_secret.as_ref(),
                         table_location.as_ref(),
+                        // TODO: This should be a permission based on authz
+                        StoragePermissions::ReadWriteDelete,
                     )
                     .await?
                     .into(),
