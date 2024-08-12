@@ -1,7 +1,5 @@
 use crate::{
-    catalog::compression_codec::CompressionCodec,
-    service::{NamespaceIdentUuid, TableIdentUuid},
-    WarehouseIdent,
+    catalog::compression_codec::CompressionCodec, service::NamespaceIdentUuid, WarehouseIdent,
 };
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, Result};
