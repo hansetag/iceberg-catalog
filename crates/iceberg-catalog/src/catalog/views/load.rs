@@ -113,6 +113,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             &data_access,
             storage_secret.as_ref(),
             view_metadata.location.as_ref(),
+            // TODO: This should be a permission based on authz
             StoragePermissions::ReadWriteDelete,
         )
         .await?;

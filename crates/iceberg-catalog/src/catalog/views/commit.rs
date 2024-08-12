@@ -309,6 +309,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             &data_access,
             storage_secret.as_ref(),
             updated_meta.location.as_str(),
+            // TODO: This should be a permission based on authz
             StoragePermissions::ReadWriteDelete,
         )
         .await?;

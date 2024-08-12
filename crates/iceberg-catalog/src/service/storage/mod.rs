@@ -164,7 +164,7 @@ impl StorageProfile {
         data_access: &DataAccess,
         secret: Option<&StorageCredential>,
         table_location: &str,
-        access: StoragePermissions,
+        storage_permissions: StoragePermissions,
     ) -> Result<TableConfig, TableConfigError> {
         match self {
             StorageProfile::S3(profile) => {
@@ -174,7 +174,7 @@ impl StorageProfile {
                         data_access,
                         secret.map(|s| s.try_to_s3()).transpose()?,
                         table_location,
-                        access,
+                        storage_permissions,
                     )
                     .await
             }
@@ -189,7 +189,7 @@ impl StorageProfile {
                                 CredentialsError::MissingCredential(self.storage_type())
                             })?
                             .try_to_az()?,
-                        access,
+                        storage_permissions,
                     )
                     .await
             }

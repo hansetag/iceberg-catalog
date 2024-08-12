@@ -186,6 +186,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 &data_access,
                 storage_secret.as_ref(),
                 table_metadata.location(),
+                // TODO: This should be a permission based on authz
                 StoragePermissions::ReadWriteDelete,
             )
             .await?;
@@ -321,6 +322,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                         &data_access,
                         storage_secret.as_ref(),
                         table_location.as_ref(),
+                        // TODO: This should be a permission based on authz
                         StoragePermissions::ReadWriteDelete,
                     )
                     .await?

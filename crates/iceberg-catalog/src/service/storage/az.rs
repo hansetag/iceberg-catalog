@@ -266,7 +266,9 @@ impl AzdlsProfile {
         let cred = azure_storage::StorageCredentials::token_credential(Arc::new(token));
         let mut config = TableConfig::default();
 
-        let sas = self.get_sas_token(table_location, cred, permissions).await?;
+        let sas = self
+            .get_sas_token(table_location, cred, permissions)
+            .await?;
         config.insert(&custom::Pair {
             key: self.iceberg_sas_property_key(),
             value: sas,
@@ -343,6 +345,7 @@ impl AzdlsProfile {
                 },
                 test_location,
                 credential,
+                // TODO: This should be a permission based on authz
                 StoragePermissions::ReadWriteDelete,
             )
             .await?;
