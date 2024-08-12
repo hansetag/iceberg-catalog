@@ -216,12 +216,6 @@ curl {your-catalog-url}/catalog/v1/transactions/commit -X POST -H "authorization
 | `ICEBERG_REST__OPENID_PROVIDER_URI` | `https://keycloak.local/realms/{your-realm}` | OpenID Provider URL, with keycloak this is the url pointing to your realm, for Azure App Registration it would be something like `https://login.microsoftonline.com/{your-tenant-id-here}/v2.0/`. If this variable is not set, endpoints are **not** secured |
 
 
-# Limitations
-
-- Table Metadata is currently limited to `256Mb` for the `postgres` implementation. If you need more, you should
-  probably vaccum your table ;)
-- Views are not supported yet
-
 ## License
 
 Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
