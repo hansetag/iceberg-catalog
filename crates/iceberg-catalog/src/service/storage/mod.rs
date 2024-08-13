@@ -13,6 +13,7 @@ use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
 use iceberg_ext::table_config::TableConfig;
+pub(crate) use s3::{parse_s3_location, S3Location};
 pub use s3::{S3Credential, S3Flavor, S3Profile};
 use serde::{Deserialize, Serialize};
 
@@ -372,7 +373,7 @@ mod tests {
             profile,
             StorageProfile::S3(S3Profile {
                 bucket: "my-bucket".to_string(),
-                endpoint: Some("http://localhost:9000".to_string()),
+                endpoint: Some("http://localhost:9000".parse().unwrap()),
                 region: "us-east-1".to_string(),
                 assume_role_arn: None,
                 path_style_access: None,
