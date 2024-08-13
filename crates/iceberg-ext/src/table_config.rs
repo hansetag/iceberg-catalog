@@ -89,6 +89,13 @@ macro_rules! impl_config_value {
             fn value_to_string(&self) -> String {
                 self.0.to_string()
             }
+
+            fn parse_value(value: &str) -> Result<Self::Type, ParseError>
+            where
+                Self::Type: ParseFromStr,
+            {
+                Self::Type::parse_value(value)
+            }
         }
 
         impl NotCustomProp for $struct_name {}
@@ -108,17 +115,16 @@ macro_rules! impl_config_values {
                 $(
                     $struct_name::KEY => {
                         _ = $struct_name::parse_value(value)?;
-                        ()
                     }
                 )+
-                key => (),
+                _ => {},
             })
         }
     };
 }
 
 pub mod s3 {
-    use super::{impl_config_value, impl_config_values, ConfigValue, NotCustomProp};
+    use super::{ConfigValue, NotCustomProp, ParseError, ParseFromStr};
 
     impl_config_values!(
         Region, String, "s3.region";
@@ -133,11 +139,12 @@ pub mod s3 {
 }
 
 pub mod client {
-    use super::{ConfigValue, NotCustomProp};
+    use super::{ConfigValue, NotCustomProp, ParseError, ParseFromStr};
     impl_config_values!(Region, String, "client.region");
 }
 
 pub mod custom {
+    use crate::table_config::{ConfigValue, ParseError, ParseFromStr};
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct Pair {
@@ -156,6 +163,13 @@ pub mod custom {
         fn value_to_string(&self) -> String {
             self.value.clone()
         }
+
+        fn parse_value(value: &str) -> Result<Self::Type, ParseError>
+        where
+            Self::Type: ParseFromStr,
+        {
+            Ok(value.to_string())
+        }
     }
 }
 
@@ -168,6 +182,10 @@ pub trait ConfigValue {
     }
 
     fn value_to_string(&self) -> String;
+
+    fn parse_value(value: &str) -> Result<Self::Type, ParseError>
+    where
+        Self::Type: ParseFromStr;
 }
 
 /// `ParseFromStr` is a trait that needs to be implemented for the associated type of `ConfigValue`.
