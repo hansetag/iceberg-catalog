@@ -138,6 +138,7 @@ jobs:
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          TEST_KV2: 1
           ICEBERG_REST__KV2__URL: http://localhost:8200
           ICEBERG_REST__KV2__USER: test
           ICEBERG_REST__KV2__PASSWORD: test
