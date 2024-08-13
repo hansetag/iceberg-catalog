@@ -19,7 +19,7 @@ impl From<SignError> for IcebergErrorResponse {
                 expected_location: _,
                 actual_location: _,
             } => ErrorModel::bad_request(message, "RequestUriMismatch", None)
-                .append_detail(format!("Request URI: {}", request_uri))
+                .append_detail(format!("Request URI: {request_uri}"))
                 .into(),
         }
     }
