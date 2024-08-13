@@ -31,6 +31,36 @@ impl TableConfig {
     pub fn get_custom_prop(&self, key: &str) -> Option<String> {
         self.props.get(key).cloned()
     }
+
+    pub fn try_from_props(
+        props: impl IntoIterator<Item = (String, String)>,
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        let mut table_config = TableConfig::default();
+        for (key, value) in props {
+            if key.starts_with("s3") {
+                s3::validate(&key, &value)?;
+                table_config.props.insert(key, value);
+            } else if key.starts_with("client") {
+                client::validate(&key, &value)?;
+                table_config.props.insert(key, value);
+            } else {
+                let pair = custom::Pair {
+                    key: key.clone(),
+                    value,
+                };
+                table_config.insert(&pair);
+            }
+        }
+        Ok(table_config)
+    }
+
+    pub fn from_props_unchecked(props: impl IntoIterator<Item = (String, String)>) -> Self {
+        let mut table_config = TableConfig::default();
+        for (key, value) in props {
+            table_config.props.insert(key, value);
+        }
+        table_config
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -64,23 +94,47 @@ macro_rules! impl_config_value {
         impl NotCustomProp for $struct_name {}
     };
 }
+macro_rules! impl_config_values {
+    ($($struct_name:ident, $typ:ident, $key:expr);+ $(;)?) => {
+        $(
+            impl_config_value!($struct_name, $typ, $key);
+        )+
+
+        pub fn validate(
+            key: &str,
+            value: &str,
+        ) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+            Ok(match key {
+                $(
+                    $struct_name::KEY => {
+                        _ = $struct_name::parse_value(value)?;
+                        ()
+                    }
+                )+
+                key => (),
+            })
+        }
+    };
+}
 
 pub mod s3 {
-    use super::{ConfigValue, NotCustomProp};
-    // TODO: add veil support to the macro
-    impl_config_value!(Region, String, "s3.region");
-    impl_config_value!(Endpoint, String, "s3.endpoint");
-    impl_config_value!(PathStyleAccess, bool, "s3.path-style-access");
-    impl_config_value!(AccessKeyId, String, "s3.access-key-id");
-    impl_config_value!(SecretAccessKey, String, "s3.secret-access-key");
-    impl_config_value!(SessionToken, String, "s3.session-token");
-    impl_config_value!(RemoteSigningEnabled, bool, "s3.remote-signing-enabled");
-    impl_config_value!(Signer, String, "s3.signer");
+    use super::{impl_config_value, impl_config_values, ConfigValue, NotCustomProp};
+
+    impl_config_values!(
+        Region, String, "s3.region";
+        Endpoint, String, "s3.endpoint";
+        PathStyleAccess, bool, "s3.path-style-access";
+        AccessKeyId, String, "s3.access-key-id";
+        SecretAccessKey, String, "s3.secret-access-key";
+        SessionToken, String, "s3.session-token";
+        RemoteSigningEnabled, bool, "s3.remote-signing-enabled";
+        Signer, String, "s3.signer";
+    );
 }
 
 pub mod client {
     use super::{ConfigValue, NotCustomProp};
-    impl_config_value!(Region, String, "client.region");
+    impl_config_values!(Region, String, "client.region");
 }
 
 pub mod custom {
