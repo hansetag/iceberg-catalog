@@ -255,56 +255,61 @@ fn secret_ident_to_key(secret_id: SecretIdent) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::service::storage::{S3Credential, StorageCredential};
-    use crate::CONFIG;
+    use needs_env_var::needs_env_var;
 
-    use super::*;
+    #[needs_env_var(TEST_KV2)]
+    mod kv2 {
+        use crate::service::storage::{S3Credential, StorageCredential};
+        use crate::CONFIG;
 
-    #[tokio::test]
-    async fn test_write_read_secret() {
-        let state = SecretsState::from_config(CONFIG.kv2.as_ref().unwrap())
-            .await
-            .unwrap();
+        use super::super::*;
 
-        let secret: StorageCredential = S3Credential::AccessKey {
-            aws_access_key_id: "my access key".to_string(),
-            aws_secret_access_key: "my secret key".to_string(),
+        #[tokio::test]
+        async fn test_write_read_secret() {
+            let state = SecretsState::from_config(CONFIG.kv2.as_ref().unwrap())
+                .await
+                .unwrap();
+
+            let secret: StorageCredential = S3Credential::AccessKey {
+                aws_access_key_id: "my access key".to_string(),
+                aws_secret_access_key: "my secret key".to_string(),
+            }
+            .into();
+
+            let secret_id = state.create_secret(secret.clone()).await.unwrap();
+
+            let read_secret = state
+                .get_secret_by_id::<StorageCredential>(&secret_id)
+                .await
+                .unwrap();
+
+            assert_eq!(read_secret.secret, secret);
         }
-        .into();
 
-        let secret_id = state.create_secret(secret.clone()).await.unwrap();
+        #[tokio::test]
+        async fn test_delete_secret() {
+            let state = SecretsState::from_config(CONFIG.kv2.as_ref().expect("vault cfg missing"))
+                .await
+                .unwrap();
 
-        let read_secret = state
-            .get_secret_by_id::<StorageCredential>(&secret_id)
-            .await
-            .unwrap();
+            let secret: StorageCredential = S3Credential::AccessKey {
+                aws_access_key_id: "my access key".to_string(),
+                aws_secret_access_key: "my secret key".to_string(),
+            }
+            .into();
 
-        assert_eq!(read_secret.secret, secret);
-    }
+            let secret_id = state
+                .create_secret(secret.clone())
+                .await
+                .expect("create secret failed");
 
-    #[tokio::test]
-    async fn test_delete_secret() {
-        let state = SecretsState::from_config(CONFIG.kv2.as_ref().expect("vault cfg missing"))
-            .await
-            .unwrap();
+            state.delete_secret(&secret_id).await.unwrap();
 
-        let secret: StorageCredential = S3Credential::AccessKey {
-            aws_access_key_id: "my access key".to_string(),
-            aws_secret_access_key: "my secret key".to_string(),
+            let read_secret = state
+                .get_secret_by_id::<StorageCredential>(&secret_id)
+                .await;
+
+            assert!(read_secret.is_err());
         }
-        .into();
-
-        let secret_id = state
-            .create_secret(secret.clone())
-            .await
-            .expect("create secret failed");
-
-        state.delete_secret(&secret_id).await.unwrap();
-
-        let read_secret = state
-            .get_secret_by_id::<StorageCredential>(&secret_id)
-            .await;
-
-        assert!(read_secret.is_err());
     }
 }

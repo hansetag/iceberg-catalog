@@ -7,6 +7,7 @@ use crate::request_metadata::RequestMetadata;
 use crate::CONFIG;
 use http::StatusCode;
 use iceberg::NamespaceIdent;
+use std::ops::Deref;
 
 use super::{require_warehouse_id, CatalogServer};
 use crate::service::{
@@ -62,6 +63,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             namespace,
             properties,
         } = &request;
+
         validate_namespace_ident(namespace)?;
         properties
             .as_ref()
@@ -283,19 +285,29 @@ pub(crate) fn validate_namespace_ident(namespace: &NamespaceIdent) -> Result<()>
                 "Namespace exceeds maximum depth of {MAX_NAMESPACE_DEPTH}",
             ))
             .r#type("NamespaceDepthExceeded".to_string())
-            .stack(vec![format!("Namespace: {:?}", namespace)])
+            .stack(vec![format!("Namespace: {namespace:?}")])
             .build()
             .into());
     }
 
-    if namespace.iter().any(std::string::String::is_empty) {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Namespace parts cannot be empty".to_string())
-            .r#type("EmptyNamespacePart".to_string())
-            .stack(vec![format!("Namespace: {:?}", namespace)])
-            .build()
-            .into());
+    if namespace.deref().iter().any(|s| s.contains('.')) {
+        return Err(ErrorModel::bad_request(
+            "Namespace parts cannot contain '.'".to_string(),
+            "NamespacePartContainsDot".to_string(),
+            None,
+        )
+        .append_detail(format!("Namespace: {namespace:?}"))
+        .into());
+    }
+
+    if namespace.iter().any(String::is_empty) {
+        return Err(ErrorModel::bad_request(
+            "Namespace parts cannot be empty".to_string(),
+            "NamespacePartEmpty".to_string(),
+            None,
+        )
+        .append_detail(format!("Namespace: {namespace:?}"))
+        .into());
     }
 
     Ok(())

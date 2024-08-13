@@ -5,22 +5,14 @@ Before merge commits are squashed. PR titles should follow [Conventional Commits
 ## Quickstart
 
 ```shell
-# start postgres & vault
+# start postgres
 docker run -d --name postgres-15 -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:15
-docker run -d -p 8200:8200 --cap-add=IPC_LOCK -e 'VAULT_DEV_ROOT_TOKEN_ID=myroot' -e 'VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200' hashicorp/vault
 # set envs
 echo 'export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres' > .env
 echo 'export ICEBERG_REST__PG_ENCRYPTION_KEY="abc"' >> .env
 echo 'export ICEBERG_REST__PG_DATABASE_URL_READ="postgresql://postgres:postgres@localhost/postgres"' >> .env
 echo 'export ICEBERG_REST__PG_DATABASE_URL_WRITE="postgresql://postgres:postgres@localhost/postgres"' >> .env
-echo 'export ICEBERG_REST__KV2__URL="http://localhost:8200"' >> .env
-echo 'export ICEBERG_REST__KV2__USER="test"' >> .env
-echo 'export ICEBERG_REST__KV2__PASSWORD="test"' >> .env
-echo 'export ICEBERG_REST__KV2__SECRET_MOUNT="secret"' >> .env
 source .env
-
-# setup vault
-./tests/vault-setup.sh http://localhost:8200
 
 # migrate db
 cd crates/iceberg-catalog
@@ -34,6 +26,7 @@ cargo test --all-features --all-targets
 cargo clippy --all-features --all-targets
 ```
 
+This quickstart does not run tests against cloud-storage providers or KV2. For that, please refer to the sections below.
 
 ## Developing with docker compose
 
@@ -66,17 +59,26 @@ sqlx migrate run
 
 ## KV2 / Vault
 
-This catalog supports KV2 as backend for secrets. This means running all tests via:
+This catalog supports KV2 as backend for secrets. Tests for KV2 are disabled by default. To enable them, you need to run the following commands:
 
-```sh
+```shell
+docker run -d -p 8200:8200 --cap-add=IPC_LOCK -e 'VAULT_DEV_ROOT_TOKEN_ID=myroot' -e 'VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200' hashicorp/vault
+
+# append some more env vars to the .env file, it should already have PG related entries defined above.
+
+# this will enable the KV2 tests
+echo 'export TEST_KV2=1' >> .env
+# the values below configure KV2
+echo 'export ICEBERG_REST__KV2__URL="http://localhost:8200"' >> .env
+echo 'export ICEBERG_REST__KV2__USER="test"' >> .env
+echo 'export ICEBERG_REST__KV2__PASSWORD="test"' >> .env
+echo 'export ICEBERG_REST__KV2__SECRET_MOUNT="secret"' >> .env
+
+source .env
+# setup vault
+./tests/vault-setup.sh http://localhost:8200
+
 cargo test --all-features --all-targets
-```
-
-will fail if no vault is running. You can use the following commands to set the vault server up for testing:
-
-```sh
-$ docker run -d -p 8200:8200 --cap-add=IPC_LOCK -e 'VAULT_DEV_ROOT_TOKEN_ID=myroot' -e 'VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200' hashicorp/vault
-$ ./scripts/vault-setup.sh localhost:8200
 ```
 
 ## Test cloud storage profiles

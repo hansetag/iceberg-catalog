@@ -10,11 +10,12 @@ use aws_sigv4::http_request::{sign as aws_sign, SignableBody, SignableRequest, S
 use aws_sigv4::sign::v4;
 use aws_sigv4::{self};
 
-use super::CatalogServer;
+use super::super::CatalogServer;
+use super::error::SignError;
 use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
 use crate::service::secrets::SecretStore;
-use crate::service::storage::{S3Profile, StorageCredential};
+use crate::service::storage::{parse_s3_location, S3Profile, StorageCredential};
 use crate::service::{auth::AuthZHandler, Catalog, State};
 use crate::service::{GetTableMetadataResponse, TableIdentUuid};
 use crate::WarehouseIdent;
@@ -55,23 +56,24 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             body: request_body,
         } = request.clone();
 
+        // Include staged tables as this might be a commit
         let include_staged = true;
 
+        let parsed_url = s3_utils::parse_s3_url(&request_url)?;
+
         // Unfortunately there is currently no way to pass information about warehouse_id & table_id
-        // to this function from a get_table or create_table process.
+        // to this function from a get_table or create_table process without exchanging the token.
         // Spark does not support per-table signer.uri.
-        // Tabular uses a token-exchange to include the information there.
+        // Tabular uses a token-exchange to include the information.
         // We are looking for the path in the database, which allows us to also work with AuthN solutions
-        // that do not support custom data in tokens. Its however also not ideal. Perspectively, we should
+        // that do not support custom data in tokens. Perspectively, we should
         // try to get per-table signer.uri support in Spark.
         let (table_id, table_metadata) = if let Ok(table_id) = require_table_id(table.clone()) {
             (table_id, None)
         } else {
-            // Ideally we could get rid of this else clause.
-            let location = parse_s3_url_to_location(&request_url)?;
             let table_metadata = C::get_table_metadata_by_s3_location(
                 warehouse_id,
-                &location,
+                &parsed_url.location.to_string(),
                 include_staged,
                 state.v1_state.catalog.clone(),
             )
@@ -85,8 +87,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     .build()
             })?;
 
-            // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63/data/00001-1-840f0dc8-a888-4522-a327-12187ce32dbd-0-00001.parquet
-            // s3://tests/c3ebf200-1e94-11ef-9ed7-7bebc6e5a664/018fca00-6bba-7669-8a10-5dc42e37cd63
             (table_metadata.table_id, Some(table_metadata))
         };
 
@@ -100,10 +100,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             state.v1_state.auth,
         )
         .await?;
-        // TODO: why were headers dropped here?
-        // drop(request_metadata);
 
-        // Included staged tables as this might be a commit
+        // Load table metadata if not already loaded
         let GetTableMetadataResponse {
             table: _,
             table_id,
@@ -129,6 +127,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .error
                 .append_detail(format!("Table ID: {table_id}"))
                 .append_detail(format!("Request URI: {request_url}"))
+                .append_detail(format!("Request Region: {request_region}"))
                 .append_detail(format!("Table Location: {location}"));
             e
         };
@@ -137,8 +136,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .try_into_s3()
             .map_err(|e| extend_err(IcebergErrorResponse::from(e)))?;
 
-        validate_uri(&request_url, &location, &storage_profile).map_err(extend_err)?;
         validate_region(&request_region, &storage_profile).map_err(extend_err)?;
+        validate_uri(&parsed_url, &location).map_err(extend_err)?;
 
         // If all is good, we need the storage secret
         let storage_secret = if let Some(storage_secret_ident) = storage_secret_ident {
@@ -225,7 +224,7 @@ fn sign(
         }
     }
 
-    let encoded_uri = partially_decode_uri(request_url)?;
+    let encoded_uri = urldecode_uri_path_segments(request_url)?;
     let signable_request = SignableRequest::new(
         request_method.as_str(),
         encoded_uri.to_string(),
@@ -269,7 +268,7 @@ fn sign(
     Ok(sign_response)
 }
 
-fn partially_decode_uri(uri: &url::Url) -> Result<url::Url> {
+fn urldecode_uri_path_segments(uri: &url::Url) -> Result<url::Url> {
     // We only modify path segments. Iterate over all path segments and unr urlencoding::decode them.
     let mut new_uri = uri.clone();
     let path_segments = new_uri
@@ -350,184 +349,108 @@ async fn validate_table_method<A: AuthZHandler>(
     Ok(())
 }
 
-const AWS_S3_ACCESS_POINTS: &[&str] = &["s3", "s3.dualstack", "s3-fips.dualstack", "s3-fips"];
-
 #[allow(clippy::too_many_lines)]
 fn validate_uri(
     // i.e. https://bucket.s3.region.amazonaws.com/key
-    request_uri: &url::Url,
+    parsed_url: &s3_utils::ParsedS3Url,
     // i.e. s3://bucket/key
     table_location: &str,
-    storage_profile: &S3Profile,
 ) -> Result<()> {
-    let table_location = url::Url::parse(table_location.trim_end_matches('/')).map_err(|e| {
-        ErrorModel::builder()
-            .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Failed to parse table location".to_string())
-            .r#type("FailedToParseTableLocation".to_string())
-            .source(Some(Box::new(e)))
-            .build()
-    })?;
-    let table_bucket = table_location.host_str().ok_or_else(|| {
-        ErrorModel::builder()
-            .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Table location does not have a bucket".to_string())
-            .r#type("TableLocationNoBucket".to_string())
-            .build()
-    })?;
-    let table_key_virtual_host: Vec<_> = table_location
-        .path_segments()
-        .map(std::iter::Iterator::collect)
-        .ok_or(
-            ErrorModel::builder()
-                .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("Table location does not have a key".to_string())
-                .r#type("TableLocationNoKey".to_string())
-                .build(),
-        )?;
-    let table_key_path_style = vec![table_bucket]
-        .into_iter()
-        .chain(table_key_virtual_host.clone())
-        .collect::<Vec<_>>();
+    let table_location = parse_s3_location(table_location)?;
+    let url_location = &parsed_url.location;
 
-    let request_key: Vec<_> = request_uri
-        .path_segments()
-        .map(std::iter::Iterator::collect)
-        .unwrap_or_default();
-
-    // Obtain tuples of (scheme, host) for the endpoint candidates.
-    // We need multiple candidates only for AWS S3, as there are multiple access points such as s3, s3.dualstack, etc.
-    let table_endpoint_candidates = if let Some(endpoint) = &storage_profile.endpoint {
-        let endpoint = url::Url::parse(endpoint).map_err(|e| {
-            ErrorModel::builder()
-                .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("Failed to parse storage profile endpoint".to_string())
-                .r#type("FailedToParseStorageProfileEndpoint".to_string())
-                .source(Some(Box::new(e)))
-                .build()
-        })?;
-
-        vec![(
-            endpoint.scheme().to_string(),
-            endpoint
-                .host()
-                .ok_or(
-                    ErrorModel::builder()
-                        .code(http::StatusCode::INTERNAL_SERVER_ERROR.into())
-                        .message("Storage profile endpoint does not have a host".to_string())
-                        .r#type("StorageProfileNoHost".to_string())
-                        .build(),
-                )?
-                .to_string(),
-        )]
-    } else {
-        // If no endpoint is specified explicitly, we check against known AWS S3 access points.
-        let table_region = &storage_profile.region;
-
-        AWS_S3_ACCESS_POINTS
-            .iter()
-            .map(|access_point| {
-                (
-                    "https".to_string(),
-                    format!("{access_point}.{table_region}.amazonaws.com"),
-                )
-            })
-            .collect::<Vec<_>>()
-    };
-
-    // There are two ways to access S3 buckets: path style and virtual host style.
-    // Virtual Host style: https://<bucket>.s3.<region>.amazonaws.com/<key>
-    // Path style: https://s3.<region>.amazonaws.com/<bucket>/<key>
-    // As both are valid, we need to check both.
-
-    // Case 1: Virtual Host style
-    let allowed_virtual_hosts = table_endpoint_candidates
-        .iter()
-        .map(|(scheme, host)| (scheme, format!("{table_bucket}.{host}")))
-        .collect::<Vec<_>>();
-    // Case 2: Path style
-    let allowed_path_style = &table_endpoint_candidates;
-
-    if allowed_virtual_hosts.iter().any(|(scheme, host)| {
-        request_uri.scheme() == *scheme && request_uri.host_str() == Some(host)
-    }) {
-        // Case 1: Virtual Host style
-        let len = table_key_virtual_host.len();
-        if request_key.len() < len || request_key[..len] != table_key_virtual_host {
-            Err(ErrorModel::builder()
-                .code(http::StatusCode::FORBIDDEN.into())
-                .message("Request URI does not match table location".to_string())
-                .r#type("VirtualHostURIMismatch".to_string())
-                .stack(vec![
-                    format!("Expected Key: {table_key_virtual_host:?}"),
-                    format!("Actual Key: {request_key:?}"),
-                ])
-                .build()
-                .into())
-        } else {
-            Ok(())
+    if !url_location.is_sublocation_of(&table_location) {
+        return Err(SignError::RequestUriMismatch {
+            request_uri: parsed_url.url.to_string(),
+            expected_location: table_location.to_string(),
+            actual_location: parsed_url.location.to_string(),
         }
-    } else if allowed_path_style.iter().any(|(scheme, host)| {
-        request_uri.scheme() == scheme && request_uri.host_str() == Some(host)
-    }) {
-        // Case 2: Path style
-        let len = table_key_path_style.len();
-        if request_key.len() < len || request_key[..len] != table_key_path_style {
-            Err(ErrorModel::builder()
-                .code(http::StatusCode::FORBIDDEN.into())
-                .message("Request URI does not match table location".to_string())
-                .r#type("PathStyleHostMismatch".to_string())
-                .stack(vec![
-                    format!("Expected Key: {table_key_path_style:?}"),
-                    format!("Actual Key: {request_key:?}"),
-                ])
-                .build()
-                .into())
-        } else {
-            Ok(())
-        }
-    } else {
-        Err(ErrorModel::builder()
-            .code(http::StatusCode::FORBIDDEN.into())
-            .message("Request URI does not match table location".to_string())
-            .r#type("RequestUriMismatch".to_string())
-            .build()
-            .into())
+        .into());
     }
+
+    Ok(())
 }
 
-// Parsing from http url to s3:// url is messy.
-// We should find a way to pass the required information from
-// the get_table request to the signer.
-// This function only supports path-style access
-// if the URIs host is a single identifier (no dots) or an IP address.
-fn parse_s3_url_to_location(uri: &url::Url) -> Result<String> {
-    // We need to check both virtual host and path style.
-    // Virtual Host style: https://<bucket>.<endpoint with optional.points>/<key>
-    // Path style: https://<endpoint with optional.points>/<bucket>/<key>
-    let host = uri.host().ok_or(
-        ErrorModel::builder()
-            .code(http::StatusCode::BAD_REQUEST.into())
-            .message("URI does not have a host".to_string())
-            .r#type("UriNoHost".to_string())
-            .build(),
-    )?;
+pub(super) mod s3_utils {
+    use super::{ErrorModel, Result};
+    use crate::service::storage::S3Location;
+    use lazy_regex::regex;
 
-    let path = uri.path().trim_start_matches('/');
+    #[derive(Debug)]
+    pub(super) struct ParsedS3Url {
+        pub(super) url: url::Url,
+        pub(super) location: S3Location,
+        // Used endpoint without the bucket
+        #[allow(dead_code)]
+        pub(super) endpoint: String,
+        #[allow(dead_code)]
+        pub(super) port: u16,
+    }
 
-    match host {
-        url::Host::Domain(domain) => {
-            if domain.contains('.') {
-                // Virtual Host style
-                let parts = domain.split('.').collect::<Vec<_>>();
-                let bucket = parts[0];
-                Ok(format!("s3://{bucket}/{path}"))
-            } else {
-                // Path style
-                Ok(format!("s3://{path}"))
-            }
+    pub(super) fn parse_s3_url(uri: &url::Url) -> Result<ParsedS3Url> {
+        let re_host_pattern = regex!(r"^((.+)\.)?(s3[.-]([a-z0-9-]+)\..*)");
+
+        let err = |t: &str, m: &str| {
+            ErrorModel::builder()
+                .code(http::StatusCode::BAD_REQUEST.into())
+                .message(m.to_string())
+                .r#type(t.to_string())
+                .build()
+        };
+
+        let host = uri
+            .host()
+            .ok_or(err("UriNoHost", "URI to sign does not have a host"))?;
+
+        // Require https or http
+        if !matches!(uri.scheme(), "https" | "http") {
+            return Err(err(
+                "UriSchemeNotSupported",
+                "URI to sign does not have a supported scheme. Expected https or http",
+            )
+            .into());
         }
-        url::Host::Ipv4(_) | url::Host::Ipv6(_) => Ok(format!("s3://{path}")),
+
+        let path_segments: Vec<String> = uri
+            .path_segments()
+            .map(|segments| segments.map(std::string::ToString::to_string).collect())
+            .ok_or(err(
+                "UriNoPath",
+                "URI to sign does not have a path. Expected a path to an object",
+            ))?;
+
+        if let Some((Some(bucket), Some(used_endpoint))) =
+            re_host_pattern.captures(&host.to_string()).map(|captures| {
+                (
+                    captures.get(2).map(|m| m.as_str()),
+                    captures.get(3).map(|m| m.as_str()),
+                )
+            })
+        {
+            // Host Style Case
+            Ok(ParsedS3Url {
+                url: uri.clone(),
+                location: S3Location {
+                    bucket_name: bucket.to_string(),
+                    prefix: path_segments,
+                },
+                endpoint: used_endpoint.to_string(),
+                port: uri.port_or_known_default().unwrap_or(443),
+            })
+        } else if path_segments.len() >= 2 {
+            // Path Style Case
+            Ok(ParsedS3Url {
+                url: uri.clone(),
+                location: S3Location {
+                    bucket_name: path_segments[0].to_string(),
+                    prefix: path_segments[1..].to_vec(),
+                },
+                endpoint: host.to_string(),
+                port: uri.port_or_known_default().unwrap_or(443),
+            })
+        } else {
+            Err(err("UriNotS3", "URI does not match S3 host or path style").into())
+        }
     }
 }
 
@@ -539,46 +462,97 @@ mod test {
     struct TC {
         request_uri: &'static str,
         table_location: &'static str,
+        #[allow(dead_code)]
         region: &'static str,
+        #[allow(dead_code)]
         endpoint: Option<&'static str>,
         expected_outcome: bool,
     }
 
-    fn make_storage_profile(test_case: &TC) -> S3Profile {
-        S3Profile {
-            bucket: "should-not-be-used".to_string(),
-            endpoint: test_case.endpoint.map(std::string::ToString::to_string),
-            region: test_case.region.to_string(),
-            assume_role_arn: None,
-            path_style_access: None,
-            key_prefix: None,
-            sts_role_arn: None,
-            sts_enabled: false,
-            flavor: S3Flavor::Minio,
-        }
-    }
-
     fn run_validate_uri_test(test_case: &TC) {
-        let storage_profile = make_storage_profile(test_case);
         let request_uri = url::Url::parse(test_case.request_uri).unwrap();
+        let request_uri = s3_utils::parse_s3_url(&request_uri).unwrap();
         let table_location = test_case.table_location;
-        let result = validate_uri(&request_uri, table_location, &storage_profile);
+        let result = validate_uri(&request_uri, table_location);
         assert_eq!(result.is_ok(), test_case.expected_outcome);
     }
 
     #[test]
-    fn test_parse_s3_url_to_location() {
+    fn test_parse_s3_url() {
         let cases = vec![
-            ("https://foo.endpoint.com/bar/a/key", "s3://foo/bar/a/key"),
-            ("https://endpoint/bar/a/key", "s3://bar/a/key"),
+            (
+                "https://foo.s3.endpoint.com/bar/a/key",
+                "s3://foo/bar/a/key",
+            ),
+            ("https://s3-endpoint/bar/a/key", "s3://bar/a/key"),
             ("http://localhost:9000/bar/a/key", "s3://bar/a/key"),
             ("http://192.168.1.1/bar/a/key", "s3://bar/a/key"),
-            ("https://foo.bar.com/key", "s3://foo/key"),
+            (
+                "https://bucket.s3-eu-central-1.amazonaws.com/file",
+                "s3://bucket/file",
+            ),
+            ("https://bucket.s3.amazonaws.com/file", "s3://bucket/file"),
+            (
+                "https://s3.us-east-1.amazonaws.com/bucket/file",
+                "s3://bucket/file",
+            ),
+            ("https://s3.amazonaws.com/bucket/file", "s3://bucket/file"),
+            (
+                "https://bucket.s3.my-region.private.com:9000/file",
+                "s3://bucket/file",
+            ),
+            (
+                "https://bucket.s3.private.com:9000/file",
+                "s3://bucket/file",
+            ),
+            (
+                "https://s3.my-region.private.amazonaws.com:9000/bucket/file",
+                "s3://bucket/file",
+            ),
+            (
+                "https://s3.private.amazonaws.com:9000/bucket/file",
+                "s3://bucket/file",
+            ),
+            (
+                "https://user@bucket.s3.my-region.private.com:9000/file",
+                "s3://bucket/file",
+            ),
+            (
+                "https://user@bucket.s3-my-region.localdomain.com:9000/file",
+                "s3://bucket/file",
+            ),
+            ("http://127.0.0.1:9000/bucket/file", "s3://bucket/file"),
+            ("http://s3.foo:9000/bucket/file", "s3://bucket/file"),
+            ("http://s3.localhost:9000/bucket/file", "s3://bucket/file"),
+            (
+                "http://s3.localhost.localdomain:9000/bucket/file",
+                "s3://bucket/file",
+            ),
+            (
+                "http://s3.localhost.localdomain:9000/bucket/file",
+                "s3://bucket/file",
+            ),
+            (
+                "https://bucket.s3-fips.dualstack.us-east-2.amazonaws.com/file",
+                "s3://bucket/file",
+            ),
+            (
+                "https://bucket.s3-fips.dualstack.us-east-2.amazonaws.com/file",
+                "s3://bucket/file",
+            ),
+            (
+                "https://s3-accesspoint.dualstack.us-gov-west-1.amazonaws.com/bucket/file",
+                "s3://bucket/file",
+            ),
+            (
+                "https://bucket.s3-accesspoint.dualstack.us-gov-west-1.amazonaws.com/file",
+                "s3://bucket/file",
+            ),
         ];
 
         for (uri, expected) in cases {
             let uri = url::Url::parse(uri).unwrap();
-            let result = parse_s3_url_to_location(&uri).unwrap();
+            let result = s3_utils::parse_s3_url(&uri).unwrap().location.to_string();
             assert_eq!(result, expected);
         }
     }
@@ -703,20 +677,8 @@ mod test {
 
     #[test]
     fn test_uri_bucket_missing() {
-        let cases = vec![
-            // Bucket missing
-            TC {
-                request_uri: "https://s3.my-region.amazonaws.com/key",
-                table_location: "s3://bucket/key",
-                region: "my-region",
-                endpoint: None,
-                expected_outcome: false,
-            },
-        ];
-
-        for tc in cases {
-            run_validate_uri_test(&tc);
-        }
+        let path = "https://s3.my-region.amazonaws.com/key";
+        s3_utils::parse_s3_url(&url::Url::parse(path).unwrap()).unwrap_err();
     }
 
     #[test]
@@ -729,14 +691,6 @@ mod test {
                 region: "my-region",
                 endpoint: Some("https://s3.my-service.example.com"),
                 expected_outcome: true,
-            },
-            // Endpoint specified but wrong
-            TC {
-                request_uri: "https://bucket.with.point.s3.my-service.example.com/key",
-                table_location: "s3://bucket.with.point/key",
-                region: "my-region",
-                endpoint: Some("https://my-service.example.com"),
-                expected_outcome: false,
             },
         ];
 

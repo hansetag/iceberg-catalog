@@ -16,10 +16,19 @@ license = "Apache-2.0"
 [workspace.dependencies]
 async-nats = "0.35.1"
 async-compression = { version = "^0.4", features = ["tokio", "gzip"] }
-azure_core = { version = "0.20.0", default-features = false, features = ["hmac_rust", "enable_reqwest_rustls"] }
-azure_storage = { version = "0.20.0", default-features = false, features = ["enable_reqwest_rustls"] }
-azure_storage_blobs = { version = "0.20.0", default-features = false, features = ["enable_reqwest_rustls"] }
-azure_identity = { version = "0.20.0", default-features = false, features = ["enable_reqwest_rustls"] }
+azure_core = { version = "0.20.0", default-features = false, features = [
+    "hmac_rust",
+    "enable_reqwest_rustls",
+] }
+azure_storage = { version = "0.20.0", default-features = false, features = [
+    "enable_reqwest_rustls",
+] }
+azure_storage_blobs = { version = "0.20.0", default-features = false, features = [
+    "enable_reqwest_rustls",
+] }
+azure_identity = { version = "0.20.0", default-features = false, features = [
+    "enable_reqwest_rustls",
+] }
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-sts = "1.36.0"
 figment = { version = "0.10.19", features = ["env"] }
@@ -29,8 +38,13 @@ serde_with = "^3.4"
 serde_json = { version = "^1.0", features = ["raw_value"] }
 url = { version = "^2.5", features = ["serde"] }
 uuid = { version = "^1.6", features = ["serde", "v4", "v7"] }
-reqwest = { version = "^0.12", default-features = false, features = ["json", "rustls-tls"] }
-iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "tp/azdls-upstream-20240807", features = ["storage-all"] }
+reqwest = { version = "^0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "2f3fa3e12eee258868d701d472bf1f55169a34f4", features = [
+    "storage-all",
+] }
 typed-builder = "^0.19.1"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }
@@ -52,7 +66,9 @@ clap = { version = "^4.5", features = ["derive", "env"] }
 headers = { version = "^0.4" }
 hostname = "0.4.0"
 http-body-util = "^0.1"
-jwks_client_rs = { version = "0.5.1", default-features = false, features = ["rustls-tls"] }
+jwks_client_rs = { version = "0.5.1", default-features = false, features = [
+    "rustls-tls",
+] }
 lazy-regex = { version = "3.2.0", features = ["lite"] }
 strum = { version = "^0.26", features = ["derive"] }
 sqlx = { version = "^0.8.0", default-features = false, features = [
