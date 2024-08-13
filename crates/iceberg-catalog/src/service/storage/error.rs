@@ -17,10 +17,11 @@ pub enum ValidationError {
     #[error(transparent)]
     FileIoError(#[from] FileIoError),
     #[error("{reason}")]
-    InvalidS3Location {
+    InvalidLocation {
         reason: String,
         location: String,
         source: Option<Box<dyn std::error::Error + 'static + Send + Sync>>,
+        storage_type: StorageType,
     },
 }
 
@@ -62,13 +63,18 @@ impl From<ValidationError> for IcebergErrorResponse {
                 entity,
             } => ErrorModel::bad_request(reason, format!("Invalid{entity}"), source).into(),
             ValidationError::FileIoError(e) => e.into(),
-            ValidationError::InvalidS3Location {
+            ValidationError::InvalidLocation {
                 reason,
                 location,
                 source,
-            } => ErrorModel::bad_request(reason, "InvalidS3Location", source)
-                .append_detail(location)
-                .into(),
+                storage_type,
+            } => ErrorModel::bad_request(
+                reason,
+                format!("Invalid{}Location", storage_type.to_string().to_uppercase()),
+                source,
+            )
+            .append_detail(location)
+            .into(),
         }
     }
 }

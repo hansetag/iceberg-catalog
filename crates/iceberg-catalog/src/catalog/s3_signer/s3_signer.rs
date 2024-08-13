@@ -10,7 +10,8 @@ use aws_sigv4::http_request::{sign as aws_sign, SignableBody, SignableRequest, S
 use aws_sigv4::sign::v4;
 use aws_sigv4::{self};
 
-use super::CatalogServer;
+use super::super::CatalogServer;
+use super::error::SignError;
 use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
 use crate::service::secrets::SecretStore;
@@ -359,16 +360,12 @@ fn validate_uri(
     let url_location = &parsed_url.location;
 
     if !url_location.is_sublocation_of(&table_location) {
-        return Err(ErrorModel::builder()
-            .code(http::StatusCode::FORBIDDEN.into())
-            .message("Request URI does not match table location".to_string())
-            .r#type("RequestUriMismatch".to_string())
-            .stack(vec![
-                format!("Expected Location: {table_location}"),
-                format!("Actual Location: {url_location}"),
-            ])
-            .build()
-            .into());
+        return Err(SignError::RequestUriMismatch {
+            request_uri: parsed_url.url.to_string(),
+            expected_location: table_location.to_string(),
+            actual_location: parsed_url.location.to_string(),
+        }
+        .into());
     }
 
     Ok(())
@@ -381,6 +378,7 @@ pub(super) mod s3_utils {
 
     #[derive(Debug)]
     pub(super) struct ParsedS3Url {
+        pub(super) url: url::Url,
         pub(super) location: S3Location,
         // Used endpoint without the bucket
         #[allow(dead_code)]
@@ -431,6 +429,7 @@ pub(super) mod s3_utils {
         {
             // Host Style Case
             Ok(ParsedS3Url {
+                url: uri.clone(),
                 location: S3Location {
                     bucket_name: bucket.to_string(),
                     prefix: path_segments,
@@ -441,6 +440,7 @@ pub(super) mod s3_utils {
         } else if path_segments.len() >= 2 {
             // Path Style Case
             Ok(ParsedS3Url {
+                url: uri.clone(),
                 location: S3Location {
                     bucket_name: path_segments[0].to_string(),
                     prefix: path_segments[1..].to_vec(),

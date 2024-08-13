@@ -67,7 +67,6 @@ tower-http = { workspace = true, optional = true, features = [
     "util",
 ] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 url = { workspace = true }
 urlencoding = { workspace = true }
 utoipa = { workspace = true, features = ["uuid"] }
@@ -84,3 +83,4 @@ rand = "0.8.5"
 http-body-util = { workspace = true }
 tower = { workspace = true }
 needs_env_var = { workspace = true }
+tracing-subscriber = { workspace = true }

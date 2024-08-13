@@ -677,36 +677,40 @@ impl S3Location {
 /// Parse the location of an object in S3. Will fail if only the bucket name is provided.
 /// prefix has at least one element, which might be an empty string.
 pub(crate) fn parse_s3_location(location: &str) -> Result<S3Location, ValidationError> {
-    let location = url::Url::parse(location).map_err(|e| ValidationError::InvalidS3Location {
+    let location = url::Url::parse(location).map_err(|e| ValidationError::InvalidLocation {
         reason: "S3 location is no valid URL.".to_string(),
         location: location.to_string(),
         source: Some(Box::new(e)),
+        storage_type: StorageType::S3,
     })?;
 
     // Protocol must be s3
     if location.scheme() != "s3" {
-        return Err(ValidationError::InvalidS3Location {
+        return Err(ValidationError::InvalidLocation {
             reason: "S3 location must use s3 protocol.".to_string(),
             location: location.to_string(),
             source: None,
+            storage_type: StorageType::S3,
         });
     }
 
     let bucket_name = location
         .host_str()
-        .ok_or_else(|| ValidationError::InvalidS3Location {
+        .ok_or_else(|| ValidationError::InvalidLocation {
             reason: "S3 location does not have a bucket name.".to_string(),
             location: location.to_string(),
             source: None,
+            storage_type: StorageType::S3,
         })?;
 
     let prefix: Vec<String> = location
         .path_segments()
         .map(|segments| segments.map(std::string::ToString::to_string).collect())
-        .ok_or(ValidationError::InvalidS3Location {
+        .ok_or(ValidationError::InvalidLocation {
             reason: "S3 location does not have a table key.".to_string(),
             location: location.to_string(),
             source: None,
+            storage_type: StorageType::S3,
         })?;
 
     Ok(S3Location {
