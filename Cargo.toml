@@ -42,7 +42,7 @@ reqwest = { version = "^0.12", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
-iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "tp/azdls-upstream-20240807", features = [
+iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", branch = "tp/azdls-upstream-20240813", features = [
     "storage-all",
 ] }
 typed-builder = "^0.19.1"
