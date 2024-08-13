@@ -920,4 +920,18 @@ mod test {
             assert_eq!(result, expected);
         }
     }
+
+    #[test]
+    fn test_s3_location_print() {
+        let cases = vec![
+            "s3://bucket/foo",
+            "s3://bucket/foo/bar",
+            "s3://bucket/foo/bar/",
+        ];
+        for case in cases {
+            let location = parse_s3_location(case).unwrap();
+            let printed = location.to_string();
+            assert_eq!(printed, case);
+        }
+    }
 }
