@@ -7,8 +7,8 @@ import sys
 def test_create_namespace(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_namespace_spark")
     assert (
-               "test_create_namespace_spark",
-           ) in warehouse.pyiceberg_catalog.list_namespaces()
+        "test_create_namespace_spark",
+    ) in warehouse.pyiceberg_catalog.list_namespaces()
 
 
 def test_list_namespaces(spark, warehouse: conftest.Warehouse):
@@ -67,7 +67,9 @@ def test_create_view(spark, warehouse: conftest.Warehouse):
     spark.sql(
         "CREATE TABLE test_create_view.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
     )
-    spark.sql("CREATE VIEW test_create_view.my_view AS SELECT my_ints, my_floats FROM test_create_view.my_table")
+    spark.sql(
+        "CREATE VIEW test_create_view.my_view AS SELECT my_ints, my_floats FROM test_create_view.my_table"
+    )
     spark.sql("SELECT * from test_create_view.my_view")
 
 
@@ -77,12 +79,14 @@ def test_create_replace_view(spark, warehouse: conftest.Warehouse):
         "CREATE TABLE test_create_replace_view_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
     )
     spark.sql(
-        "CREATE VIEW test_create_replace_view_spark.my_view AS SELECT my_ints, my_floats FROM test_create_replace_view_spark.my_table")
+        "CREATE VIEW test_create_replace_view_spark.my_view AS SELECT my_ints, my_floats FROM test_create_replace_view_spark.my_table"
+    )
 
     df = spark.sql("SELECT * from test_create_replace_view_spark.my_view").toPandas()
     assert list(df.columns) == ["my_ints", "my_floats"]
     spark.sql(
-        "CREATE OR REPLACE VIEW test_create_replace_view_spark.my_view AS SELECT my_floats, my_ints FROM test_create_replace_view_spark.my_table")
+        "CREATE OR REPLACE VIEW test_create_replace_view_spark.my_view AS SELECT my_floats, my_ints FROM test_create_replace_view_spark.my_table"
+    )
     df = spark.sql("SELECT * from test_create_replace_view_spark.my_view").toPandas()
     assert list(df.columns) == ["my_floats", "my_ints"]
 
@@ -93,14 +97,17 @@ def test_rename_view(spark, warehouse: conftest.Warehouse):
         "CREATE TABLE test_rename_view_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
     )
     spark.sql(
-        "CREATE VIEW test_rename_view_spark.my_view AS SELECT my_ints, my_floats FROM test_rename_view_spark.my_table")
+        "CREATE VIEW test_rename_view_spark.my_view AS SELECT my_ints, my_floats FROM test_rename_view_spark.my_table"
+    )
 
     spark.sql("SELECT * from test_rename_view_spark.my_view")
     df = spark.sql("SHOW VIEWS IN test_rename_view_spark").toPandas()
     assert df.shape[0] == 1
     assert df["viewName"].values[0] == "my_view"
 
-    spark.sql("ALTER VIEW test_rename_view_spark.my_view RENAME TO test_rename_view_spark.my_view_renamed")
+    spark.sql(
+        "ALTER VIEW test_rename_view_spark.my_view RENAME TO test_rename_view_spark.my_view_renamed"
+    )
     df = spark.sql("SHOW VIEWS IN test_rename_view_spark").toPandas()
     assert df.shape[0] == 1
     assert df["viewName"].values[0] == "my_view_renamed"
@@ -112,7 +119,8 @@ def test_create_drop_view(spark, warehouse: conftest.Warehouse):
         "CREATE TABLE test_create_drop_view_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
     )
     spark.sql(
-        "CREATE VIEW test_create_drop_view_spark.my_view AS SELECT my_ints, my_floats FROM test_create_drop_view_spark.my_table")
+        "CREATE VIEW test_create_drop_view_spark.my_view AS SELECT my_ints, my_floats FROM test_create_drop_view_spark.my_table"
+    )
 
     spark.sql("SELECT * from test_create_drop_view_spark.my_view")
     df = spark.sql("SHOW VIEWS IN test_create_drop_view_spark").toPandas()
@@ -129,11 +137,13 @@ def test_view_exists(spark, warehouse: conftest.Warehouse):
         "CREATE TABLE test_view_exists_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
     )
     spark.sql(
-        "CREATE VIEW IF NOT EXISTS test_view_exists_spark.my_view AS SELECT my_ints, my_floats FROM test_view_exists_spark.my_table")
+        "CREATE VIEW IF NOT EXISTS test_view_exists_spark.my_view AS SELECT my_ints, my_floats FROM test_view_exists_spark.my_table"
+    )
     assert spark.sql("SHOW VIEWS IN test_view_exists_spark").toPandas().shape[0] == 1
 
     spark.sql(
-        "CREATE VIEW IF NOT EXISTS test_view_exists_spark.my_view AS SELECT my_ints, my_floats FROM test_view_exists_spark.my_table")
+        "CREATE VIEW IF NOT EXISTS test_view_exists_spark.my_view AS SELECT my_ints, my_floats FROM test_view_exists_spark.my_table"
+    )
     assert spark.sql("SHOW VIEWS IN test_view_exists_spark").toPandas().shape[0] == 1
 
 
@@ -421,7 +431,7 @@ def test_table_maintenance_optimize(spark, namespace, warehouse: conftest.Wareho
     ).toPandas()
 
     rewrite_result = spark.sql(
-        f"CALL test.system.rewrite_data_files(table=>'{namespace.spark_name}.my_table', options=>map('rewrite-all', 'true'))"
+        f"CALL {warehouse.spark_catalog_name}.system.rewrite_data_files(table=>'{namespace.spark_name}.my_table', options=>map('rewrite-all', 'true'))"
     ).toPandas()
     print(rewrite_result)
 
