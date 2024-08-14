@@ -1,3 +1,4 @@
+use crate::catalog::compression_codec::CompressionCodec;
 use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogState};
 use crate::{
     service::{
@@ -539,9 +540,6 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
         let previous_location = context.metadata.location.clone();
         let previous_uuid = context.metadata.uuid();
         let metadata_id = uuid::Uuid::now_v7();
-        let metadata_location = context
-            .storage_profile
-            .initial_metadata_location(&previous_location, metadata_id);
         let previous_table_metadata = context.metadata.clone();
         let mut builder = TableMetadataAggregate::new_from_metadata(context.metadata);
         for update in context.updates {
@@ -572,6 +570,11 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
             }
         }
         let new_metadata = builder.build()?;
+        let metadata_location = context.storage_profile.initial_metadata_location(
+            &previous_location,
+            &CompressionCodec::try_from_properties(&new_metadata.properties)?,
+            metadata_id,
+        );
         responses.push(CommitTableResponseExt {
             commit_response: CommitTableResponse {
                 metadata_location: metadata_location.clone(),

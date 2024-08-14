@@ -1,14 +1,15 @@
 use crate::api::{ErrorModel, Result};
 use crate::service::storage::path_utils;
-use flate2::{write::GzEncoder, Compression};
 use iceberg::io::FileIO;
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use serde::Serialize;
-use std::io::Write;
+
+use super::compression_codec::CompressionCodec;
 
 pub(crate) async fn write_metadata_file(
     metadata_location: &str,
-    table_metadata: impl Serialize,
+    metadata: impl Serialize,
+    compression_codec: CompressionCodec,
     file_io: &FileIO,
 ) -> Result<(), IoError> {
     tracing::debug!("Received location: {}", metadata_location);
@@ -28,19 +29,12 @@ pub(crate) async fn write_metadata_file(
         .await
         .map_err(IoError::FileWriterCreation)?;
 
-    let mut compressed_metadata = GzEncoder::new(Vec::new(), Compression::default());
-    let buf = serde_json::to_vec(&table_metadata).map_err(IoError::Serialization)?;
+    let buf = serde_json::to_vec(&metadata).map_err(IoError::Serialization)?;
 
-    compressed_metadata
-        .write_all(&buf)
-        .map_err(IoError::FileCompression)?;
-
-    let compressed_metadata = compressed_metadata
-        .finish()
-        .map_err(IoError::FileCompression)?;
+    let metadata_bytes = compression_codec.compress(&buf[..])?;
 
     writer
-        .write(compressed_metadata.into())
+        .write(metadata_bytes.into())
         .await
         .map_err(IoError::FileWrite)?;
 

@@ -2,6 +2,7 @@ use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, DataAccess, ErrorModel, LoadViewResult, Prefix, Result,
     TableIdent, ViewParameters,
 };
+use crate::catalog::compression_codec::CompressionCodec;
 use crate::catalog::io::write_metadata_file;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{
@@ -254,21 +255,26 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         }
     }
 
-    let metadata_location =
-        storage_profile.initial_metadata_location(&view_location, Uuid::now_v7());
+    let requested_update_metadata = m.build().map_err(|e| {
+        ErrorModel::builder()
+            .code(StatusCode::BAD_REQUEST.into())
+            .message(format!("Error building metadata: {e}"))
+            .r#type("BuildMetadataError".to_string())
+            .build()
+    })?;
+
+    let metadata_location = storage_profile.initial_metadata_location(
+        &view_location,
+        &CompressionCodec::try_from_properties(requested_update_metadata.properties())?,
+        Uuid::now_v7(),
+    );
 
     C::update_view_metadata(
         namespace_id,
         view_id,
         &parameters.view,
         metadata_location.as_str(),
-        m.build().map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(format!("Error building metadata: {e}"))
-                .r#type("BuildMetadataError".to_string())
-                .build()
-        })?,
+        requested_update_metadata,
         transaction.transaction(),
     )
     .await?;
@@ -291,7 +297,14 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     };
 
     let file_io = storage_profile.file_io(storage_secret.as_ref())?;
-    write_metadata_file(metadata_location.as_str(), &updated_meta, &file_io).await?;
+    let compression_codec = CompressionCodec::try_from_metadata(&updated_meta)?;
+    write_metadata_file(
+        metadata_location.as_str(),
+        &updated_meta,
+        compression_codec,
+        &file_io,
+    )
+    .await?;
     tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
     // Generate the storage profile. This requires the storage secret
     // because the table config might contain vended-credentials based

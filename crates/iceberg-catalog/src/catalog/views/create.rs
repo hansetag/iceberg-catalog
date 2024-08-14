@@ -1,6 +1,7 @@
 use crate::api::iceberg::types::Prefix;
 use crate::api::iceberg::v1::{DataAccess, NamespaceParameters};
 use crate::api::ApiContext;
+use crate::catalog::compression_codec::CompressionCodec;
 use crate::catalog::io::write_metadata_file;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{
@@ -95,7 +96,11 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     let view_location = storage_profile.initial_tabular_location(namespace_id, view_id);
     let mut request = request;
-    let metadata_location = storage_profile.initial_metadata_location(&view_location, *view_id);
+    let metadata_location = storage_profile.initial_metadata_location(
+        &view_location,
+        &CompressionCodec::try_from_properties(&request.properties)?,
+        *view_id,
+    );
     request.location = Some(view_location.clone());
     let request = request;
     // serialize body before moving it
@@ -143,7 +148,14 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     };
 
     let file_io = storage_profile.file_io(storage_secret.as_ref())?;
-    write_metadata_file(metadata_location.as_str(), &metadata, &file_io).await?;
+    let compression_codec = CompressionCodec::try_from_metadata(&metadata)?;
+    write_metadata_file(
+        metadata_location.as_str(),
+        &metadata,
+        compression_codec,
+        &file_io,
+    )
+    .await?;
     tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
 
     // Generate the storage profile. This requires the storage secret

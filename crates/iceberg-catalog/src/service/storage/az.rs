@@ -1,4 +1,6 @@
-use crate::{service::NamespaceIdentUuid, WarehouseIdent};
+use crate::{
+    catalog::compression_codec::CompressionCodec, service::NamespaceIdentUuid, WarehouseIdent,
+};
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, Result};
 use crate::catalog::io::IoError;
@@ -106,11 +108,18 @@ impl AzdlsProfile {
         let sanitized_ns_location = reduce_scheme_string(&namespace_location, false);
 
         // Validate the file_io instance by creating a test file.
-        crate::catalog::io::write_metadata_file(&test_location, "test", &file_io)
-            .await
-            .map_err(|e| {
-                ValidationError::IoOperationFailed(e, Box::new(StorageProfile::Azdls(self.clone())))
-            })?;
+        let compression_codec = CompressionCodec::try_from_maybe_properties(None)
+            .map_err(ValidationError::UnsupportedCompressionCodec)?;
+        crate::catalog::io::write_metadata_file(
+            &test_location,
+            "test",
+            compression_codec,
+            &file_io,
+        )
+        .await
+        .map_err(|e| {
+            ValidationError::IoOperationFailed(e, Box::new(StorageProfile::Azdls(self.clone())))
+        })?;
 
         tracing::debug!(
             "Successfully validated metadata writing, moving on to validating table config.",

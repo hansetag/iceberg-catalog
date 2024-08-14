@@ -6,6 +6,7 @@ mod s3;
 
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
+use crate::catalog::compression_codec::CompressionCodec;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
 pub use az::{AzCredential, AzdlsProfile};
@@ -137,10 +138,12 @@ impl StorageProfile {
     pub fn initial_metadata_location(
         &self,
         table_location: &str,
+        compression_codec: &CompressionCodec,
         metadata_id: uuid::Uuid,
     ) -> String {
+        let filename_extension_compression = compression_codec.as_file_extension();
         format!(
-            "{}/metadata/{metadata_id}.gz.metadata.json",
+            "{}/metadata/{metadata_id}{filename_extension_compression}.metadata.json",
             table_location.trim_end_matches('/')
         )
     }
