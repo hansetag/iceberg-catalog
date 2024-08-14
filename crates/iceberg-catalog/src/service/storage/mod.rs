@@ -13,7 +13,7 @@ pub use az::{AzCredential, AzdlsProfile};
 use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
-use iceberg_ext::table_config::TableConfig;
+use iceberg_ext::configs::table::TableConfig;
 pub(crate) use s3::{parse_s3_location, S3Location};
 pub use s3::{S3Credential, S3Flavor, S3Profile};
 use serde::{Deserialize, Serialize};
