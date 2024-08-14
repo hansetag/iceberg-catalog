@@ -141,7 +141,7 @@ impl S3Profile {
     pub async fn validate(
         &self,
         credential: Option<&S3Credential>,
-        test_location: Option<&str>,
+        test_location: Option<&str>, // Path to a folder
     ) -> Result<(), ValidationError> {
         // If key_prefix is provided, remove any trailing and leading slashes.
 
@@ -162,7 +162,7 @@ impl S3Profile {
         if *sts_enabled && matches!(flavor, S3Flavor::Aws) && self.sts_role_arn.is_none() {
             return Err(ValidationError::InvalidProfile {
                 source: None,
-                reason: "Storage Profile `sts_role_arn` is required for AWS flavor.".to_string(),
+                reason: "Storage Profile `sts-role-arn` is required for AWS flavor.".to_string(),
                 entity: "sts_role_arn".to_string(),
             });
         }
@@ -223,9 +223,8 @@ impl S3Profile {
         }
 
         let file_io = self.file_io(credential.map(Into::into).as_ref())?;
-        // Test Location
         let test_location = test_location
-            .map(|s| format!("{}/_test", s.trim_end_matches('/')).to_string())
+            .map(|s| format!("{}/", s.trim_end_matches('/')).to_string())
             .unwrap_or(
                 self.default_tabular_location(
                     &self
@@ -250,8 +249,7 @@ impl S3Profile {
                     )
                     .await?;
                 tracing::debug!("Validating STS token.");
-                self.validate_sts_token(token, bucket, &test_location)
-                    .await?;
+                self.validate_sts_token(token, &test_location).await?;
             } else if matches!(flavor, S3Flavor::Minio) {
                 tracing::debug!("S3 Flavor is Minio, getting sts token");
                 let token = self
@@ -262,8 +260,7 @@ impl S3Profile {
                     )
                     .await?;
                 tracing::debug!("Validating STS token.");
-                self.validate_sts_token(token, bucket, &test_location)
-                    .await?;
+                self.validate_sts_token(token, &test_location).await?;
             }
         }
 
@@ -549,10 +546,9 @@ impl S3Profile {
             expiration: _,
             ..
         }: aws_sdk_sts::types::Credentials,
-        bucket: &String,
         test_location: &String,
     ) -> Result<(), ValidationError> {
-        tracing::debug!("Validating STS token for bucket: '{}'", bucket);
+        tracing::debug!("Validating STS token for: '{}'", test_location);
         let file_io = self.file_io(Some(&aws_credential_types::Credentials::new(
             access_key_id,
             secret_access_key,
@@ -597,7 +593,9 @@ impl S3Profile {
     ) -> String {
         let resource = format!(
             "arn:aws:s3:::{}/*",
-            table_location.trim_start_matches("s3://")
+            table_location
+                .trim_start_matches("s3://")
+                .trim_end_matches('/')
         );
         format!(
             r#"{{
@@ -878,6 +876,8 @@ mod test {
     }
 
     #[test]
+    /// Tests that the tabular location is correctly generated when the namespace location
+    /// independent of a trailing slash in the namespace location.
     fn test_tabular_location_trailing_slash() {
         let profile = S3Profile {
             bucket: "test-bucket".to_string(),
@@ -894,6 +894,7 @@ mod test {
         let namespace_location = S3Location::try_from_str("s3://test-bucket/foo/").unwrap();
         let table_id = TabularIdentUuid::Table(uuid::Uuid::now_v7());
         // Prefix should be ignored as we specify the namespace_location explicitly.
+        // Tabular locations should not have a trailing slash, otherwise pyiceberg fails.
         let expected = format!("s3://test-bucket/foo/{table_id}");
 
         let location = profile.default_tabular_location(&namespace_location.to_string(), table_id);
