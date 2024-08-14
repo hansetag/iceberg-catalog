@@ -12,7 +12,7 @@ use crate::catalog::views::validate_view_updates;
 use crate::request_metadata::RequestMetadata;
 use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;
-use crate::service::storage::{Idents, StoragePermissions};
+use crate::service::storage::{Idents, StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, TableIdentUuid,
@@ -263,7 +263,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             .build()
     })?;
 
-    let metadata_location = storage_profile.initial_metadata_location(
+    let metadata_location = storage_profile.metadata_location(
         &view_location,
         &CompressionCodec::try_from_properties(requested_update_metadata.properties())?,
         Uuid::now_v7(),

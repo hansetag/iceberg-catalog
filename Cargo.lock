@@ -2888,6 +2888,7 @@ dependencies = [
  "axum",
  "chrono",
  "futures-util",
+ "heck",
  "http 1.1.0",
  "iceberg",
  "lazy_static",

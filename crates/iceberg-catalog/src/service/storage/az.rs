@@ -8,7 +8,9 @@ use crate::service::storage::error::{
     CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
 use crate::service::storage::path_utils::reduce_scheme_string;
-use crate::service::storage::{Idents, StoragePermissions, StorageProfile, StorageType};
+use crate::service::storage::{
+    Idents, StorageLocations, StoragePermissions, StorageProfile, StorageType,
+};
 use crate::service::tabular_idents::TabularIdentUuid;
 use azure_storage::prelude::{BlobSasPermissions, BlobSignedResource};
 use azure_storage::shared_access_signature::service_sas::BlobSharedAccessSignature;
@@ -60,6 +62,7 @@ impl AzdlsProfile {
     pub async fn validate(
         &mut self,
         credential: Option<&AzCredential>,
+        test_location: Option<&str>,
     ) -> Result<(), ValidationError> {
         // If key_prefix is provided, remove any trailing and leading slashes.
         if let Some(key_prefix) = self.key_prefix.as_mut() {
@@ -101,10 +104,15 @@ impl AzdlsProfile {
 
         let file_io = self.file_io(credential)?;
         let ns_id = Uuid::now_v7().into();
-        let namespace_location = self.initial_namespace_location(ns_id);
+        let namespace_location = self.default_namespace_location(ns_id);
         let table_id = Uuid::now_v7();
         let test_location =
-            self.initial_tabular_location(ns_id, TabularIdentUuid::Table(table_id)) + "/test_file";
+            test_location
+                .map(|s| format!("{}/_test", s.trim_end_matches('/')).to_string())
+                .unwrap_or(self.default_tabular_location(
+                    &namespace_location,
+                    TabularIdentUuid::Table(table_id),
+                ));
         let sanitized_ns_location = reduce_scheme_string(&namespace_location, false);
 
         // Validate the file_io instance by creating a test file.
@@ -197,18 +205,7 @@ impl AzdlsProfile {
     }
 
     #[must_use]
-    pub fn initial_tabular_location(
-        &self,
-        namespace_id: NamespaceIdentUuid,
-        tabular_id: TabularIdentUuid,
-    ) -> String {
-        format!(
-            "{}{tabular_id}",
-            self.initial_namespace_location(namespace_id)
-        )
-    }
-
-    fn initial_namespace_location(&self, namespace_id: NamespaceIdentUuid) -> String {
+    pub fn default_namespace_location(&self, namespace_id: NamespaceIdentUuid) -> String {
         format!("{}{namespace_id}/", self.location())
     }
 

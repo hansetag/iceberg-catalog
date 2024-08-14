@@ -15,7 +15,7 @@ use super::error::SignError;
 use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
 use crate::service::secrets::SecretStore;
-use crate::service::storage::{parse_s3_location, S3Profile, StorageCredential};
+use crate::service::storage::{S3Location, S3Profile, StorageCredential};
 use crate::service::{auth::AuthZHandler, Catalog, State};
 use crate::service::{GetTableMetadataResponse, TableIdentUuid};
 use crate::WarehouseIdent;
@@ -356,7 +356,7 @@ fn validate_uri(
     // i.e. s3://bucket/key
     table_location: &str,
 ) -> Result<()> {
-    let table_location = parse_s3_location(table_location)?;
+    let table_location = S3Location::try_from_str(table_location)?;
     let url_location = &parsed_url.location;
 
     if !url_location.is_sublocation_of(&table_location) {
@@ -430,10 +430,7 @@ pub(super) mod s3_utils {
             // Host Style Case
             Ok(ParsedS3Url {
                 url: uri.clone(),
-                location: S3Location {
-                    bucket_name: bucket.to_string(),
-                    prefix: path_segments,
-                },
+                location: S3Location::new(bucket.to_string(), path_segments)?,
                 endpoint: used_endpoint.to_string(),
                 port: uri.port_or_known_default().unwrap_or(443),
             })
@@ -441,10 +438,10 @@ pub(super) mod s3_utils {
             // Path Style Case
             Ok(ParsedS3Url {
                 url: uri.clone(),
-                location: S3Location {
-                    bucket_name: path_segments[0].to_string(),
-                    prefix: path_segments[1..].to_vec(),
-                },
+                location: S3Location::new(
+                    path_segments[0].to_string(),
+                    path_segments[1..].to_vec(),
+                )?,
                 endpoint: host.to_string(),
                 port: uri.port_or_known_default().unwrap_or(443),
             })

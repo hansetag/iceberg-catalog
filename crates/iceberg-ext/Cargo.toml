@@ -35,6 +35,7 @@ uuid = { workspace = true, features = ["serde"] }
 strum = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 paste = { workspace = true }
+heck = { workspace = true }
 
 [dev-dependencies]
 lazy_static = { workspace = true }
