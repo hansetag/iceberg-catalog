@@ -3,6 +3,7 @@ use iceberg::spec::{TableMetadata, ViewMetadata};
 pub use iceberg_ext::catalog::rest::{
     CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
 };
+use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
 
 use super::{
@@ -82,6 +83,7 @@ pub struct GetStorageConfigResponse {
 /// Extends the `CommitTableResponse` with the storage config.
 #[derive(Debug)]
 pub struct CommitTableResponseExt {
+    pub metadata_location: Location,
     pub commit_response: CommitTableResponse,
     pub storage_config: GetStorageConfigResponse,
     pub previous_table_metadata: TableMetadata,
@@ -162,7 +164,7 @@ where
         table_id: TableIdentUuid,
         request: CreateTableRequest,
         // Metadata location may be none if stage-create is true
-        metadata_location: Option<&String>,
+        metadata_location: Option<&str>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateTableResponse>;
 
@@ -323,7 +325,7 @@ where
         request: ViewMetadata,
         metadata_location: &str,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<ViewMetadata>;
+    ) -> Result<()>;
 
     async fn load_view<'a>(
         view_id: TableIdentUuid,
@@ -344,7 +346,7 @@ where
         metadata_location: &str,
         metadata: ViewMetadata,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
-    ) -> Result<ViewMetadata>;
+    ) -> Result<()>;
 
     async fn drop_view<'a>(
         view_id: TableIdentUuid,

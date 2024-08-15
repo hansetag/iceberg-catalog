@@ -1,4 +1,4 @@
-use super::{ConfigParseError, ParseFromStr};
+use super::{ConfigParseError, NotCustomProp, ParseFromStr};
 use std::collections::HashMap;
 use std::fmt::Debug;
 
@@ -7,8 +7,6 @@ use std::fmt::Debug;
 pub struct TableConfig {
     pub(crate) props: HashMap<String, String>,
 }
-
-pub trait NotCustomProp {}
 
 impl TableConfig {
     pub fn insert<S>(&mut self, pair: &S) -> Option<S::Type>
@@ -174,6 +172,7 @@ pub mod s3 {
         SessionToken, String, "s3.session-token", "s3_session_token";
         RemoteSigningEnabled, bool, "s3.remote-signing-enabled", "s3_remote_signing_enabled";
         Signer, String, "s3.signer", "s3_signer";
+        SignerUri, String, "s3.signer.uri", "s3_signer_uri";
     );
 }
 

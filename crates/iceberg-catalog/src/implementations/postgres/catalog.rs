@@ -119,7 +119,7 @@ impl Catalog for super::Catalog {
         table_id: TableIdentUuid,
         request: CreateTableRequest,
         // Metadata location may be none if stage-create is true
-        metadata_location: Option<&String>,
+        metadata_location: Option<&str>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<CreateTableResponse> {
         create_table(
@@ -297,7 +297,7 @@ impl Catalog for super::Catalog {
         request: ViewMetadata,
         metadata_location: &str,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<ViewMetadata> {
+    ) -> Result<()> {
         create_view(
             namespace_id,
             metadata_location,
@@ -339,7 +339,7 @@ impl Catalog for super::Catalog {
         metadata_location: &str,
         metadata: ViewMetadata,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
-    ) -> Result<ViewMetadata> {
+    ) -> Result<()> {
         drop_view(view_id, transaction).await?;
         create_view(
             namespace_id,
