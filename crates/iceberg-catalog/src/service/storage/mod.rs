@@ -259,7 +259,7 @@ impl StorageProfile {
                     },
                     credential,
                     &test_location,
-                    StoragePermissions::ReadWrite,
+                    StoragePermissions::ReadWriteDelete,
                 )
                 .await?;
             match &self {
@@ -275,6 +275,8 @@ impl StorageProfile {
                 StorageProfile::Test(_) => {}
             }
         }
+
+        println!("------------- before remove_all --------------");
 
         // Cleanup
         crate::catalog::io::remove_all(&file_io, &test_location)

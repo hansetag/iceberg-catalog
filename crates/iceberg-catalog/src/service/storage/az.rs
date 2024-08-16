@@ -766,22 +766,8 @@ mod test {
 
     #[needs_env_var(TEST_AZURE)]
     mod azure_tests {
-        use crate::service::storage::AzCredential;
-        use crate::service::storage::AzdlsProfile;
-
-        #[test]
-        fn test_default_authority() {
-            assert_eq!(
-                DEFAULT_AUTHORITY_HOST.as_str(),
-                "https://login.microsoftonline.com"
-            );
-        }
-
-        #[test]
-        fn test_validate_endpoint_suffix() {
-            validate_endpoint_suffix("dfs.core.windows.net".into()).unwrap();
-            validate_endpoint_suffix(None).unwrap();
-        }
+        use crate::service::storage::{AzCredential, AzdlsProfile};
+        use crate::service::storage::{StorageCredential, StorageProfile};
 
         #[tokio::test]
         async fn test_can_validate() {
@@ -791,7 +777,7 @@ mod test {
             let tenant_id = std::env::var("AZURE_TENANT_ID").unwrap();
             let filesystem = std::env::var("AZURE_STORAGE_FILESYSTEM").unwrap();
             let key_prefix = vec!['b'; 512].into_iter().collect::<String>();
-            let mut prof = AzdlsProfile {
+            let prof = AzdlsProfile {
                 filesystem,
                 key_prefix: Some(key_prefix.to_string()),
                 account_name,
@@ -799,17 +785,32 @@ mod test {
                 endpoint_suffix: None,
                 sas_token_validity_seconds: None,
             };
+            let mut prof: StorageProfile = prof.into();
 
-            let cred = AzCredential::ClientCredentials {
+            let cred: StorageCredential = AzCredential::ClientCredentials {
                 client_id,
                 client_secret,
                 tenant_id,
-            };
+            }
+            .into();
 
-            prof.validate(Some(&cred))
-                .await
-                .expect("failed to validate profile");
+            prof.normalize().expect("failed to validate profile");
+            prof.validate_access(Some(&cred), None).await.unwrap();
         }
+    }
+
+    #[test]
+    fn test_default_authority() {
+        assert_eq!(
+            DEFAULT_AUTHORITY_HOST.as_str(),
+            "https://login.microsoftonline.com/"
+        );
+    }
+
+    #[test]
+    fn test_validate_endpoint_suffix() {
+        normalize_endpoint_suffix(Some("dfs.core.windows.net".to_string())).unwrap();
+        normalize_endpoint_suffix(None).unwrap();
     }
 
     #[test]

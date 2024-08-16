@@ -859,7 +859,9 @@ mod test {
 
     #[needs_env_var(TEST_MINIO)]
     mod minio {
-        use crate::service::storage::{S3Credential, S3Flavor, S3Profile};
+        use crate::service::storage::{
+            S3Credential, S3Flavor, S3Profile, StorageCredential, StorageProfile,
+        };
 
         #[tokio::test]
         async fn test_can_validate() {
@@ -869,10 +871,11 @@ mod test {
             let aws_secret_access_key = std::env::var("ICEBERG_REST_TEST_S3_SECRET_KEY").unwrap();
             let endpoint = std::env::var("ICEBERG_REST_TEST_S3_ENDPOINT").unwrap();
 
-            let cred = S3Credential::AccessKey {
+            let cred: StorageCredential = S3Credential::AccessKey {
                 aws_access_key_id,
                 aws_secret_access_key,
-            };
+            }
+            .into();
 
             let profile = S3Profile {
                 bucket,
@@ -885,13 +888,17 @@ mod test {
                 flavor: S3Flavor::Minio,
                 sts_enabled: true,
             };
+            let mut profile: StorageProfile = profile.into();
 
-            profile.validate(Some(&cred), None).await.unwrap();
+            profile.normalize().unwrap();
+            profile.validate_access(Some(&cred), None).await.unwrap();
         }
     }
 
     #[needs_env_var(TEST_AWS)]
     mod aws {
+        use crate::service::storage::{StorageCredential, StorageProfile};
+
         use super::super::*;
 
         #[tokio::test]
@@ -899,12 +906,13 @@ mod test {
             let bucket = std::env::var("AWS_S3_BUCKET").unwrap();
             let region = std::env::var("AWS_S3_REGION").unwrap();
             let sts_role_arn = std::env::var("AWS_S3_STS_ROLE_ARN").unwrap();
-            let cred = S3Credential::AccessKey {
+            let cred: StorageCredential = S3Credential::AccessKey {
                 aws_access_key_id: std::env::var("AWS_S3_ACCESS_KEY_ID").unwrap(),
                 aws_secret_access_key: std::env::var("AWS_S3_SECRET_ACCESS_KEY").unwrap(),
-            };
+            }
+            .into();
 
-            let profile = S3Profile {
+            let mut profile: StorageProfile = S3Profile {
                 bucket,
                 key_prefix: Some("test_prefix".to_string()),
                 assume_role_arn: None,
@@ -914,9 +922,11 @@ mod test {
                 sts_role_arn: Some(sts_role_arn),
                 flavor: S3Flavor::Aws,
                 sts_enabled: true,
-            };
+            }
+            .into();
 
-            profile.validate(Some(&cred), None).await.unwrap();
+            profile.normalize().unwrap();
+            profile.validate_access(Some(&cred), None).await.unwrap();
         }
     }
 
