@@ -119,32 +119,38 @@ impl StorageProfile {
         }
     }
 
-    /// Get the default namespace location for the storage profile.
+    /// Get the base location of this Storage Profiles
     ///
     /// # Errors
-    /// Fails if no location can be built for this storage config, typically because the
-    /// `key_prefix` is invalid.
+    /// Can fail for un-normalized profiles.
+    pub fn base_location(&self) -> Result<Location, ValidationError> {
+        match self {
+            StorageProfile::S3(profile) => profile.base_location().map(Into::into),
+            StorageProfile::Azdls(profile) => profile.base_location(),
+            #[cfg(test)]
+            StorageProfile::Test(_) => std::str::FromStr::from_str(&format!("file://tmp/"))
+                .map_err(|_| ValidationError::InvalidLocation {
+                    reason: "Invalid namespace location".to_string(),
+                    location: "file://tmp/".to_string(),
+                    source: None,
+                    storage_type: self.storage_type(),
+                }),
+        }
+    }
+
+    /// Get the default location for the namespace.
+    ///
+    /// # Errors
+    /// Fails if the `key_prefix` is not valid for S3 URLs.
     pub fn default_namespace_location(
         &self,
         namespace_id: NamespaceIdentUuid,
     ) -> Result<Location, ValidationError> {
-        match self {
-            StorageProfile::S3(profile) => profile
-                .default_namespace_location(namespace_id)
-                .map(Into::into),
-            StorageProfile::Azdls(profile) => profile.default_namespace_location(namespace_id),
-            #[cfg(test)]
-            StorageProfile::Test(_) => {
-                std::str::FromStr::from_str(&format!("file://tmp/{namespace_id}/")).map_err(|_| {
-                    ValidationError::InvalidLocation {
-                        reason: "Invalid namespace location".to_string(),
-                        location: "file://tmp/{namespace_id}/".to_string(),
-                        source: None,
-                        storage_type: self.storage_type(),
-                    }
-                })
-            }
-        }
+        let mut base_location: Location = self.base_location()?;
+        base_location
+            .without_trailing_slash()
+            .push(&namespace_id.to_string());
+        Ok(base_location)
     }
 
     #[must_use]
@@ -362,6 +368,21 @@ impl StorageProfile {
             }),
         }
     }
+
+    pub fn is_allowed_location(&self, other: &Location) -> bool {
+        let base_location = self.base_location().ok();
+
+        if let Some(mut base_location) = base_location {
+            base_location.with_trailing_slash();
+            if other == &base_location {
+                return false;
+            }
+
+            other.is_sublocation_of(&base_location)
+        } else {
+            false
+        }
+    }
 }
 
 pub trait StorageLocations {
@@ -477,6 +498,8 @@ pub mod path_utils {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -583,5 +606,43 @@ mod tests {
                 aws_secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_string()
             })
         );
+    }
+
+    #[test]
+    fn test_is_allowed_location() {
+        let profile = StorageProfile::S3(S3Profile {
+            bucket: "my.bucket".to_string(),
+            endpoint: Some("http://localhost:9000".parse().unwrap()),
+            region: "us-east-1".to_string(),
+            assume_role_arn: None,
+            path_style_access: None,
+            key_prefix: Some("my/subpath".to_string()),
+            sts_role_arn: None,
+            sts_enabled: false,
+            flavor: S3Flavor::Aws,
+        });
+
+        let cases = vec![
+            ("s3://my.bucket/my/subpath/ns-id", true),
+            ("s3://my.bucket/my/subpath/ns-id/", true),
+            ("s3://my.bucket/my/subpath/ns-id/tbl-id", true),
+            ("s3://my.bucket/my/subpath/ns-id/tbl-id/", true),
+            ("s3://other.bucket/my/subpath/ns-id/tbl-id/", false),
+            ("s3://my.bucket/other/subpath/ns-id/tbl-id/", false),
+            // Exact path should not be accepted
+            ("s3://my.bucket/my/subpath", false),
+            ("s3://my.bucket/my/subpath/", false),
+        ];
+
+        for (sublocation, expected_result) in cases {
+            let sublocation = Location::from_str(sublocation).unwrap();
+            assert_eq!(
+                profile.is_allowed_location(&sublocation),
+                expected_result,
+                "Base Location: {}, Maybe sublocation: {}",
+                profile.base_location().unwrap(),
+                sublocation
+            )
+        }
     }
 }

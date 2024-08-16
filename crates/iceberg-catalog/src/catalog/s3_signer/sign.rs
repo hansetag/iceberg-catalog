@@ -359,7 +359,10 @@ fn validate_uri(
     let table_location = S3Location::from_str(table_location)?;
     let url_location = &parsed_url.location;
 
-    if !url_location.is_sublocation_of(&table_location) {
+    if !url_location
+        .location()
+        .is_sublocation_of(&table_location.location())
+    {
         return Err(SignError::RequestUriMismatch {
             request_uri: parsed_url.url.to_string(),
             expected_location: table_location.to_string(),
@@ -456,6 +459,7 @@ mod test {
     use super::*;
     use crate::service::storage::S3Flavor;
 
+    #[derive(Debug)]
     struct TC {
         request_uri: &'static str,
         table_location: &'static str,
@@ -471,7 +475,12 @@ mod test {
         let request_uri = s3_utils::parse_s3_url(&request_uri).unwrap();
         let table_location = test_case.table_location;
         let result = validate_uri(&request_uri, table_location);
-        assert_eq!(result.is_ok(), test_case.expected_outcome);
+        assert_eq!(
+            result.is_ok(),
+            test_case.expected_outcome,
+            "Test case: {:?}",
+            test_case
+        );
     }
 
     #[test]

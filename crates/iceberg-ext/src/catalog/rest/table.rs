@@ -1,7 +1,9 @@
 use crate::catalog::{TableIdent, TableRequirement, TableUpdate};
 use crate::spec::{Schema, SortOrder, TableMetadata, TableMetadataAggregate, UnboundPartitionSpec};
 
-use super::{impl_into_response, ErrorModel, IcebergErrorResponse};
+#[cfg(feature = "axum")]
+use super::impl_into_response;
+use super::{ErrorModel, IcebergErrorResponse};
 
 /// Result used when a table is successfully loaded.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -73,8 +75,11 @@ pub struct CommitTransactionRequest {
     pub table_changes: Vec<CommitTableRequest>,
 }
 
+#[cfg(feature = "axum")]
 impl_into_response!(LoadTableResult);
+#[cfg(feature = "axum")]
 impl_into_response!(ListTablesResponse);
+#[cfg(feature = "axum")]
 impl_into_response!(CommitTableResponse);
 
 #[allow(clippy::module_name_repetitions)]

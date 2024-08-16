@@ -21,8 +21,7 @@ use crate::implementations::postgres::tabular::view::{
 use crate::service::{
     CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
     GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
-    TableIdent, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
-    WarehouseStatus,
+    TableIdent, WarehouseStatus,
 };
 use crate::{
     service::{
@@ -82,10 +81,11 @@ impl Catalog for super::Catalog {
 
     async fn create_namespace<'a>(
         warehouse_id: WarehouseIdent,
+        namespace_id: NamespaceIdentUuid,
         request: CreateNamespaceRequest,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<CreateNamespaceResponse> {
-        create_namespace(warehouse_id, request, transaction).await
+        create_namespace(warehouse_id, namespace_id, request, transaction).await
     }
 
     async fn namespace_ident_to_id(
@@ -107,10 +107,10 @@ impl Catalog for super::Catalog {
     async fn update_namespace_properties<'a>(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
-        request: UpdateNamespacePropertiesRequest,
+        properties: HashMap<String, String>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
-    ) -> Result<UpdateNamespacePropertiesResponse> {
-        update_namespace_properties(warehouse_id, namespace, request, transaction).await
+    ) -> Result<()> {
+        update_namespace_properties(warehouse_id, namespace, properties, transaction).await
     }
 
     async fn create_table<'a>(
