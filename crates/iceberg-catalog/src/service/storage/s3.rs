@@ -304,7 +304,6 @@ impl S3Profile {
     #[must_use]
     pub fn generate_catalog_config(&self, warehouse_id: WarehouseIdent) -> CatalogConfig {
         CatalogConfig {
-            // ToDo: s3.delete-enabled?
             defaults: HashMap::default(),
             overrides: HashMap::from_iter(vec![(
                 configs::table::s3::SignerUri::KEY.to_string(),
