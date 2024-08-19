@@ -128,13 +128,14 @@ impl StorageProfile {
             StorageProfile::S3(profile) => profile.base_location().map(Into::into),
             StorageProfile::Azdls(profile) => profile.base_location(),
             #[cfg(test)]
-            StorageProfile::Test(_) => std::str::FromStr::from_str(&format!("file://tmp/"))
-                .map_err(|_| ValidationError::InvalidLocation {
+            StorageProfile::Test(_) => std::str::FromStr::from_str("file://tmp/").map_err(|_| {
+                ValidationError::InvalidLocation {
                     reason: "Invalid namespace location".to_string(),
                     location: "file://tmp/".to_string(),
                     source: None,
                     storage_type: self.storage_type(),
-                }),
+                }
+            }),
         }
     }
 
@@ -369,6 +370,7 @@ impl StorageProfile {
         }
     }
 
+    #[must_use]
     pub fn is_allowed_location(&self, other: &Location) -> bool {
         let base_location = self.base_location().ok();
 
@@ -639,10 +641,9 @@ mod tests {
             assert_eq!(
                 profile.is_allowed_location(&sublocation),
                 expected_result,
-                "Base Location: {}, Maybe sublocation: {}",
+                "Base Location: {}, Maybe sublocation: {sublocation}",
                 profile.base_location().unwrap(),
-                sublocation
-            )
+            );
         }
     }
 }

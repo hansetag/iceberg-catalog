@@ -172,8 +172,7 @@ mod tests {
             let result = maybe_sublocation.is_sublocation_of(&parent);
             assert_eq!(
                 result, expected,
-                "Parent: {}, Sublocation: {}, Expected: {}",
-                parent, maybe_sublocation, expected
+                "Parent: {parent}, Sublocation: {maybe_sublocation}, Expected: {expected}",
             );
         }
     }
