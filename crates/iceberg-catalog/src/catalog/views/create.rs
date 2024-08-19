@@ -5,8 +5,7 @@ use crate::catalog::compression_codec::CompressionCodec;
 use crate::catalog::io::write_metadata_file;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{
-    maybe_body_to_json, require_active_warehouse, require_no_location_specified,
-    validate_table_or_view_ident,
+    maybe_body_to_json, require_active_warehouse, validate_table_or_view_ident,
 };
 use crate::catalog::views::validate_view_properties;
 use crate::request_metadata::RequestMetadata;
@@ -38,7 +37,6 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let view = TableIdent::new(namespace.clone(), request.name.clone());
 
     validate_table_or_view_ident(&view)?;
-    require_no_location_specified(&request.location)?;
 
     if request.location.is_some() {
         return Err(ErrorModel::builder()
@@ -97,7 +95,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let namespace_location = storage_profile.default_namespace_location(namespace_id)?;
     let view_location = storage_profile.default_tabular_location(&namespace_location, view_id);
     let mut request = request;
-    let metadata_location = storage_profile.metadata_location(
+    let metadata_location = storage_profile.default_metadata_location(
         &view_location,
         &CompressionCodec::try_from_properties(&request.properties)?,
         *view_id,

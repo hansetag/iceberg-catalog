@@ -21,13 +21,22 @@ def test_list_namespaces(warehouse: conftest.Warehouse):
     assert ("test_list_namespaces_2",) in namespaces
 
 
+def test_default_location_for_namespace_is_set(warehouse: conftest.Warehouse):
+    catalog = warehouse.pyiceberg_catalog
+    namespace = ("test_default_location_for_namespace",)
+    catalog.create_namespace(namespace)
+    loaded_properties = catalog.load_namespace_properties(namespace)
+    assert "location" in loaded_properties
+
+
 def test_namespace_properties(warehouse: conftest.Warehouse):
     catalog = warehouse.pyiceberg_catalog
     namespace = ("test_namespace_properties",)
     properties = {"key-1": "value-1", "key2": "value2"}
     catalog.create_namespace(namespace, properties=properties)
     loaded_properties = catalog.load_namespace_properties(namespace)
-    assert loaded_properties == properties
+    for key, value in properties.items():
+        assert loaded_properties[key] == value
 
 
 def test_drop_namespace(warehouse: conftest.Warehouse):

@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr as _;
-use std::vec;
 
 use crate::api::iceberg::v1::{
     ApiContext, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
@@ -12,6 +11,7 @@ use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
+use iceberg_ext::configs::namespace::NamespaceProperties;
 use iceberg_ext::configs::Location;
 use serde::Serialize;
 use uuid::Uuid;
@@ -22,13 +22,15 @@ use super::{
 };
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::storage::{StorageCredential, StorageLocations as _, StoragePermissions};
+use crate::service::storage::{
+    StorageCredential, StorageLocations as _, StoragePermissions, StorageProfile,
+};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
-use crate::service::{GetWarehouseResponse, TableIdentUuid, WarehouseStatus};
+use crate::service::{GetNamespaceResponse, TableIdentUuid, WarehouseStatus};
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -82,13 +84,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
-        tracing::debug!("create_table: {:?}", request);
         // ------------------- VALIDATIONS -------------------
         let NamespaceParameters { namespace, prefix } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
         let table = TableIdent::new(namespace.clone(), request.name.clone());
         validate_table_or_view_ident(&table)?;
-        require_no_location_specified(&request.location)?;
 
         if let Some(properties) = &request.properties {
             validate_table_properties(properties.keys())?;
@@ -104,34 +104,22 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let namespace_id =
-            C::namespace_ident_to_id(warehouse_id, &namespace, state.v1_state.catalog.clone())
-                .await?
-                .ok_or(
-                    ErrorModel::builder()
-                        .code(StatusCode::NOT_FOUND.into())
-                        .message("Namespace does not exist".to_string())
-                        .r#type("NamespaceNotFound".to_string())
-                        .build(),
-                )?;
-
-        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let GetWarehouseResponse {
-            id: _,
-            name: _,
-            project_id: _,
-            storage_profile,
-            storage_secret_id,
-            status,
-        } = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
-        require_active_warehouse(status)?;
-
         let table_id: TabularIdentUuid = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-        let namespace_location = storage_profile.default_namespace_location(namespace_id)?;
-        let table_location =
-            storage_profile.default_tabular_location(&namespace_location, table_id);
 
-        // This is the only place where we change request
+        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let namespace = C::get_namespace(warehouse_id, &namespace, t.transaction()).await?;
+        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+        let storage_profile = warehouse.storage_profile;
+        require_active_warehouse(warehouse.status)?;
+
+        let table_location = determine_table_location(
+            &namespace,
+            request.location.clone(),
+            TabularIdentUuid::Table(*table_id),
+            &storage_profile,
+        )?;
+
+        // This is the only place where we change the request
         request.location = Some(table_location.to_string());
         let request = request; // Make it non-mutable again for our sanity
 
@@ -140,7 +128,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             None
         } else {
             let metadata_id = uuid::Uuid::now_v7();
-            Some(storage_profile.metadata_location(
+            Some(storage_profile.default_metadata_location(
                 &table_location,
                 &CompressionCodec::try_from_maybe_properties(request.properties.as_ref())?,
                 metadata_id,
@@ -151,27 +139,21 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let body = maybe_body_to_json(&request);
 
         let CreateTableResponse { table_metadata } = C::create_table(
-            namespace_id,
+            namespace.namespace_id,
             &table,
             TableIdentUuid::from(*table_id),
             request,
             metadata_location
                 .as_ref()
                 .map(iceberg_ext::configs::Location::as_str),
-            transaction.transaction(),
+            t.transaction(),
         )
         .await?;
 
         // We don't commit the transaction yet, first we need to write the metadata file.
-        let storage_secret = if let Some(secret_id) = &storage_secret_id {
-            Some(
-                state
-                    .v1_state
-                    .secrets
-                    .get_secret_by_id(secret_id)
-                    .await?
-                    .secret,
-            )
+        let storage_secret = if let Some(secret_id) = &warehouse.storage_secret_id {
+            let secret_state = state.v1_state.secrets;
+            Some(secret_state.get_secret_by_id(secret_id).await?.secret)
         } else {
             None
         };
@@ -188,7 +170,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .await?;
         };
 
-        // Generate the storage profile. This requires the storage secret
+        // This requires the storage secret
         // because the table config might contain vended-credentials based
         // on the `data_access` parameter.
         let config = storage_profile
@@ -207,7 +189,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         };
 
         // Metadata file written, now we can commit the transaction
-        transaction.commit().await?;
+        t.commit().await?;
 
         emit_change_event(
             EventMetadata {
@@ -225,7 +207,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             state.v1_state.publisher.clone(),
         )
         .await;
-        tracing::debug!("create_table: {:?}", load_table_result);
         Ok(load_table_result)
     }
 
@@ -352,79 +333,26 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     ) -> Result<CommitTableResponse> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(parameters.prefix.clone())?;
+        let TableParameters { table, prefix } = parameters;
 
-        if let Some(identifier) = &request.identifier {
-            if identifier != &parameters.table {
-                // When querying a branch, spark sends something like:
-                // namespace: (<my>, <namespace>, <table_name>)
-                // table_name: branch_<branch_name>
-                let ns_parts = parameters.table.namespace.clone().inner();
-                let table_name_candidate = if ns_parts.len() >= 2 {
-                    NamespaceIdent::from_vec(
-                        ns_parts.iter().take(ns_parts.len() - 1).cloned().collect(),
-                    )
-                    .ok()
-                    .map(|n| TableIdent::new(n, ns_parts.last().cloned().unwrap_or_default()))
-                } else {
-                    None
-                };
-
-                if table_name_candidate != Some(identifier.clone()) {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::BAD_REQUEST.into())
-                        .message(
-                            "Table identifier in path does not match the one in the request body"
-                                .to_string(),
-                        )
-                        .r#type("TableIdentifierMismatch".to_string())
-                        .build()
-                        .into());
-                }
-            }
-        }
-
-        if request.identifier.is_none() {
-            request.identifier = Some(parameters.table.clone());
-        }
-        if let Some(ref mut identifier) = request.identifier {
-            validate_table_or_view_ident(identifier)?;
-        }
-        // Make it non-mutable again for our sanity
-        let request = request;
+        let table_ident = determine_table_ident(table, request.identifier)?;
+        validate_table_or_view_ident(&table_ident)?;
+        request.identifier = Some(table_ident.clone());
+        let request = request; // Make it non-mutable again for our sanity
 
         let CommitTableRequest {
-            identifier,
-            // If requirements are validated in the future
-            // also add validation to commit_transaction
+            identifier: _,
             requirements: _,
             updates,
         } = &request;
 
         validate_table_updates(updates)?;
-        identifier
-            .as_ref()
-            .map(validate_table_or_view_ident)
-            .transpose()?;
-
-        if let Some(identifier) = identifier {
-            if identifier != &parameters.table {
-                return Err(ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message(
-                        "Table identifier in path does not match the one in the request body"
-                            .to_string(),
-                    )
-                    .r#type("TableIdentifierMismatch".to_string())
-                    .build()
-                    .into());
-            }
-        }
 
         // ------------------- AUTHZ -------------------
         let include_staged = true;
         let table_id = C::table_ident_to_id(
             warehouse_id,
-            &parameters.table,
+            &table_ident,
             include_staged,
             state.v1_state.catalog.clone(),
         )
@@ -437,7 +365,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             &request_metadata,
             warehouse_id,
             table_id,
-            Some(&parameters.table.namespace),
+            Some(&table_ident.namespace),
             state.v1_state.auth,
         )
         .await?;
@@ -460,7 +388,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let transaction_request = CommitTransactionRequest {
             table_changes: vec![request],
         };
-        let table_ids = HashMap::from_iter(vec![(parameters.table.clone(), table_id)]);
+        let table_ids = HashMap::from_iter(vec![(table_ident.clone(), table_id)]);
         let result = C::commit_table_transaction(
             warehouse_id,
             transaction_request,
@@ -526,10 +454,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             EventMetadata {
                 tabular_id: TabularIdentUuid::Table(*table_id),
                 warehouse_id: *warehouse_id,
-                name: parameters.table.name,
-                namespace: parameters.table.namespace.to_url_string(),
-                prefix: parameters
-                    .prefix
+                name: table_ident.name,
+                namespace: table_ident.namespace.to_url_string(),
+                prefix: prefix
                     .map(crate::api::iceberg::types::Prefix::into_string)
                     .unwrap_or_default(),
 
@@ -993,16 +920,96 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     }
 }
 
-pub(crate) fn require_no_location_specified(location: &Option<String>) -> Result<()> {
-    if location.is_some() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Specifying a Table `location` is not supported. Location is managed by the Catalog.".to_string())
-            .r#type("LocationNotSupported".to_string())
-            .build()
-            .into());
+fn determine_table_ident(
+    parameters_ident: TableIdent,
+    request_ident: Option<TableIdent>,
+) -> Result<TableIdent> {
+    // When querying a branch, spark sends something like the following as part of the `parameters`:
+    // namespace: (<my>, <namespace>, <table_name>)
+    // table_name: branch_<branch_name>
+
+    if let Some(identifier) = request_ident {
+        if identifier == parameters_ident {
+            Ok(identifier)
+        } else {
+            let ns_parts = parameters_ident.namespace.clone().inner();
+            let table_name_candidate = if ns_parts.len() >= 2 {
+                NamespaceIdent::from_vec(
+                    ns_parts.iter().take(ns_parts.len() - 1).cloned().collect(),
+                )
+                .ok()
+                .map(|n| TableIdent::new(n, ns_parts.last().cloned().unwrap_or_default()))
+            } else {
+                None
+            };
+
+            if table_name_candidate != Some(identifier.clone()) {
+                return Err(ErrorModel::builder()
+                    .code(StatusCode::BAD_REQUEST.into())
+                    .message(
+                        "Table identifier in path does not match the one in the request body"
+                            .to_string(),
+                    )
+                    .r#type("TableIdentifierMismatch".to_string())
+                    .build()
+                    .into());
+            }
+
+            Ok(identifier)
+        }
+    } else {
+        Ok(parameters_ident)
     }
-    Ok(())
+}
+
+fn determine_table_location(
+    namespace: &GetNamespaceResponse,
+    request_table_location: Option<String>,
+    table_id: TabularIdentUuid,
+    storage_profile: &StorageProfile,
+) -> Result<Location> {
+    let request_table_location = request_table_location
+        .map(|l| Location::from_str(&l))
+        .transpose()
+        .map_err(|e| {
+            ErrorModel::bad_request(
+                format!("Specified table location is invalid: {e}"),
+                "InvalidTableLocation",
+                Some(Box::new(e)),
+            )
+        })?;
+
+    if let Some(location) = request_table_location {
+        if !storage_profile.is_allowed_location(&location) {
+            return Err(ErrorModel::bad_request(
+                format!("Specified table location is not allowed: {location}"),
+                "InvalidTableLocation",
+                None,
+            )
+            .into());
+        }
+
+        Ok(location)
+    } else {
+        let namespace_props = NamespaceProperties::from_props_unchecked(
+            namespace.properties.clone().unwrap_or_default(),
+        );
+
+        let namespace_location = match namespace_props.get_location() {
+            Some(location) => location,
+            None => storage_profile
+                .default_namespace_location(namespace.namespace_id)
+                .map_err(|e| {
+                    ErrorModel::internal(
+                        "Failed to generate default namespace location",
+                        "InvalidDefaultNamespaceLocaiton",
+                        Some(Box::new(e)),
+                    )
+                })?,
+        };
+
+        Ok(storage_profile.default_tabular_location(&namespace_location, table_id))
+    }
 }
 
 pub(crate) fn require_active_warehouse(status: WarehouseStatus) -> Result<()> {
@@ -1036,6 +1043,14 @@ fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
             }
             TableUpdate::RemoveProperties { removals } => {
                 validate_table_properties(removals)?;
+            }
+            TableUpdate::SetLocation { location: _ } => {
+                return Err(ErrorModel::bad_request(
+                    "Location property cannot be changed after table creation",
+                    "LocationPropertyNotAllowed",
+                    None,
+                )
+                .into());
             }
             _ => {}
         }
