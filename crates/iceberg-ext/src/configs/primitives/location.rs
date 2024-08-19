@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use super::{ConfigParseError, ConfigProperty, NotCustomProp, ParseError, ParseFromStr};
+use crate::configs::{ConfigParseError, ConfigProperty, NotCustomProp, ParseError, ParseFromStr};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Location(url::Url);

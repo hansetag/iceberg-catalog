@@ -1,11 +1,11 @@
 use heck::ToUpperCamelCase;
 
-mod location;
 pub mod namespace;
+mod primitives;
 pub mod table;
 
 pub use custom::CustomConfig;
-pub use location::Location;
+pub use primitives::Location;
 
 pub trait NotCustomProp {}
 
