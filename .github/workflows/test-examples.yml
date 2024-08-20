@@ -83,6 +83,10 @@ jobs:
             for i in {1..10}; do
                 docker inspect --format='{{json .State.Health.Status}}' examples-server-1 | grep healthy && break || sleep 1;
             done
+          # retry 10 times with 1 second sleep if initialproject exits with 0
+            for i in {1..10}; do
+                docker inspect --format='{{json .State.ExitCode}}' examples-initialproject-1 | grep 0 && break || sleep 1;
+            done
       - name: Dump docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2
