@@ -76,6 +76,7 @@ services:
       - "@create-default-warehouse.json"
       - "-o"
       - "/dev/null"
+      - "--fail-with-body"
     volumes:
       - ./create-default-warehouse.json:/home/curl_user/create-default-warehouse.json
     networks:
