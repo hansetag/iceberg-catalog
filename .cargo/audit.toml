@@ -2,6 +2,6 @@
 
 [advisories]
 ignore = [
-    "RUSTSEC-2023-0071" # we're using postgres, this is likely a false positive: https://github.com/launchbadge/sqlx/issues/2911
+    "RUSTSEC-2023-0071", # we're using postgres, this is likely a false positive: https://github.com/launchbadge/sqlx/issues/2911
     "RUSTSEC-2024-0363" # https://github.com/hansetag/iceberg-catalog/issues/280
 ]
