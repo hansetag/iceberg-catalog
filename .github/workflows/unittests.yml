@@ -150,6 +150,15 @@ jobs:
           ICEBERG_REST_TEST_S3_ACCESS_KEY: minio-root-user
           ICEBERG_REST_TEST_S3_SECRET_KEY: minio-root-password
           ICEBERG_REST_TEST_S3_ENDPOINT: http://localhost:9000
+        with:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
+          AZURE_STORAGE_FILESYSTEM_NAME: ${{ secrets.AZURE_STORAGE_FILESYSTEM_NAME }}
+          TEST_AZURE: 1
+
+
       - name: Doc Test
         run: cargo test --no-fail-fast --doc --all-features --workspace
         env:
