@@ -1,12 +1,12 @@
 -- Add migration script here
-create type table_format_version as enum ('v1', 'v2');
+create type table_format_version as enum ('1', '2');
 
 alter table "table"
     add column table_format_version table_format_version;
 
-insert into "table" (table_format_version)
-SELECT (metadata ->> 'table-format-version')::table_format_version
-FROM "table";
+UPDATE "table"
+SET table_format_version = (metadata ->> 'format-version')::table_format_version
+WHERE table_format_version IS NULL;
 
 alter table "table"
     alter column table_format_version set not null;
@@ -24,9 +24,9 @@ call add_time_columns('table_schema');
 select trigger_updated_at('table_schema');
 
 INSERT INTO table_schema (schema_id, table_id, schema)
-SELECT (key)::int, table_id, value
+SELECT (schema ->> 'schema-id')::int, table_id, schema
 FROM "table",
-     jsonb_each(metadata -> 'schemas') AS schema;
+     jsonb_array_elements(metadata -> 'schemas') AS schema;
 
 create table table_current_schema
 (
@@ -55,9 +55,9 @@ call add_time_columns('table_partition_specs');
 select trigger_updated_at('table_partition_specs');
 
 INSERT INTO table_partition_specs (partition_spec_id, table_id, partition_spec)
-SELECT (key)::int, table_id, value
+SELECT (partition_spec ->> 'spec-id')::int, table_id, partition_spec
 FROM "table",
-     jsonb_each(metadata -> 'partition-specs') partition_spec;
+     jsonb_array_elements(metadata -> 'partition-specs') partition_spec;
 
 create table table_default_partition_spec
 (
@@ -113,7 +113,7 @@ SELECT (snapshot ->> 'snapshot-id')::bigint,
        (snapshot ->> 'schema-id')::int,
        table_id
 FROM "table",
-     jsonb_each(metadata -> 'snapshots') AS snapshot(key, snapshot);
+     jsonb_array_elements(metadata -> 'snapshots') AS snapshot;
 
 
 create table table_current_snapshot
@@ -128,7 +128,9 @@ call add_time_columns('table_current_snapshot');
 
 INSERT INTO table_current_snapshot (table_id, snapshot_id)
 SELECT table_id, (metadata ->> 'current-snapshot-id')::bigint
-FROM "table";
+FROM "table"
+WHERE metadata ->> 'current-snapshot-id' IS NOT NULL
+  AND (metadata ->> 'current-snapshot-id')::bigint != -1;
 
 create table table_snapshot_log
 (
@@ -143,7 +145,9 @@ call add_time_columns('table_snapshot_log');
 select trigger_updated_at('table_snapshot_log');
 
 INSERT INTO table_snapshot_log (table_id, snapshot_id, timestamp)
-SELECT table_id, (snapshot ->> 'snapshot-id')::bigint, (snapshot ->> 'timestamp_ms')::timestamptz
+SELECT table_id,
+       (snapshot ->> 'snapshot-id')::bigint,
+       to_timestamp((snapshot ->> 'timestamp-ms')::bigint)
 FROM "table",
      jsonb_array_elements(metadata -> 'snapshots') AS snapshot;
 
@@ -166,18 +170,19 @@ FROM "table",
 
 create table table_sort_orders
 (
-    sort_order_id int   not null primary key,
+    sort_order_id int   not null,
     table_id      uuid  not null REFERENCES "table" (table_id) ON DELETE CASCADE,
     sort_order    jsonb not null,
-    CONSTRAINT "unique_sort_order_per_table" unique (table_id, sort_order_id)
+    PRIMARY KEY (table_id, sort_order_id)
 );
 
 call add_time_columns('table_sort_orders');
 select trigger_updated_at('table_sort_orders');
 
 INSERT INTO table_sort_orders (sort_order_id, table_id, sort_order)
-SELECT (key)::int, table_id, value
-FROM "table", jsonb_each(metadata -> 'sort-orders');
+SELECT (orders ->> 'order-id')::int, table_id, orders
+FROM "table",
+     jsonb_array_elements(metadata -> 'sort-orders') as orders;
 
 
 create table table_default_sort_order_id
@@ -194,9 +199,13 @@ INSERT INTO table_default_sort_order_id (table_id, sort_order_id)
 SELECT table_id, (metadata ->> 'default-sort-order-id')::int
 FROM "table";
 
+DROP TABLE IF EXISTS table_refs;
+
+
 create table table_refs
 (
     table_id                               uuid   not null REFERENCES "table" (table_id) ON DELETE CASCADE,
+    table_ref_name                         text   not null,
     snapshot_id                            bigint not null,
     retention_branch_min_snapshots_to_keep int,
     retention_branch_max_snapshot_age_ms   bigint,
@@ -208,15 +217,16 @@ create table table_refs
 call add_time_columns('table_refs');
 select trigger_updated_at('table_refs');
 
-INSERT INTO table_refs (table_id, snapshot_id, retention_branch_min_snapshots_to_keep,
+
+INSERT INTO table_refs (table_id, snapshot_id, table_ref_name, retention_branch_min_snapshots_to_keep,
                         retention_branch_max_snapshot_age_ms, retention_branch_max_ref_age_ms,
                         retention_tag_max_ref_age_ms)
 SELECT table_id,
        (ref ->> 'snapshot-id')::bigint,
-       CASE WHEN retention.value ->> 'type' = 'branch' THEN (retention.value ->> 'min-snapshots-to-keep')::int END,
-       CASE WHEN retention.value ->> 'type' = 'branch' THEN (retention.value ->> 'max-snapshot-age-ms')::bigint END,
-       CASE WHEN retention.value ->> 'type' = 'branch' THEN (retention.value ->> 'max-ref-age-ms')::bigint END,
-       CASE WHEN retention.value ->> 'type' = 'tag' THEN (retention.value ->> 'max-ref-age-ms')::bigint END
+       ref_id.key,
+       CASE WHEN ref ->> 'type' = 'branch' THEN (ref ->> 'min-snapshots-to-keep')::int END,
+       CASE WHEN ref ->> 'type' = 'branch' THEN (ref ->> 'max-snapshot-age-ms')::bigint END,
+       CASE WHEN ref ->> 'type' = 'branch' THEN (ref ->> 'max-ref-age-ms')::bigint END,
+       CASE WHEN ref ->> 'type' = 'tag' THEN (ref ->> 'max-ref-age-ms')::bigint END
 FROM "table",
-     jsonb_each(metadata -> 'refs') AS ref_id(key, ref),
-     jsonb_each(ref -> 'retention') AS retention;
+     jsonb_each(metadata -> 'refs') AS ref_id(key, ref);
