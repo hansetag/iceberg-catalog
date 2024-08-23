@@ -42,7 +42,7 @@ INSERT INTO table_current_schema (table_id, schema_id)
 SELECT table_id, (metadata -> 'current-schema-id')::int
 FROM "table";
 
-create table table_partition_specs
+create table table_partition_spec
 (
     partition_spec_id int   not null,
     table_id          uuid  not null REFERENCES "table" (table_id) ON DELETE CASCADE,
@@ -51,10 +51,10 @@ create table table_partition_specs
     PRIMARY KEY (table_id, partition_spec_id)
 );
 
-call add_time_columns('table_partition_specs');
-select trigger_updated_at('table_partition_specs');
+call add_time_columns('table_partition_spec');
+select trigger_updated_at('table_partition_spec');
 
-INSERT INTO table_partition_specs (partition_spec_id, table_id, partition_spec)
+INSERT INTO table_partition_spec (partition_spec_id, table_id, partition_spec)
 SELECT (partition_spec ->> 'spec-id')::int, table_id, partition_spec
 FROM "table",
      jsonb_array_elements(metadata -> 'partition-specs') partition_spec;
@@ -63,7 +63,7 @@ create table table_default_partition_spec
 (
     table_id          uuid primary key REFERENCES "table" (table_id) ON DELETE CASCADE,
     partition_spec_id int not null,
-    FOREIGN KEY (table_id, partition_spec_id) REFERENCES table_partition_specs (table_id, partition_spec_id)
+    FOREIGN KEY (table_id, partition_spec_id) REFERENCES table_partition_spec (table_id, partition_spec_id)
 );
 
 call add_time_columns('table_default_partition_spec');
@@ -88,11 +88,11 @@ INSERT INTO table_properties (table_id, key, value)
 SELECT table_id, key, value
 FROM "table", jsonb_each_text(metadata -> 'properties');
 
-create table table_snapshots
+create table table_snapshot
 (
     snapshot_id        bigint not null primary key,
     table_id           uuid   not null REFERENCES "table" (table_id) ON DELETE CASCADE,
-    parent_snapshot_id bigint REFERENCES table_snapshots (snapshot_id),
+    parent_snapshot_id bigint REFERENCES table_snapshot (snapshot_id),
     sequence_number    bigint not null,
     manifest_list      text   not null,
     summary            jsonb  not null,
@@ -100,11 +100,11 @@ create table table_snapshots
     UNIQUE (table_id, snapshot_id)
 );
 
-call add_time_columns('table_snapshots');
-select trigger_updated_at('table_snapshots');
+call add_time_columns('table_snapshot');
+select trigger_updated_at('table_snapshot');
 
-INSERT INTO table_snapshots (snapshot_id, parent_snapshot_id, sequence_number, manifest_list, summary, schema_id,
-                             table_id)
+INSERT INTO table_snapshot (snapshot_id, parent_snapshot_id, sequence_number, manifest_list, summary, schema_id,
+                            table_id)
 SELECT (snapshot ->> 'snapshot-id')::bigint,
        (snapshot ->> 'parent-snapshot-id')::bigint,
        (snapshot ->> 'sequence-number')::bigint,
@@ -120,7 +120,7 @@ create table table_current_snapshot
 (
     table_id    uuid PRIMARY KEY REFERENCES "table" (table_id) ON DELETE CASCADE,
     snapshot_id bigint not null,
-    FOREIGN KEY (table_id, snapshot_id) REFERENCES table_snapshots (table_id, snapshot_id)
+    FOREIGN KEY (table_id, snapshot_id) REFERENCES table_snapshot (table_id, snapshot_id)
 );
 
 select trigger_updated_at('table_current_snapshot');
@@ -137,7 +137,7 @@ create table table_snapshot_log
     table_id    uuid        not null,
     snapshot_id bigint      not null,
     timestamp   timestamptz not null,
-    FOREIGN KEY (table_id, snapshot_id) REFERENCES table_snapshots (table_id, snapshot_id) ON DELETE CASCADE,
+    FOREIGN KEY (table_id, snapshot_id) REFERENCES table_snapshot (table_id, snapshot_id) ON DELETE CASCADE,
     PRIMARY KEY (table_id, snapshot_id)
 );
 
