@@ -32,7 +32,7 @@ use crate::{
     },
     SecretIdent,
 };
-use iceberg::spec::ViewMetadata;
+use iceberg::spec::{TableMetadata, ViewMetadata};
 use std::collections::{HashMap, HashSet};
 
 #[async_trait::async_trait]
@@ -117,10 +117,10 @@ impl Catalog for super::Catalog {
         namespace_id: NamespaceIdentUuid,
         table: &TableIdent,
         table_id: TableIdentUuid,
-        request: CreateTableRequest,
+        request: TableMetadata,
         // Metadata location may be none if stage-create is true
         metadata_location: Option<&String>,
-        transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateTableResponse> {
         create_table(
             namespace_id,

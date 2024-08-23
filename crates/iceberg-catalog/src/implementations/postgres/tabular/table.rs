@@ -97,54 +97,19 @@ pub(crate) async fn create_table(
     namespace_id: NamespaceIdentUuid,
     table: &TableIdent,
     table_id: TableIdentUuid,
-    request: CreateTableRequest,
+    table_metadata: TableMetadata,
     // Metadata location may be none if stage-create is true
     metadata_location: Option<&String>,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<CreateTableResponse> {
     let TableIdent { namespace: _, name } = table;
-    let CreateTableRequest {
-        name: _,
-        location,
-        schema,
-        partition_spec,
-        write_order,
-        // Stage-create is already handled in the catalog service.
-        // If stage-create is true, the metadata_location is None,
-        // otherwise, it is the location of the metadata file.
-        stage_create: _,
-        properties,
-    } = request;
-
-    let location = location.ok_or_else(|| {
-        ErrorModel::builder()
-            .code(StatusCode::CONFLICT.into())
-            .message("Table location is required".to_string())
-            .r#type("CreateTableLocationRequired".to_string())
-            .build()
-    })?;
-
-    let mut builder = TableMetadataAggregate::new(location.clone(), schema);
-    if let Some(partition_spec) = partition_spec {
-        builder.add_partition_spec(partition_spec)?;
-        builder.set_default_partition_spec(-1)?;
-    }
-    if let Some(write_order) = write_order {
-        builder.add_sort_order(write_order)?;
-        builder.set_default_sort_order(-1)?;
-    }
-    builder.set_properties(properties.unwrap_or_default())?;
-    builder.assign_uuid(*table_id)?;
-
-    let table_metadata = builder.build()?;
 
     let table_metadata_ser = serde_json::to_value(table_metadata.clone()).map_err(|e| {
-        ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Error serializing table metadata".to_string())
-            .r#type("TableMetadataSerializationError".to_string())
-            .source(Some(Box::new(e)))
-            .build()
+        ErrorModel::internal(
+            "Error serializing table metadata",
+            "TableMetadataSerializationError",
+            Some(Box::new(e)),
+        )
     })?;
 
     let tabular_id = create_tabular(
@@ -154,7 +119,7 @@ pub(crate) async fn create_table(
             namespace_id: *namespace_id,
             typ: TabularType::Table,
             metadata_location: metadata_location.map(std::string::String::as_str),
-            location: location.as_str(),
+            location: table_metadata.location.as_str(),
         },
         &mut *transaction,
     )

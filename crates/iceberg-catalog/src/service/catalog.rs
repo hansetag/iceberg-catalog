@@ -160,7 +160,7 @@ where
         namespace_id: NamespaceIdentUuid,
         table: &TableIdent,
         table_id: TableIdentUuid,
-        request: CreateTableRequest,
+        request: TableMetadata,
         // Metadata location may be none if stage-create is true
         metadata_location: Option<&String>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
