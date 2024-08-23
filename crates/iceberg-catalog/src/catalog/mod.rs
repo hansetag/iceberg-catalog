@@ -5,7 +5,7 @@ mod metrics;
 pub(crate) mod namespace;
 #[cfg(feature = "s3-signer")]
 mod s3_signer;
-mod tables;
+pub(crate) mod tables;
 mod views;
 
 pub use config::Server as ConfigServer;

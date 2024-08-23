@@ -3,9 +3,9 @@ use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogStat
 use crate::{
     service::{
         storage::StorageProfile, CommitTableResponse, CommitTableResponseExt,
-        CommitTransactionRequest, CreateTableRequest, CreateTableResponse, ErrorModel,
-        GetStorageConfigResponse, GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid,
-        Result, TableIdent, TableIdentUuid,
+        CommitTransactionRequest, CreateTableResponse, ErrorModel, GetStorageConfigResponse,
+        GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid, Result, TableIdent,
+        TableIdentUuid,
     },
     SecretIdent, WarehouseIdent,
 };
@@ -687,6 +687,7 @@ pub(crate) mod tests {
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
+    use iceberg_ext::catalog::rest::CreateTableRequest;
 
     fn create_request(
         stage_create: Option<bool>,
@@ -794,7 +795,11 @@ pub(crate) mod tests {
             namespace_id,
             &table_ident,
             table_id,
-            request.clone(),
+            crate::catalog::tables::create_table_request_into_table_metadata(
+                table_id,
+                request.clone(),
+            )
+            .unwrap(),
             metadata_location.as_ref(),
             &mut transaction,
         )
@@ -832,7 +837,11 @@ pub(crate) mod tests {
             namespace_id,
             &table_ident,
             table_id,
-            request.clone(),
+            crate::catalog::tables::create_table_request_into_table_metadata(
+                table_id,
+                request.clone(),
+            )
+            .unwrap(),
             metadata_location.as_ref(),
             &mut transaction,
         )
@@ -847,7 +856,11 @@ pub(crate) mod tests {
             namespace_id,
             &table_ident,
             table_id,
-            request,
+            crate::catalog::tables::create_table_request_into_table_metadata(
+                table_id,
+                request,
+            )
+            .unwrap(),
             metadata_location.as_ref(),
             &mut transaction,
         )
@@ -887,7 +900,11 @@ pub(crate) mod tests {
             namespace_id,
             &table_ident,
             table_id,
-            request.clone(),
+            crate::catalog::tables::create_table_request_into_table_metadata(
+                table_id,
+                request.clone(),
+            )
+            .unwrap(),
             metadata_location.as_ref(),
             &mut transaction,
         )
@@ -908,7 +925,11 @@ pub(crate) mod tests {
             namespace_id,
             &table_ident,
             table_id,
-            request,
+            crate::catalog::tables::create_table_request_into_table_metadata(
+                table_id,
+                request,
+            )
+            .unwrap(),
             metadata_location.as_ref(),
             &mut transaction,
         )
@@ -925,7 +946,11 @@ pub(crate) mod tests {
             namespace_id,
             &table_ident,
             table_id,
-            request,
+            crate::catalog::tables::create_table_request_into_table_metadata(
+                table_id,
+                request,
+            )
+            .unwrap(),
             metadata_location.as_ref(),
             &mut transaction,
         )

@@ -19,7 +19,7 @@ use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
 use crate::service::{
-    CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
+    CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse,
     GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
     TableIdent, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
     WarehouseStatus,
