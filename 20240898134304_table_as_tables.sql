@@ -24,8 +24,9 @@ call add_time_columns('table_schema');
 select trigger_updated_at('table_schema');
 
 INSERT INTO table_schema (schema_id, table_id, schema)
-SELECT (metadata -> 'schema' -> 'schema-id')::int, table_id, metadata -> 'schema'
-FROM "table";
+SELECT (key)::int, table_id, value
+FROM "table",
+     jsonb_each(metadata -> 'schemas') AS schema;
 
 create table table_current_schema
 (
@@ -54,8 +55,9 @@ call add_time_columns('table_partition_specs');
 select trigger_updated_at('table_partition_specs');
 
 INSERT INTO table_partition_specs (partition_spec_id, table_id, partition_spec)
-SELECT (metadata -> 'partition-spec' -> 'partition-spec-id')::int, table_id, metadata -> 'partition-spec'
-FROM "table";
+SELECT (key)::int, table_id, value
+FROM "table",
+     jsonb_each(metadata -> 'partition-specs') partition_spec;
 
 create table table_default_partition_spec
 (
@@ -82,7 +84,6 @@ create table table_properties
 call add_time_columns('table_properties');
 select trigger_updated_at('table_properties');
 
--- table properties is a dictionary in the metadata, we need to unflatten it and insert it into table_properties
 INSERT INTO table_properties (table_id, key, value)
 SELECT table_id, key, value
 FROM "table", jsonb_each_text(metadata -> 'properties');
@@ -112,7 +113,7 @@ SELECT (snapshot ->> 'snapshot-id')::bigint,
        (snapshot ->> 'schema-id')::int,
        table_id
 FROM "table",
-     jsonb_array_elements(metadata -> 'snapshots') AS snapshot;
+     jsonb_each(metadata -> 'snapshots') AS snapshot(key, snapshot);
 
 
 create table table_current_snapshot
@@ -157,9 +158,11 @@ create table table_metadata_log
 call add_time_columns('table_metadata_log');
 select trigger_updated_at('table_metadata_log');
 
+-- metadata log is a list of dictionaries in the metadata, we need to unflatten it and insert it into table_metadata_log
 INSERT INTO table_metadata_log (table_id, timestamp, metadata_file)
-SELECT table_id, (metadata ->> 'timestamp_ms')::timestamptz, metadata ->> 'metadata-file'
-FROM "table";
+SELECT table_id, (log ->> 'timestamp-ms')::timestamptz, log ->> 'metadata-file'
+FROM "table",
+     jsonb_array_elements(metadata -> 'metadata-log') AS log;
 
 create table table_sort_orders
 (
@@ -173,9 +176,9 @@ call add_time_columns('table_sort_orders');
 select trigger_updated_at('table_sort_orders');
 
 INSERT INTO table_sort_orders (sort_order_id, table_id, sort_order)
-SELECT (sort_order ->> 'sort-order-id')::int, table_id, sort_order
-FROM "table",
-     jsonb_array_elements(metadata -> 'sort-orders') as sort_order;
+SELECT (key)::int, table_id, value
+FROM "table", jsonb_each(metadata -> 'sort-orders');
+
 
 create table table_default_sort_order_id
 (
@@ -201,3 +204,19 @@ create table table_refs
 
     retention_tag_max_ref_age_ms           bigint
 );
+
+call add_time_columns('table_refs');
+select trigger_updated_at('table_refs');
+
+INSERT INTO table_refs (table_id, snapshot_id, retention_branch_min_snapshots_to_keep,
+                        retention_branch_max_snapshot_age_ms, retention_branch_max_ref_age_ms,
+                        retention_tag_max_ref_age_ms)
+SELECT table_id,
+       (ref ->> 'snapshot-id')::bigint,
+       CASE WHEN retention.value ->> 'type' = 'branch' THEN (retention.value ->> 'min-snapshots-to-keep')::int END,
+       CASE WHEN retention.value ->> 'type' = 'branch' THEN (retention.value ->> 'max-snapshot-age-ms')::bigint END,
+       CASE WHEN retention.value ->> 'type' = 'branch' THEN (retention.value ->> 'max-ref-age-ms')::bigint END,
+       CASE WHEN retention.value ->> 'type' = 'tag' THEN (retention.value ->> 'max-ref-age-ms')::bigint END
+FROM "table",
+     jsonb_each(metadata -> 'refs') AS ref_id(key, ref),
+     jsonb_each(ref -> 'retention') AS retention;
