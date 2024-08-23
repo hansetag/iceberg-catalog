@@ -924,16 +924,13 @@ mod test {
             .build()
             .unwrap();
 
-        static ref PARTITION_SPEC: PartitionSpec = PartitionSpec::builder()
+        static ref PARTITION_SPEC: PartitionSpec = PartitionSpec::builder(&SCHEMA)
         .with_spec_id(1)
-        .with_partition_field(PartitionField {
-            name: "id".to_string(),
-            transform: Transform::Identity,
-            source_id: 1,
-            field_id: 1000,
-        })
-        .build()
-        .unwrap();
+        .add_partition_field(
+            "id",
+            "id",
+            Transform::Identity,
+        ).unwrap().build().unwrap();
 
         static ref TABLE_METADATA: TableMetadata = TableMetadata {
             format_version: FormatVersion::V2,
@@ -987,14 +984,14 @@ mod test {
 
         let new_spec = UnboundPartitionSpec::builder()
             .with_spec_id(2)
-            .with_fields(vec![UnboundPartitionField {
+            .add_partition_fields(vec![UnboundPartitionField {
                 name: "name".to_string(),
                 transform: Transform::Identity,
                 source_id: 2,
                 partition_id: None,
             }])
-            .build()
-            .unwrap();
+            .unwrap()
+            .build();
 
         let new_sort_order = SortOrder::builder()
             .with_order_id(1)
@@ -1224,13 +1221,13 @@ mod test {
             .unwrap();
         let partition_spec = UnboundPartitionSpec::builder()
             .with_spec_id(2)
-            .with_fields(vec![UnboundPartitionField::builder()
+            .add_partition_fields(vec![UnboundPartitionField::builder()
                 .source_id(2)
                 .name("ints_bucket".to_string())
                 .transform(iceberg::spec::Transform::Bucket(16))
                 .build()])
-            .build()
-            .unwrap();
+            .unwrap()
+            .build();
         aggregate
             .add_schema(new_schema.clone(), None)
             .unwrap()

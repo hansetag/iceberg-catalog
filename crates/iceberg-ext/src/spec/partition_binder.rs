@@ -266,9 +266,9 @@ mod test {
                 .into(),
             UnboundPartitionSpec::builder()
                 .with_spec_id(0)
-                .with_fields(spec_fields)
-                .build()
-                .expect("Cannot create `unbounded_spec` mock."),
+                .add_partition_fields(spec_fields)
+                .expect("Cannot create `unbounded_spec` mock.")
+                .build(),
         )
     }
 
