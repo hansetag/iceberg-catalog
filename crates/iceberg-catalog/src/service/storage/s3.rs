@@ -155,75 +155,6 @@ impl S3Profile {
         Ok(())
     }
 
-    fn normalize_key_prefix(&mut self) -> Result<(), ValidationError> {
-        if let Some(key_prefix) = self.key_prefix.as_mut() {
-            *key_prefix = key_prefix.trim_matches('/').to_string();
-        }
-
-        if let Some(key_prefix) = self.key_prefix.as_ref() {
-            if key_prefix.is_empty() {
-                self.key_prefix = None;
-            }
-        }
-
-        // Aws supports a max of 1024 chars and we need some buffer for tables.
-        if let Some(key_prefix) = self.key_prefix.as_ref() {
-            if key_prefix.len() > 896 {
-                return Err(ValidationError::InvalidProfile {
-                    source: None,
-                    reason: "Storage Profile `key_prefix` must be less than 1024 characters."
-                        .to_string(),
-                    entity: "key_prefix".to_string(),
-                });
-            }
-        }
-        Ok(())
-    }
-
-    fn normalize_endpoint(&mut self) -> Result<(), ValidationError> {
-        if let Some(endpoint) = self.endpoint.as_mut() {
-            if endpoint.scheme() != "http" && endpoint.scheme() != "https" {
-                return Err(ValidationError::InvalidProfile {
-                    source: None,
-                    reason: "Storage Profile `endpoint` must have http or https protocol."
-                        .to_string(),
-                    entity: "S3Endpoint".to_string(),
-                });
-            }
-
-            // If a non-empty path is provided, it must be a single slash which we remove.
-            if !endpoint.path().is_empty() {
-                if endpoint.path() != "/" {
-                    return Err(ValidationError::InvalidProfile {
-                        source: None,
-                        reason: "Storage Profile `endpoint` must not have a path.".to_string(),
-                        entity: "S3Endpoint".to_string(),
-                    });
-                }
-
-                endpoint.set_path("/");
-            }
-        }
-
-        Ok(())
-    }
-
-    fn normalize_assume_role_arn(&mut self) {
-        if let Some(assume_role_arn) = self.assume_role_arn.as_ref() {
-            if assume_role_arn.is_empty() {
-                self.assume_role_arn = None;
-            }
-        }
-    }
-
-    fn normalize_sts_role_arn(&mut self) {
-        if let Some(sts_role_arn) = self.sts_role_arn.as_ref() {
-            if sts_role_arn.is_empty() {
-                self.sts_role_arn = None;
-            }
-        }
-    }
-
     /// Check if the profile can be updated with the other profile.
     /// `key_prefix`, `region` and `bucket` must be the same.
     /// We enforce this to avoid issues by accidentally changing the bucket or region
@@ -438,9 +369,9 @@ impl S3Profile {
             .assume_role()
             .role_session_name("iceberg")
             .policy(Self::get_aws_policy_string(
-                table_location.as_str(),
+                table_location,
                 storage_permissions,
-            ));
+            )?);
         let assume_role_builder = if let Some(arn) = arn {
             assume_role_builder.role_arn(arn)
         } else {
@@ -478,41 +409,128 @@ impl S3Profile {
             StoragePermissions::Read => "\"s3:GetObject\"",
             StoragePermissions::ReadWrite => "\"s3:GetObject\", \"s3:PutObject\"",
             StoragePermissions::ReadWriteDelete => {
-                "\"s3:GetObject\", \"s3:PutObject\", \"s3:DeleteObject\", \"s3:ListBucket\""
+                "\"s3:GetObject\", \"s3:PutObject\", \"s3:DeleteObject\""
             }
         }
     }
 
     fn get_aws_policy_string(
-        table_location: &str,
+        table_location: &Location,
         storage_permissions: StoragePermissions,
-    ) -> String {
-        let resource = format!(
-            "arn:aws:s3:::{}/*",
-            table_location
-                .trim_start_matches("s3://")
-                .trim_end_matches('/')
+    ) -> Result<String, TableConfigError> {
+        let table_location = S3Location::try_from(table_location.clone()).map_err(|e| {
+            TableConfigError::Misconfiguration(
+                format!("Location is no valid S3 location: {e}").to_string(),
+            )
+        })?;
+        let bucket_arn = format!(
+            "arn:aws:s3:::{}",
+            table_location.bucket_name().trim_end_matches('/')
         );
-        format!(
+        let key = table_location.key().join("/");
+        let key = format!("{key}/");
+
+        Ok(format!(
             r#"{{
         "Version": "2012-10-17",
         "Statement": [
             {{
-                "Sid": "{}",
+                "Sid": "TableAccess",
                 "Effect": "Allow",
                 "Action": [
                     {}
                 ],
                 "Resource": [
-                    "{}"
+                    "{bucket_arn}/{key}",
+                    "{bucket_arn}/{key}*"
                 ]
+            }},
+            {{
+                "Sid": "ListBucketForFolder",
+                "Effect": "Allow",
+                "Action": "s3:ListBucket",
+                "Resource": "{bucket_arn}",
+                "Condition": {{
+                    "StringLike": {{
+                        "s3:prefix": "{key}*"
+                    }}
+                }}
             }}
         ]
     }}"#,
-            uuid::Uuid::now_v7().simple(),
             Self::permission_to_actions(storage_permissions),
-            resource
         )
+        .replace("\n", "")
+        .replace(" ", ""))
+    }
+
+    fn normalize_key_prefix(&mut self) -> Result<(), ValidationError> {
+        if let Some(key_prefix) = self.key_prefix.as_mut() {
+            *key_prefix = key_prefix.trim_matches('/').to_string();
+        }
+
+        if let Some(key_prefix) = self.key_prefix.as_ref() {
+            if key_prefix.is_empty() {
+                self.key_prefix = None;
+            }
+        }
+
+        // Aws supports a max of 1024 chars and we need some buffer for tables.
+        if let Some(key_prefix) = self.key_prefix.as_ref() {
+            if key_prefix.len() > 896 {
+                return Err(ValidationError::InvalidProfile {
+                    source: None,
+                    reason: "Storage Profile `key_prefix` must be less than 1024 characters."
+                        .to_string(),
+                    entity: "key_prefix".to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn normalize_endpoint(&mut self) -> Result<(), ValidationError> {
+        if let Some(endpoint) = self.endpoint.as_mut() {
+            if endpoint.scheme() != "http" && endpoint.scheme() != "https" {
+                return Err(ValidationError::InvalidProfile {
+                    source: None,
+                    reason: "Storage Profile `endpoint` must have http or https protocol."
+                        .to_string(),
+                    entity: "S3Endpoint".to_string(),
+                });
+            }
+
+            // If a non-empty path is provided, it must be a single slash which we remove.
+            if !endpoint.path().is_empty() {
+                if endpoint.path() != "/" {
+                    return Err(ValidationError::InvalidProfile {
+                        source: None,
+                        reason: "Storage Profile `endpoint` must not have a path.".to_string(),
+                        entity: "S3Endpoint".to_string(),
+                    });
+                }
+
+                endpoint.set_path("/");
+            }
+        }
+
+        Ok(())
+    }
+
+    fn normalize_assume_role_arn(&mut self) {
+        if let Some(assume_role_arn) = self.assume_role_arn.as_ref() {
+            if assume_role_arn.is_empty() {
+                self.assume_role_arn = None;
+            }
+        }
+    }
+
+    fn normalize_sts_role_arn(&mut self) {
+        if let Some(sts_role_arn) = self.sts_role_arn.as_ref() {
+            if sts_role_arn.is_empty() {
+                self.sts_role_arn = None;
+            }
+        }
     }
 }
 
@@ -968,8 +986,11 @@ mod test {
     #[test]
     fn policy_string_is_json() {
         let table_location = "s3://bucket-name/path/to/table";
-        let policy =
-            S3Profile::get_aws_policy_string(table_location, StoragePermissions::ReadWriteDelete);
+        let policy = S3Profile::get_aws_policy_string(
+            &table_location.parse().unwrap(),
+            StoragePermissions::ReadWriteDelete,
+        )
+        .unwrap();
         let _ = serde_json::from_str::<serde_json::Value>(&policy).unwrap();
     }
 

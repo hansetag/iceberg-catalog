@@ -1044,14 +1044,6 @@ fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
             TableUpdate::RemoveProperties { removals } => {
                 validate_table_properties(removals)?;
             }
-            TableUpdate::SetLocation { location: _ } => {
-                return Err(ErrorModel::bad_request(
-                    "Location property cannot be changed after table creation",
-                    "LocationPropertyNotAllowed",
-                    None,
-                )
-                .into());
-            }
             _ => {}
         }
     }

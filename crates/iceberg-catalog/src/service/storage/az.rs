@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::SystemTime;
 use url::{Host, Url};
 use veil::Redact;
 
@@ -40,13 +39,13 @@ pub struct AzdlsProfile {
     pub account_name: String,
     /// The authority host to use for authentication. Default: `https://login.microsoftonline.com`.
     pub authority_host: Option<Url>,
-    /// The endpoint suffix to use for the storage account. Default: `dfs.core.windows.net`.
-    pub endpoint_suffix: Option<String>,
+    /// The host to use for the storage account. Default: `dfs.core.windows.net`.
+    pub host: Option<String>,
     /// The validity of the sas token in seconds. Default: 3600.
     pub sas_token_validity_seconds: Option<u64>,
 }
 
-const DEFAULT_ENDPOINT_SUFFIX: &str = "dfs.core.windows.net";
+const DEFAULT_HOST: &str = "dfs.core.windows.net";
 lazy_static::lazy_static! {
     static ref DEFAULT_AUTHORITY_HOST: Url = Url::parse("https://login.microsoftonline.com").expect("Default authority host is a valid URL");
 }
@@ -61,39 +60,14 @@ impl AzdlsProfile {
     /// - Fails if the endpoint suffix is invalid.
     pub(super) fn normalize(&mut self) -> Result<(), ValidationError> {
         validate_filesystem_name(&self.filesystem)?;
-        self.endpoint_suffix = normalize_endpoint_suffix(self.endpoint_suffix.take())?;
+        self.host = self
+            .host
+            .take()
+            .map(|host| normalize_host(host))
+            .transpose()?
+            .flatten();
         self.normalize_key_prefix()?;
         validate_account_name(&self.account_name)?;
-
-        Ok(())
-    }
-
-    fn normalize_key_prefix(&mut self) -> Result<(), ValidationError> {
-        if let Some(key_prefix) = self.key_prefix.as_mut() {
-            *key_prefix = key_prefix.trim_matches('/').to_string();
-        }
-
-        if let Some(key_prefix) = self.key_prefix.as_ref() {
-            if key_prefix.is_empty() {
-                self.key_prefix = None;
-            }
-        }
-
-        // Azure supports a max of 1024 chars and we need some buffer for tables.
-        if let Some(key_prefix) = &self.key_prefix {
-            if key_prefix.len() > 512 {
-                return Err(ValidationError::InvalidProfile {
-                    source: None,
-
-                    reason: "Storage Profile `key_prefix` must be less than 512 characters."
-                        .to_string(),
-                    entity: "KeyPrefix".to_string(),
-                });
-            }
-            for key in key_prefix.split('/') {
-                validate_path_segment(key)?;
-            }
-        }
 
         Ok(())
     }
@@ -119,8 +93,8 @@ impl AzdlsProfile {
             return Err(UpdateError::ImmutableField("authority_host".to_string()));
         }
 
-        if self.endpoint_suffix != other.endpoint_suffix {
-            return Err(UpdateError::ImmutableField("endpoint_suffix".to_string()));
+        if self.host != other.host {
+            return Err(UpdateError::ImmutableField("host".to_string()));
         }
 
         Ok(())
@@ -146,9 +120,7 @@ impl AzdlsProfile {
                 "abfss://{}@{}.{}/{}/",
                 self.filesystem,
                 self.account_name,
-                self.endpoint_suffix
-                    .as_deref()
-                    .unwrap_or(DEFAULT_ENDPOINT_SUFFIX),
+                self.host.as_deref().unwrap_or(DEFAULT_HOST),
                 key_prefix.trim_matches('/')
             )
         } else {
@@ -156,9 +128,9 @@ impl AzdlsProfile {
                 "abfss://{}@{}.{}/",
                 self.filesystem,
                 self.account_name,
-                self.endpoint_suffix
+                self.host
                     .as_deref()
-                    .unwrap_or(DEFAULT_ENDPOINT_SUFFIX)
+                    .unwrap_or(DEFAULT_HOST)
                     .trim_end_matches('/'),
             )
         };
@@ -228,9 +200,7 @@ impl AzdlsProfile {
                 format!(
                     "https://{}.{}",
                     self.account_name,
-                    self.endpoint_suffix
-                        .as_deref()
-                        .unwrap_or(DEFAULT_ENDPOINT_SUFFIX)
+                    self.host.as_deref().unwrap_or(DEFAULT_HOST)
                 ),
             )
             .with_prop(AzdlsConfigKeys::AccountName, self.account_name.clone())
@@ -269,19 +239,23 @@ impl AzdlsProfile {
     ) -> Result<String, CredentialsError> {
         let client =
             azure_storage_blobs::prelude::BlobServiceClient::new(self.account_name.as_str(), cred);
+        let start = time::OffsetDateTime::now_utc();
         let delegation_key = client
             .get_user_deligation_key(
-                // ToDo Tobi: Use time or chrono?
-                SystemTime::now().into(),
-                SystemTime::now()
-                    .checked_add(std::time::Duration::from_secs(
-                        self.sas_token_validity_seconds.unwrap_or(3600),
+                start.clone(),
+                start
+                    .checked_add(time::Duration::seconds(
+                        i64::try_from(self.sas_token_validity_seconds.unwrap_or(3600)).map_err(
+                            |e| CredentialsError::ShortTermCredential {
+                                reason: "SAS token validity seconds overflow: Cannot be represented as i64".to_string(),
+                                source: Some(Box::new(e)),
+                            },
+                        )?,
                     ))
-                    .unwrap_or_else(|| {
-                        tracing::error!("Failed to add validity seconds to current time.");
-                        SystemTime::now()
-                    })
-                    .into(),
+                    .ok_or(CredentialsError::ShortTermCredential {
+                        reason: format!("SAS expiry overflow: Cannot issue a token valid for {} seconds", self.sas_token_validity_seconds.unwrap_or(3600)).to_string(),
+                        source: None,
+                    })?,
             )
             .await
             .map_err(|e| CredentialsError::ShortTermCredential {
@@ -317,10 +291,38 @@ impl AzdlsProfile {
     fn iceberg_sas_property_key(&self) -> String {
         iceberg_sas_property_key(
             &self.account_name,
-            self.endpoint_suffix
-                .as_ref()
-                .unwrap_or(&DEFAULT_ENDPOINT_SUFFIX.to_string()),
+            self.host.as_ref().unwrap_or(&DEFAULT_HOST.to_string()),
         )
+    }
+
+    fn normalize_key_prefix(&mut self) -> Result<(), ValidationError> {
+        if let Some(key_prefix) = self.key_prefix.as_mut() {
+            *key_prefix = key_prefix.trim_matches('/').to_string();
+        }
+
+        if let Some(key_prefix) = self.key_prefix.as_ref() {
+            if key_prefix.is_empty() {
+                self.key_prefix = None;
+            }
+        }
+
+        // Azure supports a max of 1024 chars and we need some buffer for tables.
+        if let Some(key_prefix) = &self.key_prefix {
+            if key_prefix.len() > 512 {
+                return Err(ValidationError::InvalidProfile {
+                    source: None,
+
+                    reason: "Storage Profile `key_prefix` must be less than 512 characters."
+                        .to_string(),
+                    entity: "KeyPrefix".to_string(),
+                });
+            }
+            for key in key_prefix.split('/') {
+                validate_path_segment(key)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -342,7 +344,7 @@ impl AzdlsLocation {
     pub fn new(
         account_name: String,
         filesystem: String,
-        endpoint_suffix: String,
+        host: String,
         key: Vec<String>,
     ) -> Result<Self, ValidationError> {
         validate_filesystem_name(&filesystem)?;
@@ -351,8 +353,7 @@ impl AzdlsLocation {
             validate_path_segment(k)?;
         }
 
-        let endpoint_suffix = normalize_endpoint_suffix(Some(endpoint_suffix))?
-            .unwrap_or(DEFAULT_ENDPOINT_SUFFIX.to_string());
+        let endpoint_suffix = normalize_host(host)?.unwrap_or(DEFAULT_HOST.to_string());
 
         let location = format!("abfss://{filesystem}@{account_name}.{endpoint_suffix}",);
         let mut location =
@@ -685,36 +686,30 @@ fn validate_path_segment(path_segment: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
-fn normalize_endpoint_suffix(
-    endpoint_suffix: Option<String>,
-) -> Result<Option<String>, ValidationError> {
+fn normalize_host(host: String) -> Result<Option<String>, ValidationError> {
     // If endpoint suffix is Some(""), set it to None.
-    if let Some(endpoint_suffix) = endpoint_suffix {
-        if endpoint_suffix.is_empty() {
-            Ok(None)
-        } else {
-            // Endpoint suffix must not contain slashes.
-            if endpoint_suffix.contains('/') {
-                return Err(ValidationError::InvalidProfile {
-                    source: None,
-                    reason: "`endpoint_suffix` must not contain slashes.".to_string(),
-                    entity: "EndpointSuffix".to_string(),
-                });
-            }
-
-            // Endpoint suffix must be a valid hostname
-            if Host::parse(&endpoint_suffix).is_err() {
-                return Err(ValidationError::InvalidProfile {
-                    source: None,
-                    reason: "`endpoint_suffix` must be a valid hostname.".to_string(),
-                    entity: "EndpointSuffix".to_string(),
-                });
-            };
-
-            Ok(Some(endpoint_suffix))
-        }
-    } else {
+    if host.is_empty() {
         Ok(None)
+    } else {
+        // Endpoint suffix must not contain slashes.
+        if host.contains('/') {
+            return Err(ValidationError::InvalidProfile {
+                source: None,
+                reason: "`endpoint_suffix` must not contain slashes.".to_string(),
+                entity: "EndpointSuffix".to_string(),
+            });
+        }
+
+        // Endpoint suffix must be a valid hostname
+        if Host::parse(&host).is_err() {
+            return Err(ValidationError::InvalidProfile {
+                source: None,
+                reason: "`endpoint_suffix` must be a valid hostname.".to_string(),
+                entity: "EndpointSuffix".to_string(),
+            });
+        };
+
+        Ok(Some(host))
     }
 }
 
@@ -797,8 +792,11 @@ mod test {
 
     #[test]
     fn test_validate_endpoint_suffix() {
-        normalize_endpoint_suffix(Some("dfs.core.windows.net".to_string())).unwrap();
-        normalize_endpoint_suffix(None).unwrap();
+        assert_eq!(
+            normalize_host("dfs.core.windows.net".to_string()).unwrap(),
+            Some("dfs.core.windows.net".to_string())
+        );
+        assert!(normalize_host("".to_string()).unwrap().is_none());
     }
 
     #[test]
@@ -815,7 +813,7 @@ mod test {
             key_prefix: Some("test_prefix".to_string()),
             account_name: "account".to_string(),
             authority_host: None,
-            endpoint_suffix: None,
+            host: None,
             sas_token_validity_seconds: None,
         };
 
@@ -833,7 +831,7 @@ mod test {
 
         let mut profile = profile.clone();
         profile.key_prefix = None;
-        profile.endpoint_suffix = Some("blob.com".to_string());
+        profile.host = Some("blob.com".to_string());
         let sp: StorageProfile = profile.into();
 
         let namespace_location = sp.default_namespace_location(namespace_id).unwrap();

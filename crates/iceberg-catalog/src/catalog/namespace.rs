@@ -100,9 +100,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let namespace_id = NamespaceIdentUuid::default();
         // Set location if not specified - validate location if specified
 
-        let mut t = C::Transaction::begin_read(state.v1_state.catalog.clone()).await?;
+        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
-        drop(t);
 
         let mut namespace_props = NamespaceProperties::try_from_maybe_props(properties.clone())
             .map_err(|e| ErrorModel::bad_request(e.to_string(), e.err_type(), None))?;
@@ -111,7 +110,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let mut request = request;
         request.properties = Some(namespace_props.into());
 
-        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let r = C::create_namespace(warehouse_id, namespace_id, request, t.transaction()).await?;
         t.commit().await?;
         Ok(r)

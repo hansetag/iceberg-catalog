@@ -283,8 +283,6 @@ impl StorageProfile {
             }
         }
 
-        println!("------------- before remove_all --------------");
-
         // Cleanup
         crate::catalog::io::remove_all(&file_io, &test_location)
             .await
