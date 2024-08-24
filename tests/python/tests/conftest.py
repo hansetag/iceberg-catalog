@@ -22,21 +22,21 @@ ICEBERG_REST_TEST_S3_PATH_STYLE_ACCESS = os.environ.get(
 ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION = os.environ.get(
     "ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION", "1.5.2"
 )
-ICEBERG_REST_TEST_STS_MODE = os.environ.get("ICEBERG_REST_TEST_STS_MODE", "both")
+ICEBERG_REST_TEST_S3_STS_MODE = os.environ.get("ICEBERG_REST_TEST_S3_STS_MODE", "both")
 ICEBERG_REST_TEST_TRINO_URI = os.environ.get("ICEBERG_REST_TEST_TRINO_URI")
 OPENID_PROVIDER_URI = os.environ.get("ICEBERG_REST_TEST_OPENID_PROVIDER_URI")
 OPENID_CLIENT_ID = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_ID")
 OPENID_CLIENT_SECRET = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_SECRET")
 
-if ICEBERG_REST_TEST_STS_MODE == "both":
+if ICEBERG_REST_TEST_S3_STS_MODE == "both":
     STS = [True, False]
-elif ICEBERG_REST_TEST_STS_MODE == "enabled":
+elif ICEBERG_REST_TEST_S3_STS_MODE == "enabled":
     STS = [True]
-elif ICEBERG_REST_TEST_STS_MODE == "disabled":
+elif ICEBERG_REST_TEST_S3_STS_MODE == "disabled":
     STS = [False]
 else:
     raise ValueError(
-        f"Invalid ICEBERG_REST_TEST_STS_MODE: {ICEBERG_REST_TEST_STS_MODE}. "
+        f"Invalid ICEBERG_REST_TEST_S3_STS_MODE: {ICEBERG_REST_TEST_S3_STS_MODE}. "
         "must be one of 'both', 'enabled', 'disabled'"
     )
 

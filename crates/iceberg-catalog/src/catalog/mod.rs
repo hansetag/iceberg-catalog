@@ -62,15 +62,13 @@ fn require_warehouse_id(prefix: Option<Prefix>) -> Result<WarehouseIdent> {
         .try_into()
 }
 
-impl<C: Catalog, A: AuthZHandler, S: SecretStore> CatalogServer<C, A, S> {
-    async fn maybe_get_secret(
-        secret: Option<crate::SecretIdent>,
-        state: &S,
-    ) -> Result<Option<StorageCredential>, IcebergErrorResponse> {
-        if let Some(secret_id) = &secret {
-            Ok(Some(state.get_secret_by_id(secret_id).await?.secret))
-        } else {
-            Ok(None)
-        }
+async fn maybe_get_secret<S: SecretStore>(
+    secret: Option<crate::SecretIdent>,
+    state: &S,
+) -> Result<Option<StorageCredential>, IcebergErrorResponse> {
+    if let Some(secret_id) = &secret {
+        Ok(Some(state.get_secret_by_id(secret_id).await?.secret))
+    } else {
+        Ok(None)
     }
 }

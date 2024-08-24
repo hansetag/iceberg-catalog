@@ -18,8 +18,8 @@ use uuid::Uuid;
 
 use super::commit_tables::apply_commit;
 use super::{
-    io::write_metadata_file, namespace::validate_namespace_ident, require_warehouse_id,
-    CatalogServer,
+    io::write_metadata_file, maybe_get_secret, namespace::validate_namespace_ident,
+    require_warehouse_id, CatalogServer,
 };
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
@@ -111,14 +111,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let storage_profile = warehouse.storage_profile;
         require_active_warehouse(warehouse.status)?;
 
-        let table_location = determine_table_location(
+        let table_location = determine_tabular_location(
             &namespace,
             request.location.clone(),
             TabularIdentUuid::Table(*table_id),
             &storage_profile,
         )?;
 
-        // This is the only place where we change the request
+        // Update the request for event
         request.location = Some(table_location.to_string());
         let request = request; // Make it non-mutable again for our sanity
 
@@ -418,7 +418,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // We don't commit the transaction yet, first we need to write the metadata file.
         let storage_secret =
-            Self::maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
+            maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
 
         // Write metadata file
         let file_io = warehouse.storage_profile.file_io(storage_secret.as_ref())?;
@@ -854,7 +854,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // We don't commit the transaction yet, first we need to write the metadata file.
         let storage_secret =
-            Self::maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
+            maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
 
         // Write metadata files
         let file_io = warehouse.storage_profile.file_io(storage_secret.as_ref())?;
@@ -957,7 +957,7 @@ fn determine_table_ident(
     Ok(identifier)
 }
 
-fn determine_table_location(
+pub(super) fn determine_tabular_location(
     namespace: &GetNamespaceResponse,
     request_table_location: Option<String>,
     table_id: TabularIdentUuid,

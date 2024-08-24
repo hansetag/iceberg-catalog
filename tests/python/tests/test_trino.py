@@ -62,3 +62,37 @@ def test_create_table_with_data(trino, warehouse: conftest.Warehouse):
     cur.execute(
         "INSERT INTO test_create_table_with_data_trino.my_table VALUES (1, 1.0, 'a'), (2, 2.0, 'b')"
     )
+
+
+def test_replace_table(trino, warehouse: conftest.Warehouse):
+    cur = trino.cursor()
+    cur.execute("CREATE SCHEMA test_replace_table_trino")
+    cur.execute(
+        "CREATE TABLE test_replace_table_trino.my_table (my_ints INT, my_floats DOUBLE, strings VARCHAR) WITH (format='PARQUET')"
+    )
+    cur.execute(
+        "INSERT INTO test_replace_table_trino.my_table VALUES (1, 1.0, 'a'), (2, 2.0, 'b')"
+    )
+    cur.execute(
+        "CREATE TABLE test_replace_table_trino.my_table (my_ints INT, my_floats DOUBLE, strings VARCHAR) WITH (format='PARQUET')"
+    )
+    loaded_table = warehouse.pyiceberg_catalog.load_table(
+        ("test_replace_table_trino", "my_table")
+    )
+    assert len(loaded_table.schema().fields) == 3
+
+
+def test_replace_view(trino, warehouse: conftest.Warehouse):
+    cur = trino.cursor()
+    cur.execute("CREATE SCHEMA test_replace_view_trino")
+    cur.execute(
+        "CREATE TABLE test_replace_view_trino.my_table (my_ints INT, my_floats DOUBLE, strings VARCHAR) WITH (format='PARQUET')"
+    )
+    cur.execute(
+        "INSERT INTO test_replace_view_trino.my_table VALUES (1, 1.0, 'a'), (2, 2.0, 'b')"
+    )
+    cur.execute(
+        "CREATE VIEW test_replace_view_trino.my_view AS SELECT my_ints, my_floats FROM test_replace_view_trino.my_table"
+    )
+    r = cur.execute("Select * from test_replace_view_trino.my_view").fetchall()
+    assert r == [(1, 1.0), (2, 2.0)]

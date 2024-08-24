@@ -47,14 +47,14 @@ def test_create_table(spark, warehouse: conftest.Warehouse):
     assert len(loaded_table.schema().fields) == 3
 
 
-def test_create_table_pyspark(spark, warehouse: conftest.Warehouse):
+def test_create_table_with_data(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_table_pyspark")
     data = pd.DataFrame([[1, "a-string", 2.2]], columns=["id", "strings", "floats"])
     sdf = spark.createDataFrame(data)
     sdf.writeTo(f"test_create_table_pyspark.my_table").createOrReplace()
 
 
-def test_replace_table_pyspark(spark, warehouse: conftest.Warehouse):
+def test_replace_table(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_replace_table_pyspark")
     data = pd.DataFrame([[1, "a-string", 2.2]], columns=["id", "strings", "floats"])
     sdf = spark.createDataFrame(data)
