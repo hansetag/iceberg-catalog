@@ -256,7 +256,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let previous_properties =
             C::get_namespace(warehouse_id, &parameters.namespace, t.transaction()).await?;
         let (new_properties, r) =
-            update_namespace_properties(previous_properties.properties, updates, removals)?;
+            update_namespace_properties(previous_properties.properties, updates, removals);
         C::update_namespace_properties(
             warehouse_id,
             &parameters.namespace,
@@ -352,15 +352,15 @@ fn set_namespace_location_property(
     // For customer specified location, we need to check if we can write to the location.
     // If no location is specified, we use our default location.
     let location = if let Some(location) = location {
-        if !warehouse.storage_profile.is_allowed_location(&location) {
+        if warehouse.storage_profile.is_allowed_location(&location) {
+            location
+        } else {
             return Err(ErrorModel::bad_request(
                 "Namespace location is not a valid sublocation of the storage profile",
                 "NamespaceLocationForbidden",
                 None,
             )
             .into());
-        } else {
-            location
         }
     } else {
         warehouse
@@ -376,44 +376,44 @@ fn update_namespace_properties(
     previous_properties: Option<HashMap<String, String>>,
     updates: NamespaceProperties,
     removals: Option<Vec<String>>,
-) -> Result<(HashMap<String, String>, UpdateNamespacePropertiesResponse)> {
+) -> (HashMap<String, String>, UpdateNamespacePropertiesResponse) {
     let mut properties = previous_properties.unwrap_or_default();
 
-    let mut updated = vec![];
-    let mut removed = vec![];
-    let mut missing = vec![];
+    let mut changes_updated = vec![];
+    let mut changes_removed = vec![];
+    let mut changes_missing = vec![];
 
     if let Some(removals) = removals {
         for key in removals {
             if properties.remove(&key).is_some() {
-                removed.push(key.clone());
+                changes_removed.push(key.clone());
             } else {
-                missing.push(key.clone());
+                changes_missing.push(key.clone());
             }
         }
     }
 
-    for (key, value) in updates.into_iter() {
+    for (key, value) in updates {
         // Push to updated if the value for the key is different.
         // Also push on insert
 
         if properties.insert(key.clone(), value.clone()) != Some(value) {
-            updated.push(key);
+            changes_updated.push(key);
         }
     }
 
-    Ok((
+    (
         properties,
         UpdateNamespacePropertiesResponse {
-            updated,
-            removed,
-            missing: if missing.is_empty() {
+            updated: changes_updated,
+            removed: changes_removed,
+            missing: if changes_missing.is_empty() {
                 None
             } else {
-                Some(missing)
+                Some(changes_missing)
             },
         },
-    ))
+    )
 }
 
 fn namespace_location_may_not_changed(
@@ -438,7 +438,7 @@ fn namespace_location_may_not_changed(
             "LocationCannotBeUpdated".to_string(),
             None,
         )
-        .append_detail(format!("Location: {:?}", location))
+        .append_detail(format!("Location: {location:?}"))
         .into());
     }
 
@@ -466,7 +466,7 @@ mod tests {
         let removals = Some(vec!["key3".to_string(), "key4".to_string()]);
 
         let (new_props, result) =
-            update_namespace_properties(Some(previous_properties), updates, removals).unwrap();
+            update_namespace_properties(Some(previous_properties), updates, removals);
         assert_eq!(result.updated, vec!["key2".to_string()]);
         assert_eq!(result.removed, vec!["key3".to_string()]);
         assert_eq!(result.missing, Some(vec!["key4".to_string()]));
@@ -488,7 +488,7 @@ mod tests {
         let removals = Some(vec![]);
 
         let (new_props, result) =
-            update_namespace_properties(Some(previous_properties), updates, removals).unwrap();
+            update_namespace_properties(Some(previous_properties), updates, removals);
         assert!(result.updated.is_empty());
         assert!(result.removed.is_empty());
         assert!(result.missing.is_none());

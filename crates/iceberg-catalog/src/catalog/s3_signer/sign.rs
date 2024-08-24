@@ -361,7 +361,7 @@ fn validate_uri(
 
     if !url_location
         .location()
-        .is_sublocation_of(&table_location.location())
+        .is_sublocation_of(table_location.location())
     {
         return Err(SignError::RequestUriMismatch {
             request_uri: parsed_url.url.to_string(),
@@ -478,8 +478,7 @@ mod test {
         assert_eq!(
             result.is_ok(),
             test_case.expected_outcome,
-            "Test case: {:?}",
-            test_case
+            "Test case: {test_case:?}",
         );
     }
 

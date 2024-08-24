@@ -320,7 +320,7 @@ impl S3Profile {
         let prefix = self
             .key_prefix
             .as_ref()
-            .map(|s| s.split('/').into_iter().map(|f| f.to_owned()).collect())
+            .map(|s| s.split('/').map(std::borrow::ToOwned::to_owned).collect())
             .unwrap_or_default();
         S3Location::new(self.bucket.clone(), prefix)
     }
