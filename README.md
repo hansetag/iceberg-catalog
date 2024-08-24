@@ -106,7 +106,7 @@ Details on how to configure the storage profiles can be found in the [Storage Gu
 
 | Operation       | Status  | Description                                                                                                        |
 |-----------------|:-------:|--------------------------------------------------------------------------------------------------------------------|
-| OIDC (AuthN)    | ![open] | Secure access to tables via OIDC                                                                                   |
+| OIDC (AuthN)    | ![done] | Secure access to the catalog via OIDC                                                                              |
 | Custom (AuthZ)  | ![done] | If you are willing to implement a single rust Trait, the `AuthZHandler` can be implement to connect to your system |
 | OpenFGA (AuthZ) | ![open] | Internal Authorization management                                                                                  |
 
