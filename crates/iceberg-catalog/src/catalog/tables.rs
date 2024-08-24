@@ -191,9 +191,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // Generate the storage profile. This requires the storage secret
         // because the table config might contain vended-credentials based
         // on the `data_access` parameter.
-        // ToDo: There is a small inefficiency here: If storage credentials
-        // are not required because of i.e. remote-signing and if this
-        // is a stage-create, we still fetch the secret.
         let config = storage_profile
             .generate_table_config(
                 &data_access,
@@ -239,8 +236,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         _state: ApiContext<State<A, C, S>>,
         _request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
-        // ToDo: Should we support this?
-        // May be problematic if we don't know the location
         Err(ErrorModel::builder()
             .code(StatusCode::NOT_IMPLEMENTED.into())
             .message("Registering tables is not supported".to_string())

@@ -209,8 +209,7 @@ impl TableRequirementExt for TableRequirement {
             TableRequirement::LastAssignedFieldIdMatch {
                 last_assigned_field_id,
             } => {
-                // ToDo: Check why requirement uses i64 for last_assigned_field_id
-                // and metadata i32
+                // ToDo: Harmonize types
                 let last_column_id: i64 = metadata.last_column_id.into();
                 if &last_column_id != last_assigned_field_id {
                     return Err(ErrorModel::conflict(
@@ -274,8 +273,7 @@ impl TableUpdateExt for TableUpdate {
                 builder.set_default_partition_spec(spec_id)?;
             }
             TableUpdate::SetDefaultSortOrder { sort_order_id } => {
-                // ToDo: Check why TableUpdate uses i64 for sort_order_id
-                // and metadata i32
+                // ToDo: Harmonize types
                 builder.set_default_sort_order(sort_order_id)?;
             }
             TableUpdate::AddSpec { spec } => {

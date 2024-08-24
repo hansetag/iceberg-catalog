@@ -52,7 +52,6 @@ lazy_static::lazy_static! {
 }
 
 impl AzdlsProfile {
-    // ToDo: Docs
     /// Validate the Azure storage profile.
     ///
     /// # Errors
@@ -285,7 +284,7 @@ impl AzdlsProfile {
             azure_storage_blobs::prelude::BlobServiceClient::new(self.account_name.as_str(), cred);
         let delegation_key = client
             .get_user_deligation_key(
-                // TODO: should we pull in `time` instead?
+                // ToDo Tobi: Use time or chrono?
                 SystemTime::now().into(),
                 SystemTime::now()
                     .checked_add(std::time::Duration::from_secs(
