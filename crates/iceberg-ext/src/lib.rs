@@ -7,8 +7,8 @@
 #![forbid(unsafe_code)]
 
 pub mod catalog;
+pub mod configs;
 pub mod spec;
-pub mod table_config;
 pub mod validation;
 
 pub use iceberg::{

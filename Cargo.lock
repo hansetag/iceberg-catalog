@@ -2899,6 +2899,7 @@ dependencies = [
  "iceberg",
  "lazy_static",
  "log",
+ "paste",
  "reqwest 0.12.7",
  "serde",
  "serde_derive",

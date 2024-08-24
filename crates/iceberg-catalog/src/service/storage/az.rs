@@ -17,7 +17,7 @@ use azure_storage::StorageCredentials;
 use futures::StreamExt;
 
 use iceberg::io::AzdlsConfigKeys;
-use iceberg_ext::table_config::{custom, TableConfig};
+use iceberg_ext::configs::table::{custom, TableConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -14,7 +14,7 @@ use crate::service::tabular_idents::TabularIdentUuid;
 use aws_config::{BehaviorVersion, SdkConfig};
 
 use iceberg::io::FileIO;
-use iceberg_ext::table_config::{client, custom, s3, TableConfig};
+use iceberg_ext::configs::table::{client, custom, s3, TableConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use veil::Redact;
@@ -426,7 +426,7 @@ impl S3Profile {
         config.insert(&client::Region(self.region.to_string()));
 
         if let Some(endpoint) = &self.endpoint {
-            config.insert(&s3::Endpoint(endpoint.to_string()));
+            config.insert(&s3::Endpoint(endpoint.clone()));
         }
 
         if *vended_credentials {
