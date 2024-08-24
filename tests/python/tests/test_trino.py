@@ -41,24 +41,24 @@ def test_drop_namespace(trino, warehouse: conftest.Warehouse):
     ) not in warehouse.pyiceberg_catalog.list_namespaces()
 
 
-# def test_create_table(trino, warehouse: conftest.Warehouse):
-#     cur = trino.cursor()
-#     cur.execute("CREATE SCHEMA test_create_table_trino")
-#     cur.execute(
-#         "CREATE TABLE test_create_table_trino.my_table (my_ints INT, my_floats DOUBLE, strings VARCHAR) WITH (format='PARQUET')"
-#     )
-#     loaded_table = warehouse.pyiceberg_catalog.load_table(
-#         ("test_create_table_trino", "my_table")
-#     )
-#     assert len(loaded_table.schema().fields) == 3
+def test_create_table(trino, warehouse: conftest.Warehouse):
+    cur = trino.cursor()
+    cur.execute("CREATE SCHEMA test_create_table_trino")
+    cur.execute(
+        "CREATE TABLE test_create_table_trino.my_table (my_ints INT, my_floats DOUBLE, strings VARCHAR) WITH (format='PARQUET')"
+    )
+    loaded_table = warehouse.pyiceberg_catalog.load_table(
+        ("test_create_table_trino", "my_table")
+    )
+    assert len(loaded_table.schema().fields) == 3
 
 
-# def test_create_table_with_data(trino, warehouse: conftest.Warehouse):
-#     cur = trino.cursor()
-#     cur.execute("CREATE SCHEMA test_create_table_with_data_trino")
-#     cur.execute(
-#         "CREATE TABLE test_create_table_with_data_trino.my_table (my_ints INT, my_floats DOUBLE, strings VARCHAR) WITH ('format'='PARQUET')"
-#     )
-#     cur.execute(
-#         "INSERT INTO test_create_table_with_data_trino.my_table VALUES (1, 1.0, 'a'), (2, 2.0, 'b')"
-#     )
+def test_create_table_with_data(trino, warehouse: conftest.Warehouse):
+    cur = trino.cursor()
+    cur.execute("CREATE SCHEMA test_create_table_with_data_trino")
+    cur.execute(
+        "CREATE TABLE test_create_table_with_data_trino.my_table (my_ints INT, my_floats DOUBLE, strings VARCHAR) WITH ('format'='PARQUET')"
+    )
+    cur.execute(
+        "INSERT INTO test_create_table_with_data_trino.my_table VALUES (1, 1.0, 'a'), (2, 2.0, 'b')"
+    )

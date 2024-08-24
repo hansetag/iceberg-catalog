@@ -269,10 +269,15 @@ def trino(warehouse: Warehouse):
         CREATE CATALOG {warehouse.spark_catalog_name} USING iceberg
         WITH (
             "iceberg.catalog.type" = 'rest',
+            "fs.native-s3.enabled" = 'true',
             "iceberg.rest-catalog.uri" = '{warehouse.server.catalog_url}',
             "iceberg.rest-catalog.warehouse" = '{warehouse.project_id}/{warehouse.warehouse_name}',
             "iceberg.rest-catalog.security" = 'OAUTH2',
-            "iceberg.rest-catalog.oauth2.token" = '{warehouse.access_token}'
+            "iceberg.rest-catalog.oauth2.token" = '{warehouse.access_token}',
+            "iceberg.rest-catalog.vended-credentials-enabled" = 'true',
+            "s3.region" = 'dummy',
+            "s3.path-style-access" = 'true',
+            "s3.endpoint" = '{ICEBERG_REST_TEST_S3_ENDPOINT}'
         )
     """
     )
