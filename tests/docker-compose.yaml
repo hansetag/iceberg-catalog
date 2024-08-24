@@ -13,7 +13,7 @@ services:
       retries: 2
       start_period: 40s
     ports:
-      - "8080:8080"
+      - "31100:8080"
     command: [ "start-dev", "--metrics-enabled=true", "--health-enabled=true",  "--import-realm" ]
 
   spark:
@@ -83,7 +83,7 @@ services:
       keycloak:
         condition: service_healthy
     ports:
-      - 1235:8080
+      - 31101:8080
   db:
     image: bitnami/postgresql:15
     environment:
@@ -99,7 +99,7 @@ services:
       retries: 2
       start_period: 10s
     ports:
-      - "2345:2345"
+      - "31102:2345"
 
   minio:
     image: bitnami/minio:latest
@@ -117,14 +117,14 @@ services:
       retries: 2
       start_period: 10s
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "31103:9000"
+      - "31104:9001"
 
   nats:
     image: bitnami/nats:latest
     command: [ "nats-server",  "-m=8222", "--user=test", "--pass=test" ]
     ports:
-      - "4222:4222"
+      - "31105:4222"
     healthcheck:
       test: [ "CMD-SHELL", 'exec 3<>/dev/tcp/127.0.0.1/8222;echo -e "HEAD / HTTP/1.1\r\nhost: localhost:8222\r\nConnection: close\r\n\r\n" >&3;grep "HTTP/1.1 200 OK"  <&3' ]
       interval: 2s

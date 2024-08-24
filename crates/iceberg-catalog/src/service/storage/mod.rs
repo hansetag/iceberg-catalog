@@ -254,7 +254,7 @@ pub trait StorageLocations {
         namespace_location: &str,
         table_id: TabularIdentUuid,
     ) -> String {
-        format!("{}/{}/", namespace_location.trim_end_matches('/'), table_id)
+        format!("{}/{}", namespace_location.trim_end_matches('/'), table_id)
     }
 
     #[must_use]
