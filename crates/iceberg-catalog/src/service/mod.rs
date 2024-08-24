@@ -10,12 +10,11 @@ pub mod tabular_idents;
 pub mod token_verification;
 
 pub use catalog::{
-    Catalog, CommitTableResponse, CommitTableResponseExt, CommitTransactionRequest,
-    CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, CreateTableResponse,
-    GetNamespaceResponse, GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse,
-    ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
-    TableIdent, Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
-    ViewMetadataWithLocation,
+    Catalog, CommitTableResponse, CreateNamespaceRequest, CreateNamespaceResponse,
+    CreateTableRequest, CreateTableResponse, GetNamespaceResponse, GetStorageConfigResponse,
+    GetTableMetadataResponse, GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse,
+    LoadTableResponse, NamespaceIdent, Result, TableCommit, TableIdent, Transaction,
+    UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse, ViewMetadataWithLocation,
 };
 use std::ops::Deref;
 
@@ -159,6 +158,12 @@ impl FromStr for TableIdentUuid {
                 .source(Some(Box::new(e)))
                 .build()
         })?))
+    }
+}
+
+impl From<TableIdentUuid> for uuid::Uuid {
+    fn from(ident: TableIdentUuid) -> Self {
+        ident.0
     }
 }
 

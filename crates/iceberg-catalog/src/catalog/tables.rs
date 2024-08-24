@@ -16,21 +16,20 @@ use iceberg_ext::configs::Location;
 use serde::Serialize;
 use uuid::Uuid;
 
+use super::commit_tables::apply_commit;
 use super::{
     io::write_metadata_file, namespace::validate_namespace_ident, require_warehouse_id,
     CatalogServer,
 };
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::storage::{
-    StorageCredential, StorageLocations as _, StoragePermissions, StorageProfile,
-};
+use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
-use crate::service::{GetNamespaceResponse, TableIdentUuid, WarehouseStatus};
+use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -273,6 +272,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
+        let table_id = require_table_id(&table, table_id)?;
+        let mut t = C::Transaction::begin_read(state.v1_state.catalog).await?;
+        let mut metadatas = C::load_tables(warehouse_id, vec![table_id], t.transaction()).await?;
         let CatalogLoadTableResult {
             table_id: _,
             namespace_id: _,
@@ -280,7 +282,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             metadata_location,
             storage_secret_ident,
             storage_profile,
-        } = C::load_table(warehouse_id, &table, state.v1_state.catalog).await?;
+        } = remove_table(&table_id, &table, &mut metadatas)?;
+        require_not_staged(&metadata_location)?;
 
         // ToDo: This is a small inefficiency: We fetch the secret even if it might
         // not be required based on the `data_access` parameter.
@@ -336,17 +339,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let TableParameters { table, prefix } = parameters;
 
         let table_ident = determine_table_ident(table, request.identifier)?;
-        validate_table_or_view_ident(&table_ident)?;
+        // Fix identifier in request for emitted event
         request.identifier = Some(table_ident.clone());
-        let request = request; // Make it non-mutable again for our sanity
-
-        let CommitTableRequest {
-            identifier: _,
-            requirements: _,
-            updates,
-        } = &request;
-
-        validate_table_updates(updates)?;
+        validate_table_or_view_ident(&table_ident)?;
+        validate_table_updates(&request.updates)?;
 
         // ------------------- AUTHZ -------------------
         let include_staged = true;
@@ -371,88 +367,73 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let table_id = table_id.ok_or_else(|| {
-            ErrorModel::builder()
-                .code(StatusCode::NOT_FOUND.into())
-                .message(format!("Table does not exist in warehouse {warehouse_id}"))
-                .r#type("TableNotFound".to_string())
-                .build()
-        })?;
-
-        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let table_id = require_table_id(&table_ident, table_id)?;
         // serialize body before moving it
         let body = maybe_body_to_json(&request);
+        let CommitTableRequest {
+            identifier: _,
+            requirements,
+            updates,
+        } = request;
 
-        let updates = updates.clone();
+        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let mut previous_table =
+            C::load_tables(warehouse_id, vec![table_id], t.transaction()).await?;
+        let previous_table = remove_table(&table_id, &table_ident, &mut previous_table)?;
+        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
 
-        let transaction_request = CommitTransactionRequest {
-            table_changes: vec![request],
-        };
-        let table_ids = HashMap::from_iter(vec![(table_ident.clone(), table_id)]);
-        let result = C::commit_table_transaction(
-            warehouse_id,
-            transaction_request,
-            &table_ids,
-            transaction.transaction(),
-        )
-        .await?;
-
-        if result.len() > 1 {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("More than one result from commit_table_transaction".to_string())
-                .r#type("MoreThanOneResultFromCommitTableTransaction".to_string())
-                .build()
-                .into());
-        }
-        // Get the first and only result
-        let result = result.into_iter().next().ok_or(
-            ErrorModel::builder()
-                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("No result from commit_table_transaction".to_string())
-                .r#type("NoResultFromCommitTableTransaction".to_string())
-                .build(),
-        )?;
-
+        // Contract verification
         state
             .v1_state
             .contract_verifiers
-            .check_table_updates(&updates, &result.previous_table_metadata)
+            .check_table_updates(&updates, &previous_table.table_metadata)
             .await?
             .into_result()?;
-        // We don't commit the transaction yet, first we need to write the metadata file.
-        let storage_secret = if let Some(secret_id) = &result.storage_config.storage_secret_ident {
-            Some(
-                state
-                    .v1_state
-                    .secrets
-                    .get_secret_by_id(secret_id)
-                    .await?
-                    .secret,
+
+        // Apply changes
+        let new_metadata = apply_commit(
+            previous_table.table_metadata,
+            &previous_table.metadata_location,
+            &requirements,
+            updates,
+        )?;
+        let new_table_location = Location::from_str(new_metadata.location()).map_err(|e| {
+            ErrorModel::internal(
+                format!("Invalid new table location: {e}"),
+                "InvalidTableLocation",
+                Some(Box::new(e)),
             )
-        } else {
-            None
+        })?;
+        let new_compression_codec = CompressionCodec::try_from_metadata(&new_metadata)?;
+        let new_metadata_location = previous_table.storage_profile.default_metadata_location(
+            &new_table_location,
+            &new_compression_codec,
+            uuid::Uuid::now_v7(),
+        );
+        let commit = TableCommit {
+            new_metadata,
+            new_metadata_location,
         };
+        C::commit_table_transaction(warehouse_id, vec![commit.clone()], t.transaction()).await?;
+
+        // We don't commit the transaction yet, first we need to write the metadata file.
+        let storage_secret =
+            Self::maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
 
         // Write metadata file
-        let file_io = result
-            .storage_config
-            .storage_profile
-            .file_io(storage_secret.as_ref())?;
-        let compression_codec =
-            CompressionCodec::try_from_metadata(&result.commit_response.metadata)?;
+        let file_io = warehouse.storage_profile.file_io(storage_secret.as_ref())?;
         write_metadata_file(
-            &result.metadata_location,
-            &result.commit_response.metadata,
-            compression_codec,
+            &commit.new_metadata_location,
+            &commit.new_metadata,
+            new_compression_codec,
             &file_io,
         )
         .await?;
 
-        transaction.commit().await?;
+        t.commit().await?;
         emit_change_event(
             EventMetadata {
-                tabular_id: TabularIdentUuid::Table(*table_id),
+                tabular_id: TabularIdentUuid::Table(*previous_table.table_id),
                 warehouse_id: *warehouse_id,
                 name: table_ident.name,
                 namespace: table_ident.namespace.to_url_string(),
@@ -470,7 +451,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         )
         .await;
 
-        Ok(result.commit_response)
+        Ok(CommitTableResponse {
+            metadata_location: commit.new_metadata_location.to_string(),
+            metadata: commit.new_metadata,
+            config: None,
+        })
     }
 
     /// Drop a table from the catalog
@@ -705,23 +690,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(prefix.clone())?;
-        let CommitTransactionRequest { table_changes } = &request;
-        for change in table_changes {
-            let CommitTableRequest {
-                identifier,
-                // If requirements are validated in the future
-                // also add validation to commit_table
-                requirements: _,
-                updates,
-            } = change;
-
-            validate_table_updates(updates)?;
-            identifier
+        for change in &request.table_changes {
+            validate_table_updates(&change.updates)?;
+            change
+                .identifier
                 .as_ref()
                 .map(validate_table_or_view_ident)
                 .transpose()?;
 
-            if identifier.is_none() {
+            if change.identifier.is_none() {
                 return Err(ErrorModel::builder()
                         .code(StatusCode::BAD_REQUEST.into())
                         .message(
@@ -736,7 +713,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- AUTHZ -------------------
         let include_staged = true;
-        let identifiers = table_changes
+        let identifiers = request
+            .table_changes
             .iter()
             .filter_map(|change| change.identifier.as_ref())
             .collect::<HashSet<_>>();
@@ -778,27 +756,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         futures::future::try_join_all(auth_checks).await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let table_ids = table_ids
-            .into_iter()
-            .map(|(table_ident, table_id)| {
-                if let Some(table_id) = table_id {
-                    Ok((table_ident, table_id))
-                } else {
-                    Err(ErrorModel::builder()
-                        .code(StatusCode::NOT_FOUND.into())
-                        .message(format!(
-                            "Table {table_ident:#?} does not exist in warehouse {warehouse_id}"
-                        ))
-                        .r#type("TableNotFound".to_string())
-                        .build()
-                        .into())
-                }
-            })
-            .collect::<Result<std::collections::HashMap<_, _>>>()?;
+        let table_ids = require_table_ids(table_ids)?;
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
 
-        // serialize request body before moving it here
+        // Store data for events before it is moved
         let mut events = vec![];
         let mut event_table_ids: Vec<(TableIdent, TableIdentUuid)> = vec![];
         let mut updates = vec![];
@@ -812,24 +775,76 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             }
         }
 
-        let commit_response = C::commit_table_transaction(
+        // Load old metadata
+        let mut previous_metadatas = C::load_tables(
             warehouse_id,
-            request,
-            &table_ids,
+            table_ids.values().copied(),
+            transaction.transaction(),
+        )
+        .await?;
+
+        // Apply changes
+        let commits = request
+            .table_changes
+            .into_iter()
+            .map(|change| {
+                let table_ident = change.identifier.ok_or_else(||
+                    // This should never happen due to validation
+                    ErrorModel::internal(
+                        "Change without Identifier",
+                        "ChangeWithoutIdentifier",
+                        None,
+                    ))?;
+                let table_id =
+                    require_table_id(&table_ident, table_ids.get(&table_ident).copied())?;
+                let previous_table =
+                    remove_table(&table_id, &table_ident, &mut previous_metadatas)?;
+                let new_metadata = apply_commit(
+                    previous_table.table_metadata.clone(),
+                    &previous_table.metadata_location,
+                    &change.requirements,
+                    change.updates.clone(),
+                )?;
+                let new_table_location =
+                    Location::from_str(new_metadata.location()).map_err(|e| {
+                        ErrorModel::internal(
+                            format!("Invalid new table location: {e}"),
+                            "InvalidTableLocation",
+                            Some(Box::new(e)),
+                        )
+                    })?;
+                let new_compression_codec = CompressionCodec::try_from_metadata(&new_metadata)?;
+                let new_metadata_location =
+                    previous_table.storage_profile.default_metadata_location(
+                        &new_table_location,
+                        &new_compression_codec,
+                        uuid::Uuid::now_v7(),
+                    );
+                Ok(CommitContext {
+                    new_metadata,
+                    new_metadata_location,
+                    new_compression_codec,
+                    updates: change.updates,
+                    previous_metadata: previous_table.table_metadata,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        // Commit changes in DB
+        C::commit_table_transaction(
+            warehouse_id,
+            commits.iter().map(CommitContext::commit),
             transaction.transaction(),
         )
         .await?;
 
         // Check contract verification
-        let futures = updates
-            .iter()
-            .zip(&commit_response)
-            .map(|(update, response)| {
-                state
-                    .v1_state
-                    .contract_verifiers
-                    .check_table_updates(update, &response.previous_table_metadata)
-            });
+        let futures = commits.iter().map(|c| {
+            state
+                .v1_state
+                .contract_verifiers
+                .check_table_updates(&c.updates, &c.previous_metadata)
+        });
 
         futures::future::try_join_all(futures)
             .await?
@@ -838,55 +853,23 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .collect::<Result<Vec<()>, ErrorModel>>()?;
 
         // We don't commit the transaction yet, first we need to write the metadata file.
-        // Fetch all secrets concurrently
-        let storage_secrets = futures::future::try_join_all(
-            commit_response
-                .iter()
-                .filter_map(|r| r.storage_config.storage_secret_ident.as_ref())
-                //unique
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .map(|secret_id| state.v1_state.secrets.get_secret_by_id(secret_id)),
-        )
-        .await?;
-        let storage_secrets: HashMap<_, StorageCredential> = storage_secrets
-            .into_iter()
-            .map(|r| (r.secret_id, r.secret))
-            .collect();
+        let storage_secret =
+            Self::maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
 
         // Write metadata files
-        let commit_response_with_io = commit_response
+        let file_io = warehouse.storage_profile.file_io(storage_secret.as_ref())?;
+
+        let write_futures: Vec<_> = commits
             .iter()
-            .map(|r| {
-                let storage_secret = r
-                    .storage_config
-                    .storage_secret_ident
-                    .as_ref()
-                    .and_then(|secret_id| storage_secrets.get(secret_id))
-                    .cloned();
-                let file_io = r
-                    .storage_config
-                    .storage_profile
-                    .file_io(storage_secret.as_ref())
-                    .map(|io| (r, io))
-                    .map_err(Into::into);
-                file_io
+            .map(|commit| {
+                write_metadata_file(
+                    &commit.new_metadata_location,
+                    &commit.new_metadata,
+                    commit.new_compression_codec,
+                    &file_io,
+                )
             })
-            .collect::<Result<Vec<_>>>()?;
-
-        let mut write_futures = vec![];
-        for response in &commit_response_with_io {
-            let (r, io) = response;
-            let compression_codec =
-                CompressionCodec::try_from_metadata(&r.commit_response.metadata)?;
-            write_futures.push(write_metadata_file(
-                &r.metadata_location,
-                &r.commit_response.metadata,
-                compression_codec,
-                io,
-            ));
-        }
-
+            .collect();
         futures::future::try_join_all(write_futures).await?;
 
         transaction.commit().await?;
@@ -917,6 +900,23 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         Ok(())
+    }
+}
+
+struct CommitContext {
+    pub new_metadata: iceberg::spec::TableMetadata,
+    pub new_metadata_location: Location,
+    pub previous_metadata: iceberg::spec::TableMetadata,
+    pub updates: Vec<TableUpdate>,
+    pub new_compression_codec: CompressionCodec,
+}
+
+impl CommitContext {
+    fn commit(&self) -> TableCommit {
+        TableCommit {
+            new_metadata: self.new_metadata.clone(),
+            new_metadata_location: self.new_metadata_location.clone(),
+        }
     }
 }
 
@@ -1012,6 +1012,70 @@ fn determine_table_location(
     }
 }
 
+fn require_table_ids(
+    table_ids: HashMap<TableIdent, Option<TableIdentUuid>>,
+) -> Result<HashMap<TableIdent, TableIdentUuid>> {
+    table_ids
+        .into_iter()
+        .map(|(table_ident, table_id)| {
+            if let Some(table_id) = table_id {
+                Ok((table_ident, table_id))
+            } else {
+                Err(ErrorModel::not_found(
+                    format!("Table {table_ident:#?} does not exist."),
+                    "TableNotFound",
+                    None,
+                )
+                .into())
+            }
+        })
+        .collect::<Result<std::collections::HashMap<_, _>>>()
+}
+
+fn require_table_id(
+    table_ident: &TableIdent,
+    table_id: Option<TableIdentUuid>,
+) -> Result<TableIdentUuid> {
+    table_id.ok_or_else(|| {
+        ErrorModel::not_found(
+            format!("Table {table_ident:#?} does not exist."),
+            "TableNotFound",
+            None,
+        )
+        .into()
+    })
+}
+
+fn require_not_staged(metadata_location: &Option<String>) -> Result<()> {
+    if metadata_location.is_none() {
+        return Err(ErrorModel::not_found(
+            "Table not found or staged.",
+            "TableNotFoundOrStaged",
+            None,
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
+fn remove_table<T>(
+    table_id: &TableIdentUuid,
+    table_ident: &TableIdent,
+    metadatas: &mut HashMap<TableIdentUuid, T>,
+) -> Result<T> {
+    metadatas
+        .remove(table_id)
+        .ok_or_else(|| {
+            ErrorModel::not_found(
+                format!("Table {table_ident:#?} does not exist."),
+                "TableNotFound",
+                None,
+            )
+        })
+        .map_err(Into::into)
+}
+
 pub(crate) fn require_active_warehouse(status: WarehouseStatus) -> Result<()> {
     if status != WarehouseStatus::Active {
         return Err(ErrorModel::builder()
@@ -1035,6 +1099,8 @@ async fn emit_change_event(
         .await;
 }
 
+// Quick validation of properties for early fails.
+// Full validation is performed when changes are applied.
 fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
     for update in updates {
         match update {

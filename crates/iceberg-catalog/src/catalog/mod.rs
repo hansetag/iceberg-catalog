@@ -1,3 +1,4 @@
+mod commit_tables;
 pub(crate) mod compression_codec;
 mod config;
 pub(crate) mod io;
@@ -10,9 +11,11 @@ mod views;
 
 pub use config::Server as ConfigServer;
 use iceberg::spec::{TableMetadata, ViewMetadata};
+use iceberg_ext::catalog::rest::IcebergErrorResponse;
 pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
 
 use crate::api::{iceberg::v1::Prefix, ErrorModel, Result};
+use crate::service::storage::StorageCredential;
 use crate::{
     service::{auth::AuthZHandler, secrets::SecretStore, Catalog},
     WarehouseIdent,
@@ -57,4 +60,17 @@ fn require_warehouse_id(prefix: Option<Prefix>) -> Result<WarehouseIdent> {
                 .build(),
         )?
         .try_into()
+}
+
+impl<C: Catalog, A: AuthZHandler, S: SecretStore> CatalogServer<C, A, S> {
+    async fn maybe_get_secret(
+        secret: Option<crate::SecretIdent>,
+        state: &S,
+    ) -> Result<Option<StorageCredential>, IcebergErrorResponse> {
+        if let Some(secret_id) = &secret {
+            Ok(Some(state.get_secret_by_id(secret_id).await?.secret))
+        } else {
+            Ok(None)
+        }
+    }
 }

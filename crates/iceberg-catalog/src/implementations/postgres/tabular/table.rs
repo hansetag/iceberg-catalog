@@ -1,32 +1,27 @@
-use crate::catalog::compression_codec::CompressionCodec;
 use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogState};
-use crate::service::storage::StorageLocations;
+use crate::service::TableCommit;
 use crate::{
     service::{
-        storage::StorageProfile, CommitTableResponse, CommitTableResponseExt,
-        CommitTransactionRequest, CreateTableRequest, CreateTableResponse, ErrorModel,
-        GetStorageConfigResponse, GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid,
-        Result, TableIdent, TableIdentUuid,
+        storage::StorageProfile, CreateTableRequest, CreateTableResponse, ErrorModel,
+        GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid, Result, TableIdent,
+        TableIdentUuid,
     },
     SecretIdent, WarehouseIdent,
 };
 
 use http::StatusCode;
-use iceberg_ext::configs::Location;
 use iceberg_ext::{
     spec::{TableMetadata, TableMetadataAggregate},
-    NamespaceIdent, TableRequirement, TableUpdate,
+    NamespaceIdent,
 };
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
-use crate::api::{TableRequirementExt as _, TableUpdateExt};
 use crate::implementations::postgres::tabular::{
     create_tabular, drop_tabular, list_tabulars, try_parse_namespace_ident, CreateTabular,
     TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid, TabularType,
 };
 use sqlx::types::Json;
 use std::default::Default;
-use std::str::FromStr as _;
 use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
@@ -188,14 +183,12 @@ pub(crate) async fn create_table(
     Ok(CreateTableResponse { table_metadata })
 }
 
-pub(crate) async fn load_table(
+pub(crate) async fn load_tables(
     warehouse_id: WarehouseIdent,
-    table: &TableIdent,
-    catalog_state: CatalogState,
-) -> Result<LoadTableResponse> {
-    let TableIdent { namespace, name } = table;
-
-    let table = sqlx::query!(
+    tables: impl IntoIterator<Item = TableIdentUuid>,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<HashMap<TableIdentUuid, LoadTableResponse>> {
+    let tables = sqlx::query!(
         r#"
         SELECT
             t."table_id",
@@ -209,33 +202,34 @@ pub(crate) async fn load_table(
         INNER JOIN tabular ti ON t.table_id = ti.tabular_id
         INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE w.warehouse_id = $1 AND namespace_name = $2 AND ti.name = $3
+        WHERE w.warehouse_id = $1
         AND w.status = 'active'
-        AND ti."metadata_location" IS NOT NULL
+        AND t."table_id" = ANY($2)
         "#,
         *warehouse_id,
-        &**namespace,
-        &**name
+        &tables.into_iter().map(Into::into).collect::<Vec<_>>()
     )
-    .fetch_one(&catalog_state.read_pool())
+    .fetch_all(&mut **transaction)
     .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Table not found".to_string())
-            .r#type("NoSuchTableError".to_string())
-            .build(),
-        _ => e.into_error_model("Error fetching table".to_string()),
-    })?;
+    .map_err(|e| e.into_error_model("Error fetching table".to_string()))?;
 
-    Ok(LoadTableResponse {
-        table_id: table.table_id.into(),
-        namespace_id: table.namespace_id.into(),
-        table_metadata: table.metadata.deref().clone(),
-        metadata_location: table.metadata_location,
-        storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
-        storage_profile: table.storage_profile.deref().clone(),
-    })
+    Ok(tables
+        .into_iter()
+        .map(|table| {
+            let table_id = table.table_id.into();
+            (
+                table_id,
+                LoadTableResponse {
+                    table_id,
+                    namespace_id: table.namespace_id.into(),
+                    table_metadata: table.metadata.deref().clone(),
+                    metadata_location: table.metadata_location,
+                    storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
+                    storage_profile: table.storage_profile.deref().clone(),
+                },
+            )
+        })
+        .collect())
 }
 
 pub(crate) async fn list_tables(
@@ -451,167 +445,14 @@ pub(crate) async fn drop_table<'a>(
     Ok(())
 }
 
-#[derive(Debug)]
-struct CommitContext {
-    requirements: Vec<TableRequirement>,
-    updates: Vec<TableUpdate>,
-    storage_profile: StorageProfile,
-    storage_secret_ident: Option<SecretIdent>,
-    #[allow(dead_code)]
-    namespace_id: NamespaceIdentUuid,
-    metadata: TableMetadata,
-    metadata_location: Option<String>,
-}
-
-async fn get_commit_context<'a>(
-    request: CommitTransactionRequest,
-    table_ids: &HashMap<TableIdent, TableIdentUuid>,
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<Vec<CommitContext>> {
-    let CommitTransactionRequest { table_changes } = request;
-
-    let metadata = sqlx::query!(
-        r#"
-        SELECT 
-            t."table_id", 
-            t."metadata" as "metadata: Json<TableMetadata>", 
-            ti."metadata_location",
-            w.storage_profile as "storage_profile: Json<StorageProfile>",
-            w."storage_secret_id",
-            n.namespace_id
-        FROM "table" t
-        INNER JOIN tabular ti ON t.table_id = ti.tabular_id
-        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
-        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE "table_id" = ANY($1)
-        AND w.status = 'active'
-        "#,
-        &table_ids.values().map(|id| **id).collect::<Vec<_>>()
-    )
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(|e| e.into_error_model("Error fetching table metadata for commit".to_string()))?;
-
-    let mut contexts = vec![];
-    for change in table_changes {
-        let table_ident = change.identifier.ok_or(
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Table identifier must be specified for all changes".to_string())
-                .r#type("TableIdentifierRequired".to_string())
-                .build(),
-        )?;
-        let table_id = table_ids.get(&table_ident).ok_or_else(|| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Table identifier not found".to_string())
-                .r#type("TableIdentifierNotFound".to_string())
-                .stack(vec![format!("{:?}", table_ident)])
-                .build()
-        })?;
-
-        let record = metadata
-            .iter()
-            .find(|m| m.table_id == **table_id)
-            .ok_or_else(|| {
-                ErrorModel::builder()
-                    .code(StatusCode::NOT_FOUND.into())
-                    .message("Table not found".to_string())
-                    .r#type("NoSuchTableError".to_string())
-                    .stack(vec![format!("Table Ident {:?}", table_ident)])
-                    .build()
-            })?;
-
-        contexts.push(CommitContext {
-            requirements: change.requirements,
-            updates: change.updates,
-            storage_profile: record.storage_profile.deref().clone(),
-            metadata: record.metadata.deref().clone(),
-            metadata_location: record.metadata_location.clone(),
-            storage_secret_ident: record.storage_secret_id.map(SecretIdent::from),
-            namespace_id: record.namespace_id.into(),
-        });
-    }
-
-    Ok(contexts)
-}
-
-fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseExt>> {
-    // ToDo: Set default snapshot retention
-    let mut responses = vec![];
-    for context in commits {
-        let previous_location = Location::from_str(&context.metadata.location).map_err(|e| {
-            ErrorModel::internal(
-                format!("Invalid table location in DB: {e}"),
-                "InvalidTableLocation",
-                Some(Box::new(e)),
-            )
-        })?;
-        let previous_uuid = context.metadata.uuid();
-        let metadata_id = uuid::Uuid::now_v7();
-        let previous_table_metadata = context.metadata.clone();
-        let mut builder = TableMetadataAggregate::new_from_metadata(context.metadata);
-        for update in context.updates {
-            match &update {
-                TableUpdate::AssignUuid { uuid } => {
-                    if uuid != &previous_uuid {
-                        return Err(ErrorModel::builder()
-                            .code(StatusCode::BAD_REQUEST.into())
-                            .message("Cannot assign a new UUID".to_string())
-                            .r#type("AssignUuidNotAllowed".to_string())
-                            .build()
-                            .into());
-                    }
-                }
-                TableUpdate::SetLocation { location } => {
-                    if location != &previous_location.to_string() {
-                        return Err(ErrorModel::builder()
-                            .code(StatusCode::BAD_REQUEST.into())
-                            .message("Cannot change table location".to_string())
-                            .r#type("SetLocationNotAllowed".to_string())
-                            .build()
-                            .into());
-                    }
-                }
-                _ => {
-                    TableUpdateExt::apply(update, &mut builder)?;
-                }
-            }
-        }
-        let new_metadata = builder.build()?;
-        let metadata_location = context.storage_profile.default_metadata_location(
-            &previous_location,
-            &CompressionCodec::try_from_properties(&new_metadata.properties)?,
-            metadata_id,
-        );
-        responses.push(CommitTableResponseExt {
-            commit_response: CommitTableResponse {
-                metadata_location: metadata_location.to_string(),
-                metadata: new_metadata.clone(),
-                config: None,
-            },
-            storage_config: GetStorageConfigResponse {
-                storage_profile: context.storage_profile,
-                storage_secret_ident: context.storage_secret_ident,
-            },
-            previous_table_metadata,
-            metadata_location,
-        });
-    }
-
-    Ok(responses)
-}
-
 pub(crate) async fn commit_table_transaction<'a>(
     // We do not need the warehouse_id here, because table_ids are unique across warehouses
     _: WarehouseIdent,
-    request: CommitTransactionRequest,
-    table_ids: &HashMap<TableIdent, TableIdentUuid>,
+    commits: impl IntoIterator<Item = TableCommit> + Send,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<Vec<CommitTableResponseExt>> {
-    let contexts = get_commit_context(request, table_ids, transaction).await?;
-
-    if contexts.len() > (MAX_PARAMETERS / 4) {
+) -> Result<()> {
+    let commits: Vec<TableCommit> = commits.into_iter().collect();
+    if commits.len() > (MAX_PARAMETERS / 4) {
         return Err(ErrorModel::builder()
             .code(StatusCode::BAD_REQUEST.into())
             .message("Too updates in single commit".to_string())
@@ -620,19 +461,7 @@ pub(crate) async fn commit_table_transaction<'a>(
             .into());
     }
 
-    // Check all requirements
-    for context in &contexts {
-        context
-            .requirements
-            .iter()
-            .map(|r| r.assert(&context.metadata, context.metadata_location.is_some()))
-            .collect::<Result<Vec<_>>>()?;
-    }
-
-    // Apply updates
-    let responses = apply_commits(contexts)?;
-
-    let mut query_builder_metadata = sqlx::QueryBuilder::new(
+    let mut query_builder_table = sqlx::QueryBuilder::new(
         r#"
         UPDATE "table" as t
         SET "metadata" = c."metadata"
@@ -640,54 +469,54 @@ pub(crate) async fn commit_table_transaction<'a>(
         "#,
     );
 
-    let mut query_builder_metadata_location = sqlx::QueryBuilder::new(
+    let mut query_builder_tabular = sqlx::QueryBuilder::new(
         r#"
         UPDATE "tabular" as t
-        SET "metadata_location" = c."metadata_location"
+        SET "metadata_location" = c."metadata_location",
+        "location" = c."location"    
         FROM (VALUES
         "#,
     );
 
-    for (i, response) in responses.iter().enumerate() {
-        let metadata_ser =
-            serde_json::to_value(&response.commit_response.metadata).map_err(|e| {
-                ErrorModel::builder()
-                    .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                    .message("Error serializing table metadata".to_string())
-                    .r#type("TableMetadataSerializationError".to_string())
-                    .source(Some(Box::new(e)))
-                    .build()
-            })?;
+    for (i, commit) in commits.iter().enumerate() {
+        let metadata_ser = serde_json::to_value(&commit.new_metadata).map_err(|e| {
+            ErrorModel::internal(
+                "Error serializing table metadata",
+                "TableMetadataSerializationError",
+                Some(Box::new(e)),
+            )
+        })?;
 
-        query_builder_metadata.push("(");
-        query_builder_metadata.push_bind(response.commit_response.metadata.uuid());
-        query_builder_metadata.push(", ");
-        query_builder_metadata.push_bind(metadata_ser);
-        query_builder_metadata.push(")");
+        query_builder_table.push("(");
+        query_builder_table.push_bind(commit.new_metadata.uuid());
+        query_builder_table.push(", ");
+        query_builder_table.push_bind(metadata_ser);
+        query_builder_table.push(")");
 
-        query_builder_metadata_location.push("(");
-        query_builder_metadata_location.push_bind(response.commit_response.metadata.uuid());
-        query_builder_metadata_location.push(", ");
-        query_builder_metadata_location
-            .push_bind(response.commit_response.metadata_location.clone());
-        query_builder_metadata_location.push(")");
+        query_builder_tabular.push("(");
+        query_builder_tabular.push_bind(commit.new_metadata.uuid());
+        query_builder_tabular.push(", ");
+        query_builder_tabular.push_bind(commit.new_metadata_location.to_string());
+        query_builder_tabular.push(", ");
+        query_builder_tabular.push_bind(commit.new_metadata.location());
+        query_builder_tabular.push(")");
 
-        if i != responses.len() - 1 {
-            query_builder_metadata.push(", ");
-            query_builder_metadata_location.push(", ");
+        if i != commits.len() - 1 {
+            query_builder_table.push(", ");
+            query_builder_tabular.push(", ");
         }
     }
 
-    query_builder_metadata.push(") as c(table_id, metadata) WHERE c.table_id = t.table_id");
-    query_builder_metadata_location.push(
-        ") as c(table_id, metadata_location) WHERE c.table_id = t.tabular_id AND t.typ = 'table'",
+    query_builder_table.push(") as c(table_id, metadata) WHERE c.table_id = t.table_id");
+    query_builder_tabular.push(
+        ") as c(table_id, metadata_location, location) WHERE c.table_id = t.tabular_id AND t.typ = 'table'",
     );
 
-    query_builder_metadata.push(" RETURNING t.table_id");
-    query_builder_metadata_location.push(" RETURNING t.tabular_id");
+    query_builder_table.push(" RETURNING t.table_id");
+    query_builder_tabular.push(" RETURNING t.tabular_id");
 
-    let query_meta_update = query_builder_metadata.build();
-    let query_meta_location_update = query_builder_metadata_location.build();
+    let query_meta_update = query_builder_table.build();
+    let query_meta_location_update = query_builder_tabular.build();
 
     // futures::try_join didn't work due to concurrent mutable borrow of transaction
     let updated_meta = query_meta_update
@@ -702,7 +531,7 @@ pub(crate) async fn commit_table_transaction<'a>(
             e.into_error_model("Error committing tablemetadata location updates".to_string())
         })?;
 
-    if updated_meta.len() != responses.len() || updated_meta_location.len() != responses.len() {
+    if updated_meta.len() != commits.len() || updated_meta_location.len() != commits.len() {
         return Err(ErrorModel::builder()
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
             .message("Error committing table updates".to_string())
@@ -711,7 +540,7 @@ pub(crate) async fn commit_table_transaction<'a>(
             .into());
     }
 
-    Ok(responses)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -722,16 +551,18 @@ pub(crate) mod tests {
     // - Stage-Create => Next stage-create works & overwrites
     // - Stage-Create => Next regular create works & overwrites
 
+    use std::str::FromStr as _;
+
     use super::*;
 
     use crate::api::iceberg::types::PageToken;
     use crate::api::management::v1::warehouse::WarehouseStatus;
-    use crate::api::CommitTableRequest;
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
     use crate::implementations::postgres::warehouse::set_warehouse_status;
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
+    use iceberg_ext::configs::Location;
 
     fn create_request(
         stage_create: Option<bool>,
@@ -887,11 +718,10 @@ pub(crate) mod tests {
 
         let mut transaction = pool.begin().await.unwrap();
         // Second create should fail
-        let table_id = uuid::Uuid::now_v7().into();
         let create_err = create_table(
             namespace_id,
             &table_ident,
-            table_id,
+            uuid::Uuid::now_v7().into(),
             request,
             metadata_location.as_deref(),
             &mut transaction,
@@ -905,10 +735,15 @@ pub(crate) mod tests {
         );
 
         // Load should succeed
-        let load_result = load_table(warehouse_id, &table_ident, state.clone())
+        let mut t = pool.begin().await.unwrap();
+        let load_result = load_tables(warehouse_id, vec![table_id], &mut t)
             .await
             .unwrap();
-        assert_eq!(load_result.table_metadata, create_result.table_metadata);
+        assert_eq!(load_result.len(), 1);
+        assert_eq!(
+            load_result.get(&table_id).unwrap().table_metadata,
+            create_result.table_metadata
+        );
     }
 
     #[sqlx::test]
@@ -940,13 +775,18 @@ pub(crate) mod tests {
         .unwrap();
         transaction.commit().await.unwrap();
 
-        // Load should fail
-        let load_err = load_table(warehouse_id, &table_ident, state.clone())
-            .await
-            .unwrap_err();
-        assert_eq!(load_err.error.code, StatusCode::NOT_FOUND);
+        // Its staged - should not have metadata_location
+        let load = load_tables(
+            warehouse_id,
+            vec![table_id],
+            &mut pool.begin().await.unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(load.len(), 1);
+        assert!(load.get(&table_id).unwrap().metadata_location.is_none());
 
-        // Second create should succeed
+        // Second create should succeed, even with different id
         let mut transaction = pool.begin().await.unwrap();
         let table_id = uuid::Uuid::now_v7().into();
         let create_result = create_table(
@@ -978,10 +818,22 @@ pub(crate) mod tests {
         .unwrap();
         transaction.commit().await.unwrap();
 
-        let load_result = load_table(warehouse_id, &table_ident, state.clone())
-            .await
-            .unwrap();
-        assert_eq!(load_result.table_metadata, create_result.table_metadata);
+        let load_result = load_tables(
+            warehouse_id,
+            vec![table_id],
+            &mut pool.begin().await.unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(load_result.len(), 1);
+        assert_eq!(
+            load_result.get(&table_id).unwrap().table_metadata,
+            create_result.table_metadata
+        );
+        assert_eq!(
+            load_result.get(&table_id).unwrap().metadata_location,
+            metadata_location
+        );
     }
 
     #[sqlx::test]
@@ -1317,79 +1169,81 @@ pub(crate) mod tests {
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table1 = initialize_table(warehouse_id, state.clone(), true, None, None).await;
         let table2 = initialize_table(warehouse_id, state.clone(), false, None, None).await;
+        let _ = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
-        let self1 = &table2.table_id;
-        let request = CommitTransactionRequest {
-            table_changes: vec![
-                CommitTableRequest {
-                    identifier: Some(table1.table_ident.clone()),
-                    requirements: vec![TableRequirement::NotExist {}],
-                    updates: vec![TableUpdate::SetProperties {
-                        updates: HashMap::from_iter(vec![(
-                            "t1_key".to_string(),
-                            "t1_value".to_string(),
-                        )]),
-                    }],
-                },
-                CommitTableRequest {
-                    identifier: Some(table2.table_ident.clone()),
-                    requirements: vec![TableRequirement::UuidMatch { uuid: **self1 }],
-                    updates: vec![TableUpdate::SetProperties {
-                        updates: HashMap::from_iter(vec![(
-                            "t2_key".to_string(),
-                            "t2_value".to_string(),
-                        )]),
-                    }],
-                },
-            ],
-        };
-
-        let table_ids = table_idents_to_ids(
+        let loaded_tables = load_tables(
             warehouse_id,
-            vec![&table1.table_ident, &table2.table_ident]
-                .into_iter()
-                .collect(),
-            true,
-            &state.read_pool(),
+            vec![table1.table_id, table2.table_id],
+            &mut pool.begin().await.unwrap(),
         )
         .await
-        .unwrap()
-        .into_iter()
-        .map(|(k, v)| (k, v.unwrap()))
-        .collect();
+        .unwrap();
+        assert_eq!(loaded_tables.len(), 2);
+        assert!(loaded_tables
+            .get(&table1.table_id)
+            .unwrap()
+            .metadata_location
+            .is_none());
+        assert!(loaded_tables
+            .get(&table2.table_id)
+            .unwrap()
+            .metadata_location
+            .is_some());
+
+        let table1_metadata = &loaded_tables.get(&table1.table_id).unwrap().table_metadata;
+        let table2_metadata = &loaded_tables.get(&table2.table_id).unwrap().table_metadata;
+
+        let mut builder1 = TableMetadataAggregate::new_from_metadata(table1_metadata.clone());
+        builder1
+            .set_properties(HashMap::from_iter(vec![(
+                "t1_key".to_string(),
+                "t1_value".to_string(),
+            )]))
+            .unwrap();
+        let mut builder2 = TableMetadataAggregate::new_from_metadata(table2_metadata.clone());
+        builder2
+            .set_properties(HashMap::from_iter(vec![(
+                "t2_key".to_string(),
+                "t2_value".to_string(),
+            )]))
+            .unwrap();
+        let updated_metadata1 = builder1.build().unwrap();
+        let updated_metadata2 = builder2.build().unwrap();
+
+        let commits = vec![
+            TableCommit {
+                new_metadata: updated_metadata1.clone(),
+                new_metadata_location: Location::from_str("s3://my_bucket/table1/metadata/foo")
+                    .unwrap(),
+            },
+            TableCommit {
+                new_metadata: updated_metadata2.clone(),
+                new_metadata_location: Location::from_str("s3://my_bucket/table2/metadata/foo")
+                    .unwrap(),
+            },
+        ];
 
         let mut transaction = pool.begin().await.unwrap();
-        let responses =
-            commit_table_transaction(warehouse_id, request, &table_ids, &mut transaction)
-                .await
-                .unwrap();
+        commit_table_transaction(warehouse_id, commits.clone(), &mut transaction)
+            .await
+            .unwrap();
         transaction.commit().await.unwrap();
 
-        assert_eq!(responses.len(), 2);
+        let loaded_tables = load_tables(
+            warehouse_id,
+            vec![table1.table_id, table2.table_id],
+            &mut pool.begin().await.unwrap(),
+        )
+        .await
+        .unwrap();
 
-        let response1 = responses
-            .iter()
-            .find(|r| {
-                let self1 = table1.table_id;
-                r.commit_response.metadata.uuid() == *self1
-            })
-            .unwrap();
-        let response2 = responses
-            .iter()
-            .find(|r| {
-                let self1 = table2.table_id;
-                r.commit_response.metadata.uuid() == *self1
-            })
-            .unwrap();
+        assert_eq!(loaded_tables.len(), 2);
 
-        assert_eq!(
-            response1.commit_response.metadata.properties,
-            HashMap::from_iter(vec![("t1_key".to_string(), "t1_value".to_string())])
-        );
-        assert_eq!(
-            response2.commit_response.metadata.properties,
-            HashMap::from_iter(vec![("t2_key".to_string(), "t2_value".to_string())])
-        );
+        let loaded_metadata1 = &loaded_tables.get(&table1.table_id).unwrap().table_metadata;
+        let loaded_metadata2 = &loaded_tables.get(&table2.table_id).unwrap().table_metadata;
+
+        assert_eq!(loaded_metadata1, &updated_metadata1);
+        assert_eq!(loaded_metadata2, &updated_metadata2);
     }
 
     #[sqlx::test]

@@ -87,8 +87,7 @@ pub trait TableRequirementExt {
     ///
     /// # Errors
     /// Fails if the requirements are not met.
-    fn assert(&self, metadata: &TableMetadata, is_staged: bool)
-        -> Result<(), IcebergErrorResponse>;
+    fn assert(&self, metadata: &TableMetadata, exists: bool) -> Result<(), IcebergErrorResponse>;
 }
 
 impl TableRequirementExt for TableRequirement {

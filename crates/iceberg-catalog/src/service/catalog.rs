@@ -1,8 +1,6 @@
 use crate::SecretIdent;
 use iceberg::spec::{TableMetadata, ViewMetadata};
-pub use iceberg_ext::catalog::rest::{
-    CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
-};
+pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
 use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
 
@@ -80,15 +78,6 @@ pub struct GetStorageConfigResponse {
     pub storage_secret_ident: Option<SecretIdent>,
 }
 
-/// Extends the `CommitTableResponse` with the storage config.
-#[derive(Debug)]
-pub struct CommitTableResponseExt {
-    pub metadata_location: Location,
-    pub commit_response: CommitTableResponse,
-    pub storage_config: GetStorageConfigResponse,
-    pub previous_table_metadata: TableMetadata,
-}
-
 #[derive(Debug, Clone)]
 pub struct GetWarehouseResponse {
     /// ID of the warehouse.
@@ -105,8 +94,13 @@ pub struct GetWarehouseResponse {
     pub status: WarehouseStatus,
 }
 
-#[async_trait::async_trait]
+#[derive(Debug, Clone)]
+pub struct TableCommit {
+    pub new_metadata: TableMetadata,
+    pub new_metadata_location: Location,
+}
 
+#[async_trait::async_trait]
 pub trait Catalog
 where
     Self: Clone + Send + Sync + 'static,
@@ -202,11 +196,14 @@ where
         catalog_state: Self::State,
     ) -> Result<HashMap<TableIdent, Option<TableIdentUuid>>>;
 
-    async fn load_table(
+    /// Load tables by table id.
+    /// Does not return staged tables.
+    /// If a table does not exist, do not include it in the response.
+    async fn load_tables<'a>(
         warehouse_id: WarehouseIdent,
-        table: &TableIdent,
-        catalog_state: Self::State,
-    ) -> Result<LoadTableResponse>;
+        tables: impl IntoIterator<Item = TableIdentUuid> + Send,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<HashMap<TableIdentUuid, LoadTableResponse>>;
 
     /// Get table metadata by table id.
     /// If include_staged is true, also return staged tables,
@@ -248,10 +245,9 @@ where
     /// The table might be staged or not.
     async fn commit_table_transaction<'a>(
         warehouse_id: WarehouseIdent,
-        request: CommitTransactionRequest,
-        table_ids: &HashMap<TableIdent, TableIdentUuid>,
+        commits: impl IntoIterator<Item = TableCommit> + Send,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<Vec<CommitTableResponseExt>>;
+    ) -> Result<()>;
 
     // ---------------- Warehouse Management API ----------------
 
