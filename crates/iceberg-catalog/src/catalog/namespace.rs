@@ -383,13 +383,11 @@ fn update_namespace_properties(
     let mut changes_removed = vec![];
     let mut changes_missing = vec![];
 
-    if let Some(removals) = removals {
-        for key in removals {
-            if properties.remove(&key).is_some() {
-                changes_removed.push(key.clone());
-            } else {
-                changes_missing.push(key.clone());
-            }
+    for key in removals.unwrap_or_default() {
+        if properties.remove(&key).is_some() {
+            changes_removed.push(key.clone());
+        } else {
+            changes_missing.push(key.clone());
         }
     }
 

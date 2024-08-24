@@ -579,7 +579,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
             }
         }
         let new_metadata = builder.build()?;
-        let metadata_location = context.storage_profile.metadata_location(
+        let metadata_location = context.storage_profile.default_metadata_location(
             &previous_location,
             &CompressionCodec::try_from_properties(&new_metadata.properties)?,
             metadata_id,

@@ -272,7 +272,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             .build()
     })?;
 
-    let metadata_location = storage_profile.metadata_location(
+    let metadata_location = storage_profile.default_metadata_location(
         &view_location,
         &CompressionCodec::try_from_properties(requested_update_metadata.properties())?,
         Uuid::now_v7(),
@@ -287,7 +287,6 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         transaction.transaction(),
     )
     .await?;
-    // ToDo Tobi: Why did we need to load the metadata again?
 
     // We don't commit the transaction yet, first we need to write the metadata file.
     let storage_secret = if let Some(secret_id) = &storage_secret_id {

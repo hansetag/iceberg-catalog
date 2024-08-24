@@ -302,7 +302,7 @@ impl StorageProfile {
         let compression_codec = CompressionCodec::Gzip;
 
         let mut test_file_write =
-            self.metadata_location(test_location, &compression_codec, uuid::Uuid::now_v7());
+            self.default_metadata_location(test_location, &compression_codec, uuid::Uuid::now_v7());
         if is_vended_credentials {
             test_file_write.pop().push("test");
             tracing::debug!("Validating access to: {}", test_file_write);
@@ -401,7 +401,7 @@ pub trait StorageLocations {
 
     #[must_use]
     /// Get the default metadata location for the storage profile.
-    fn metadata_location(
+    fn default_metadata_location(
         &self,
         table_location: &Location,
         compression_codec: &CompressionCodec,
