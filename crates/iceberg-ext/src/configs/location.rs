@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use super::{ConfigParseError, ConfigProperty, NotCustomProp, ParseError, ParseFromStr};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -71,6 +73,20 @@ impl Location {
         };
         self
     }
+
+    // Check if the location is a sublocation of the other location.
+    // If the locations are the same, it is considered a sublocation.
+    #[must_use]
+    pub fn is_sublocation_of(&self, other: &Location) -> bool {
+        if self == other {
+            return true;
+        }
+
+        let mut other_folder = other.clone();
+        other_folder.with_trailing_slash();
+
+        self.to_string().starts_with(other_folder.as_str())
+    }
 }
 
 impl ConfigProperty for Location {
@@ -128,10 +144,37 @@ impl ParseFromStr for Location {
     }
 }
 
-impl std::str::FromStr for Location {
+impl FromStr for Location {
     type Err = ConfigParseError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         <Location as ConfigProperty>::parse_value(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_sublocation_of() {
+        let cases = vec![
+            ("s3://bucket/foo", "s3://bucket/foo", true),
+            ("s3://bucket/foo/", "s3://bucket/foo/bar", true),
+            ("s3://bucket/foo", "s3://bucket/foo/bar", true),
+            ("s3://bucket/foo", "s3://bucket/baz/bar", false),
+            ("s3://bucket/foo", "s3://bucket/foo-bar", false),
+        ];
+
+        for (parent, maybe_sublocation, expected) in cases {
+            let parent = Location::from_str(parent).unwrap();
+            let maybe_sublocation = Location::from_str(maybe_sublocation).unwrap();
+            let result = maybe_sublocation.is_sublocation_of(&parent);
+            assert_eq!(
+                result, expected,
+                "Parent: {}, Sublocation: {}, Expected: {}",
+                parent, maybe_sublocation, expected
+            );
+        }
     }
 }

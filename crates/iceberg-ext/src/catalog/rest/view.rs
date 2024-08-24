@@ -1,4 +1,6 @@
-use crate::catalog::rest::{impl_into_response, ViewUpdate};
+#[cfg(feature = "axum")]
+use crate::catalog::rest::impl_into_response;
+use crate::catalog::rest::ViewUpdate;
 use crate::catalog::{TableIdent, ViewRequirement};
 use crate::spec::{Schema, ViewMetadata, ViewVersion};
 
@@ -41,4 +43,5 @@ pub struct CommitViewRequest {
     pub updates: Vec<ViewUpdate>,
 }
 
+#[cfg(feature = "axum")]
 impl_into_response!(LoadViewResult);

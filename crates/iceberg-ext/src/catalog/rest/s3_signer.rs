@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use typed_builder::TypedBuilder;
 
+#[cfg(feature = "axum")]
 use super::impl_into_response;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TypedBuilder)]
@@ -20,6 +21,7 @@ pub struct S3SignResponse {
     pub headers: HashMap<String, Vec<String>>,
 }
 
+#[cfg(feature = "axum")]
 impl_into_response!(S3SignResponse);
 
 mod http_method_serde {

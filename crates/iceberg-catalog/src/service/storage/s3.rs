@@ -1,6 +1,6 @@
 #![allow(clippy::module_name_repetitions)]
 
-use crate::{service::NamespaceIdentUuid, WarehouseIdent, CONFIG};
+use crate::{WarehouseIdent, CONFIG};
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::service::storage::error::{
@@ -312,18 +312,17 @@ impl S3Profile {
         }
     }
 
-    /// Get the default location for the namespace.
+    /// Base Location for this storage profile.
     ///
     /// # Errors
-    /// Fails if the `key_prefix` is not valid for S3 URLs.
-    pub fn default_namespace_location(
-        &self,
-        namespace_id: NamespaceIdentUuid,
-    ) -> Result<Location, ValidationError> {
-        let mut prefix = self.key_prefix.clone().map(|p| vec![p]).unwrap_or_default();
-        prefix.push(namespace_id.to_string());
-
-        S3Location::new(self.bucket.clone(), prefix).map(Into::into)
+    /// Can fail for un-normalized profiles
+    pub fn base_location(&self) -> Result<S3Location, ValidationError> {
+        let prefix = self
+            .key_prefix
+            .as_ref()
+            .map(|s| s.split('/').into_iter().map(|f| f.to_owned()).collect())
+            .unwrap_or_default();
+        S3Location::new(self.bucket.clone(), prefix)
     }
 
     /// Generate the table configuration for S3.
@@ -672,27 +671,6 @@ impl S3Location {
     pub fn location(&self) -> &Location {
         &self.location
     }
-
-    // Check if the location is a sublocation of the other location.
-    // If the locations are the same, it is considered a sublocation.
-    #[must_use]
-    pub fn is_sublocation_of(&self, other: &S3Location) -> bool {
-        if self.bucket_name != other.bucket_name {
-            return false;
-        }
-
-        let other_is_folder = other.key.last() == Some(&String::new());
-
-        // Other is a folder if the last prefix element is empty.
-        let other_key = if other_is_folder {
-            &other.key[..other.key.len() - 1]
-        } else {
-            &other.key
-        };
-
-        // Check if the other prefix is a prefix of the current prefix.
-        self.key.starts_with(other_key)
-    }
 }
 
 impl TryFrom<Location> for S3Location {
@@ -755,7 +733,11 @@ impl From<S3Location> for Location {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::service::{storage::StorageLocations as _, tabular_idents::TabularIdentUuid};
+    use crate::service::{
+        storage::{StorageLocations as _, StorageProfile},
+        tabular_idents::TabularIdentUuid,
+        NamespaceIdentUuid,
+    };
     use needs_env_var::needs_env_var;
 
     #[test]
@@ -803,12 +785,13 @@ mod test {
             sts_enabled: false,
             flavor: S3Flavor::Aws,
         };
+        let sp: StorageProfile = profile.clone().into();
 
         let namespace_id = NamespaceIdentUuid::from(uuid::Uuid::now_v7());
         let table_id = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-        let namespace_location = profile.default_namespace_location(namespace_id).unwrap();
+        let namespace_location = sp.default_namespace_location(namespace_id).unwrap();
 
-        let location = profile.default_tabular_location(&namespace_location, table_id);
+        let location = sp.default_tabular_location(&namespace_location, table_id);
         assert_eq!(
             location.to_string(),
             format!("s3://test-bucket/test_prefix/{namespace_id}/{table_id}")
@@ -816,9 +799,10 @@ mod test {
 
         let mut profile = profile.clone();
         profile.key_prefix = None;
+        let sp: StorageProfile = profile.into();
 
-        let namespace_location = profile.default_namespace_location(namespace_id).unwrap();
-        let location = profile.default_tabular_location(&namespace_location, table_id);
+        let namespace_location = sp.default_namespace_location(namespace_id).unwrap();
+        let location = sp.default_tabular_location(&namespace_location, table_id);
         assert_eq!(
             location.to_string(),
             format!("s3://test-bucket/{namespace_id}/{table_id}")
@@ -992,24 +976,6 @@ mod test {
     #[test]
     fn test_parse_s3_location_invalid_proto() {
         S3Location::from_str("adls://test-bucket/foo/").unwrap_err();
-    }
-
-    #[test]
-    fn test_is_sublocation_of() {
-        let cases = vec![
-            ("s3://bucket/foo", "s3://bucket/foo", true),
-            ("s3://bucket/foo/", "s3://bucket/foo/bar", true),
-            ("s3://bucket/foo", "s3://bucket/foo/bar", true),
-            ("s3://bucket/foo", "s3://bucket/baz/bar", false),
-            ("s3://bucket/foo", "s3://bucket/foo-bar", false),
-        ];
-
-        for (parent, maybe_sublocation, expected) in cases {
-            let parent = S3Location::from_str(parent).unwrap();
-            let maybe_sublocation = S3Location::from_str(maybe_sublocation).unwrap();
-            let result = maybe_sublocation.is_sublocation_of(&parent);
-            assert_eq!(result, expected);
-        }
     }
 
     #[test]

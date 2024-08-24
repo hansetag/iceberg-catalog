@@ -24,6 +24,19 @@ impl NamespaceProperties {
         prev.and_then(|v| S::parse_value(v.as_str()).ok())
     }
 
+    pub fn remove<S>(&mut self) -> Option<S::Type>
+    where
+        S: NamespaceProperty,
+    {
+        self.props
+            .remove(S::KEY)
+            .and_then(|v| S::parse_value(v.as_str()).ok())
+    }
+
+    pub fn remove_untyped(&mut self, key: &str) -> Option<String> {
+        self.props.remove(key)
+    }
+
     #[must_use]
     pub fn get_prop_opt<C>(&self) -> Option<C::Type>
     where
@@ -87,8 +100,17 @@ impl NamespaceProperties {
     }
 
     #[must_use]
-    pub fn location(&self) -> Option<Location> {
+    pub fn get_location(&self) -> Option<Location> {
         self.get_prop_opt::<Location>()
+    }
+}
+
+impl IntoIterator for NamespaceProperties {
+    type Item = (String, String);
+    type IntoIter = std::collections::hash_map::IntoIter<String, String>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.props.into_iter()
     }
 }
 

@@ -123,6 +123,7 @@ where
 
     async fn create_namespace<'a>(
         warehouse_id: WarehouseIdent,
+        namespace_id: NamespaceIdentUuid,
         request: CreateNamespaceRequest,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateNamespaceResponse>;
@@ -151,12 +152,16 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
+    /// Update the properties of a namespace.
+    ///
+    /// The properties are the final key-value properties that should
+    /// be persisted as-is in the catalog.
     async fn update_namespace_properties<'a>(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
-        request: UpdateNamespacePropertiesRequest,
+        properties: HashMap<String, String>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<UpdateNamespacePropertiesResponse>;
+    ) -> Result<()>;
 
     async fn create_table<'a>(
         namespace_id: NamespaceIdentUuid,

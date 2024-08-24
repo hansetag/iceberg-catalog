@@ -259,6 +259,7 @@ impl axum::response::IntoResponse for IcebergErrorResponse {
 }
 
 #[cfg(test)]
+#[cfg(feature = "axum")]
 mod tests {
     use super::*;
     use futures_util::stream::StreamExt;

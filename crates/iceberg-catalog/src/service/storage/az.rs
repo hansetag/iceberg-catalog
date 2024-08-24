@@ -1,4 +1,4 @@
-use crate::{service::NamespaceIdentUuid, WarehouseIdent};
+use crate::WarehouseIdent;
 
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig, Result};
 use crate::catalog::io::IoError;
@@ -136,24 +136,11 @@ impl AzdlsProfile {
         }
     }
 
-    /// Generate the default location for the namespace.
+    /// Base Location for this storage profile.
     ///
     /// # Errors
-    /// Fails if the base location of the storage profile cannot be created.
-    /// This should not happen after normalization of the profile.
-    pub fn default_namespace_location(
-        &self,
-        namespace_id: NamespaceIdentUuid,
-    ) -> Result<Location, ValidationError> {
-        let mut location = self.location()?;
-        location
-            .without_trailing_slash()
-            .push(&namespace_id.to_string());
-
-        Ok(location)
-    }
-
-    fn location(&self) -> Result<Location, ValidationError> {
+    /// Can fail for un-normalized profiles
+    pub fn base_location(&self) -> Result<Location, ValidationError> {
         let location = if let Some(key_prefix) = &self.key_prefix {
             format!(
                 "abfss://{}@{}.{}/{}/",
@@ -758,7 +745,9 @@ fn validate_account_name(account_name: &str) -> Result<(), ValidationError> {
 
 #[cfg(test)]
 mod test {
-    use crate::service::{storage::StorageLocations, tabular_idents::TabularIdentUuid};
+    use crate::service::{
+        storage::StorageLocations, tabular_idents::TabularIdentUuid, NamespaceIdentUuid,
+    };
 
     use super::*;
     use needs_env_var::needs_env_var;
@@ -830,11 +819,13 @@ mod test {
             sas_token_validity_seconds: None,
         };
 
+        let sp: StorageProfile = profile.clone().into();
+
         let namespace_id = NamespaceIdentUuid::from(uuid::Uuid::now_v7());
         let table_id = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-        let namespace_location = profile.default_namespace_location(namespace_id).unwrap();
+        let namespace_location = sp.default_namespace_location(namespace_id).unwrap();
 
-        let location = profile.default_tabular_location(&namespace_location, table_id);
+        let location = sp.default_tabular_location(&namespace_location, table_id);
         assert_eq!(
             location.to_string(),
             format!("abfss://filesystem@account.dfs.core.windows.net/test_prefix/{namespace_id}/{table_id}")
@@ -843,9 +834,10 @@ mod test {
         let mut profile = profile.clone();
         profile.key_prefix = None;
         profile.endpoint_suffix = Some("blob.com".to_string());
+        let sp: StorageProfile = profile.into();
 
-        let namespace_location = profile.default_namespace_location(namespace_id).unwrap();
-        let location = profile.default_tabular_location(&namespace_location, table_id);
+        let namespace_location = sp.default_namespace_location(namespace_id).unwrap();
+        let location = sp.default_tabular_location(&namespace_location, table_id);
         assert_eq!(
             location.to_string(),
             format!("abfss://filesystem@account.blob.com/{namespace_id}/{table_id}")
