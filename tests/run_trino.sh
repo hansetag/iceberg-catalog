@@ -7,4 +7,4 @@ pip3 install -q tox
 # Running tests
 echo "Running tests ..."
 cd python
-tox -q -e pyiceberg
+tox -q -e trino

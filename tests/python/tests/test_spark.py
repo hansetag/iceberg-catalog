@@ -431,7 +431,7 @@ def test_table_maintenance_optimize(spark, namespace, warehouse: conftest.Wareho
     ).toPandas()
 
     rewrite_result = spark.sql(
-        f"CALL test.system.rewrite_data_files(table=>'{namespace.spark_name}.my_table', options=>map('rewrite-all', 'true'))"
+        f"CALL {warehouse.spark_catalog_name}.system.rewrite_data_files(table=>'{namespace.spark_name}.my_table', options=>map('rewrite-all', 'true'))"
     ).toPandas()
     print(rewrite_result)
 

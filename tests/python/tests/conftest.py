@@ -22,16 +22,30 @@ ICEBERG_REST_TEST_S3_PATH_STYLE_ACCESS = os.environ.get(
 ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION = os.environ.get(
     "ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION", "1.5.2"
 )
+ICEBERG_REST_TEST_STS_MODE = os.environ.get("ICEBERG_REST_TEST_STS_MODE", "both")
+ICEBERG_REST_TEST_TRINO_URI = os.environ.get("ICEBERG_REST_TEST_TRINO_URI")
 OPENID_PROVIDER_URI = os.environ.get("ICEBERG_REST_TEST_OPENID_PROVIDER_URI")
 OPENID_CLIENT_ID = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_ID")
 OPENID_CLIENT_SECRET = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_SECRET")
+
+if ICEBERG_REST_TEST_STS_MODE == "both":
+    STS = [True, False]
+elif ICEBERG_REST_TEST_STS_MODE == "enabled":
+    STS = [True]
+elif ICEBERG_REST_TEST_STS_MODE == "disabled":
+    STS = [False]
+else:
+    raise ValueError(
+        f"Invalid ICEBERG_REST_TEST_STS_MODE: {ICEBERG_REST_TEST_STS_MODE}. "
+        "must be one of 'both', 'enabled', 'disabled'"
+    )
 
 
 def string_to_bool(s: str) -> bool:
     return s.lower() in ["true", "1"]
 
 
-def get_storage_config() -> dict:
+def get_storage_config(sts_enabled: bool) -> dict:
     if ICEBERG_REST_TEST_S3_BUCKET is None:
         pytest.skip("ICEBERG_REST_TEST_S3_BUCKET is not set")
 
@@ -53,7 +67,7 @@ def get_storage_config() -> dict:
             "path-style-access": path_style_access,
             "endpoint": ICEBERG_REST_TEST_S3_ENDPOINT,
             "flavor": "minio",
-            "sts-enabled": True
+            "sts-enabled": sts_enabled,
         },
         "storage-credential": {
             "type": "s3",
@@ -70,9 +84,11 @@ class Server:
     management_url: str
     access_token: str
 
-    def create_warehouse(self, name: str, project_id: uuid.UUID) -> uuid.UUID:
+    def create_warehouse(
+        self, name: str, project_id: uuid.UUID, sts_enabled: bool
+    ) -> uuid.UUID:
         """Create a warehouse in this server"""
-        storage_config = get_storage_config()
+        storage_config = get_storage_config(sts_enabled=sts_enabled)
 
         create_payload = {
             "project-id": str(project_id),
@@ -115,6 +131,10 @@ class Warehouse:
             warehouse=f"{self.project_id}/{self.warehouse_name}",
             token=self.access_token,
         )
+
+    @property
+    def spark_catalog_name(self) -> str:
+        return f"catalog_{self.warehouse_name.replace('-', '_')}"
 
 
 @dataclasses.dataclass
@@ -162,12 +182,15 @@ def server(access_token) -> Server:
     )
 
 
-@pytest.fixture(scope="session")
-def warehouse(server: Server):
+@pytest.fixture(scope="session", params=STS)
+def warehouse(server: Server, request) -> Warehouse:
+    sts_enabled = request.param
     project_id = uuid.uuid4()
     test_id = uuid.uuid4()
     warehouse_name = f"warehouse-{test_id}"
-    warehouse_id = server.create_warehouse(warehouse_name, project_id=project_id)
+    warehouse_id = server.create_warehouse(
+        warehouse_name, project_id=project_id, sts_enabled=sts_enabled
+    )
     print(f"SERVER CREATED: {warehouse_id}")
     return Warehouse(
         access_token=server.access_token,
@@ -207,15 +230,17 @@ def spark(warehouse: Warehouse):
         f"org.apache.iceberg:iceberg-spark-runtime-{pyspark_version}_2.12:{ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION},"
         f"org.apache.iceberg:iceberg-aws-bundle:{ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION}"
     )
+    # random 5 char string
+    catalog_name = warehouse.spark_catalog_name
     configuration = {
         "spark.jars.packages": spark_jars_packages,
         "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
-        "spark.sql.defaultCatalog": "test",
-        f"spark.sql.catalog.test": "org.apache.iceberg.spark.SparkCatalog",
-        f"spark.sql.catalog.test.catalog-impl": "org.apache.iceberg.rest.RESTCatalog",
-        f"spark.sql.catalog.test.uri": warehouse.server.catalog_url,
-        f"spark.sql.catalog.test.token": warehouse.access_token,
-        f"spark.sql.catalog.test.warehouse": f"{warehouse.project_id}/{warehouse.warehouse_name}",
+        "spark.sql.defaultCatalog": catalog_name,
+        f"spark.sql.catalog.{catalog_name}": "org.apache.iceberg.spark.SparkCatalog",
+        f"spark.sql.catalog.{catalog_name}.catalog-impl": "org.apache.iceberg.rest.RESTCatalog",
+        f"spark.sql.catalog.{catalog_name}.uri": warehouse.server.catalog_url,
+        f"spark.sql.catalog.{catalog_name}.token": warehouse.access_token,
+        f"spark.sql.catalog.{catalog_name}.warehouse": f"{warehouse.project_id}/{warehouse.warehouse_name}",
     }
 
     spark_conf = pyspark.SparkConf().setMaster("local[*]")
@@ -224,6 +249,38 @@ def spark(warehouse: Warehouse):
         spark_conf = spark_conf.set(k, v)
 
     spark = pyspark.sql.SparkSession.builder.config(conf=spark_conf).getOrCreate()
-    spark.sql(f"USE test")
+    spark.sql(f"USE {catalog_name}")
     yield spark
     spark.stop()
+
+
+@pytest.fixture(scope="session")
+def trino(warehouse: Warehouse):
+    if ICEBERG_REST_TEST_TRINO_URI is None:
+        pytest.skip("ICEBERG_REST_TEST_TRINO_URI is not set")
+
+    from trino.dbapi import connect
+
+    conn = connect(host=ICEBERG_REST_TEST_TRINO_URI, user="trino")
+
+    cur = conn.cursor()
+    cur.execute(
+        f"""
+        CREATE CATALOG {warehouse.spark_catalog_name} USING iceberg
+        WITH (
+            "iceberg.catalog.type" = 'rest',
+            "iceberg.rest-catalog.uri" = '{warehouse.server.catalog_url}',
+            "iceberg.rest-catalog.warehouse" = '{warehouse.project_id}/{warehouse.warehouse_name}',
+            "iceberg.rest-catalog.security" = 'OAUTH2',
+            "iceberg.rest-catalog.oauth2.token" = '{warehouse.access_token}'
+        )
+    """
+    )
+
+    conn = connect(
+        host=ICEBERG_REST_TEST_TRINO_URI,
+        user="trino",
+        catalog=warehouse.spark_catalog_name,
+    )
+
+    yield conn
