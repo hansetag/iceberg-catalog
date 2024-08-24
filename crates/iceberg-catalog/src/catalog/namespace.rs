@@ -98,6 +98,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
         drop(t);
 
+        
+
         // TODo: Continue
         // let location = NamespaceProperties
         //     .get_prop::<Location>(&properties)

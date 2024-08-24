@@ -44,9 +44,13 @@ impl TableConfig {
         self.props.get(key).cloned()
     }
 
+    /// Try to create a `NamespaceProperties` from a list of key-value pairs.
+    ///
+    /// # Errors
+    /// Returns an error if a known key has an incompatible value.
     pub fn try_from_props(
         props: impl IntoIterator<Item = (String, String)>,
-    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+    ) -> Result<Self, ParseError> {
         let mut config = TableConfig::default();
         for (key, value) in props {
             if key.starts_with("s3") {
@@ -124,7 +128,7 @@ macro_rules! impl_config_values {
         pub(crate) fn validate(
             key: &str,
             value: &str,
-        ) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+        ) -> Result<(), ParseError> {
             Ok(match key {
                 $(
                     $struct_name::KEY => {
@@ -198,6 +202,10 @@ pub trait ConfigValue {
 
     fn value_to_string(&self) -> String;
 
+    /// Parse the value from a string.
+    ///
+    /// # Errors
+    /// Returns a `ParseError` if the value is incompatible with the type.
     fn parse_value(value: &str) -> Result<Self::Type, ParseError>
     where
         Self::Type: ParseFromStr;
