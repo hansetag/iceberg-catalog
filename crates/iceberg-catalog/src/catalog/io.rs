@@ -13,7 +13,6 @@ pub(crate) async fn write_metadata_file(
     compression_codec: CompressionCodec,
     file_io: &FileIO,
 ) -> Result<(), IoError> {
-    tracing::debug!("Received location: {}", metadata_location);
     let metadata_location = metadata_location.as_str();
     let metadata_location = if metadata_location.starts_with("abfs") {
         path_utils::reduce_scheme_string(metadata_location, false)
@@ -62,9 +61,14 @@ pub(crate) async fn delete_file(file_io: &FileIO, location: &Location) -> Result
 }
 
 pub(crate) async fn read_file(file_io: &FileIO, file: &Location) -> Result<Vec<u8>, IoError> {
-    let inp = file_io
-        .new_input(file.as_str())
-        .map_err(IoError::FileCreation)?;
+    let file = file.as_str();
+    let file = if file.starts_with("abfs") {
+        path_utils::reduce_scheme_string(file, false)
+    } else {
+        file.to_string()
+    };
+
+    let inp = file_io.new_input(file).map_err(IoError::FileCreation)?;
     inp.read()
         .await
         .map_err(|e| IoError::FileRead(Box::new(e)))
