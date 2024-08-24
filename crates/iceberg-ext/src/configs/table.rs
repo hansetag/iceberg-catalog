@@ -83,3 +83,17 @@ pub mod custom {
 
     impl TableProperty for CustomConfig {}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_iceberg_io_key_match() {
+        assert_eq!(iceberg::io::S3_REGION, s3::Region::KEY);
+        assert_eq!(iceberg::io::S3_ENDPOINT, s3::Endpoint::KEY);
+        assert_eq!(iceberg::io::S3_PATH_STYLE_ACCESS, s3::PathStyleAccess::KEY);
+        assert_eq!(iceberg::io::S3_ACCESS_KEY_ID, s3::AccessKeyId::KEY);
+        assert_eq!(iceberg::io::S3_SECRET_ACCESS_KEY, s3::SecretAccessKey::KEY);
+    }
+}

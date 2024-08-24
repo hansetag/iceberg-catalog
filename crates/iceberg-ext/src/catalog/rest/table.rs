@@ -82,7 +82,6 @@ impl_into_response!(ListTablesResponse);
 #[cfg(feature = "axum")]
 impl_into_response!(CommitTableResponse);
 
-#[allow(clippy::module_name_repetitions)]
 pub trait TableRequirementExt {
     /// Assert if requirements match the given metadata.
     ///
@@ -234,7 +233,6 @@ impl TableRequirementExt for TableRequirement {
     }
 }
 
-#[allow(clippy::module_name_repetitions)]
 pub trait TableUpdateExt {
     /// Apply the update to the given metadata builder.
     ///

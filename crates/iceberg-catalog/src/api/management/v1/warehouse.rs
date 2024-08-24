@@ -5,7 +5,6 @@ pub use crate::service::storage::{
     AzCredential, AzdlsProfile, S3Credential, S3Profile, StorageCredential, StorageProfile,
 };
 
-#[allow(clippy::module_name_repetitions)]
 pub use crate::service::WarehouseStatus;
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
 use crate::{ProjectIdent, WarehouseIdent};
@@ -121,7 +120,7 @@ impl axum::response::IntoResponse for CreateWarehouseResponse {
 impl<C: Catalog, A: AuthZHandler, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
 
 #[async_trait::async_trait]
-#[allow(clippy::module_name_repetitions)]
+
 pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
     async fn create_warehouse(
         request: CreateWarehouseRequest,

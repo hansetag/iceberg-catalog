@@ -106,7 +106,7 @@ pub struct GetWarehouseResponse {
 }
 
 #[async_trait::async_trait]
-#[allow(clippy::module_name_repetitions)]
+
 pub trait Catalog
 where
     Self: Clone + Send + Sync + 'static,

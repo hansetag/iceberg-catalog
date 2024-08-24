@@ -11,7 +11,7 @@ pub struct UserWarehouse {
 }
 
 #[async_trait::async_trait]
-#[allow(clippy::module_name_repetitions)]
+
 pub trait AuthZHandler
 where
     Self: Sized + Send + Sync + Clone + 'static,
@@ -244,7 +244,7 @@ where
 // A dummy AuthHandler implementation is enough to implement this trait.
 // This still feels less clunky than using a generic state type.
 #[async_trait::async_trait]
-#[allow(clippy::module_name_repetitions)]
+
 pub trait AuthConfigHandler<A: AuthZHandler>
 where
     Self: Sized + Send + Sync + Clone + 'static,

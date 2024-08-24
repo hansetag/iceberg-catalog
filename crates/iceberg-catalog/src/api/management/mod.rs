@@ -59,7 +59,7 @@ pub mod v1 {
     pub struct ManagementApiDoc;
 
     #[derive(Clone, Debug)]
-    #[allow(clippy::module_name_repetitions)]
+
     pub struct ApiServer<C: Catalog, A: AuthZHandler, S: SecretStore> {
         auth_handler: PhantomData<A>,
         config_server: PhantomData<C>,

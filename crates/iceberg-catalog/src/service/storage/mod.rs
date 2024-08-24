@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-#[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 pub enum StorageProfile {
     /// Azure storage profile
@@ -36,7 +35,7 @@ pub enum StorageProfile {
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
-#[allow(clippy::module_name_repetitions)]
+
 pub enum StorageType {
     #[strum(serialize = "s3")]
     S3,
@@ -54,7 +53,6 @@ pub enum StoragePermissions {
     ReadWriteDelete,
 }
 
-#[allow(clippy::module_name_repetitions)]
 impl StorageProfile {
     #[must_use]
     pub fn generate_catalog_config(&self, warehouse_id: WarehouseIdent) -> CatalogConfig {
@@ -302,14 +300,14 @@ impl StorageProfile {
         let mut test_file_write =
             self.default_metadata_location(test_location, &compression_codec, uuid::Uuid::now_v7());
         if is_vended_credentials {
-            test_file_write.pop().push("test");
-            tracing::debug!("Validating access to: {}", test_file_write);
-        } else {
             test_file_write.push("test_vended_credentials");
             tracing::debug!(
                 "Validating vended credential access to: {}",
                 test_file_write
             );
+        } else {
+            test_file_write.pop().push("test");
+            tracing::debug!("Validating access to: {}", test_file_write);
         }
 
         // Test write
@@ -424,7 +422,6 @@ pub struct TestProfile;
 /// Storage secret for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
 #[serde(tag = "type")]
-#[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 pub enum StorageCredential {
     /// Credentials for S3 storage

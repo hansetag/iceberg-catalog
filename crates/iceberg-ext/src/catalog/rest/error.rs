@@ -61,7 +61,7 @@ pub struct IcebergErrorResponse {
 }
 
 /// JSON error payload returned in a response with further details on the error
-#[allow(clippy::module_name_repetitions)]
+
 #[derive(Default, Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct ErrorModel {
     /// Human-readable error message

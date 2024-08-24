@@ -70,7 +70,7 @@ impl PartitionSpecExt for PartitionSpec {
 type Result<T> = std::result::Result<T, ErrorModel>;
 
 #[derive(Debug)]
-#[allow(clippy::module_name_repetitions)]
+
 pub struct TableMetadataAggregate {
     metadata: TableMetadata,
     changes: Vec<TableUpdate>,
@@ -240,12 +240,12 @@ impl TableMetadataAggregate {
             conflicts.remove("format-version");
         }
 
-        if conflicts.len() > 0 {
+        if !conflicts.is_empty() {
             return Err(ErrorModel::builder()
                 .code(StatusCode::CONFLICT.into())
                 .message(format!(
                     "Table properties should not contain reserved properties. Conflicts: {}",
-                    serde_json::to_string(&conflicts).unwrap_or(format!("{:?}", conflicts))
+                    serde_json::to_string(&conflicts).unwrap_or(format!("{conflicts:?}"))
                 ))
                 .r#type("FailedToSetProperties")
                 .build());

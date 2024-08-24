@@ -39,8 +39,7 @@ pub struct S3Profile {
     /// Region to use for S3 requests.
     pub region: String,
     /// Path style access for S3 requests.
-    /// If not specified, the client decides. If the underlying S3
-    /// supports both, we recommend to not set `path_style_access`.
+    /// If the underlying S3 supports both, we recommend to not set `path_style_access`.
     #[serde(default)]
     pub path_style_access: Option<bool>,
     /// Optional role ARN to assume for sts vended-credentials
@@ -64,7 +63,6 @@ pub enum S3Flavor {
 
 #[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "credential-type", rename_all = "kebab-case")]
-#[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 pub enum S3Credential {
     #[serde(rename_all = "kebab-case")]
@@ -460,8 +458,8 @@ impl S3Profile {
     }}"#,
             Self::permission_to_actions(storage_permissions),
         )
-        .replace("\n", "")
-        .replace(" ", ""))
+        .replace('\n', "")
+        .replace(' ', ""))
     }
 
     fn normalize_key_prefix(&mut self) -> Result<(), ValidationError> {
@@ -540,11 +538,11 @@ pub(super) fn get_file_io_from_table_config(
     let mut builder = iceberg::io::FileIOBuilder::new("s3");
 
     for key in [
-        iceberg::io::S3_REGION,
-        iceberg::io::S3_ENDPOINT,
-        iceberg::io::S3_ACCESS_KEY_ID,
-        iceberg::io::S3_SECRET_ACCESS_KEY,
-        iceberg::io::S3_SESSION_TOKEN,
+        s3::Region::KEY,
+        s3::Endpoint::KEY,
+        s3::AccessKeyId::KEY,
+        s3::SecretAccessKey::KEY,
+        s3::SessionToken::KEY,
     ] {
         if let Some(value) = config.get_custom_prop(key) {
             builder = builder.with_prop(key, value);

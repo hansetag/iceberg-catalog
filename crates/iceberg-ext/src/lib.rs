@@ -5,6 +5,7 @@
     clippy::pedantic
 )]
 #![forbid(unsafe_code)]
+#![allow(clippy::module_name_repetitions)]
 
 pub mod catalog;
 pub mod configs;

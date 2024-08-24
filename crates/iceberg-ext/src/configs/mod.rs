@@ -9,7 +9,6 @@ pub use primitives::Location;
 
 pub trait NotCustomProp {}
 
-#[allow(clippy::module_name_repetitions)]
 pub trait ConfigProperty {
     const KEY: &'static str;
     type Type: ToString + ParseFromStr;
@@ -115,7 +114,7 @@ mod custom {
     use super::ConfigProperty;
 
     #[derive(Debug, PartialEq, Clone)]
-    #[allow(clippy::module_name_repetitions)]
+
     pub struct CustomConfig {
         pub key: String,
         pub value: String,

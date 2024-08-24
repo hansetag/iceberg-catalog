@@ -26,7 +26,6 @@ use url::{Host, Url};
 use veil::Redact;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
-#[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub struct AzdlsProfile {
@@ -60,12 +59,7 @@ impl AzdlsProfile {
     /// - Fails if the endpoint suffix is invalid.
     pub(super) fn normalize(&mut self) -> Result<(), ValidationError> {
         validate_filesystem_name(&self.filesystem)?;
-        self.host = self
-            .host
-            .take()
-            .map(|host| normalize_host(host))
-            .transpose()?
-            .flatten();
+        self.host = self.host.take().map(normalize_host).transpose()?.flatten();
         self.normalize_key_prefix()?;
         validate_account_name(&self.account_name)?;
 
@@ -242,7 +236,7 @@ impl AzdlsProfile {
         let start = time::OffsetDateTime::now_utc();
         let delegation_key = client
             .get_user_deligation_key(
-                start.clone(),
+                start,
                 start
                     .checked_add(time::Duration::seconds(
                         i64::try_from(self.sas_token_validity_seconds.unwrap_or(3600)).map_err(
@@ -482,7 +476,6 @@ impl From<AzdlsLocation> for Location {
 
 #[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "credential-type", rename_all = "kebab-case")]
-#[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 pub enum AzCredential {
     #[serde(rename_all = "kebab-case")]
@@ -765,7 +758,7 @@ mod test {
                 key_prefix: Some(key_prefix.to_string()),
                 account_name,
                 authority_host: None,
-                endpoint_suffix: None,
+                host: None,
                 sas_token_validity_seconds: None,
             };
             let mut prof: StorageProfile = prof.into();
@@ -796,7 +789,7 @@ mod test {
             normalize_host("dfs.core.windows.net".to_string()).unwrap(),
             Some("dfs.core.windows.net".to_string())
         );
-        assert!(normalize_host("".to_string()).unwrap().is_none());
+        assert!(normalize_host(String::new()).unwrap().is_none());
     }
 
     #[test]
