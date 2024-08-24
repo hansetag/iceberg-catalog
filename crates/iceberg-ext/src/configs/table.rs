@@ -1,4 +1,4 @@
-use super::{ParseError, ParseFromStr};
+use super::{ConfigParseError, ParseFromStr};
 use std::collections::HashMap;
 use std::fmt::Debug;
 
@@ -11,12 +11,14 @@ pub struct TableConfig {
 pub trait NotCustomProp {}
 
 impl TableConfig {
-    pub fn insert<S>(&mut self, pair: &S)
+    pub fn insert<S>(&mut self, pair: &S) -> Option<S::Type>
     where
         S: ConfigValue,
     {
-        self.props
+        let prev = self
+            .props
             .insert(pair.key().to_string(), pair.value_to_string());
+        prev.and_then(|v| S::parse_value(v.as_str()).ok())
     }
 
     #[must_use]
@@ -30,13 +32,14 @@ impl TableConfig {
     }
 
     #[must_use]
-    pub fn get_prop_fallible<C>(&self) -> Option<Result<C::Type, ParseError>>
+    pub fn get_prop_fallible<C>(&self) -> Option<Result<C::Type, ConfigParseError>>
     where
         C: ConfigValue + NotCustomProp,
     {
         self.props
             .get(C::KEY)
             .map(|v| ParseFromStr::parse_value(v.as_str()))
+            .map(|r| r.map_err(|e| e.for_key(C::KEY)))
     }
 
     #[must_use]
@@ -44,13 +47,13 @@ impl TableConfig {
         self.props.get(key).cloned()
     }
 
-    /// Try to create a `NamespaceProperties` from a list of key-value pairs.
+    /// Try to create a `TableConfig` from a list of key-value pairs.
     ///
     /// # Errors
     /// Returns an error if a known key has an incompatible value.
     pub fn try_from_props(
         props: impl IntoIterator<Item = (String, String)>,
-    ) -> Result<Self, ParseError> {
+    ) -> Result<Self, ConfigParseError> {
         let mut config = TableConfig::default();
         for (key, value) in props {
             if key.starts_with("s3") {
@@ -68,6 +71,19 @@ impl TableConfig {
             }
         }
         Ok(config)
+    }
+
+    /// Try to create a `TableConfig` from an Option of list of key-value pairs.
+    ///
+    /// # Errors
+    /// Returns an error if a known key has an incompatible value.
+    pub fn try_from_maybe_props(
+        props: Option<impl IntoIterator<Item = (String, String)>>,
+    ) -> Result<Self, ConfigParseError> {
+        match props {
+            Some(props) => Self::try_from_props(props),
+            None => Ok(Self::default()),
+        }
     }
 
     pub fn from_props_unchecked(props: impl IntoIterator<Item = (String, String)>) -> Self {
@@ -99,11 +115,11 @@ macro_rules! impl_config_value {
                 self.0.to_string()
             }
 
-            fn parse_value(value: &str) -> Result<Self::Type, ParseError>
+            fn parse_value(value: &str) -> Result<Self::Type, ConfigParseError>
             where
                 Self::Type: ParseFromStr,
             {
-                Self::Type::parse_value(value)
+                Self::Type::parse_value(value).map_err(|e| e.for_key(Self::KEY))
             }
         }
 
@@ -114,6 +130,10 @@ macro_rules! impl_config_value {
                 #[must_use]
                 pub fn [<$accessor:snake>](&self) -> Option<$typ> {
                     self.get_prop_opt::<$struct_name>()
+                }
+
+                pub fn [<insert_ $accessor:snake>](&mut self, value: $typ) -> Option<$typ> {
+                    self.insert(&$struct_name(value))
                 }
             }
         }
@@ -128,7 +148,7 @@ macro_rules! impl_config_values {
         pub(crate) fn validate(
             key: &str,
             value: &str,
-        ) -> Result<(), ParseError> {
+        ) -> Result<(), ConfigParseError> {
             Ok(match key {
                 $(
                     $struct_name::KEY => {
@@ -142,7 +162,7 @@ macro_rules! impl_config_values {
 }
 
 pub mod s3 {
-    use super::{ConfigValue, NotCustomProp, ParseError, ParseFromStr, TableConfig};
+    use super::{ConfigParseError, ConfigValue, NotCustomProp, ParseFromStr, TableConfig};
     use url::Url;
 
     impl_config_values!(
@@ -158,12 +178,12 @@ pub mod s3 {
 }
 
 pub mod client {
-    use super::{ConfigValue, NotCustomProp, ParseError, ParseFromStr, TableConfig};
+    use super::{ConfigParseError, ConfigValue, NotCustomProp, ParseFromStr, TableConfig};
     impl_config_values!(Region, String, "client.region", "client_region");
 }
 
 pub mod custom {
-    use super::{ConfigValue, ParseError, ParseFromStr};
+    use super::{ConfigParseError, ConfigValue, ParseFromStr};
 
     #[derive(Debug, PartialEq, Clone)]
     pub struct Pair {
@@ -183,7 +203,7 @@ pub mod custom {
             self.value.clone()
         }
 
-        fn parse_value(value: &str) -> Result<Self::Type, ParseError>
+        fn parse_value(value: &str) -> Result<Self::Type, ConfigParseError>
         where
             Self::Type: ParseFromStr,
         {
@@ -206,7 +226,7 @@ pub trait ConfigValue {
     ///
     /// # Errors
     /// Returns a `ParseError` if the value is incompatible with the type.
-    fn parse_value(value: &str) -> Result<Self::Type, ParseError>
+    fn parse_value(value: &str) -> Result<Self::Type, ConfigParseError>
     where
         Self::Type: ParseFromStr;
 }

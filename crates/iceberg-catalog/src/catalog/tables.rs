@@ -20,7 +20,9 @@ use super::{
 };
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::storage::{Idents, StorageCredential, StoragePermissions};
+use crate::service::storage::{
+    Idents, StorageCredential, StorageLocations as _, StoragePermissions,
+};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
@@ -125,7 +127,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         require_active_warehouse(status)?;
 
         let table_id: TabularIdentUuid = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-        let table_location = storage_profile.initial_tabular_location(namespace_id, table_id);
+        let namespace_location = storage_profile.default_namespace_location(namespace_id)?;
+        let table_location =
+            storage_profile.default_tabular_location(&namespace_location, table_id);
 
         // This is the only place where we change request
         request.location = Some(table_location.clone());
@@ -136,7 +140,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             None
         } else {
             let metadata_id = uuid::Uuid::now_v7();
-            Some(storage_profile.initial_metadata_location(
+            Some(storage_profile.metadata_location(
                 &table_location,
                 &CompressionCodec::try_from_maybe_properties(request.properties.as_ref())?,
                 metadata_id,

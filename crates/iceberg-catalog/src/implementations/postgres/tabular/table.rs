@@ -1,5 +1,6 @@
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogState};
+use crate::service::storage::StorageLocations;
 use crate::{
     service::{
         storage::StorageProfile, CommitTableResponse, CommitTableResponseExt,
@@ -570,7 +571,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
             }
         }
         let new_metadata = builder.build()?;
-        let metadata_location = context.storage_profile.initial_metadata_location(
+        let metadata_location = context.storage_profile.metadata_location(
             &previous_location,
             &CompressionCodec::try_from_properties(&new_metadata.properties)?,
             metadata_id,

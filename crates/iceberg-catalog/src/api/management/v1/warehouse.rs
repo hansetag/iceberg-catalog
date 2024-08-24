@@ -141,7 +141,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         // ------------------- Business Logic -------------------
         storage_profile
-            .validate(storage_credential.as_ref())
+            .validate(storage_credential.as_ref(), None)
             .await?;
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
@@ -356,7 +356,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         } = request;
 
         storage_profile
-            .validate(storage_credential.as_ref())
+            .validate(storage_credential.as_ref(), None)
             .await?;
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
@@ -424,7 +424,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         let old_secret_id = warehouse.storage_secret_id;
 
         storage_profile
-            .validate(new_storage_credential.as_ref())
+            .validate(new_storage_credential.as_ref(), None)
             .await?;
 
         let secret_id = if let Some(new_storage_credential) = new_storage_credential {

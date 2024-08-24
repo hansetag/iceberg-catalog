@@ -1,11 +1,39 @@
+use heck::ToUpperCamelCase;
+
 pub mod namespace;
 pub mod table;
 
 #[derive(thiserror::Error, Debug)]
-#[error("Failed to parse '{typ}' from '{value}'")]
+#[error("Failed to parse value '{value}' to '{typ}'")]
 pub struct ParseError {
     value: String,
     typ: String,
+}
+
+impl ParseError {
+    #[must_use]
+    pub fn for_key(self, key: &str) -> ConfigParseError {
+        ConfigParseError {
+            value: self.value,
+            typ: self.typ,
+            key: key.to_string(),
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("Failed to parse config '{key}' with value '{value}' to '{typ}'")]
+pub struct ConfigParseError {
+    value: String,
+    typ: String,
+    key: String,
+}
+
+impl ConfigParseError {
+    #[must_use]
+    pub fn err_type(&self) -> String {
+        format!("Config{}ParseError", self.key.to_upper_camel_case())
+    }
 }
 
 /// `ParseFromStr` is a trait that needs to be implemented for the associated type of `ConfigValue`.

@@ -7,7 +7,7 @@ use crate::request_metadata::RequestMetadata;
 use crate::CONFIG;
 use http::StatusCode;
 use iceberg::NamespaceIdent;
-use iceberg_ext::configs::namespace::{Location, NamespaceProperties};
+use iceberg_ext::configs::namespace::NamespaceProperties;
 use std::ops::Deref;
 
 use super::{require_warehouse_id, CatalogServer};
@@ -95,18 +95,28 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         let mut t = C::Transaction::begin_read(state.v1_state.catalog.clone()).await?;
-        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+        let _warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
         drop(t);
 
-        
-
-        // TODo: Continue
-        // let location = NamespaceProperties
-        //     .get_prop::<Location>(&properties)
-        //     .cloned();
+        let namespace_props = NamespaceProperties::try_from_maybe_props(properties.clone())
+            .map_err(|e| ErrorModel::bad_request(e.to_string(), e.err_type(), None))?;
+        let _location = namespace_props.location();
 
         // For customer specified location, we need to check if we can write to the location.
         // If no location is specified, we use our default location.
+        // if let Some(location) = location {
+        //     if !warehouse.can_write_to_location(location) {
+        //         return Err(ErrorModel::builder()
+        //             .code(StatusCode::BAD_REQUEST.into())
+        //             .message(format!(
+        //                 "Warehouse does not have write access to location: {}",
+        //                 location
+        //             ))
+        //             .r#type("LocationNotWritable".to_string())
+        //             .build()
+        //             .into());
+        //     }
+        // }
 
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let r = C::create_namespace(warehouse_id, request, t.transaction()).await?;

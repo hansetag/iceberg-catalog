@@ -14,7 +14,7 @@ use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
 use iceberg_ext::configs::table::TableConfig;
-pub(crate) use s3::{parse_s3_location, S3Location};
+pub(crate) use s3::S3Location;
 pub use s3::{S3Credential, S3Flavor, S3Profile};
 use serde::{Deserialize, Serialize};
 
@@ -118,34 +118,23 @@ impl StorageProfile {
         }
     }
 
-    #[must_use]
-    pub fn initial_tabular_location(
+    /// Get the default namespace location for the storage profile.
+    ///
+    /// # Errors
+    /// Fails if no location can be built for this storage config, typically because the
+    /// `key_prefix` is invalid.
+    pub fn default_namespace_location(
         &self,
         namespace_id: NamespaceIdentUuid,
-        table_id: TabularIdentUuid,
-    ) -> String {
+    ) -> Result<String, ValidationError> {
         match self {
-            StorageProfile::S3(profile) => profile.tabular_location(namespace_id, table_id),
-            StorageProfile::Azdls(profile) => {
-                profile.initial_tabular_location(namespace_id, table_id)
-            }
+            StorageProfile::S3(profile) => profile
+                .default_namespace_location(namespace_id)
+                .map(|loc| loc.to_string()),
+            StorageProfile::Azdls(profile) => Ok(profile.default_namespace_location(namespace_id)),
             #[cfg(test)]
-            StorageProfile::Test(_) => format!("/tmp/{namespace_id}/{table_id}"),
+            StorageProfile::Test(_) => Ok(format!("/tmp/{namespace_id}/")),
         }
-    }
-
-    #[must_use]
-    pub fn initial_metadata_location(
-        &self,
-        table_location: &str,
-        compression_codec: &CompressionCodec,
-        metadata_id: uuid::Uuid,
-    ) -> String {
-        let filename_extension_compression = compression_codec.as_file_extension();
-        format!(
-            "{}/metadata/{metadata_id}{filename_extension_compression}.metadata.json",
-            table_location.trim_end_matches('/')
-        )
     }
 
     #[must_use]
@@ -204,20 +193,24 @@ impl StorageProfile {
 
     /// Validate the storage profile.
     ///
+    /// If `location` is provided, we test that we can write / read / delete
+    /// `location/_test`. If not specified, a dummy table location is used.
+    ///
     /// # Errors
     /// Fails if the underlying storage profile's validation fails.
     pub async fn validate(
         &mut self,
         secret: Option<&StorageCredential>,
+        test_location: Option<&str>,
     ) -> Result<(), ValidationError> {
         match self {
             StorageProfile::S3(profile) => {
                 profile
-                    .validate(secret.map(|s| s.try_to_s3()).transpose()?)
+                    .validate(secret.map(|s| s.try_to_s3()).transpose()?, test_location)
                     .await
             }
             StorageProfile::Azdls(prof) => {
-                prof.validate(secret.map(|s| s.try_to_az()).transpose()?)
+                prof.validate(secret.map(|s| s.try_to_az()).transpose()?, test_location)
                     .await
             }
             #[cfg(test)]
@@ -253,6 +246,35 @@ impl StorageProfile {
         }
     }
 }
+
+pub trait StorageLocations {
+    /// Get the default tabular location for the storage profile.
+    fn default_tabular_location(
+        &self,
+        namespace_location: &str,
+        table_id: TabularIdentUuid,
+    ) -> String {
+        format!("{}/{}/", namespace_location.trim_end_matches('/'), table_id)
+    }
+
+    #[must_use]
+    fn metadata_location(
+        &self,
+        table_location: &str,
+        compression_codec: &CompressionCodec,
+        metadata_id: uuid::Uuid,
+    ) -> String {
+        let filename_extension_compression = compression_codec.as_file_extension();
+        format!(
+            "{}/metadata/{metadata_id}{filename_extension_compression}.metadata.json",
+            table_location.trim_end_matches('/')
+        )
+    }
+}
+
+impl StorageLocations for StorageProfile {}
+impl StorageLocations for S3Profile {}
+impl StorageLocations for AzdlsProfile {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Idents {
@@ -342,6 +364,17 @@ pub mod path_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_reduce_scheme_string() {
+        let path = "abfss://user@dfs.windows.net/path/_test";
+        let reduced_path = path_utils::reduce_scheme_string(path, true);
+        assert_eq!(reduced_path, "/path/_test");
+
+        let reduced_path = path_utils::reduce_scheme_string(path, false);
+        // ToDo: Is this correct?
+        assert_eq!(reduced_path, "abfss:///path/_test");
+    }
 
     #[test]
     fn test_redact() {

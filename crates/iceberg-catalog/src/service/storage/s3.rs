@@ -9,7 +9,9 @@ use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::service::storage::error::{
     CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
-use crate::service::storage::{Idents, StoragePermissions, StorageProfile, StorageType};
+use crate::service::storage::{
+    Idents, StorageLocations, StoragePermissions, StorageProfile, StorageType,
+};
 use crate::service::tabular_idents::TabularIdentUuid;
 use aws_config::{BehaviorVersion, SdkConfig};
 
@@ -136,7 +138,11 @@ impl S3Profile {
     /// - Fails if the region or endpoint is missing.
     /// - Fails if the endpoint is not a valid URL.
     #[allow(clippy::too_many_lines)]
-    pub async fn validate(&self, credential: Option<&S3Credential>) -> Result<(), ValidationError> {
+    pub async fn validate(
+        &self,
+        credential: Option<&S3Credential>,
+        test_location: Option<&str>,
+    ) -> Result<(), ValidationError> {
         // If key_prefix is provided, remove any trailing and leading slashes.
 
         let S3Profile {
@@ -217,10 +223,18 @@ impl S3Profile {
         }
 
         let file_io = self.file_io(credential.map(Into::into).as_ref())?;
-        let test_location = self.tabular_location(
-            uuid::Uuid::now_v7().into(),
-            TabularIdentUuid::Table(uuid::Uuid::now_v7()),
-        );
+        // Test Location
+        let test_location = test_location
+            .map(|s| format!("{}/_test", s.trim_end_matches('/')).to_string())
+            .unwrap_or(
+                self.default_tabular_location(
+                    &self
+                        .default_namespace_location(NamespaceIdentUuid(uuid::Uuid::now_v7()))?
+                        .to_string(),
+                    TabularIdentUuid::Table(uuid::Uuid::now_v7()),
+                )
+                .to_string(),
+            );
         self.validate_file_io(&file_io, &test_location).await?;
         tracing::debug!("Validated FileIO for S3 profile");
 
@@ -372,21 +386,21 @@ impl S3Profile {
         }
     }
 
-    #[must_use]
-    pub fn tabular_location(
+    /// Get the default location for the namespace.
+    ///
+    /// # Errors
+    /// Fails if the `key_prefix` is not valid for S3 URLs.
+    pub fn default_namespace_location(
         &self,
         namespace_id: NamespaceIdentUuid,
-        tabular_id: TabularIdentUuid,
-    ) -> String {
-        // s3://bucket-name/<path_prefix>/<namespace-uuid>/<table-uuid>/
-        if let Some(key_prefix) = &self.key_prefix {
-            format!(
-                "s3://{}/{key_prefix}/{namespace_id}/{tabular_id}",
-                &self.bucket
-            )
+    ) -> Result<S3Location, ValidationError> {
+        let location = if let Some(key_prefix) = &self.key_prefix {
+            format!("s3://{}/{key_prefix}/{namespace_id}/", &self.bucket)
         } else {
-            format!("s3://{}/{namespace_id}/{tabular_id}", &self.bucket)
-        }
+            format!("s3://{}/{namespace_id}/", &self.bucket)
+        };
+
+        S3Location::try_from_str(&location)
     }
 
     /// Generate the table configuration for S3.
@@ -669,9 +683,11 @@ fn insert_pyiceberg_hack(config: &mut TableConfig) {
 // and there is no parse() function available. The prefix is also represented as a
 // String, which makes it harder to work with.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct S3Location {
-    pub(crate) bucket_name: String,
-    pub(crate) prefix: Vec<String>,
+pub struct S3Location {
+    bucket_name: String,
+    prefix: Vec<String>,
+    // Location is redundant but useful for type-safe access.
+    location: url::Url,
 }
 
 impl std::fmt::Display for S3Location {
@@ -681,9 +697,39 @@ impl std::fmt::Display for S3Location {
 }
 
 impl S3Location {
+    pub fn new(bucket_name: String, prefix: Vec<String>) -> Result<Self, ValidationError> {
+        is_valid_bucket_name(&bucket_name)?;
+        let location = format!("s3://{}/{}", bucket_name, prefix.join("/"));
+        let location =
+            url::Url::parse(&location).map_err(|e| ValidationError::InvalidLocation {
+                reason: "Invalid S3 location.".to_string(),
+                location,
+                source: Some(e.into()),
+                storage_type: StorageType::S3,
+            })?;
+
+        Ok(S3Location {
+            bucket_name,
+            prefix,
+            location,
+        })
+    }
+
+    pub fn bucket_name(&self) -> &str {
+        &self.bucket_name
+    }
+
+    pub fn prefix(&self) -> &Vec<String> {
+        &self.prefix
+    }
+
+    pub fn url(&self) -> &url::Url {
+        &self.location
+    }
+
     // Check if the location is a sublocation of the other location.
     // If the locations are the same, it is considered a sublocation.
-    pub(crate) fn is_sublocation_of(&self, other: &S3Location) -> bool {
+    pub fn is_sublocation_of(&self, other: &S3Location) -> bool {
         if self.bucket_name != other.bucket_name {
             return false;
         }
@@ -700,51 +746,62 @@ impl S3Location {
         // Check if the other prefix is a prefix of the current prefix.
         self.prefix.starts_with(other_prefix)
     }
+
+    pub fn try_from_str(location: &str) -> Result<Self, ValidationError> {
+        Self::try_from(location)
+    }
 }
 
-/// Parse the location of an object in S3. Will fail if only the bucket name is provided.
-/// prefix has at least one element, which might be an empty string.
-pub(crate) fn parse_s3_location(location: &str) -> Result<S3Location, ValidationError> {
-    let location = url::Url::parse(location).map_err(|e| ValidationError::InvalidLocation {
-        reason: "S3 location is no valid URL.".to_string(),
-        location: location.to_string(),
-        source: Some(Box::new(e)),
-        storage_type: StorageType::S3,
-    })?;
+impl TryFrom<url::Url> for S3Location {
+    type Error = ValidationError;
 
-    // Protocol must be s3
-    if location.scheme() != "s3" {
-        return Err(ValidationError::InvalidLocation {
-            reason: "S3 location must use s3 protocol.".to_string(),
-            location: location.to_string(),
-            source: None,
-            storage_type: StorageType::S3,
-        });
+    fn try_from(location: url::Url) -> Result<Self, Self::Error> {
+        // Protocol must be s3
+        if location.scheme() != "s3" {
+            return Err(ValidationError::InvalidLocation {
+                reason: "S3 location must use s3 protocol.".to_string(),
+                location: location.to_string(),
+                source: None,
+                storage_type: StorageType::S3,
+            });
+        }
+
+        let bucket_name = location
+            .host_str()
+            .ok_or_else(|| ValidationError::InvalidLocation {
+                reason: "S3 location does not have a bucket name.".to_string(),
+                location: location.to_string(),
+                source: None,
+                storage_type: StorageType::S3,
+            })?;
+
+        let prefix: Vec<String> = location
+            .path_segments()
+            .map(|segments| segments.map(std::string::ToString::to_string).collect())
+            .ok_or(ValidationError::InvalidLocation {
+                reason: "S3 location does not have a table key.".to_string(),
+                location: location.to_string(),
+                source: None,
+                storage_type: StorageType::S3,
+            })?;
+
+        S3Location::new(bucket_name.to_string(), prefix)
     }
+}
 
-    let bucket_name = location
-        .host_str()
-        .ok_or_else(|| ValidationError::InvalidLocation {
-            reason: "S3 location does not have a bucket name.".to_string(),
+impl TryFrom<&str> for S3Location {
+    type Error = ValidationError;
+
+    fn try_from(location: &str) -> Result<Self, Self::Error> {
+        let location = url::Url::parse(location).map_err(|e| ValidationError::InvalidLocation {
+            reason: "Invalid S3 location.".to_string(),
             location: location.to_string(),
-            source: None,
+            source: Some(e.into()),
             storage_type: StorageType::S3,
         })?;
 
-    let prefix: Vec<String> = location
-        .path_segments()
-        .map(|segments| segments.map(std::string::ToString::to_string).collect())
-        .ok_or(ValidationError::InvalidLocation {
-            reason: "S3 location does not have a table key.".to_string(),
-            location: location.to_string(),
-            source: None,
-            storage_type: StorageType::S3,
-        })?;
-
-    Ok(S3Location {
-        bucket_name: bucket_name.to_string(),
-        prefix,
-    })
+        Self::try_from(location)
+    }
 }
 
 #[cfg(test)]
@@ -788,7 +845,7 @@ mod test {
     #[test]
     fn test_s3_location() {
         let profile = S3Profile {
-            bucket: "test_bucket".to_string(),
+            bucket: "test-bucket".to_string(),
             key_prefix: Some("test_prefix".to_string()),
             assume_role_arn: None,
             endpoint: None,
@@ -801,21 +858,51 @@ mod test {
 
         let namespace_id = NamespaceIdentUuid::from(uuid::Uuid::now_v7());
         let table_id = TabularIdentUuid::Table(uuid::Uuid::now_v7());
+        let namespace_location = profile.default_namespace_location(namespace_id).unwrap();
 
-        let location = profile.tabular_location(namespace_id, table_id);
+        let location = profile.default_tabular_location(&namespace_location.to_string(), table_id);
         assert_eq!(
-            location,
-            format!("s3://test_bucket/test_prefix/{namespace_id}/{table_id}")
+            location.to_string(),
+            format!("s3://test-bucket/test_prefix/{namespace_id}/{table_id}")
         );
 
         let mut profile = profile.clone();
         profile.key_prefix = None;
 
-        let location = profile.tabular_location(namespace_id, table_id);
+        let namespace_location = profile.default_namespace_location(namespace_id).unwrap();
+        let location = profile.default_tabular_location(&namespace_location.to_string(), table_id);
         assert_eq!(
-            location,
-            format!("s3://test_bucket/{namespace_id}/{table_id}")
+            location.to_string(),
+            format!("s3://test-bucket/{namespace_id}/{table_id}")
         );
+    }
+
+    #[test]
+    fn test_tabular_location_trailing_slash() {
+        let profile = S3Profile {
+            bucket: "test-bucket".to_string(),
+            key_prefix: Some("test_prefix".to_string()),
+            assume_role_arn: None,
+            endpoint: None,
+            region: "dummy".to_string(),
+            path_style_access: Some(true),
+            sts_role_arn: None,
+            sts_enabled: false,
+            flavor: S3Flavor::Aws,
+        };
+
+        let namespace_location = S3Location::try_from_str("s3://test-bucket/foo/").unwrap();
+        let table_id = TabularIdentUuid::Table(uuid::Uuid::now_v7());
+        // Prefix should be ignored as we specify the namespace_location explicitly.
+        let expected = format!("s3://test-bucket/foo/{table_id}");
+
+        let location = profile.default_tabular_location(&namespace_location.to_string(), table_id);
+
+        assert_eq!(location.to_string(), expected);
+
+        let namespace_location = S3Location::try_from_str("s3://test-bucket/foo").unwrap();
+        let location = profile.default_tabular_location(&namespace_location.to_string(), table_id);
+        assert_eq!(location.to_string(), expected);
     }
 
     #[needs_env_var(TEST_MINIO)]
@@ -885,32 +972,33 @@ mod test {
     fn test_parse_s3_location() {
         let cases = vec![
             (
-                "s3://test_bucket/test_prefix/namespace/table",
-                "test_bucket",
+                "s3://test-bucket/test_prefix/namespace/table",
+                "test-bucket",
                 vec!["test_prefix", "namespace", "table"],
             ),
             (
-                "s3://test_bucket/test_prefix/namespace/table/",
-                "test_bucket",
+                "s3://test-bucket/test_prefix/namespace/table/",
+                "test-bucket",
                 vec!["test_prefix", "namespace", "table", ""],
             ),
             (
-                "s3://test_bucket/test_prefix",
-                "test_bucket",
+                "s3://test-bucket/test_prefix",
+                "test-bucket",
                 vec!["test_prefix"],
             ),
             (
-                "s3://test_bucket/test_prefix/",
-                "test_bucket",
+                "s3://test-bucket/test_prefix/",
+                "test-bucket",
                 vec!["test_prefix", ""],
             ),
-            ("s3://test_bucket/", "test_bucket", vec![""]),
+            ("s3://test-bucket/", "test-bucket", vec![""]),
         ];
 
         for (location, bucket, prefix) in cases {
-            let result = parse_s3_location(location).unwrap();
+            let result = S3Location::try_from_str(location).unwrap();
             assert_eq!(result.bucket_name, bucket);
             assert_eq!(result.prefix, prefix);
+            assert_eq!(result.url().to_string(), location);
         }
     }
 
@@ -924,12 +1012,12 @@ mod test {
 
     #[test]
     fn test_parse_s3_location_bucket_only() {
-        parse_s3_location("s3://test_bucket").unwrap_err();
+        S3Location::try_from_str("s3://test-bucket").unwrap_err();
     }
 
     #[test]
     fn test_parse_s3_location_invalid_proto() {
-        parse_s3_location("adls://test_bucket/foo/").unwrap_err();
+        S3Location::try_from_str("adls://test-bucket/foo/").unwrap_err();
     }
 
     #[test]
@@ -943,22 +1031,22 @@ mod test {
         ];
 
         for (parent, maybe_sublocation, expected) in cases {
-            let parent = parse_s3_location(parent).unwrap();
-            let maybe_sublocation = parse_s3_location(maybe_sublocation).unwrap();
+            let parent = S3Location::try_from_str(parent).unwrap();
+            let maybe_sublocation = S3Location::try_from_str(maybe_sublocation).unwrap();
             let result = maybe_sublocation.is_sublocation_of(&parent);
             assert_eq!(result, expected);
         }
     }
 
     #[test]
-    fn test_s3_location_print() {
+    fn test_s3_location_display() {
         let cases = vec![
             "s3://bucket/foo",
             "s3://bucket/foo/bar",
             "s3://bucket/foo/bar/",
         ];
         for case in cases {
-            let location = parse_s3_location(case).unwrap();
+            let location = S3Location::try_from_str(case).unwrap();
             let printed = location.to_string();
             assert_eq!(printed, case);
         }

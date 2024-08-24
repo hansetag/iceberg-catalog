@@ -12,7 +12,7 @@ use crate::catalog::views::validate_view_properties;
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
 use crate::service::event_publisher::EventMetadata;
-use crate::service::storage::{Idents, StoragePermissions};
+use crate::service::storage::{Idents, StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{Catalog, SecretStore, State, TableIdentUuid, Transaction};
 use crate::service::{GetWarehouseResponse, Result};
@@ -94,9 +94,10 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     let view_id: TabularIdentUuid = TabularIdentUuid::View(uuid::Uuid::now_v7());
 
-    let view_location = storage_profile.initial_tabular_location(namespace_id, view_id);
+    let namespace_location = storage_profile.default_namespace_location(namespace_id)?;
+    let view_location = storage_profile.default_tabular_location(&namespace_location, view_id);
     let mut request = request;
-    let metadata_location = storage_profile.initial_metadata_location(
+    let metadata_location = storage_profile.metadata_location(
         &view_location,
         &CompressionCodec::try_from_properties(&request.properties)?,
         *view_id,
