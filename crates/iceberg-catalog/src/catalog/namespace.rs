@@ -422,7 +422,7 @@ fn namespace_location_may_not_changed(
     {
         return Err(ErrorModel::bad_request(
             "Namespace property `location` cannot be removed.",
-            "LocationCannotBeRemoved".to_string(),
+            "LocationCannotBeRemoved",
             None,
         )
         .into());
@@ -431,7 +431,7 @@ fn namespace_location_may_not_changed(
     if let Some(location) = updates.as_ref().and_then(|u| u.get(Location::KEY)) {
         return Err(ErrorModel::bad_request(
             "Namespace property `location` cannot be updated.",
-            "LocationCannotBeUpdated".to_string(),
+            "LocationCannotBeUpdated",
             None,
         )
         .append_detail(format!("Location: {location:?}"))

@@ -924,42 +924,37 @@ fn determine_table_ident(
     parameters_ident: TableIdent,
     request_ident: Option<TableIdent>,
 ) -> Result<TableIdent> {
+    let Some(identifier) = request_ident else {
+        return Ok(parameters_ident);
+    };
+
+    if identifier == parameters_ident {
+        return Ok(identifier);
+    }
+
+    // Below is for the tricky case: We have a conflict.
     // When querying a branch, spark sends something like the following as part of the `parameters`:
     // namespace: (<my>, <namespace>, <table_name>)
     // table_name: branch_<branch_name>
-
-    if let Some(identifier) = request_ident {
-        if identifier == parameters_ident {
-            Ok(identifier)
-        } else {
-            let ns_parts = parameters_ident.namespace.clone().inner();
-            let table_name_candidate = if ns_parts.len() >= 2 {
-                NamespaceIdent::from_vec(
-                    ns_parts.iter().take(ns_parts.len() - 1).cloned().collect(),
-                )
-                .ok()
-                .map(|n| TableIdent::new(n, ns_parts.last().cloned().unwrap_or_default()))
-            } else {
-                None
-            };
-
-            if table_name_candidate != Some(identifier.clone()) {
-                return Err(ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message(
-                        "Table identifier in path does not match the one in the request body"
-                            .to_string(),
-                    )
-                    .r#type("TableIdentifierMismatch".to_string())
-                    .build()
-                    .into());
-            }
-
-            Ok(identifier)
-        }
+    let ns_parts = parameters_ident.namespace.clone().inner();
+    let table_name_candidate = if ns_parts.len() >= 2 {
+        NamespaceIdent::from_vec(ns_parts.iter().take(ns_parts.len() - 1).cloned().collect())
+            .ok()
+            .map(|n| TableIdent::new(n, ns_parts.last().cloned().unwrap_or_default()))
     } else {
-        Ok(parameters_ident)
+        None
+    };
+
+    if table_name_candidate != Some(identifier.clone()) {
+        return Err(ErrorModel::bad_request(
+            "Table identifier in path does not match the one in the request body",
+            "TableIdentifierMismatch",
+            None,
+        )
+        .into());
     }
+
+    Ok(identifier)
 }
 
 fn determine_table_location(

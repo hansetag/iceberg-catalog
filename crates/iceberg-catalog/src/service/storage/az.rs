@@ -234,20 +234,22 @@ impl AzdlsProfile {
         let client =
             azure_storage_blobs::prelude::BlobServiceClient::new(self.account_name.as_str(), cred);
         let start = time::OffsetDateTime::now_utc();
+        let max_validity_seconds = i64::MAX;
+        let sas_token_validity_seconds = self.sas_token_validity_seconds.unwrap_or(3600);
+        let clamped_validity_seconds = i64::try_from(sas_token_validity_seconds)
+            .unwrap_or(max_validity_seconds)
+            .clamp(0, max_validity_seconds);
+
         let delegation_key = client
             .get_user_deligation_key(
                 start,
                 start
-                    .checked_add(time::Duration::seconds(
-                        i64::try_from(self.sas_token_validity_seconds.unwrap_or(3600)).map_err(
-                            |e| CredentialsError::ShortTermCredential {
-                                reason: "SAS token validity seconds overflow: Cannot be represented as i64".to_string(),
-                                source: Some(Box::new(e)),
-                            },
-                        )?,
-                    ))
+                    .checked_add(time::Duration::seconds(clamped_validity_seconds))
                     .ok_or(CredentialsError::ShortTermCredential {
-                        reason: format!("SAS expiry overflow: Cannot issue a token valid for {} seconds", self.sas_token_validity_seconds.unwrap_or(3600)).to_string(),
+                        reason: format!(
+                            "SAS expiry overflow: Cannot issue a token valid for {clamped_validity_seconds} seconds",
+                        )
+                        .to_string(),
                         source: None,
                     })?,
             )
