@@ -15,7 +15,7 @@ use futures::StreamExt;
 
 use iceberg::io::AzdlsConfigKeys;
 use iceberg_ext::configs::{
-    table::{custom, TableConfig},
+    table::{custom, TableProperties},
     Location,
 };
 use serde::{Deserialize, Serialize};
@@ -183,7 +183,7 @@ impl AzdlsProfile {
         table_location: &Location,
         creds: &AzCredential,
         permissions: StoragePermissions,
-    ) -> Result<TableConfig, TableConfigError> {
+    ) -> Result<TableProperties, TableConfigError> {
         let AzCredential::ClientCredentials {
             client_id,
             tenant_id,
@@ -200,12 +200,12 @@ impl AzdlsProfile {
             client_secret.clone(),
         );
         let cred = azure_storage::StorageCredentials::token_credential(Arc::new(token));
-        let mut config = TableConfig::default();
+        let mut config = TableProperties::default();
 
         let sas = self
             .get_sas_token(table_location, cred, permissions)
             .await?;
-        config.insert(&custom::Pair {
+        config.insert(&custom::CustomConfig {
             key: self.iceberg_sas_property_key(),
             value: sas,
         });
@@ -529,7 +529,7 @@ fn iceberg_sas_property_key(account_name: &str, endpoint_suffix: &str) -> String
 // This function should not use any information available in the profile, thus
 // we don't give it a `&self` reference. We just pass it in to attach in the error.
 pub(super) async fn validate_vended_credentials(
-    table_config: &TableConfig,
+    table_config: &TableProperties,
     table_location: &Location,
     profile_for_error: &StorageProfile,
 ) -> Result<(), ValidationError> {

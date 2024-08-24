@@ -13,7 +13,7 @@ pub use az::{AzCredential, AzdlsLocation, AzdlsProfile};
 use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
-use iceberg_ext::configs::table::TableConfig;
+use iceberg_ext::configs::table::TableProperties;
 use iceberg_ext::configs::Location;
 pub use s3::S3Location;
 pub use s3::{S3Credential, S3Flavor, S3Profile};
@@ -174,7 +174,7 @@ impl StorageProfile {
         secret: Option<&StorageCredential>,
         table_location: &Location,
         storage_permissions: StoragePermissions,
-    ) -> Result<TableConfig, TableConfigError> {
+    ) -> Result<TableProperties, TableConfigError> {
         match self {
             StorageProfile::S3(profile) => {
                 profile
@@ -201,7 +201,7 @@ impl StorageProfile {
                     .await
             }
             #[cfg(test)]
-            StorageProfile::Test(_) => Ok(TableConfig::default()),
+            StorageProfile::Test(_) => Ok(TableProperties::default()),
         }
     }
 

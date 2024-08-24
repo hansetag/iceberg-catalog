@@ -9,8 +9,8 @@ use crate::service::storage::error::{
 use crate::service::storage::StoragePermissions;
 use aws_config::{BehaviorVersion, SdkConfig};
 
-use iceberg_ext::configs::table::{client, custom, s3, ConfigValue, TableConfig};
-use iceberg_ext::configs::{self, Location};
+use iceberg_ext::configs::table::{client, custom, s3, TableProperties};
+use iceberg_ext::configs::{self, ConfigProperty, Location};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -338,12 +338,12 @@ impl S3Profile {
         cred: Option<&S3Credential>,
         table_location: &Location,
         storage_permissions: StoragePermissions,
-    ) -> Result<TableConfig, TableConfigError> {
+    ) -> Result<TableProperties, TableConfigError> {
         // If vended_credentials is False and remote_signing is False,
         // use remote_signing.
         let mut remote_signing = !vended_credentials || *remote_signing;
 
-        let mut config = TableConfig::default();
+        let mut config = TableProperties::default();
 
         if let Some(true) = self.path_style_access {
             config.insert(&s3::PathStyleAccess(true));
@@ -351,7 +351,7 @@ impl S3Profile {
 
         config.insert(&s3::Region(self.region.to_string()));
         config.insert(&client::Region(self.region.to_string()));
-        config.insert(&custom::Pair {
+        config.insert(&custom::CustomConfig {
             key: "region".to_string(),
             value: self.region.to_string(),
         });
@@ -517,7 +517,7 @@ impl S3Profile {
 }
 
 pub(super) fn get_file_io_from_table_config(
-    config: &TableConfig,
+    config: &TableProperties,
 ) -> Result<iceberg::io::FileIO, FileIoError> {
     let mut builder = iceberg::io::FileIOBuilder::new("s3");
 
@@ -596,9 +596,9 @@ fn validate_bucket_name(bucket: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
-fn insert_pyiceberg_hack(config: &mut TableConfig) {
+fn insert_pyiceberg_hack(config: &mut TableProperties) {
     config.insert(&s3::Signer("S3V4RestSigner".to_string()));
-    config.insert(&custom::Pair {
+    config.insert(&custom::CustomConfig {
         key: "py-io-impl".to_string(),
         value: "pyiceberg.io.fsspec.FsspecFileIO".to_string(),
     });
