@@ -4,10 +4,12 @@ use crate::api::iceberg::v1::{
     UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 use crate::request_metadata::RequestMetadata;
+use crate::service::{GetWarehouseResponse, NamespaceIdentUuid};
 use crate::CONFIG;
 use http::StatusCode;
 use iceberg::NamespaceIdent;
-use iceberg_ext::configs::namespace::NamespaceProperties;
+use iceberg_ext::configs::ConfigProperty as _;
+use iceberg_ext::configs::{namespace::NamespaceProperties, Location};
 use std::ops::Deref;
 
 use super::{require_warehouse_id, CatalogServer};
@@ -72,16 +74,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .map(|p| validate_namespace_properties(p.keys()))
             .transpose()?;
 
-        // ------------------- AUTHZ -------------------
-        A::check_create_namespace(
-            &request_metadata,
-            warehouse_id,
-            request.namespace.parent().as_ref(),
-            state.v1_state.auth,
-        )
-        .await?;
-
-        // ------------------- BUSINESS LOGIC -------------------
         if CONFIG
             .reserved_namespaces
             .contains(&namespace.as_ref()[0].to_lowercase())
@@ -94,29 +86,29 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .into());
         }
 
+        // ------------------- AUTHZ -------------------
+        A::check_create_namespace(
+            &request_metadata,
+            warehouse_id,
+            request.namespace.parent().as_ref(),
+            state.v1_state.auth,
+        )
+        .await?;
+
+        // ------------------- BUSINESS LOGIC -------------------
+        let namespace_id = NamespaceIdentUuid::default();
+
+        // Set location if not specified - validate location if specified
         let mut t = C::Transaction::begin_read(state.v1_state.catalog.clone()).await?;
-        let _warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
         drop(t);
-
-        let namespace_props = NamespaceProperties::try_from_maybe_props(properties.clone())
+        let mut namespace_props = NamespaceProperties::try_from_maybe_props(properties.clone())
             .map_err(|e| ErrorModel::bad_request(e.to_string(), e.err_type(), None))?;
-        let _location = namespace_props.location();
 
-        // For customer specified location, we need to check if we can write to the location.
-        // If no location is specified, we use our default location.
-        // if let Some(location) = location {
-        //     if !warehouse.can_write_to_location(location) {
-        //         return Err(ErrorModel::builder()
-        //             .code(StatusCode::BAD_REQUEST.into())
-        //             .message(format!(
-        //                 "Warehouse does not have write access to location: {}",
-        //                 location
-        //             ))
-        //             .r#type("LocationNotWritable".to_string())
-        //             .build()
-        //             .into());
-        //     }
-        // }
+        set_namespace_location_property(&mut namespace_props, &warehouse, namespace_id)?;
+
+        // ToDo: COntinue - add pre-defined namespace_id
+        // ToDo: Use Props
 
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let r = C::create_namespace(warehouse_id, request, t.transaction()).await?;
@@ -256,6 +248,40 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         //  ------------------- BUSINESS LOGIC -------------------
+        if removals
+            .as_ref()
+            .is_some_and(|r| r.contains(&Location::KEY.to_string()))
+        {
+            return Err(ErrorModel::bad_request(
+                "Namespace property `location` cannot be removed.",
+                "LocationCannotBeRemoved".to_string(),
+                None,
+            )
+            .append_detail(format!("Namespace: {:?}", parameters.namespace))
+            .into());
+        }
+        // If location is updated, validate the new location and sanitize it (make sure there is a trailing slash)
+        // ToDo Christian: Validate new location & make sure its in same base location (bucket & prefix)
+        if let Some(_location) = updates.as_ref().and_then(|u| u.get(Location::KEY)) {
+            let mut namespace_props = NamespaceProperties::try_from_maybe_props(updates.clone())
+                .map_err(|e| ErrorModel::bad_request(e.to_string(), e.err_type(), None))?;
+            let mut t = C::Transaction::begin_read(state.v1_state.catalog.clone()).await?;
+            let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+            drop(t);
+
+            set_namespace_location_property(
+                &mut namespace_props,
+                &warehouse,
+                C::namespace_ident_to_id(
+                    warehouse_id,
+                    &parameters.namespace,
+                    state.v1_state.catalog.clone(),
+                )
+                .await?
+                .unwrap(),
+            )?;
+        }
+
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let r = C::update_namespace_properties(
             warehouse_id,
@@ -267,6 +293,31 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         t.commit().await?;
         Ok(r)
     }
+}
+
+fn set_namespace_location_property(
+    namespace_props: &mut NamespaceProperties,
+    warehouse: &GetWarehouseResponse,
+    namespace_id: NamespaceIdentUuid,
+) -> Result<()> {
+    let mut location = namespace_props.location();
+
+    // NS locations should always have a trailing slash
+    location.as_mut().map(Location::with_trailing_slash);
+
+    // For customer specified location, we need to check if we can write to the location.
+    // If no location is specified, we use our default location.
+    let location = if let Some(_location) = location {
+        // ToDo Christian: Validate location
+        todo!()
+    } else {
+        warehouse
+            .storage_profile
+            .default_namespace_location(namespace_id)?
+    };
+
+    namespace_props.insert(&location);
+    Ok(())
 }
 
 pub(crate) fn uppercase_first_letter(s: &str) -> String {

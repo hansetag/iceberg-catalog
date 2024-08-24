@@ -356,7 +356,7 @@ fn validate_uri(
     // i.e. s3://bucket/key
     table_location: &str,
 ) -> Result<()> {
-    let table_location = S3Location::try_from_str(table_location)?;
+    let table_location = S3Location::from_str(table_location)?;
     let url_location = &parsed_url.location;
 
     if !url_location.is_sublocation_of(&table_location) {

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr as _;
 use std::vec;
 
 use crate::api::iceberg::v1::{
@@ -11,6 +12,7 @@ use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
+use iceberg_ext::configs::Location;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -20,9 +22,7 @@ use super::{
 };
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::storage::{
-    Idents, StorageCredential, StorageLocations as _, StoragePermissions,
-};
+use crate::service::storage::{StorageCredential, StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
@@ -132,7 +132,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             storage_profile.default_tabular_location(&namespace_location, table_id);
 
         // This is the only place where we change request
-        request.location = Some(table_location.clone());
+        request.location = Some(table_location.to_string());
         let request = request; // Make it non-mutable again for our sanity
 
         // If stage-create is true, we should not create the metadata file
@@ -155,7 +155,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             &table,
             TableIdentUuid::from(*table_id),
             request,
-            metadata_location.as_ref(),
+            metadata_location
+                .as_ref()
+                .map(iceberg_ext::configs::Location::as_str),
             transaction.transaction(),
         )
         .await?;
@@ -194,20 +196,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // is a stage-create, we still fetch the secret.
         let config = storage_profile
             .generate_table_config(
-                Idents {
-                    warehouse_ident: warehouse_id,
-                    namespace_ident: namespace_id,
-                    table_ident: TableIdentUuid::from(*table_id),
-                },
                 &data_access,
                 storage_secret.as_ref(),
-                table_metadata.location(),
+                &table_location,
                 // TODO: This should be a permission based on authz
                 StoragePermissions::ReadWriteDelete,
             )
             .await?;
         let load_table_result = LoadTableResult {
-            metadata_location,
+            metadata_location: metadata_location.map(|l| l.to_string()),
             metadata: table_metadata,
             config: Some(config.into()),
         };
@@ -301,8 +298,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
         let CatalogLoadTableResult {
-            table_id,
-            namespace_id,
+            table_id: _,
+            namespace_id: _,
             table_metadata,
             metadata_location,
             storage_secret_ident,
@@ -323,21 +320,22 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } else {
             None
         };
-        let table_location = table_metadata.location().to_string();
+        let table_location = Location::from_str(table_metadata.location()).map_err(|e| {
+            ErrorModel::internal(
+                format!("Invalid table location in DB: {e}"),
+                "InvalidViewLocation",
+                Some(Box::new(e)),
+            )
+        })?;
         let load_table_result = LoadTableResult {
             metadata_location,
             metadata: table_metadata,
             config: Some(
                 storage_profile
                     .generate_table_config(
-                        Idents {
-                            warehouse_ident: warehouse_id,
-                            namespace_ident: namespace_id,
-                            table_ident: TableIdentUuid::from(*table_id),
-                        },
                         &data_access,
                         storage_secret.as_ref(),
-                        table_location.as_ref(),
+                        &table_location,
                         // TODO: This should be a permission based on authz
                         StoragePermissions::ReadWriteDelete,
                     )
@@ -492,6 +490,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .r#type("NoResultFromCommitTableTransaction".to_string())
                 .build(),
         )?;
+
         state
             .v1_state
             .contract_verifiers
@@ -520,7 +519,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let compression_codec =
             CompressionCodec::try_from_metadata(&result.commit_response.metadata)?;
         write_metadata_file(
-            &result.commit_response.metadata_location,
+            &result.metadata_location,
             &result.commit_response.metadata,
             compression_codec,
             &file_io,
@@ -898,6 +897,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             transaction.transaction(),
         )
         .await?;
+
+        // Check contract verification
         let futures = updates
             .iter()
             .zip(&commit_response)
@@ -957,7 +958,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             let compression_codec =
                 CompressionCodec::try_from_metadata(&r.commit_response.metadata)?;
             write_futures.push(write_metadata_file(
-                &r.commit_response.metadata_location,
+                &r.metadata_location,
                 &r.commit_response.metadata,
                 compression_codec,
                 io,

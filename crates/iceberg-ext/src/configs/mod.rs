@@ -1,10 +1,45 @@
 use heck::ToUpperCamelCase;
 
+mod location;
 pub mod namespace;
 pub mod table;
 
+pub use custom::CustomConfig;
+pub use location::Location;
+
+pub trait NotCustomProp {}
+
+#[allow(clippy::module_name_repetitions)]
+pub trait ConfigProperty {
+    const KEY: &'static str;
+    type Type: ToString + ParseFromStr;
+
+    fn key(&self) -> &str {
+        Self::KEY
+    }
+
+    fn value(&self) -> &Self::Type;
+
+    fn into_value(self) -> Self::Type;
+
+    fn value_to_string(&self) -> String {
+        self.value().to_string()
+    }
+
+    /// Parse the value from a string.
+    ///
+    /// # Errors
+    /// Returns a `ParseError` if the value is incompatible with the type.
+    fn parse_value(value: &str) -> Result<Self::Type, ConfigParseError>
+    where
+        Self::Type: ParseFromStr,
+    {
+        ParseFromStr::parse_value(value).map_err(|e| e.for_key(Self::KEY))
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
-#[error("Failed to parse value '{value}' to '{typ}'")]
+#[error("Failed to parse value '{value}' to '{typ}'.")]
 pub struct ParseError {
     value: String,
     typ: String,
@@ -73,5 +108,33 @@ impl ParseFromStr for url::Url {
             value: value.to_string(),
             typ: "Url".to_string(),
         })
+    }
+}
+
+mod custom {
+    use super::ConfigProperty;
+
+    #[derive(Debug, PartialEq, Clone)]
+    #[allow(clippy::module_name_repetitions)]
+    pub struct CustomConfig {
+        pub key: String,
+        pub value: String,
+    }
+
+    impl ConfigProperty for CustomConfig {
+        const KEY: &'static str = "custom";
+        type Type = String;
+
+        fn key(&self) -> &str {
+            self.key.as_str()
+        }
+
+        fn value(&self) -> &Self::Type {
+            &self.value
+        }
+
+        fn into_value(self) -> Self::Type {
+            self.value
+        }
     }
 }

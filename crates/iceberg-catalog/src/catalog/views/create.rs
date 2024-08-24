@@ -12,9 +12,9 @@ use crate::catalog::views::validate_view_properties;
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
 use crate::service::event_publisher::EventMetadata;
-use crate::service::storage::{Idents, StorageLocations as _, StoragePermissions};
+use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
-use crate::service::{Catalog, SecretStore, State, TableIdentUuid, Transaction};
+use crate::service::{Catalog, SecretStore, State, Transaction};
 use crate::service::{GetWarehouseResponse, Result};
 use http::StatusCode;
 use iceberg::spec::ViewMetadataBuilder;
@@ -102,13 +102,13 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         &CompressionCodec::try_from_properties(&request.properties)?,
         *view_id,
     );
-    request.location = Some(view_location.clone());
+    request.location = Some(view_location.to_string());
     let request = request;
     // serialize body before moving it
     let body = maybe_body_to_json(&request);
     let view_creation = ViewMetadataBuilder::from_view_creation(ViewCreation {
         name: view.name.clone(),
-        location: view_location,
+        location: view_location.to_string(),
         representations: request.view_version.representations().clone(),
         schema: request.schema,
         properties: request.properties.clone(),
@@ -119,17 +119,19 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     .unwrap()
     .assign_uuid(*view_id.as_ref());
 
-    let metadata = C::create_view(
+    let metadata = view_creation.build().map_err(|e| {
+        ErrorModel::builder()
+            .code(StatusCode::BAD_REQUEST.into())
+            .message(format!("Failed to create view metadata: {e}"))
+            .r#type("ViewMetadataCreationFailed".to_string())
+            .build()
+    })?;
+
+    C::create_view(
         namespace_id,
         &view,
-        view_creation.build().map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(format!("Failed to create view metadata: {e}"))
-                .r#type("ViewMetadataCreationFailed".to_string())
-                .build()
-        })?,
-        &metadata_location,
+        metadata.clone(),
+        &metadata_location.to_string(),
         transaction.transaction(),
     )
     .await?;
@@ -150,13 +152,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     let file_io = storage_profile.file_io(storage_secret.as_ref())?;
     let compression_codec = CompressionCodec::try_from_metadata(&metadata)?;
-    write_metadata_file(
-        metadata_location.as_str(),
-        &metadata,
-        compression_codec,
-        &file_io,
-    )
-    .await?;
+    write_metadata_file(&metadata_location, &metadata, compression_codec, &file_io).await?;
     tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
 
     // Generate the storage profile. This requires the storage secret
@@ -167,14 +163,9 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     // is a stage-create, we still fetch the secret.
     let config = storage_profile
         .generate_table_config(
-            Idents {
-                warehouse_ident: warehouse_id,
-                namespace_ident: namespace_id,
-                table_ident: TableIdentUuid::from(*view_id),
-            },
             &data_access,
             storage_secret.as_ref(),
-            metadata.location.as_ref(),
+            &view_location,
             // TODO: This should be a permission based on authz
             StoragePermissions::ReadWriteDelete,
         )
@@ -203,7 +194,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         .await;
 
     let load_view_result = LoadViewResult {
-        metadata_location,
+        metadata_location: metadata_location.to_string(),
         metadata,
         config: Some(config.into()),
     };

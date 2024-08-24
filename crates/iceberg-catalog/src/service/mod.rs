@@ -75,6 +75,12 @@ impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 pub struct NamespaceIdentUuid(uuid::Uuid);
 
+impl std::default::Default for NamespaceIdentUuid {
+    fn default() -> Self {
+        Self(uuid::Uuid::now_v7())
+    }
+}
+
 impl Deref for NamespaceIdentUuid {
     type Target = uuid::Uuid;
 
@@ -114,6 +120,12 @@ impl From<uuid::Uuid> for NamespaceIdentUuid {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 pub struct TableIdentUuid(uuid::Uuid);
+
+impl std::default::Default for TableIdentUuid {
+    fn default() -> Self {
+        Self(uuid::Uuid::now_v7())
+    }
+}
 
 impl std::fmt::Display for TableIdentUuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

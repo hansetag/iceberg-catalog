@@ -1,16 +1,17 @@
-use url::Url;
-
-use super::{ConfigParseError, ParseFromStr};
+use super::{ConfigParseError, ConfigProperty, Location, NotCustomProp, ParseFromStr};
 use std::collections::HashMap;
 use std::fmt::Debug;
 
 #[derive(Debug, PartialEq, Default)]
 #[allow(clippy::module_name_repetitions)]
 pub struct NamespaceProperties {
-    pub(crate) props: HashMap<String, String>,
+    props: HashMap<String, String>,
 }
 
-pub trait NotCustomProp {}
+#[allow(clippy::module_name_repetitions)]
+pub trait NamespaceProperty: ConfigProperty {}
+
+impl NamespaceProperty for Location {}
 
 impl NamespaceProperties {
     pub fn insert<S>(&mut self, pair: &S) -> Option<S::Type>
@@ -84,6 +85,11 @@ impl NamespaceProperties {
         }
         config
     }
+
+    #[must_use]
+    pub fn location(&self) -> Option<Location> {
+        self.get_prop_opt::<Location>()
+    }
 }
 
 #[allow(clippy::implicit_hasher)]
@@ -93,113 +99,9 @@ impl From<NamespaceProperties> for HashMap<String, String> {
     }
 }
 
-macro_rules! impl_config_value {
-    ($struct_name:ident, $typ:ident, $key:expr, $accessor:expr) => {
-        #[derive(Debug, PartialEq, Clone)]
-        pub struct $struct_name(pub $typ);
-
-        impl NamespaceProperty for $struct_name {
-            const KEY: &'static str = $key;
-            type Type = $typ;
-
-            fn value_to_string(&self) -> String {
-                self.0.to_string()
-            }
-
-            fn parse_value(value: &str) -> Result<Self::Type, ConfigParseError>
-            where
-                Self::Type: ParseFromStr,
-            {
-                Self::Type::parse_value(value).map_err(|e| e.for_key(Self::KEY))
-            }
-        }
-
-        impl NotCustomProp for $struct_name {}
-
-        paste::paste! {
-            impl NamespaceProperties {
-                #[must_use]
-                pub fn [<$accessor:snake>](&self) -> Option<$typ> {
-                    self.get_prop_opt::<$struct_name>()
-                }
-
-                pub fn [<insert_ $accessor:snake>](&mut self, value: $typ) -> Option<$typ> {
-                    self.insert(&$struct_name(value))
-                }
-            }
-        }
-    };
-}
-macro_rules! impl_config_values {
-    ($($struct_name:ident, $typ:ident, $key:expr, $accessor:expr);+ $(;)?) => {
-        $(
-            impl_config_value!($struct_name, $typ, $key, $accessor);
-        )+
-
-        pub(crate) fn validate(
-            key: &str,
-            value: &str,
-        ) -> Result<(), ConfigParseError> {
-            Ok(match key {
-                $(
-                    $struct_name::KEY => {
-                        _ = $struct_name::parse_value(value)?;
-                    }
-                )+
-                _ => {},
-            })
-        }
-    };
-}
-
-impl_config_values!(Location, Url, "location", "location");
-
-pub mod custom {
-    use super::{ConfigParseError, NamespaceProperty, ParseFromStr};
-
-    #[derive(Debug, PartialEq, Clone)]
-    pub struct Pair {
-        pub key: String,
-        pub value: String,
+pub(crate) fn validate(key: &str, value: &str) -> Result<(), ConfigParseError> {
+    match key {
+        Location::KEY => <Location as ConfigProperty>::parse_value(value).map(|_| ()),
+        _ => Ok(()),
     }
-
-    impl NamespaceProperty for Pair {
-        const KEY: &'static str = "custom";
-        type Type = String;
-
-        fn key(&self) -> &str {
-            self.key.as_str()
-        }
-
-        fn value_to_string(&self) -> String {
-            self.value.clone()
-        }
-
-        fn parse_value(value: &str) -> Result<Self::Type, ConfigParseError>
-        where
-            Self::Type: ParseFromStr,
-        {
-            Ok(value.to_string())
-        }
-    }
-}
-
-#[allow(clippy::module_name_repetitions)]
-pub trait NamespaceProperty {
-    const KEY: &'static str;
-    type Type: ToString + ParseFromStr;
-
-    fn key(&self) -> &str {
-        Self::KEY
-    }
-
-    fn value_to_string(&self) -> String;
-
-    /// Parse the value from a string.
-    ///
-    /// # Errors
-    /// Returns a `ParseError` if the value is incompatible with the type.
-    fn parse_value(value: &str) -> Result<Self::Type, ConfigParseError>
-    where
-        Self::Type: ParseFromStr;
 }

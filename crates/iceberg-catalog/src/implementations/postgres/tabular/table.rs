@@ -12,6 +12,7 @@ use crate::{
 };
 
 use http::StatusCode;
+use iceberg_ext::configs::Location;
 use iceberg_ext::{
     spec::{TableMetadata, TableMetadataAggregate},
     NamespaceIdent, TableRequirement, TableUpdate,
@@ -25,6 +26,7 @@ use crate::implementations::postgres::tabular::{
 };
 use sqlx::types::Json;
 use std::default::Default;
+use std::str::FromStr as _;
 use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
@@ -100,7 +102,7 @@ pub(crate) async fn create_table(
     table_id: TableIdentUuid,
     request: CreateTableRequest,
     // Metadata location may be none if stage-create is true
-    metadata_location: Option<&String>,
+    metadata_location: Option<&str>,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<CreateTableResponse> {
     let TableIdent { namespace: _, name } = table;
@@ -154,7 +156,7 @@ pub(crate) async fn create_table(
             name,
             namespace_id: *namespace_id,
             typ: TabularType::Table,
-            metadata_location: metadata_location.map(std::string::String::as_str),
+            metadata_location,
             location: location.as_str(),
         },
         &mut *transaction,
@@ -538,7 +540,13 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
     // ToDo: Set default snapshot retention
     let mut responses = vec![];
     for context in commits {
-        let previous_location = context.metadata.location.clone();
+        let previous_location = Location::from_str(&context.metadata.location).map_err(|e| {
+            ErrorModel::internal(
+                format!("Invalid table location in DB: {e}"),
+                "InvalidTableLocation",
+                Some(Box::new(e)),
+            )
+        })?;
         let previous_uuid = context.metadata.uuid();
         let metadata_id = uuid::Uuid::now_v7();
         let previous_table_metadata = context.metadata.clone();
@@ -556,7 +564,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
                     }
                 }
                 TableUpdate::SetLocation { location } => {
-                    if location != &previous_location {
+                    if location != &previous_location.to_string() {
                         return Err(ErrorModel::builder()
                             .code(StatusCode::BAD_REQUEST.into())
                             .message("Cannot change table location".to_string())
@@ -578,7 +586,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
         );
         responses.push(CommitTableResponseExt {
             commit_response: CommitTableResponse {
-                metadata_location: metadata_location.clone(),
+                metadata_location: metadata_location.to_string(),
                 metadata: new_metadata.clone(),
                 config: None,
             },
@@ -587,6 +595,7 @@ fn apply_commits(commits: Vec<CommitContext>) -> Result<Vec<CommitTableResponseE
                 storage_secret_ident: context.storage_secret_ident,
             },
             previous_table_metadata,
+            metadata_location,
         });
     }
 
@@ -831,7 +840,7 @@ pub(crate) mod tests {
             &table_ident,
             table_id,
             request.clone(),
-            metadata_location.as_ref(),
+            metadata_location.as_deref(),
             &mut transaction,
         )
         .await
@@ -869,7 +878,7 @@ pub(crate) mod tests {
             &table_ident,
             table_id,
             request.clone(),
-            metadata_location.as_ref(),
+            metadata_location.as_deref(),
             &mut transaction,
         )
         .await
@@ -884,7 +893,7 @@ pub(crate) mod tests {
             &table_ident,
             table_id,
             request,
-            metadata_location.as_ref(),
+            metadata_location.as_deref(),
             &mut transaction,
         )
         .await
@@ -924,7 +933,7 @@ pub(crate) mod tests {
             &table_ident,
             table_id,
             request.clone(),
-            metadata_location.as_ref(),
+            metadata_location.as_deref(),
             &mut transaction,
         )
         .await
@@ -945,7 +954,7 @@ pub(crate) mod tests {
             &table_ident,
             table_id,
             request,
-            metadata_location.as_ref(),
+            metadata_location.as_deref(),
             &mut transaction,
         )
         .await
@@ -962,7 +971,7 @@ pub(crate) mod tests {
             &table_ident,
             table_id,
             request,
-            metadata_location.as_ref(),
+            metadata_location.as_deref(),
             &mut transaction,
         )
         .await
