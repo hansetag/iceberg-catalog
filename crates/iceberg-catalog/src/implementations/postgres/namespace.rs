@@ -22,7 +22,7 @@ pub(crate) async fn get_namespace(
         SELECT 
             namespace_id,
             n.warehouse_id,
-            namespace_properties as "properties: Json<HashMap<String, String>>"
+            namespace_properties as "properties: Json<Option<HashMap<String, String>>>"
         FROM namespace n
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE n.warehouse_id = $1 AND n.namespace_name = $2
@@ -44,7 +44,7 @@ pub(crate) async fn get_namespace(
 
     Ok(GetNamespaceResponse {
         namespace: namespace.to_owned(),
-        properties: Some(row.properties.deref().clone()),
+        properties: row.properties.deref().clone(),
         namespace_id: row.namespace_id.into(),
         warehouse_id: row.warehouse_id.into(),
     })
