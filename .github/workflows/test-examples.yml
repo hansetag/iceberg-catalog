@@ -77,7 +77,7 @@ jobs:
       - name: Test Examples
         run: |
           cd examples &&
-          sed -i 'sXquay.io/hansetag/iceberg-catalog:latest/Xlocalhost/iceberg-catalog-local:amd64Xg' docker-compose.yaml &&
+          sed -i 'sXquay.io/hansetag/tip-catalog:latest/Xlocalhost/iceberg-catalog-local:amd64Xg' docker-compose.yaml &&
           docker compose up -d &&
           # retry 10 times with 1 second sleep if server becomes healthy
             for i in {1..10}; do
