@@ -1,8 +1,7 @@
 import conftest
-import pyarrow as pa
-import pytest
 import pandas as pd
 import pyarrow as pa
+import pytest
 
 
 def test_create_namespace(warehouse: conftest.Warehouse):

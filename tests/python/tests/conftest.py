@@ -239,8 +239,9 @@ def spark(warehouse: Warehouse):
         f"spark.sql.catalog.{catalog_name}": "org.apache.iceberg.spark.SparkCatalog",
         f"spark.sql.catalog.{catalog_name}.catalog-impl": "org.apache.iceberg.rest.RESTCatalog",
         f"spark.sql.catalog.{catalog_name}.uri": warehouse.server.catalog_url,
-        f"spark.sql.catalog.{catalog_name}.token": warehouse.access_token,
+        f"spark.sql.catalog.{catalog_name}.credential": f"{OPENID_CLIENT_ID}:{OPENID_CLIENT_SECRET}",
         f"spark.sql.catalog.{catalog_name}.warehouse": f"{warehouse.project_id}/{warehouse.warehouse_name}",
+        f"spark.sql.catalog.{catalog_name}.oauth2-server-uri": f"{OPENID_PROVIDER_URI.rstrip('/')}/protocol/openid-connect/token",
     }
 
     spark_conf = pyspark.SparkConf().setMaster("local[*]")
