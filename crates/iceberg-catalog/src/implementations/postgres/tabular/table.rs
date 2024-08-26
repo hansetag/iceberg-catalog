@@ -433,22 +433,6 @@ pub(crate) async fn drop_table<'a>(
     table_id: TableIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
-    let _ = sqlx::query!(
-        r#"
-        UPDATE "table" SET deleted_at = now()
-        WHERE table_id = $1
-        AND table_id IN (select table_id from active_tables)
-        RETURNING "table_id"
-        "#,
-        *table_id,
-    )
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(|e| {
-        tracing::warn!("Error dropping tabular: {}", e);
-        e.into_error_model("Error dropping table".to_string())
-    })?;
-
     drop_tabular(TabularIdentUuid::Table(*table_id), false, transaction).await
 }
 
