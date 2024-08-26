@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 pub(crate) async fn load_view(
     view_id: TableIdentUuid,
+    include_deleted: bool,
     conn: &mut PgConnection,
 ) -> Result<ViewMetadataWithLocation> {
     let Query {
@@ -41,7 +42,7 @@ pub(crate) async fn load_view(
         view_representation_typ,
         view_representation_sql,
         view_representation_dialect,
-    } = query(*view_id, &mut *conn).await?;
+    } = query(*view_id, include_deleted, &mut *conn).await?;
 
     let schemas = prepare_schemas(schema_ids, schemas)?;
     let properties = prepare_props(view_properties_keys, view_properties_values)?;
@@ -79,7 +80,11 @@ pub(crate) async fn load_view(
     })
 }
 
-async fn query(view_id: Uuid, conn: &mut PgConnection) -> Result<Query, IcebergErrorResponse> {
+async fn query(
+    view_id: Uuid,
+    include_deleted: bool,
+    conn: &mut PgConnection,
+) -> Result<Query, IcebergErrorResponse> {
     let rs = sqlx::query_as!(Query,
             r#"SELECT v.view_id,
        v.view_format_version            as "view_format_version: ViewFormatVersion",
@@ -139,8 +144,9 @@ FROM view v
                                                ARRAY_AGG(dialect) as dialect
                                         FROM view_representation
                                         GROUP BY view_version_id) vr ON vv.version_id = vr.view_version_id
-                    GROUP BY view_id) vvr ON v.view_id = vvr.view_id WHERE v.view_id = $1"#,
-            view_id
+                    GROUP BY view_id) vvr ON v.view_id = vvr.view_id WHERE v.view_id = $1 AND (ta.deleted_at is NULL OR $2)"#,
+            view_id,
+            include_deleted
         )
         .fetch_one(&mut *conn)
         .await.map_err(|e| {

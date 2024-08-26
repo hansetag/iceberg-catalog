@@ -136,14 +136,14 @@ impl Catalog for super::Catalog {
     async fn list_tables(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
-        include_staged: bool,
+        list_flags: crate::service::ListFlags,
         catalog_state: CatalogState,
         pagination_query: PaginationQuery,
     ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
         list_tables(
             warehouse_id,
             namespace,
-            include_staged,
+            list_flags,
             catalog_state,
             pagination_query,
         )
@@ -161,42 +161,28 @@ impl Catalog for super::Catalog {
     async fn get_table_metadata_by_id(
         warehouse_id: WarehouseIdent,
         table: TableIdentUuid,
-        include_staged: bool,
+        list_flags: crate::service::ListFlags,
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse> {
-        get_table_metadata_by_id(warehouse_id, table, include_staged, catalog_state).await
+        get_table_metadata_by_id(warehouse_id, table, list_flags, catalog_state).await
     }
 
     async fn get_table_metadata_by_s3_location(
         warehouse_id: WarehouseIdent,
         location: &str,
-        include_staged: bool,
-        include_deleted: bool,
+        list_flags: crate::service::ListFlags,
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse> {
-        get_table_metadata_by_s3_location(
-            warehouse_id,
-            location,
-            include_staged,
-            include_deleted,
-            catalog_state,
-        )
-        .await
+        get_table_metadata_by_s3_location(warehouse_id, location, list_flags, catalog_state).await
     }
 
     async fn table_ident_to_id(
         warehouse_id: WarehouseIdent,
         table: &TableIdent,
-        include_staged: bool,
+        list_flags: crate::service::ListFlags,
         catalog_state: Self::State,
     ) -> Result<Option<TableIdentUuid>> {
-        table_ident_to_id(
-            warehouse_id,
-            table,
-            include_staged,
-            &catalog_state.read_pool(),
-        )
-        .await
+        table_ident_to_id(warehouse_id, table, list_flags, &catalog_state.read_pool()).await
     }
 
     async fn rename_table<'a>(
@@ -219,16 +205,10 @@ impl Catalog for super::Catalog {
     async fn table_idents_to_ids(
         warehouse_id: WarehouseIdent,
         tables: HashSet<&TableIdent>,
-        include_staged: bool,
+        list_flags: crate::service::ListFlags,
         catalog_state: Self::State,
     ) -> Result<HashMap<TableIdent, Option<TableIdentUuid>>> {
-        table_idents_to_ids(
-            warehouse_id,
-            tables,
-            include_staged,
-            &catalog_state.read_pool(),
-        )
-        .await
+        table_idents_to_ids(warehouse_id, tables, list_flags, &catalog_state.read_pool()).await
     }
 
     async fn commit_table_transaction<'a>(
@@ -320,23 +300,32 @@ impl Catalog for super::Catalog {
         view: &TableIdent,
         catalog_state: Self::State,
     ) -> Result<Option<TableIdentUuid>> {
-        view_ident_to_id(warehouse_id, view, &catalog_state.read_pool()).await
+        view_ident_to_id(warehouse_id, view, false, &catalog_state.read_pool()).await
     }
 
     async fn load_view<'a>(
         view_id: TableIdentUuid,
+        include_deleted: bool,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<crate::implementations::postgres::tabular::view::ViewMetadataWithLocation> {
-        load_view(view_id, &mut *transaction).await
+        load_view(view_id, include_deleted, &mut *transaction).await
     }
 
     async fn list_views(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
+        include_deleted: bool,
         catalog_state: Self::State,
         pagination_query: PaginationQuery,
     ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
-        list_views(warehouse_id, namespace, catalog_state, pagination_query).await
+        list_views(
+            warehouse_id,
+            namespace,
+            include_deleted,
+            catalog_state,
+            pagination_query,
+        )
+        .await
     }
 
     async fn update_view_metadata(

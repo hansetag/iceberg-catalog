@@ -169,7 +169,7 @@ where
     async fn list_tables(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
-        include_staged: bool,
+        list_flags: ListFlags,
         catalog_state: Self::State,
         pagination_query: PaginationQuery,
     ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>>;
@@ -183,7 +183,7 @@ where
     async fn table_ident_to_id(
         warehouse_id: WarehouseIdent,
         table: &TableIdent,
-        include_staged: bool,
+        list_flags: ListFlags,
         catalog_state: Self::State,
     ) -> Result<Option<TableIdentUuid>>;
 
@@ -191,7 +191,7 @@ where
     async fn table_idents_to_ids(
         warehouse_id: WarehouseIdent,
         tables: HashSet<&TableIdent>,
-        include_staged: bool,
+        list_flags: ListFlags,
         catalog_state: Self::State,
     ) -> Result<HashMap<TableIdent, Option<TableIdentUuid>>>;
 
@@ -207,7 +207,7 @@ where
     async fn get_table_metadata_by_id(
         warehouse_id: WarehouseIdent,
         table: TableIdentUuid,
-        include_staged: bool,
+        list_flags: ListFlags,
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse>;
 
@@ -215,8 +215,7 @@ where
     async fn get_table_metadata_by_s3_location(
         warehouse_id: WarehouseIdent,
         location: &str,
-        include_staged: bool,
-        include_deleted: bool,
+        list_flags: ListFlags,
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse>;
 
@@ -328,12 +327,14 @@ where
 
     async fn load_view<'a>(
         view_id: TableIdentUuid,
+        include_deleted: bool,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ViewMetadataWithLocation>;
 
     async fn list_views(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
+        include_deleted: bool,
         catalog_state: Self::State,
         pagination_query: PaginationQuery,
     ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>>;
@@ -359,6 +360,12 @@ where
         destination: &TableIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()>;
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ListFlags {
+    pub include_staged: bool,
+    pub include_deleted: bool,
 }
 
 #[derive(Debug, Clone)]

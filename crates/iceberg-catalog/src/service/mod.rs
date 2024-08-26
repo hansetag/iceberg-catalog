@@ -13,9 +13,9 @@ pub use catalog::{
     Catalog, CommitTableResponse, CommitTableResponseExt, CommitTransactionRequest,
     CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, CreateTableResponse,
     GetNamespaceResponse, GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse,
-    ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
-    TableIdent, Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
-    ViewMetadataWithLocation,
+    ListFlags, ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent,
+    Result, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
+    UpdateNamespacePropertiesResponse, ViewMetadataWithLocation,
 };
 use std::ops::Deref;
 

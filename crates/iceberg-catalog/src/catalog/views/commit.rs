@@ -175,7 +175,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let ViewMetadataWithLocation {
         metadata_location: _,
         metadata: before_update_metadata,
-    } = C::load_view(view_id, transaction.transaction()).await?;
+    } = C::load_view(view_id, false, transaction.transaction()).await?;
     let view_location = before_update_metadata.location.clone();
 
     state
@@ -278,7 +278,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         transaction.transaction(),
     )
     .await?;
-    let updated_meta = C::load_view(view_id, transaction.transaction())
+    let updated_meta = C::load_view(view_id, false, transaction.transaction())
         .await?
         .metadata;
 

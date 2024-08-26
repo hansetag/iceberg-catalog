@@ -23,21 +23,26 @@ use std::default::Default;
 use uuid::Uuid;
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
+use crate::service::ListFlags;
 pub(crate) use crate::service::ViewMetadataWithLocation;
 pub(crate) use load::load_view;
 
 pub(crate) async fn view_ident_to_id<'e, 'c: 'e, E>(
     warehouse_id: WarehouseIdent,
     table: &TableIdent,
+    include_deleted: bool,
     catalog_state: E,
 ) -> Result<Option<TableIdentUuid>>
 where
     E: 'e + sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    crate::implementations::postgres::tabular::tabular_ident_to_id(
+    tabular::tabular_ident_to_id(
         warehouse_id,
         &TabularIdentBorrowed::View(table),
-        false,
+        ListFlags {
+            include_deleted,
+            include_staged: false,
+        },
         catalog_state,
     )
     .await?
@@ -427,13 +432,17 @@ pub(crate) async fn set_current_view_metadata_version(
 pub(crate) async fn list_views(
     warehouse_id: WarehouseIdent,
     namespace: &NamespaceIdent,
+    include_deleted: bool,
     catalog_state: CatalogState,
     paginate_query: PaginationQuery,
 ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
     let page = list_tabulars(
         warehouse_id,
         namespace,
-        false,
+        ListFlags {
+            include_deleted,
+            include_staged: false,
+        },
         catalog_state,
         Some(TabularType::View),
         paginate_query,
@@ -688,6 +697,7 @@ pub(crate) mod tests {
         let views = super::list_views(
             warehouse_id,
             &namespace,
+            false,
             state.clone(),
             PaginationQuery::empty(),
         )
@@ -699,9 +709,13 @@ pub(crate) mod tests {
         assert_eq!(view.name, "myview");
 
         let mut conn = state.read_pool().acquire().await.unwrap();
-        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
-            .await
-            .unwrap();
+        let metadata = load_view(
+            TableIdentUuid::from(created_meta.view_uuid),
+            false,
+            &mut conn,
+        )
+        .await
+        .unwrap();
         assert_eq!(metadata.metadata, created_meta);
     }
 
@@ -715,6 +729,7 @@ pub(crate) mod tests {
         tx.commit().await.unwrap();
         load_view(
             created_meta.view_uuid.into(),
+            false,
             &mut state.write_pool().acquire().await.unwrap(),
         )
         .await
@@ -730,6 +745,7 @@ pub(crate) mod tests {
                 namespace: namespace.clone(),
                 name,
             },
+            false,
             &state.read_pool(),
         )
         .await
@@ -747,6 +763,7 @@ pub(crate) mod tests {
                     namespace,
                     name: "non_existing".to_string(),
                 },
+                false,
                 &state.read_pool(),
             )
             .await

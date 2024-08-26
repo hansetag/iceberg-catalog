@@ -87,7 +87,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let ViewMetadataWithLocation {
         metadata_location,
         metadata: view_metadata,
-    } = C::load_view(view_id, transaction.transaction()).await?;
+    } = C::load_view(view_id, false, transaction.transaction()).await?;
 
     // We don't commit the transaction yet, first we need to write the metadata file.
     let storage_secret: Option<StorageCredential> = if let Some(secret_id) = &storage_secret_id {

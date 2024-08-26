@@ -23,7 +23,7 @@ use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::{Idents, StorageCredential, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
 use crate::service::{GetWarehouseResponse, TableIdentUuid, WarehouseStatus};
@@ -58,7 +58,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let tables = C::list_tables(
             warehouse_id,
             &namespace,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted: false,
+            },
             state.v1_state.catalog,
             pagination_query,
         )
@@ -274,11 +277,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         // ------------------- AUTHZ -------------------
-        let include_stage = false;
+        let include_staged = false;
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
-            include_stage,
+            ListFlags {
+                include_staged,
+                include_deleted: false,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -428,7 +434,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &parameters.table,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted: false,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -564,7 +573,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted: false,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -640,7 +652,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted: false,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -690,7 +705,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let source_id = C::table_ident_to_id(
             warehouse_id,
             &source,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted: false,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -819,7 +837,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let table_ids = C::table_idents_to_ids(
             warehouse_id,
             identifiers,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted: false,
+            },
             state.v1_state.catalog.clone(),
         )
         .await

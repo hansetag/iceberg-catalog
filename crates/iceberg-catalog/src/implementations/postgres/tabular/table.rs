@@ -34,7 +34,7 @@ const MAX_PARAMETERS: usize = 30000;
 pub(crate) async fn table_ident_to_id<'e, 'c: 'e, E>(
     warehouse_id: WarehouseIdent,
     table: &TableIdent,
-    include_staged: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: E,
 ) -> Result<Option<TableIdentUuid>>
 where
@@ -43,7 +43,7 @@ where
     crate::implementations::postgres::tabular::tabular_ident_to_id(
         warehouse_id,
         &TabularIdentBorrowed::Table(table),
-        include_staged,
+        list_flags,
         catalog_state,
     )
     .await?
@@ -62,7 +62,7 @@ where
 pub(crate) async fn table_idents_to_ids<'e, 'c: 'e, E>(
     warehouse_id: WarehouseIdent,
     tables: HashSet<&TableIdent>,
-    include_staged: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: E,
 ) -> Result<HashMap<TableIdent, Option<TableIdentUuid>>>
 where
@@ -74,7 +74,7 @@ where
             .into_iter()
             .map(TabularIdentBorrowed::Table)
             .collect(),
-        include_staged,
+        list_flags,
         catalog_state,
     )
     .await?
@@ -239,14 +239,14 @@ pub(crate) async fn load_table(
 pub(crate) async fn list_tables(
     warehouse_id: WarehouseIdent,
     namespace: &NamespaceIdent,
-    include_staged: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
     pagination_query: PaginationQuery,
 ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
     let tabulars = list_tabulars(
         warehouse_id,
         namespace,
-        include_staged,
+        list_flags,
         catalog_state,
         Some(TabularType::Table),
         pagination_query,
@@ -273,7 +273,7 @@ pub(crate) async fn list_tables(
 pub(crate) async fn get_table_metadata_by_id(
     warehouse_id: WarehouseIdent,
     table: TableIdentUuid,
-    include_staged: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
 ) -> Result<GetTableMetadataResponse> {
     let table = sqlx::query!(
@@ -293,10 +293,11 @@ pub(crate) async fn get_table_metadata_by_id(
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1 AND t."table_id" = $2
             AND w.status = 'active'
-            AND ti.deleted_at IS NULL
+            AND (ti.deleted_at IS NULL OR $3)
         "#,
         *warehouse_id,
-        *table
+        *table,
+        list_flags.include_deleted
     )
     .fetch_one(&catalog_state.read_pool())
     .await
@@ -309,7 +310,7 @@ pub(crate) async fn get_table_metadata_by_id(
         _ => e.into_error_model("Error fetching table".to_string()),
     })?;
 
-    if !include_staged && table.metadata_location.is_none() {
+    if !list_flags.include_staged && table.metadata_location.is_none() {
         return Err(ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
             .message("Table is staged and not yet created".to_string())
@@ -337,8 +338,7 @@ pub(crate) async fn get_table_metadata_by_id(
 pub(crate) async fn get_table_metadata_by_s3_location(
     warehouse_id: WarehouseIdent,
     location: &str,
-    include_staged: bool,
-    include_deleted: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
 ) -> Result<GetTableMetadataResponse> {
     // Location might also be a subpath of the table location.
@@ -368,7 +368,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
         *warehouse_id,
         location,
         i32::try_from(location.len()).unwrap_or(i32::MAX),
-        include_deleted
+        list_flags.include_deleted
     )
     .fetch_one(&catalog_state.read_pool())
     .await
@@ -385,7 +385,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
         _ => e.into_error_model("Error fetching table".to_string()),
     })?;
 
-    if !include_staged && table.metadata_location.is_none() {
+    if !list_flags.include_staged && table.metadata_location.is_none() {
         return Err(ErrorModel::builder()
             .code(StatusCode::NOT_FOUND.into())
             .message("Table is staged and not yet created".to_string())
@@ -726,6 +726,8 @@ pub(crate) mod tests {
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
     use crate::implementations::postgres::warehouse::set_warehouse_status;
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
+    use crate::service::ListFlags;
+
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
 
@@ -993,23 +995,38 @@ pub(crate) mod tests {
             name: "my_table".to_string(),
         };
 
-        let exists = table_ident_to_id(warehouse_id, &table_ident, false, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_ident_to_id(
+            warehouse_id,
+            &table_ident,
+            ListFlags::default(),
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         assert!(exists.is_none());
         drop(table_ident);
 
         let table = initialize_table(warehouse_id, state.clone(), true, None, None).await;
 
         // Table is staged - no result if include_staged is false
-        let exists = table_ident_to_id(warehouse_id, &table.table_ident, false, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_ident_to_id(
+            warehouse_id,
+            &table.table_ident,
+            ListFlags::default(),
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         assert!(exists.is_none());
 
-        let exists = table_ident_to_id(warehouse_id, &table.table_ident, true, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_ident_to_id(
+            warehouse_id,
+            &table.table_ident,
+            ListFlags::default(),
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         assert_eq!(exists, Some(table.table_id));
     }
 
@@ -1029,7 +1046,7 @@ pub(crate) mod tests {
         let exists = table_idents_to_ids(
             warehouse_id,
             vec![&table_ident].into_iter().collect(),
-            false,
+            ListFlags::default(),
             &state.read_pool(),
         )
         .await
@@ -1042,15 +1059,28 @@ pub(crate) mod tests {
         tables.insert(&table_1.table_ident);
 
         // Table is staged - no result if include_staged is false
-        let exists = table_idents_to_ids(warehouse_id, tables.clone(), false, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_idents_to_ids(
+            warehouse_id,
+            tables.clone(),
+            ListFlags::default(),
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         assert_eq!(exists.len(), 1);
         assert!(exists.get(&table_1.table_ident).unwrap().is_none());
 
-        let exists = table_idents_to_ids(warehouse_id, tables.clone(), true, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_idents_to_ids(
+            warehouse_id,
+            tables.clone(),
+            ListFlags {
+                include_staged: true,
+                ..ListFlags::default()
+            },
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         assert_eq!(exists.len(), 1);
         assert_eq!(
             exists.get(&table_1.table_ident).unwrap(),
@@ -1061,9 +1091,14 @@ pub(crate) mod tests {
         let table_2 = initialize_table(warehouse_id, state.clone(), false, None, None).await;
         tables.insert(&table_2.table_ident);
 
-        let exists = table_idents_to_ids(warehouse_id, tables.clone(), false, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_idents_to_ids(
+            warehouse_id,
+            tables.clone(),
+            ListFlags::default(),
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         assert_eq!(exists.len(), 2);
         assert!(exists.get(&table_1.table_ident).unwrap().is_none());
         assert_eq!(
@@ -1071,9 +1106,17 @@ pub(crate) mod tests {
             &Some(table_2.table_id)
         );
 
-        let exists = table_idents_to_ids(warehouse_id, tables.clone(), true, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_idents_to_ids(
+            warehouse_id,
+            tables.clone(),
+            ListFlags {
+                include_staged: true,
+                ..ListFlags::default()
+            },
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         assert_eq!(exists.len(), 2);
         assert_eq!(
             exists.get(&table_1.table_ident).unwrap(),
@@ -1109,14 +1152,24 @@ pub(crate) mod tests {
         .unwrap();
         transaction.commit().await.unwrap();
 
-        let exists = table_ident_to_id(warehouse_id, &table.table_ident, false, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_ident_to_id(
+            warehouse_id,
+            &table.table_ident,
+            ListFlags::default(),
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         assert!(exists.is_none());
 
-        let exists = table_ident_to_id(warehouse_id, &new_table_ident, false, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_ident_to_id(
+            warehouse_id,
+            &new_table_ident,
+            ListFlags::default(),
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         // Table id should be the same
         assert_eq!(exists, Some(table.table_id));
     }
@@ -1148,14 +1201,24 @@ pub(crate) mod tests {
         .unwrap();
         transaction.commit().await.unwrap();
 
-        let exists = table_ident_to_id(warehouse_id, &table.table_ident, false, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_ident_to_id(
+            warehouse_id,
+            &table.table_ident,
+            ListFlags::default(),
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         assert!(exists.is_none());
 
-        let exists = table_ident_to_id(warehouse_id, &new_table_ident, false, &state.read_pool())
-            .await
-            .unwrap();
+        let exists = table_ident_to_id(
+            warehouse_id,
+            &new_table_ident,
+            ListFlags::default(),
+            &state.read_pool(),
+        )
+        .await
+        .unwrap();
         assert_eq!(exists, Some(table.table_id));
     }
 
@@ -1169,7 +1232,7 @@ pub(crate) mod tests {
         let tables = list_tables(
             warehouse_id,
             &namespace,
-            false,
+            ListFlags::default(),
             state.clone(),
             PaginationQuery::empty(),
         )
@@ -1182,7 +1245,7 @@ pub(crate) mod tests {
         let tables = list_tables(
             warehouse_id,
             &table1.namespace,
-            false,
+            ListFlags::default(),
             state.clone(),
             PaginationQuery::empty(),
         )
@@ -1195,7 +1258,7 @@ pub(crate) mod tests {
         let tables = list_tables(
             warehouse_id,
             &table2.namespace,
-            false,
+            ListFlags::default(),
             state.clone(),
             PaginationQuery::empty(),
         )
@@ -1205,7 +1268,10 @@ pub(crate) mod tests {
         let tables = list_tables(
             warehouse_id,
             &table2.namespace,
-            true,
+            ListFlags {
+                include_staged: true,
+                ..ListFlags::default()
+            },
             state.clone(),
             PaginationQuery::empty(),
         )
@@ -1225,7 +1291,7 @@ pub(crate) mod tests {
         let tables = list_tables(
             warehouse_id,
             &namespace,
-            false,
+            ListFlags::default(),
             state.clone(),
             PaginationQuery::empty(),
         )
@@ -1261,7 +1327,10 @@ pub(crate) mod tests {
         let tables = list_tables(
             warehouse_id,
             &namespace,
-            true,
+            ListFlags {
+                include_staged: true,
+                ..ListFlags::default()
+            },
             state.clone(),
             PaginationQuery {
                 page_token: PageToken::NotSpecified,
@@ -1277,7 +1346,10 @@ pub(crate) mod tests {
         let tables = list_tables(
             warehouse_id,
             &namespace,
-            true,
+            ListFlags {
+                include_staged: true,
+                ..ListFlags::default()
+            },
             state.clone(),
             PaginationQuery {
                 page_token: PageToken::Present(tables.next_page_token.unwrap()),
@@ -1293,7 +1365,10 @@ pub(crate) mod tests {
         let tables = list_tables(
             warehouse_id,
             &namespace,
-            true,
+            ListFlags {
+                include_staged: true,
+                ..ListFlags::default()
+            },
             state.clone(),
             PaginationQuery {
                 page_token: PageToken::Present(tables.next_page_token.unwrap()),
@@ -1345,7 +1420,10 @@ pub(crate) mod tests {
             vec![&table1.table_ident, &table2.table_ident]
                 .into_iter()
                 .collect(),
-            true,
+            ListFlags {
+                include_staged: true,
+                ..ListFlags::default()
+            },
             &state.read_pool(),
         )
         .await
@@ -1395,16 +1473,20 @@ pub(crate) mod tests {
         let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
-        let metadata = get_table_metadata_by_id(warehouse_id, table.table_id, false, state.clone())
-            .await
-            .unwrap();
+        let metadata = get_table_metadata_by_id(
+            warehouse_id,
+            table.table_id,
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap();
 
         // Exact path works
         let metadata = get_table_metadata_by_s3_location(
             warehouse_id,
             &metadata.location,
-            false,
-            false,
+            ListFlags::default(),
             state.clone(),
         )
         .await
@@ -1417,8 +1499,7 @@ pub(crate) mod tests {
         let metadata = get_table_metadata_by_s3_location(
             warehouse_id,
             &format!("{}/data/foo.parquet", &metadata.location),
-            false,
-            false,
+            ListFlags::default(),
             state.clone(),
         )
         .await
@@ -1428,8 +1509,7 @@ pub(crate) mod tests {
         get_table_metadata_by_s3_location(
             warehouse_id,
             &metadata.location[0..metadata.location.len() - 1],
-            false,
-            false,
+            ListFlags::default(),
             state.clone(),
         )
         .await
@@ -1448,9 +1528,14 @@ pub(crate) mod tests {
             .unwrap();
         transaction.commit().await.unwrap();
 
-        let err = get_table_metadata_by_id(warehouse_id, table.table_id, false, state.clone())
-            .await
-            .unwrap_err();
+        let err = get_table_metadata_by_id(
+            warehouse_id,
+            table.table_id,
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err.error.code, StatusCode::NOT_FOUND);
     }
 
@@ -1465,9 +1550,14 @@ pub(crate) mod tests {
         drop_table(table.table_id, &mut transaction).await.unwrap();
         transaction.commit().await.unwrap();
 
-        let err = get_table_metadata_by_id(warehouse_id, table.table_id, false, state.clone())
-            .await
-            .unwrap_err();
+        let err = get_table_metadata_by_id(
+            warehouse_id,
+            table.table_id,
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err.error.code, StatusCode::NOT_FOUND);
     }
 }

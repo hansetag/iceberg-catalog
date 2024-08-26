@@ -16,7 +16,7 @@ use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
 use crate::service::secrets::SecretStore;
 use crate::service::storage::{parse_s3_location, S3Profile, StorageCredential};
-use crate::service::{auth::AuthZHandler, Catalog, State};
+use crate::service::{auth::AuthZHandler, Catalog, ListFlags, State};
 use crate::service::{GetTableMetadataResponse, TableIdentUuid};
 use crate::WarehouseIdent;
 
@@ -74,8 +74,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             let table_metadata = C::get_table_metadata_by_s3_location(
                 warehouse_id,
                 &parsed_url.location.to_string(),
-                include_staged,
-                true,
+                ListFlags {
+                    include_staged,
+                    // spark iceberg drops the table and then checks for existence of metadata files
+                    // which in turn needs to sign HEAD requests for files reachable from the
+                    // dropped table.
+                    include_deleted: true,
+                },
                 state.v1_state.catalog.clone(),
             )
             .await
@@ -117,7 +122,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             C::get_table_metadata_by_id(
                 warehouse_id,
                 table_id,
-                include_staged,
+                ListFlags {
+                    include_staged,
+                    // we were able to resolve the table to id so we know the table is not deleted
+                    include_deleted: false,
+                },
                 state.v1_state.catalog,
             )
             .await?

@@ -31,7 +31,7 @@ pub(crate) enum TabularType {
 pub(crate) async fn tabular_ident_to_id<'a, 'e, 'c: 'e, E>(
     warehouse_id: WarehouseIdent,
     table: &TabularIdentBorrowed<'a>,
-    include_staged: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: E,
 ) -> Result<Option<TabularIdentUuid>>
 where
@@ -50,11 +50,15 @@ where
         AND n.warehouse_id = $3
         AND w.status = 'active'
         AND t.typ = $4
+        AND (t.deleted_at IS NULL OR $5)
+        AND (t.metadata_location IS NOT NULL OR $6)
         "#,
         t.namespace.as_ref(),
         t.name,
         *warehouse_id,
-        typ as _
+        typ as _,
+        list_flags.include_deleted,
+        list_flags.include_staged
     )
     .fetch_one(catalog_state)
     .await
@@ -76,7 +80,7 @@ where
                 .into()),
         },
         Ok(Some((table_id, staged))) => {
-            if staged && !include_staged {
+            if staged && !list_flags.include_staged {
                 return Ok(None);
             }
             Ok(Some(table_id))
@@ -100,7 +104,7 @@ struct TabularRow {
 pub(crate) async fn tabular_idents_to_ids<'e, 'c: 'e, E>(
     warehouse_id: WarehouseIdent,
     tables: HashSet<TabularIdentBorrowed<'_>>,
-    include_staged: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: E,
 ) -> Result<HashMap<TabularIdentOwned, Option<TabularIdentUuid>>>
 where
@@ -141,8 +145,9 @@ where
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE w.status = 'active' and n."warehouse_id" = $1"#,
-        *warehouse_id
+        WHERE w.status = 'active' and n."warehouse_id" = $1 AND (t.deleted_at is NULL OR $2)"#,
+        *warehouse_id,
+        list_flags.include_deleted
     );
     let checked_sql = statically_checked_query.sql();
 
@@ -176,7 +181,7 @@ where
         let namespace = try_parse_namespace_ident(namespace)?;
 
         let staged = metadata_location.is_none();
-        if !staged || include_staged {
+        if !staged || list_flags.include_staged {
             match typ {
                 TabularType::Table => {
                     table_map.insert(
@@ -300,7 +305,7 @@ pub(crate) async fn create_tabular<'a>(
 pub(crate) async fn list_tabulars(
     warehouse_id: WarehouseIdent,
     namespace: &NamespaceIdent,
-    include_staged: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
     typ: Option<TabularType>,
     pagination_query: PaginationQuery,
@@ -335,7 +340,7 @@ pub(crate) async fn list_tabulars(
         WHERE n.warehouse_id = $1
             AND namespace_name = $2
             AND w.status = 'active'
-            AND t.deleted_at IS NULL
+            AND (t.deleted_at IS NULL OR $8)
             AND (t."metadata_location" IS NOT NULL OR $3)
             AND (t.typ = $4 OR $4 IS NULL)
             AND ((t.created_at > $5 OR $5 IS NULL) OR (t.created_at = $5 AND t.tabular_id > $6))
@@ -344,11 +349,12 @@ pub(crate) async fn list_tabulars(
         "#,
         *warehouse_id,
         &**namespace,
-        include_staged,
+        list_flags.include_staged,
         typ as _,
         token_ts,
         token_id,
-        page_size
+        page_size,
+        list_flags.include_deleted
     )
     .fetch_all(&catalog_state.read_pool())
     .await
@@ -515,6 +521,8 @@ pub(crate) async fn drop_tabular<'a>(
         return Ok(r.metadata_location);
     }
 
+    // Soft delete, sets deleted_at to now and appends a uuid to the name to avoid conflicts of
+    // new tables with the same name. Staged tables are permanently deleted.
     let r = sqlx::query!(
         r#"
     WITH updated AS (
