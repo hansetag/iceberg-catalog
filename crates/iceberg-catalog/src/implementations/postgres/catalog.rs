@@ -5,7 +5,7 @@ use super::{
     },
     tabular::table::{
         commit_table_transaction, create_table, drop_table, get_table_metadata_by_id,
-        get_table_metadata_by_s3_location, list_tables, load_table, rename_table,
+        get_table_metadata_by_s3_location, list_tables, load_tables, rename_table,
         table_ident_to_id, table_idents_to_ids,
     },
     warehouse::{
@@ -14,21 +14,23 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
-use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
 use crate::service::{
-    CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
-    GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
-    TableIdent, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
+    CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, GetWarehouseResponse,
+    ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result, TableIdent,
     WarehouseStatus,
 };
 use crate::{
+    api::iceberg::v1::{PaginatedTabulars, PaginationQuery},
+    service::TableCommit,
+};
+use crate::{
     service::{
-        storage::StorageProfile, Catalog, CommitTableResponseExt, CreateTableResponse,
-        GetNamespaceResponse, GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid,
-        ProjectIdent, TableIdentUuid, Transaction, WarehouseIdent,
+        storage::StorageProfile, Catalog, CreateTableResponse, GetNamespaceResponse,
+        GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid, ProjectIdent,
+        TableIdentUuid, Transaction, WarehouseIdent,
     },
     SecretIdent,
 };
@@ -82,10 +84,11 @@ impl Catalog for super::Catalog {
 
     async fn create_namespace<'a>(
         warehouse_id: WarehouseIdent,
+        namespace_id: NamespaceIdentUuid,
         request: CreateNamespaceRequest,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<CreateNamespaceResponse> {
-        create_namespace(warehouse_id, request, transaction).await
+        create_namespace(warehouse_id, namespace_id, request, transaction).await
     }
 
     async fn namespace_ident_to_id(
@@ -107,10 +110,10 @@ impl Catalog for super::Catalog {
     async fn update_namespace_properties<'a>(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
-        request: UpdateNamespacePropertiesRequest,
+        properties: HashMap<String, String>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
-    ) -> Result<UpdateNamespacePropertiesResponse> {
-        update_namespace_properties(warehouse_id, namespace, request, transaction).await
+    ) -> Result<()> {
+        update_namespace_properties(warehouse_id, namespace, properties, transaction).await
     }
 
     async fn create_table<'a>(
@@ -119,7 +122,7 @@ impl Catalog for super::Catalog {
         table_id: TableIdentUuid,
         request: CreateTableRequest,
         // Metadata location may be none if stage-create is true
-        metadata_location: Option<&String>,
+        metadata_location: Option<&str>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<CreateTableResponse> {
         create_table(
@@ -150,12 +153,14 @@ impl Catalog for super::Catalog {
         .await
     }
 
-    async fn load_table(
+    // Should also load staged tables but not tables of inactive warehouses
+    async fn load_tables<'a>(
         warehouse_id: WarehouseIdent,
-        table: &TableIdent,
-        catalog_state: CatalogState,
-    ) -> Result<LoadTableResponse> {
-        load_table(warehouse_id, table, catalog_state).await
+        tables: impl IntoIterator<Item = TableIdentUuid> + Send,
+        include_deleted: bool,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<HashMap<TableIdentUuid, LoadTableResponse>> {
+        load_tables(warehouse_id, tables, include_deleted, transaction).await
     }
 
     async fn get_table_metadata_by_id(
@@ -213,11 +218,10 @@ impl Catalog for super::Catalog {
 
     async fn commit_table_transaction<'a>(
         warehouse_id: WarehouseIdent,
-        request: CommitTransactionRequest,
-        table_ids: &HashMap<TableIdent, TableIdentUuid>,
+        commits: impl IntoIterator<Item = TableCommit> + Send,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
-    ) -> Result<Vec<CommitTableResponseExt>> {
-        commit_table_transaction(warehouse_id, request, table_ids, transaction).await
+    ) -> Result<()> {
+        commit_table_transaction(warehouse_id, commits, transaction).await
     }
 
     // ---------------- Management API ----------------
@@ -284,7 +288,7 @@ impl Catalog for super::Catalog {
         request: ViewMetadata,
         metadata_location: &str,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<ViewMetadata> {
+    ) -> Result<()> {
         create_view(
             namespace_id,
             metadata_location,
@@ -335,7 +339,7 @@ impl Catalog for super::Catalog {
         metadata_location: &str,
         metadata: ViewMetadata,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
-    ) -> Result<ViewMetadata> {
+    ) -> Result<()> {
         drop_view(view_id, transaction).await?;
         create_view(
             namespace_id,

@@ -10,12 +10,12 @@ pub mod tabular_idents;
 pub mod token_verification;
 
 pub use catalog::{
-    Catalog, CommitTableResponse, CommitTableResponseExt, CommitTransactionRequest,
-    CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, CreateTableResponse,
-    GetNamespaceResponse, GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse,
-    ListFlags, ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent,
-    Result, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
-    UpdateNamespacePropertiesResponse, ViewMetadataWithLocation,
+    Catalog, CommitTableResponse, CreateNamespaceRequest, CreateNamespaceResponse,
+    CreateTableRequest, CreateTableResponse, GetNamespaceResponse, GetStorageConfigResponse,
+    GetTableMetadataResponse, GetWarehouseResponse, ListFlags, ListNamespacesQuery,
+    ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result, TableCommit, TableIdent,
+    Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
+    ViewMetadataWithLocation,
 };
 use std::ops::Deref;
 
@@ -75,6 +75,12 @@ impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 pub struct NamespaceIdentUuid(uuid::Uuid);
 
+impl std::default::Default for NamespaceIdentUuid {
+    fn default() -> Self {
+        Self(uuid::Uuid::now_v7())
+    }
+}
+
 impl Deref for NamespaceIdentUuid {
     type Target = uuid::Uuid;
 
@@ -115,6 +121,12 @@ impl From<uuid::Uuid> for NamespaceIdentUuid {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 pub struct TableIdentUuid(uuid::Uuid);
 
+impl std::default::Default for TableIdentUuid {
+    fn default() -> Self {
+        Self(uuid::Uuid::now_v7())
+    }
+}
+
 impl std::fmt::Display for TableIdentUuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -147,6 +159,12 @@ impl FromStr for TableIdentUuid {
                 .source(Some(Box::new(e)))
                 .build()
         })?))
+    }
+}
+
+impl From<TableIdentUuid> for uuid::Uuid {
+    fn from(ident: TableIdentUuid) -> Self {
+        ident.0
     }
 }
 

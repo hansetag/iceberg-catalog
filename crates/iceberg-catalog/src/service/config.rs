@@ -2,7 +2,7 @@ use super::{Catalog, ProjectIdent, WarehouseIdent};
 use crate::api::{CatalogConfig, Result};
 
 #[async_trait::async_trait]
-#[allow(clippy::module_name_repetitions)]
+
 pub trait ConfigProvider<C: Catalog>
 where
     Self: Clone + Send + Sync + 'static,

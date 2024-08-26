@@ -5,7 +5,6 @@ pub use crate::service::storage::{
     AzCredential, AzdlsProfile, S3Credential, S3Profile, StorageCredential, StorageProfile,
 };
 
-#[allow(clippy::module_name_repetitions)]
 pub use crate::service::WarehouseStatus;
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
 use crate::{ProjectIdent, WarehouseIdent};
@@ -121,7 +120,7 @@ impl axum::response::IntoResponse for CreateWarehouseResponse {
 impl<C: Catalog, A: AuthZHandler, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
 
 #[async_trait::async_trait]
-#[allow(clippy::module_name_repetitions)]
+
 pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
     async fn create_warehouse(
         request: CreateWarehouseRequest,
@@ -140,8 +139,9 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         A::check_create_warehouse(&request_metadata, &project_ident, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
+        storage_profile.normalize()?;
         storage_profile
-            .validate(storage_credential.as_ref())
+            .validate_access(storage_credential.as_ref(), None)
             .await?;
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
@@ -355,8 +355,9 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             storage_credential,
         } = request;
 
+        storage_profile.normalize()?;
         storage_profile
-            .validate(storage_credential.as_ref())
+            .validate_access(storage_credential.as_ref(), None)
             .await?;
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
@@ -420,11 +421,11 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
         let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
-        let mut storage_profile = warehouse.storage_profile;
         let old_secret_id = warehouse.storage_secret_id;
+        let storage_profile = warehouse.storage_profile;
 
         storage_profile
-            .validate(new_storage_credential.as_ref())
+            .validate_access(new_storage_credential.as_ref(), None)
             .await?;
 
         let secret_id = if let Some(new_storage_credential) = new_storage_credential {

@@ -4,9 +4,13 @@ use crate::api::iceberg::v1::{
     UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 use crate::request_metadata::RequestMetadata;
+use crate::service::{GetWarehouseResponse, NamespaceIdentUuid};
 use crate::CONFIG;
 use http::StatusCode;
 use iceberg::NamespaceIdent;
+use iceberg_ext::configs::namespace::NamespaceProperties;
+use iceberg_ext::configs::{ConfigProperty as _, Location};
+use std::collections::HashMap;
 use std::ops::Deref;
 
 use super::{require_warehouse_id, CatalogServer};
@@ -14,7 +18,7 @@ use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, NamespaceIdentExt, State, Transaction as _,
 };
 
-pub const UNSUPPORTED_NAMESPACE_PROPERTIES: &[&str] = &["location"];
+pub const UNSUPPORTED_NAMESPACE_PROPERTIES: &[&str] = &[];
 // If this is increased, we need to modify namespace creation and deletion
 // to take care of the hierarchical structure.
 pub const MAX_NAMESPACE_DEPTH: i32 = 1;
@@ -65,9 +69,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } = &request;
 
         validate_namespace_ident(namespace)?;
+
         properties
             .as_ref()
-            .map(|p| validate_namespace_properties(p.keys()))
+            .map(|p| validate_namespace_properties_keys(p.keys()))
             .transpose()?;
 
         if CONFIG
@@ -92,8 +97,20 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
+        let namespace_id = NamespaceIdentUuid::default();
+        // Set location if not specified - validate location if specified
+
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let r = C::create_namespace(warehouse_id, request, t.transaction()).await?;
+        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+
+        let mut namespace_props = NamespaceProperties::try_from_maybe_props(properties.clone())
+            .map_err(|e| ErrorModel::bad_request(e.to_string(), e.err_type(), None))?;
+        set_namespace_location_property(&mut namespace_props, &warehouse, namespace_id)?;
+
+        let mut request = request;
+        request.properties = Some(namespace_props.into());
+
+        let r = C::create_namespace(warehouse_id, namespace_id, request, t.transaction()).await?;
         t.commit().await?;
         Ok(r)
     }
@@ -210,16 +227,19 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         //  ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(parameters.prefix)?;
         validate_namespace_ident(&parameters.namespace)?;
-        let UpdateNamespacePropertiesRequest { removals, updates } = &request;
+        let UpdateNamespacePropertiesRequest { removals, updates } = request;
         updates
             .as_ref()
-            .map(|p| validate_namespace_properties(p.keys()))
+            .map(|p| validate_namespace_properties_keys(p.keys()))
             .transpose()?;
         removals
             .as_ref()
-            .map(validate_namespace_properties)
+            .map(validate_namespace_properties_keys)
             .transpose()?;
 
+        namespace_location_may_not_changed(&updates, &removals)?;
+        let updates = NamespaceProperties::try_from_maybe_props(updates.clone())
+            .map_err(|e| ErrorModel::bad_request(e.to_string(), e.err_type(), None))?;
         //  ------------------- AUTHZ -------------------
         A::check_update_namespace_properties(
             &request_metadata,
@@ -231,10 +251,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         //  ------------------- BUSINESS LOGIC -------------------
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let r = C::update_namespace_properties(
+        let previous_properties =
+            C::get_namespace(warehouse_id, &parameters.namespace, t.transaction()).await?;
+        let (new_properties, r) =
+            update_namespace_properties(previous_properties.properties, updates, removals);
+        C::update_namespace_properties(
             warehouse_id,
             &parameters.namespace,
-            request,
+            new_properties,
             t.transaction(),
         )
         .await?;
@@ -251,7 +275,7 @@ pub(crate) fn uppercase_first_letter(s: &str) -> String {
     }
 }
 
-pub(crate) fn validate_namespace_properties<'a, I>(properties: I) -> Result<()>
+pub(crate) fn validate_namespace_properties_keys<'a, I>(properties: I) -> Result<()>
 where
     I: IntoIterator<Item = &'a String>,
 {
@@ -311,4 +335,159 @@ pub(crate) fn validate_namespace_ident(namespace: &NamespaceIdent) -> Result<()>
     }
 
     Ok(())
+}
+
+fn set_namespace_location_property(
+    namespace_props: &mut NamespaceProperties,
+    warehouse: &GetWarehouseResponse,
+    namespace_id: NamespaceIdentUuid,
+) -> Result<()> {
+    let mut location = namespace_props.get_location();
+
+    // NS locations should always have a trailing slash
+    location.as_mut().map(Location::with_trailing_slash);
+
+    // For customer specified location, we need to check if we can write to the location.
+    // If no location is specified, we use our default location.
+    let location = if let Some(location) = location {
+        if warehouse.storage_profile.is_allowed_location(&location) {
+            location
+        } else {
+            return Err(ErrorModel::bad_request(
+                "Namespace location is not a valid sublocation of the storage profile",
+                "NamespaceLocationForbidden",
+                None,
+            )
+            .into());
+        }
+    } else {
+        warehouse
+            .storage_profile
+            .default_namespace_location(namespace_id)?
+    };
+
+    namespace_props.insert(&location);
+    Ok(())
+}
+
+fn update_namespace_properties(
+    previous_properties: Option<HashMap<String, String>>,
+    updates: NamespaceProperties,
+    removals: Option<Vec<String>>,
+) -> (HashMap<String, String>, UpdateNamespacePropertiesResponse) {
+    let mut properties = previous_properties.unwrap_or_default();
+
+    let mut changes_updated = vec![];
+    let mut changes_removed = vec![];
+    let mut changes_missing = vec![];
+
+    for key in removals.unwrap_or_default() {
+        if properties.remove(&key).is_some() {
+            changes_removed.push(key.clone());
+        } else {
+            changes_missing.push(key.clone());
+        }
+    }
+
+    for (key, value) in updates {
+        // Push to updated if the value for the key is different.
+        // Also push on insert
+
+        if properties.insert(key.clone(), value.clone()) != Some(value) {
+            changes_updated.push(key);
+        }
+    }
+
+    (
+        properties,
+        UpdateNamespacePropertiesResponse {
+            updated: changes_updated,
+            removed: changes_removed,
+            missing: if changes_missing.is_empty() {
+                None
+            } else {
+                Some(changes_missing)
+            },
+        },
+    )
+}
+
+fn namespace_location_may_not_changed(
+    updates: &Option<HashMap<String, String>>,
+    removals: &Option<Vec<String>>,
+) -> Result<()> {
+    if removals
+        .as_ref()
+        .is_some_and(|r| r.contains(&Location::KEY.to_string()))
+    {
+        return Err(ErrorModel::bad_request(
+            "Namespace property `location` cannot be removed.",
+            "LocationCannotBeRemoved",
+            None,
+        )
+        .into());
+    }
+
+    if let Some(location) = updates.as_ref().and_then(|u| u.get(Location::KEY)) {
+        return Err(ErrorModel::bad_request(
+            "Namespace property `location` cannot be updated.",
+            "LocationCannotBeUpdated",
+            None,
+        )
+        .append_detail(format!("Location: {location:?}"))
+        .into());
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_update_ns_properties() {
+        use super::*;
+        let previous_properties = HashMap::from_iter(vec![
+            ("key1".to_string(), "value1".to_string()),
+            ("key2".to_string(), "value2".to_string()),
+            ("key3".to_string(), "value3".to_string()),
+            ("key5".to_string(), "value5".to_string()),
+        ]);
+
+        let updates = NamespaceProperties::from_props_unchecked(vec![
+            ("key1".to_string(), "value1".to_string()),
+            ("key2".to_string(), "value12".to_string()),
+        ]);
+
+        let removals = Some(vec!["key3".to_string(), "key4".to_string()]);
+
+        let (new_props, result) =
+            update_namespace_properties(Some(previous_properties), updates, removals);
+        assert_eq!(result.updated, vec!["key2".to_string()]);
+        assert_eq!(result.removed, vec!["key3".to_string()]);
+        assert_eq!(result.missing, Some(vec!["key4".to_string()]));
+        assert_eq!(
+            new_props,
+            HashMap::from_iter(vec![
+                ("key1".to_string(), "value1".to_string()),
+                ("key2".to_string(), "value12".to_string()),
+                ("key5".to_string(), "value5".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_update_ns_properties_empty_removal() {
+        use super::*;
+        let previous_properties = HashMap::from_iter(vec![]);
+        let updates = NamespaceProperties::from_props_unchecked(vec![]);
+        let removals = Some(vec![]);
+
+        let (new_props, result) =
+            update_namespace_properties(Some(previous_properties), updates, removals);
+        assert!(result.updated.is_empty());
+        assert!(result.removed.is_empty());
+        assert!(result.missing.is_none());
+        assert!(new_props.is_empty());
+    }
 }

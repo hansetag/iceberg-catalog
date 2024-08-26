@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::vec;
+use std::str::FromStr as _;
 
 use crate::api::iceberg::v1::{
     ApiContext, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
@@ -11,22 +11,25 @@ use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
+use iceberg_ext::configs::namespace::NamespaceProperties;
+use iceberg_ext::configs::Location;
 use serde::Serialize;
 use uuid::Uuid;
 
+use super::commit_tables::apply_commit;
 use super::{
-    io::write_metadata_file, namespace::validate_namespace_ident, require_warehouse_id,
-    CatalogServer,
+    io::write_metadata_file, maybe_get_secret, namespace::validate_namespace_ident,
+    require_warehouse_id, CatalogServer,
 };
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::storage::{Idents, StorageCredential, StoragePermissions};
+use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
-use crate::service::{GetWarehouseResponse, TableIdentUuid, WarehouseStatus};
+use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -83,13 +86,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
-        tracing::debug!("create_table: {:?}", request);
         // ------------------- VALIDATIONS -------------------
         let NamespaceParameters { namespace, prefix } = parameters;
         let warehouse_id = require_warehouse_id(prefix.clone())?;
         let table = TableIdent::new(namespace.clone(), request.name.clone());
         validate_table_or_view_ident(&table)?;
-        require_no_location_specified(&request.location)?;
 
         if let Some(properties) = &request.properties {
             validate_table_properties(properties.keys())?;
@@ -105,33 +106,23 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let namespace_id =
-            C::namespace_ident_to_id(warehouse_id, &namespace, state.v1_state.catalog.clone())
-                .await?
-                .ok_or(
-                    ErrorModel::builder()
-                        .code(StatusCode::NOT_FOUND.into())
-                        .message("Namespace does not exist".to_string())
-                        .r#type("NamespaceNotFound".to_string())
-                        .build(),
-                )?;
-
-        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let GetWarehouseResponse {
-            id: _,
-            name: _,
-            project_id: _,
-            storage_profile,
-            storage_secret_id,
-            status,
-        } = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
-        require_active_warehouse(status)?;
-
         let table_id: TabularIdentUuid = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-        let table_location = storage_profile.initial_tabular_location(namespace_id, table_id);
 
-        // This is the only place where we change request
-        request.location = Some(table_location.clone());
+        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let namespace = C::get_namespace(warehouse_id, &namespace, t.transaction()).await?;
+        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+        let storage_profile = warehouse.storage_profile;
+        require_active_warehouse(warehouse.status)?;
+
+        let table_location = determine_tabular_location(
+            &namespace,
+            request.location.clone(),
+            TabularIdentUuid::Table(*table_id),
+            &storage_profile,
+        )?;
+
+        // Update the request for event
+        request.location = Some(table_location.to_string());
         let request = request; // Make it non-mutable again for our sanity
 
         // If stage-create is true, we should not create the metadata file
@@ -139,7 +130,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             None
         } else {
             let metadata_id = uuid::Uuid::now_v7();
-            Some(storage_profile.initial_metadata_location(
+            Some(storage_profile.default_metadata_location(
                 &table_location,
                 &CompressionCodec::try_from_maybe_properties(request.properties.as_ref())?,
                 metadata_id,
@@ -150,25 +141,21 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let body = maybe_body_to_json(&request);
 
         let CreateTableResponse { table_metadata } = C::create_table(
-            namespace_id,
+            namespace.namespace_id,
             &table,
             TableIdentUuid::from(*table_id),
             request,
-            metadata_location.as_ref(),
-            transaction.transaction(),
+            metadata_location
+                .as_ref()
+                .map(iceberg_ext::configs::Location::as_str),
+            t.transaction(),
         )
         .await?;
 
         // We don't commit the transaction yet, first we need to write the metadata file.
-        let storage_secret = if let Some(secret_id) = &storage_secret_id {
-            Some(
-                state
-                    .v1_state
-                    .secrets
-                    .get_secret_by_id(secret_id)
-                    .await?
-                    .secret,
-            )
+        let storage_secret = if let Some(secret_id) = &warehouse.storage_secret_id {
+            let secret_state = state.v1_state.secrets;
+            Some(secret_state.get_secret_by_id(secret_id).await?.secret)
         } else {
             None
         };
@@ -185,34 +172,26 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .await?;
         };
 
-        // Generate the storage profile. This requires the storage secret
+        // This requires the storage secret
         // because the table config might contain vended-credentials based
         // on the `data_access` parameter.
-        // ToDo: There is a small inefficiency here: If storage credentials
-        // are not required because of i.e. remote-signing and if this
-        // is a stage-create, we still fetch the secret.
         let config = storage_profile
             .generate_table_config(
-                Idents {
-                    warehouse_ident: warehouse_id,
-                    namespace_ident: namespace_id,
-                    table_ident: TableIdentUuid::from(*table_id),
-                },
                 &data_access,
                 storage_secret.as_ref(),
-                table_metadata.location(),
+                &table_location,
                 // TODO: This should be a permission based on authz
                 StoragePermissions::ReadWriteDelete,
             )
             .await?;
         let load_table_result = LoadTableResult {
-            metadata_location,
+            metadata_location: metadata_location.map(|l| l.to_string()),
             metadata: table_metadata,
             config: Some(config.into()),
         };
 
         // Metadata file written, now we can commit the transaction
-        transaction.commit().await?;
+        t.commit().await?;
 
         emit_change_event(
             EventMetadata {
@@ -230,7 +209,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             state.v1_state.publisher.clone(),
         )
         .await;
-        tracing::debug!("create_table: {:?}", load_table_result);
         Ok(load_table_result)
     }
 
@@ -241,8 +219,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         _state: ApiContext<State<A, C, S>>,
         _request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
-        // ToDo: Should we support this?
-        // May be problematic if we don't know the location
         Err(ErrorModel::builder()
             .code(StatusCode::NOT_IMPLEMENTED.into())
             .message("Registering tables is not supported".to_string())
@@ -302,14 +278,19 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
+        let table_id = require_table_id(&table, table_id)?;
+        let mut t = C::Transaction::begin_read(state.v1_state.catalog).await?;
+        let mut metadatas =
+            C::load_tables(warehouse_id, vec![table_id], false, t.transaction()).await?;
         let CatalogLoadTableResult {
-            table_id,
-            namespace_id,
+            table_id: _,
+            namespace_id: _,
             table_metadata,
             metadata_location,
             storage_secret_ident,
             storage_profile,
-        } = C::load_table(warehouse_id, &table, state.v1_state.catalog).await?;
+        } = remove_table(&table_id, &table, &mut metadatas)?;
+        require_not_staged(&metadata_location)?;
 
         // ToDo: This is a small inefficiency: We fetch the secret even if it might
         // not be required based on the `data_access` parameter.
@@ -325,21 +306,22 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } else {
             None
         };
-        let table_location = table_metadata.location().to_string();
+        let table_location = Location::from_str(table_metadata.location()).map_err(|e| {
+            ErrorModel::internal(
+                format!("Invalid table location in DB: {e}"),
+                "InvalidViewLocation",
+                Some(Box::new(e)),
+            )
+        })?;
         let load_table_result = LoadTableResult {
             metadata_location,
             metadata: table_metadata,
             config: Some(
                 storage_profile
                     .generate_table_config(
-                        Idents {
-                            warehouse_ident: warehouse_id,
-                            namespace_ident: namespace_id,
-                            table_ident: TableIdentUuid::from(*table_id),
-                        },
                         &data_access,
                         storage_secret.as_ref(),
-                        table_location.as_ref(),
+                        &table_location,
                         // TODO: This should be a permission based on authz
                         StoragePermissions::ReadWriteDelete,
                     )
@@ -361,79 +343,19 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     ) -> Result<CommitTableResponse> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(parameters.prefix.clone())?;
+        let TableParameters { table, prefix } = parameters;
 
-        if let Some(identifier) = &request.identifier {
-            if identifier != &parameters.table {
-                // When querying a branch, spark sends something like:
-                // namespace: (<my>, <namespace>, <table_name>)
-                // table_name: branch_<branch_name>
-                let ns_parts = parameters.table.namespace.clone().inner();
-                let table_name_candidate = if ns_parts.len() >= 2 {
-                    NamespaceIdent::from_vec(
-                        ns_parts.iter().take(ns_parts.len() - 1).cloned().collect(),
-                    )
-                    .ok()
-                    .map(|n| TableIdent::new(n, ns_parts.last().cloned().unwrap_or_default()))
-                } else {
-                    None
-                };
-
-                if table_name_candidate != Some(identifier.clone()) {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::BAD_REQUEST.into())
-                        .message(
-                            "Table identifier in path does not match the one in the request body"
-                                .to_string(),
-                        )
-                        .r#type("TableIdentifierMismatch".to_string())
-                        .build()
-                        .into());
-                }
-            }
-        }
-
-        if request.identifier.is_none() {
-            request.identifier = Some(parameters.table.clone());
-        }
-        if let Some(ref mut identifier) = request.identifier {
-            validate_table_or_view_ident(identifier)?;
-        }
-        // Make it non-mutable again for our sanity
-        let request = request;
-
-        let CommitTableRequest {
-            identifier,
-            // If requirements are validated in the future
-            // also add validation to commit_transaction
-            requirements: _,
-            updates,
-        } = &request;
-
-        validate_table_updates(updates)?;
-        identifier
-            .as_ref()
-            .map(validate_table_or_view_ident)
-            .transpose()?;
-
-        if let Some(identifier) = identifier {
-            if identifier != &parameters.table {
-                return Err(ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message(
-                        "Table identifier in path does not match the one in the request body"
-                            .to_string(),
-                    )
-                    .r#type("TableIdentifierMismatch".to_string())
-                    .build()
-                    .into());
-            }
-        }
+        let table_ident = determine_table_ident(table, request.identifier)?;
+        // Fix identifier in request for emitted event
+        request.identifier = Some(table_ident.clone());
+        validate_table_or_view_ident(&table_ident)?;
+        validate_table_updates(&request.updates)?;
 
         // ------------------- AUTHZ -------------------
         let include_staged = true;
         let table_id = C::table_ident_to_id(
             warehouse_id,
-            &parameters.table,
+            &table_ident,
             ListFlags {
                 include_staged,
                 include_deleted: false,
@@ -449,98 +371,83 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             &request_metadata,
             warehouse_id,
             table_id,
-            Some(&parameters.table.namespace),
+            Some(&table_ident.namespace),
             state.v1_state.auth,
         )
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let table_id = table_id.ok_or_else(|| {
-            ErrorModel::builder()
-                .code(StatusCode::NOT_FOUND.into())
-                .message(format!("Table does not exist in warehouse {warehouse_id}"))
-                .r#type("TableNotFound".to_string())
-                .build()
-        })?;
-
-        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let table_id = require_table_id(&table_ident, table_id)?;
         // serialize body before moving it
         let body = maybe_body_to_json(&request);
+        let CommitTableRequest {
+            identifier: _,
+            requirements,
+            updates,
+        } = request;
 
-        let updates = updates.clone();
+        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let mut previous_table =
+            C::load_tables(warehouse_id, vec![table_id], false, t.transaction()).await?;
+        let previous_table = remove_table(&table_id, &table_ident, &mut previous_table)?;
+        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
 
-        let transaction_request = CommitTransactionRequest {
-            table_changes: vec![request],
-        };
-        let table_ids = HashMap::from_iter(vec![(parameters.table.clone(), table_id)]);
-        let result = C::commit_table_transaction(
-            warehouse_id,
-            transaction_request,
-            &table_ids,
-            transaction.transaction(),
-        )
-        .await?;
-
-        if result.len() > 1 {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("More than one result from commit_table_transaction".to_string())
-                .r#type("MoreThanOneResultFromCommitTableTransaction".to_string())
-                .build()
-                .into());
-        }
-        // Get the first and only result
-        let result = result.into_iter().next().ok_or(
-            ErrorModel::builder()
-                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("No result from commit_table_transaction".to_string())
-                .r#type("NoResultFromCommitTableTransaction".to_string())
-                .build(),
-        )?;
+        // Contract verification
         state
             .v1_state
             .contract_verifiers
-            .check_table_updates(&updates, &result.previous_table_metadata)
+            .check_table_updates(&updates, &previous_table.table_metadata)
             .await?
             .into_result()?;
-        // We don't commit the transaction yet, first we need to write the metadata file.
-        let storage_secret = if let Some(secret_id) = &result.storage_config.storage_secret_ident {
-            Some(
-                state
-                    .v1_state
-                    .secrets
-                    .get_secret_by_id(secret_id)
-                    .await?
-                    .secret,
+
+        // Apply changes
+        let new_metadata = apply_commit(
+            previous_table.table_metadata,
+            &previous_table.metadata_location,
+            &requirements,
+            updates,
+        )?;
+        let new_table_location = Location::from_str(new_metadata.location()).map_err(|e| {
+            ErrorModel::internal(
+                format!("Invalid new table location: {e}"),
+                "InvalidTableLocation",
+                Some(Box::new(e)),
             )
-        } else {
-            None
+        })?;
+        let new_compression_codec = CompressionCodec::try_from_metadata(&new_metadata)?;
+        let new_metadata_location = previous_table.storage_profile.default_metadata_location(
+            &new_table_location,
+            &new_compression_codec,
+            uuid::Uuid::now_v7(),
+        );
+        let commit = TableCommit {
+            new_metadata,
+            new_metadata_location,
         };
+        C::commit_table_transaction(warehouse_id, vec![commit.clone()], t.transaction()).await?;
+
+        // We don't commit the transaction yet, first we need to write the metadata file.
+        let storage_secret =
+            maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
 
         // Write metadata file
-        let file_io = result
-            .storage_config
-            .storage_profile
-            .file_io(storage_secret.as_ref())?;
-        let compression_codec =
-            CompressionCodec::try_from_metadata(&result.commit_response.metadata)?;
+        let file_io = warehouse.storage_profile.file_io(storage_secret.as_ref())?;
         write_metadata_file(
-            &result.commit_response.metadata_location,
-            &result.commit_response.metadata,
-            compression_codec,
+            &commit.new_metadata_location,
+            &commit.new_metadata,
+            new_compression_codec,
             &file_io,
         )
         .await?;
 
-        transaction.commit().await?;
+        t.commit().await?;
         emit_change_event(
             EventMetadata {
-                tabular_id: TabularIdentUuid::Table(*table_id),
+                tabular_id: TabularIdentUuid::Table(*previous_table.table_id),
                 warehouse_id: *warehouse_id,
-                name: parameters.table.name,
-                namespace: parameters.table.namespace.to_url_string(),
-                prefix: parameters
-                    .prefix
+                name: table_ident.name,
+                namespace: table_ident.namespace.to_url_string(),
+                prefix: prefix
                     .map(crate::api::iceberg::types::Prefix::into_string)
                     .unwrap_or_default(),
 
@@ -554,7 +461,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         )
         .await;
 
-        Ok(result.commit_response)
+        Ok(CommitTableResponse {
+            metadata_location: commit.new_metadata_location.to_string(),
+            metadata: commit.new_metadata,
+            config: None,
+        })
     }
 
     /// Drop a table from the catalog
@@ -798,23 +709,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     ) -> Result<()> {
         // ------------------- VALIDATIONS -------------------
         let warehouse_id = require_warehouse_id(prefix.clone())?;
-        let CommitTransactionRequest { table_changes } = &request;
-        for change in table_changes {
-            let CommitTableRequest {
-                identifier,
-                // If requirements are validated in the future
-                // also add validation to commit_table
-                requirements: _,
-                updates,
-            } = change;
-
-            validate_table_updates(updates)?;
-            identifier
+        for change in &request.table_changes {
+            validate_table_updates(&change.updates)?;
+            change
+                .identifier
                 .as_ref()
                 .map(validate_table_or_view_ident)
                 .transpose()?;
 
-            if identifier.is_none() {
+            if change.identifier.is_none() {
                 return Err(ErrorModel::builder()
                         .code(StatusCode::BAD_REQUEST.into())
                         .message(
@@ -829,7 +732,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- AUTHZ -------------------
         let include_staged = true;
-        let identifiers = table_changes
+        let identifiers = request
+            .table_changes
             .iter()
             .filter_map(|change| change.identifier.as_ref())
             .collect::<HashSet<_>>();
@@ -874,27 +778,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         futures::future::try_join_all(auth_checks).await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let table_ids = table_ids
-            .into_iter()
-            .map(|(table_ident, table_id)| {
-                if let Some(table_id) = table_id {
-                    Ok((table_ident, table_id))
-                } else {
-                    Err(ErrorModel::builder()
-                        .code(StatusCode::NOT_FOUND.into())
-                        .message(format!(
-                            "Table {table_ident:#?} does not exist in warehouse {warehouse_id}"
-                        ))
-                        .r#type("TableNotFound".to_string())
-                        .build()
-                        .into())
-                }
-            })
-            .collect::<Result<std::collections::HashMap<_, _>>>()?;
+        let table_ids = require_table_ids(table_ids)?;
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
 
-        // serialize request body before moving it here
+        // Store data for events before it is moved
         let mut events = vec![];
         let mut event_table_ids: Vec<(TableIdent, TableIdentUuid)> = vec![];
         let mut updates = vec![];
@@ -908,22 +797,77 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             }
         }
 
-        let commit_response = C::commit_table_transaction(
+        // Load old metadata
+        let mut previous_metadatas = C::load_tables(
             warehouse_id,
-            request,
-            &table_ids,
+            table_ids.values().copied(),
+            false,
             transaction.transaction(),
         )
         .await?;
-        let futures = updates
-            .iter()
-            .zip(&commit_response)
-            .map(|(update, response)| {
-                state
-                    .v1_state
-                    .contract_verifiers
-                    .check_table_updates(update, &response.previous_table_metadata)
-            });
+
+        // Apply changes
+        let commits = request
+            .table_changes
+            .into_iter()
+            .map(|change| {
+                let table_ident = change.identifier.ok_or_else(||
+                    // This should never happen due to validation
+                    ErrorModel::internal(
+                        "Change without Identifier",
+                        "ChangeWithoutIdentifier",
+                        None,
+                    ))?;
+                let table_id =
+                    require_table_id(&table_ident, table_ids.get(&table_ident).copied())?;
+                let previous_table =
+                    remove_table(&table_id, &table_ident, &mut previous_metadatas)?;
+                let new_metadata = apply_commit(
+                    previous_table.table_metadata.clone(),
+                    &previous_table.metadata_location,
+                    &change.requirements,
+                    change.updates.clone(),
+                )?;
+                let new_table_location =
+                    Location::from_str(new_metadata.location()).map_err(|e| {
+                        ErrorModel::internal(
+                            format!("Invalid new table location: {e}"),
+                            "InvalidTableLocation",
+                            Some(Box::new(e)),
+                        )
+                    })?;
+                let new_compression_codec = CompressionCodec::try_from_metadata(&new_metadata)?;
+                let new_metadata_location =
+                    previous_table.storage_profile.default_metadata_location(
+                        &new_table_location,
+                        &new_compression_codec,
+                        uuid::Uuid::now_v7(),
+                    );
+                Ok(CommitContext {
+                    new_metadata,
+                    new_metadata_location,
+                    new_compression_codec,
+                    updates: change.updates,
+                    previous_metadata: previous_table.table_metadata,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        // Commit changes in DB
+        C::commit_table_transaction(
+            warehouse_id,
+            commits.iter().map(CommitContext::commit),
+            transaction.transaction(),
+        )
+        .await?;
+
+        // Check contract verification
+        let futures = commits.iter().map(|c| {
+            state
+                .v1_state
+                .contract_verifiers
+                .check_table_updates(&c.updates, &c.previous_metadata)
+        });
 
         futures::future::try_join_all(futures)
             .await?
@@ -932,55 +876,23 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .collect::<Result<Vec<()>, ErrorModel>>()?;
 
         // We don't commit the transaction yet, first we need to write the metadata file.
-        // Fetch all secrets concurrently
-        let storage_secrets = futures::future::try_join_all(
-            commit_response
-                .iter()
-                .filter_map(|r| r.storage_config.storage_secret_ident.as_ref())
-                //unique
-                .collect::<HashSet<_>>()
-                .into_iter()
-                .map(|secret_id| state.v1_state.secrets.get_secret_by_id(secret_id)),
-        )
-        .await?;
-        let storage_secrets: HashMap<_, StorageCredential> = storage_secrets
-            .into_iter()
-            .map(|r| (r.secret_id, r.secret))
-            .collect();
+        let storage_secret =
+            maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
 
         // Write metadata files
-        let commit_response_with_io = commit_response
+        let file_io = warehouse.storage_profile.file_io(storage_secret.as_ref())?;
+
+        let write_futures: Vec<_> = commits
             .iter()
-            .map(|r| {
-                let storage_secret = r
-                    .storage_config
-                    .storage_secret_ident
-                    .as_ref()
-                    .and_then(|secret_id| storage_secrets.get(secret_id))
-                    .cloned();
-                let file_io = r
-                    .storage_config
-                    .storage_profile
-                    .file_io(storage_secret.as_ref())
-                    .map(|io| (r, io))
-                    .map_err(Into::into);
-                file_io
+            .map(|commit| {
+                write_metadata_file(
+                    &commit.new_metadata_location,
+                    &commit.new_metadata,
+                    commit.new_compression_codec,
+                    &file_io,
+                )
             })
-            .collect::<Result<Vec<_>>>()?;
-
-        let mut write_futures = vec![];
-        for response in &commit_response_with_io {
-            let (r, io) = response;
-            let compression_codec =
-                CompressionCodec::try_from_metadata(&r.commit_response.metadata)?;
-            write_futures.push(write_metadata_file(
-                &r.commit_response.metadata_location,
-                &r.commit_response.metadata,
-                compression_codec,
-                io,
-            ));
-        }
-
+            .collect();
         futures::future::try_join_all(write_futures).await?;
 
         transaction.commit().await?;
@@ -1014,16 +926,172 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     }
 }
 
-pub(crate) fn require_no_location_specified(location: &Option<String>) -> Result<()> {
-    if location.is_some() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Specifying a Table `location` is not supported. Location is managed by the Catalog.".to_string())
-            .r#type("LocationNotSupported".to_string())
-            .build()
-            .into());
+struct CommitContext {
+    pub new_metadata: iceberg::spec::TableMetadata,
+    pub new_metadata_location: Location,
+    pub previous_metadata: iceberg::spec::TableMetadata,
+    pub updates: Vec<TableUpdate>,
+    pub new_compression_codec: CompressionCodec,
+}
+
+impl CommitContext {
+    fn commit(&self) -> TableCommit {
+        TableCommit {
+            new_metadata: self.new_metadata.clone(),
+            new_metadata_location: self.new_metadata_location.clone(),
+        }
     }
+}
+
+fn determine_table_ident(
+    parameters_ident: TableIdent,
+    request_ident: Option<TableIdent>,
+) -> Result<TableIdent> {
+    let Some(identifier) = request_ident else {
+        return Ok(parameters_ident);
+    };
+
+    if identifier == parameters_ident {
+        return Ok(identifier);
+    }
+
+    // Below is for the tricky case: We have a conflict.
+    // When querying a branch, spark sends something like the following as part of the `parameters`:
+    // namespace: (<my>, <namespace>, <table_name>)
+    // table_name: branch_<branch_name>
+    let ns_parts = parameters_ident.namespace.clone().inner();
+    let table_name_candidate = if ns_parts.len() >= 2 {
+        NamespaceIdent::from_vec(ns_parts.iter().take(ns_parts.len() - 1).cloned().collect())
+            .ok()
+            .map(|n| TableIdent::new(n, ns_parts.last().cloned().unwrap_or_default()))
+    } else {
+        None
+    };
+
+    if table_name_candidate != Some(identifier.clone()) {
+        return Err(ErrorModel::bad_request(
+            "Table identifier in path does not match the one in the request body",
+            "TableIdentifierMismatch",
+            None,
+        )
+        .into());
+    }
+
+    Ok(identifier)
+}
+
+pub(super) fn determine_tabular_location(
+    namespace: &GetNamespaceResponse,
+    request_table_location: Option<String>,
+    table_id: TabularIdentUuid,
+    storage_profile: &StorageProfile,
+) -> Result<Location> {
+    let request_table_location = request_table_location
+        .map(|l| Location::from_str(&l))
+        .transpose()
+        .map_err(|e| {
+            ErrorModel::bad_request(
+                format!("Specified table location is invalid: {e}"),
+                "InvalidTableLocation",
+                Some(Box::new(e)),
+            )
+        })?;
+
+    if let Some(location) = request_table_location {
+        if !storage_profile.is_allowed_location(&location) {
+            return Err(ErrorModel::bad_request(
+                format!("Specified table location is not allowed: {location}"),
+                "InvalidTableLocation",
+                None,
+            )
+            .into());
+        }
+
+        Ok(location)
+    } else {
+        let namespace_props = NamespaceProperties::from_props_unchecked(
+            namespace.properties.clone().unwrap_or_default(),
+        );
+
+        let namespace_location = match namespace_props.get_location() {
+            Some(location) => location,
+            None => storage_profile
+                .default_namespace_location(namespace.namespace_id)
+                .map_err(|e| {
+                    ErrorModel::internal(
+                        "Failed to generate default namespace location",
+                        "InvalidDefaultNamespaceLocaiton",
+                        Some(Box::new(e)),
+                    )
+                })?,
+        };
+
+        Ok(storage_profile.default_tabular_location(&namespace_location, table_id))
+    }
+}
+
+fn require_table_ids(
+    table_ids: HashMap<TableIdent, Option<TableIdentUuid>>,
+) -> Result<HashMap<TableIdent, TableIdentUuid>> {
+    table_ids
+        .into_iter()
+        .map(|(table_ident, table_id)| {
+            if let Some(table_id) = table_id {
+                Ok((table_ident, table_id))
+            } else {
+                Err(ErrorModel::not_found(
+                    format!("Table {table_ident:#?} does not exist."),
+                    "TableNotFound",
+                    None,
+                )
+                .into())
+            }
+        })
+        .collect::<Result<std::collections::HashMap<_, _>>>()
+}
+
+fn require_table_id(
+    table_ident: &TableIdent,
+    table_id: Option<TableIdentUuid>,
+) -> Result<TableIdentUuid> {
+    table_id.ok_or_else(|| {
+        ErrorModel::not_found(
+            format!("Table {table_ident:#?} does not exist."),
+            "TableNotFound",
+            None,
+        )
+        .into()
+    })
+}
+
+fn require_not_staged(metadata_location: &Option<String>) -> Result<()> {
+    if metadata_location.is_none() {
+        return Err(ErrorModel::not_found(
+            "Table not found or staged.",
+            "TableNotFoundOrStaged",
+            None,
+        )
+        .into());
+    }
+
     Ok(())
+}
+
+fn remove_table<T>(
+    table_id: &TableIdentUuid,
+    table_ident: &TableIdent,
+    metadatas: &mut HashMap<TableIdentUuid, T>,
+) -> Result<T> {
+    metadatas
+        .remove(table_id)
+        .ok_or_else(|| {
+            ErrorModel::not_found(
+                format!("Table {table_ident:#?} does not exist."),
+                "TableNotFound",
+                None,
+            )
+        })
+        .map_err(Into::into)
 }
 
 pub(crate) fn require_active_warehouse(status: WarehouseStatus) -> Result<()> {
@@ -1049,6 +1117,8 @@ async fn emit_change_event(
         .await;
 }
 
+// Quick validation of properties for early fails.
+// Full validation is performed when changes are applied.
 fn validate_table_updates(updates: &Vec<TableUpdate>) -> Result<()> {
     for update in updates {
         match update {

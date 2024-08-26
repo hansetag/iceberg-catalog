@@ -1,8 +1,7 @@
 use crate::SecretIdent;
 use iceberg::spec::{TableMetadata, ViewMetadata};
-pub use iceberg_ext::catalog::rest::{
-    CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
-};
+pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
+use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
 
 use super::{
@@ -79,14 +78,6 @@ pub struct GetStorageConfigResponse {
     pub storage_secret_ident: Option<SecretIdent>,
 }
 
-/// Extends the `CommitTableResponse` with the storage config.
-#[derive(Debug)]
-pub struct CommitTableResponseExt {
-    pub commit_response: CommitTableResponse,
-    pub storage_config: GetStorageConfigResponse,
-    pub previous_table_metadata: TableMetadata,
-}
-
 #[derive(Debug, Clone)]
 pub struct GetWarehouseResponse {
     /// ID of the warehouse.
@@ -103,8 +94,13 @@ pub struct GetWarehouseResponse {
     pub status: WarehouseStatus,
 }
 
+#[derive(Debug, Clone)]
+pub struct TableCommit {
+    pub new_metadata: TableMetadata,
+    pub new_metadata_location: Location,
+}
+
 #[async_trait::async_trait]
-#[allow(clippy::module_name_repetitions)]
 pub trait Catalog
 where
     Self: Clone + Send + Sync + 'static,
@@ -121,6 +117,7 @@ where
 
     async fn create_namespace<'a>(
         warehouse_id: WarehouseIdent,
+        namespace_id: NamespaceIdentUuid,
         request: CreateNamespaceRequest,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateNamespaceResponse>;
@@ -149,12 +146,16 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
+    /// Update the properties of a namespace.
+    ///
+    /// The properties are the final key-value properties that should
+    /// be persisted as-is in the catalog.
     async fn update_namespace_properties<'a>(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
-        request: UpdateNamespacePropertiesRequest,
+        properties: HashMap<String, String>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<UpdateNamespacePropertiesResponse>;
+    ) -> Result<()>;
 
     async fn create_table<'a>(
         namespace_id: NamespaceIdentUuid,
@@ -162,7 +163,7 @@ where
         table_id: TableIdentUuid,
         request: CreateTableRequest,
         // Metadata location may be none if stage-create is true
-        metadata_location: Option<&String>,
+        metadata_location: Option<&str>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateTableResponse>;
 
@@ -195,11 +196,15 @@ where
         catalog_state: Self::State,
     ) -> Result<HashMap<TableIdent, Option<TableIdentUuid>>>;
 
-    async fn load_table(
+    /// Load tables by table id.
+    /// Does not return staged tables.
+    /// If a table does not exist, do not include it in the response.
+    async fn load_tables<'a>(
         warehouse_id: WarehouseIdent,
-        table: &TableIdent,
-        catalog_state: Self::State,
-    ) -> Result<LoadTableResponse>;
+        tables: impl IntoIterator<Item = TableIdentUuid> + Send,
+        include_deleted: bool,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<HashMap<TableIdentUuid, LoadTableResponse>>;
 
     /// Get table metadata by table id.
     /// If include_staged is true, also return staged tables,
@@ -241,10 +246,9 @@ where
     /// The table might be staged or not.
     async fn commit_table_transaction<'a>(
         warehouse_id: WarehouseIdent,
-        request: CommitTransactionRequest,
-        table_ids: &HashMap<TableIdent, TableIdentUuid>,
+        commits: impl IntoIterator<Item = TableCommit> + Send,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<Vec<CommitTableResponseExt>>;
+    ) -> Result<()>;
 
     // ---------------- Warehouse Management API ----------------
 
@@ -323,7 +327,7 @@ where
         request: ViewMetadata,
         metadata_location: &str,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<ViewMetadata>;
+    ) -> Result<()>;
 
     async fn load_view<'a>(
         view_id: TableIdentUuid,
@@ -346,7 +350,7 @@ where
         metadata_location: &str,
         metadata: ViewMetadata,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
-    ) -> Result<ViewMetadata>;
+    ) -> Result<()>;
 
     async fn drop_view<'a>(
         view_id: TableIdentUuid,

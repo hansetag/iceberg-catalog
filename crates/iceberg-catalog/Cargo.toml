@@ -26,9 +26,9 @@ async-nats = { workspace = true, optional = true }
 async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-credential-types = { version = "^1.2", optional = true }
+aws-sdk-s3 = { version = "1.42.0" }
 aws-sdk-sts = { workspace = true }
 aws-sigv4 = { version = "^1.2", optional = true }
-aws-sdk-s3 = { version = "1.42.0" }
 axum = { workspace = true }
 axum-extra = { workspace = true, features = ["typed-header"] }
 axum-prometheus = { workspace = true }
@@ -49,9 +49,10 @@ iceberg-ext = { path = "../iceberg-ext", features = ["axum"] }
 itertools = { workspace = true }
 jsonwebtoken = "9.3.0"
 jwks_client_rs = { workspace = true }
+lazy-regex = { workspace = true }
 lazy_static = { workspace = true }
 maplit = { workspace = true }
-lazy-regex = { workspace = true }
+rand = "0.8.5"
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
@@ -59,6 +60,7 @@ sqlx = { workspace = true, optional = true, features = ["tls-rustls"] }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true, optional = true, features = [
@@ -72,15 +74,12 @@ urlencoding = { workspace = true }
 utoipa = { workspace = true, features = ["uuid"] }
 utoipa-swagger-ui = { workspace = true }
 uuid = { workspace = true }
-
 vaultrs = "0.7.2"
 vaultrs-login = "0.2.1"
-
 veil = { workspace = true }
-rand = "0.8.5"
 
 [dev-dependencies]
 http-body-util = { workspace = true }
-tower = { workspace = true }
 needs_env_var = { workspace = true }
+tower = { workspace = true }
 tracing-subscriber = { workspace = true }

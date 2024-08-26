@@ -7,7 +7,7 @@ If you just want a quick glimpse, use the self-contained Quickstart describe in 
 There are multiple ways to deploy the catalog. It ships as a single standalone binary that can be deployed anywhere you like. For high availability, we recommend to [Deploy on Kubernetes](#deployment-on-kubernetes).
 
 ## Deployment on Kubernetes
-We recommend deploying the catalog on Kubernetes using our [Helm Chart](https://github.com/hansetag/iceberg-catalog-charts/tree/main/charts/iceberg-catalog). Please check the Helm Chart's documentation for possible values.
+We recommend deploying the catalog on Kubernetes using our [Helm Chart](https://github.com/hansetag/tip-catalog-charts/tree/main/charts/tip-catalog). Please check the Helm Chart's documentation for possible values.
 
 ## Deployment Standalone
 For single node deployments, you can also download the Binary from [Github Releases](https://github.com/hansetag/iceberg-catalog/releases).

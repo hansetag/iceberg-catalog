@@ -10,7 +10,7 @@ use std::collections::HashSet;
 type Result<T> = std::result::Result<T, ErrorModel>;
 
 #[derive(Debug)]
-#[allow(clippy::module_name_repetitions)]
+
 pub(crate) struct PartitionSpecBinder {
     spec_id: i32,
     schema: SchemaRef,
@@ -266,9 +266,9 @@ mod test {
                 .into(),
             UnboundPartitionSpec::builder()
                 .with_spec_id(0)
-                .with_fields(spec_fields)
-                .build()
-                .expect("Cannot create `unbounded_spec` mock."),
+                .add_partition_fields(spec_fields)
+                .expect("Cannot create `unbounded_spec` mock.")
+                .build(),
         )
     }
 

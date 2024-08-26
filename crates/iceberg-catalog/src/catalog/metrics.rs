@@ -15,7 +15,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         _: ApiContext<State<A, C, S>>,
         _: RequestMetadata,
     ) -> Result<()> {
-        // ToDo: implement
         Ok(())
     }
 }

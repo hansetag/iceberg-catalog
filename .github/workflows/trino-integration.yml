@@ -1,4 +1,4 @@
-name: Examples Test
+name: Trino Integration
 
 on:
   push:
@@ -18,20 +18,6 @@ concurrency:
 jobs:
   docker:
     runs-on: ubuntu-24.04
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
     steps:
       - uses: actions/checkout@v4
 
@@ -45,8 +31,6 @@ jobs:
         run: |
           DOCKER_BUILDKIT=1 docker build -t localhost/iceberg-catalog-local:amd64 \
           -f docker/full.Dockerfile .
-          #            --add-host=host.docker.internal:host-gateway \
-          #            --build-arg DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/postgres .
           docker save -o /tmp/iceberg-catalog-amd64.tar localhost/iceberg-catalog-local:amd64
 
       - name: Save Docker
@@ -55,7 +39,7 @@ jobs:
           name: iceberg-catalog-image
           path: /tmp/*.tar
 
-  test-examples:
+  test-trino:
     needs: docker
     runs-on: ubuntu-latest
     steps:
@@ -74,19 +58,14 @@ jobs:
         run: |
           docker load -i artifacts/iceberg-catalog-amd64.tar
 
-      - name: Test Examples
+      - name: Test Pyspark
         run: |
-          cd examples &&
-          sed -i 'sXquay.io/hansetag/tip-catalog:latest/Xlocalhost/iceberg-catalog-local:amd64Xg' docker-compose.yaml &&
-          docker compose up -d &&
-          # retry 10 times with 1 second sleep if server becomes healthy
-            for i in {1..10}; do
-                docker inspect --format='{{json .State.Health.Status}}' examples-server-1 | grep healthy && break || sleep 1;
-            done
-          # retry 10 times with 1 second sleep if initialproject exits with 0
-            for i in {1..10}; do
-                docker inspect --format='{{json .State.ExitCode}}' examples-initialproject-1 | grep 0 && break || sleep 1;
-            done
+          cd tests &&
+          docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_trino.sh"
+
+        env:
+          ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
+          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
       - name: Dump docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2

@@ -40,7 +40,6 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Clone, Deserialize, Serialize, PartialEq, Redact)]
-#[allow(clippy::module_name_repetitions)]
 /// Configuration of this Module
 pub struct DynAppConfig {
     /// Base URL for this REST Catalog.

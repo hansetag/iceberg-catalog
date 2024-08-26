@@ -1,14 +1,17 @@
+use std::str::FromStr as _;
+
 use crate::api::iceberg::v1::{DataAccess, ViewParameters};
 use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{require_active_warehouse, validate_table_or_view_ident};
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
-use crate::service::storage::{Idents, StorageCredential, StoragePermissions};
+use crate::service::storage::{StorageCredential, StoragePermissions};
 use crate::service::{Catalog, SecretStore, State, Transaction, ViewMetadataWithLocation};
 use crate::service::{GetWarehouseResponse, Result};
 use http::StatusCode;
 use iceberg_ext::catalog::rest::{ErrorModel, LoadViewResult};
+use iceberg_ext::configs::Location;
 
 pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     parameters: ViewParameters,
@@ -50,20 +53,6 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     .await?;
 
     // ------------------- BUSINESS LOGIC -------------------
-    let namespace_id = C::namespace_ident_to_id(
-        warehouse_id,
-        &view.namespace,
-        state.v1_state.catalog.clone(),
-    )
-    .await?
-    .ok_or(
-        ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Namespace does not exist".to_string())
-            .r#type("NamespaceNotFound".to_string())
-            .build(),
-    )?;
-
     let view_id = view_id.transpose()?.ok_or_else(|| {
         tracing::debug!("View does not exist.");
         ErrorModel::builder()
@@ -89,6 +78,14 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         metadata: view_metadata,
     } = C::load_view(view_id, false, transaction.transaction()).await?;
 
+    let view_location = Location::from_str(&view_metadata.location).map_err(|e| {
+        ErrorModel::internal(
+            format!("Invalid view location in DB: {e}"),
+            "InvalidViewLocation",
+            Some(Box::new(e)),
+        )
+    })?;
+
     // We don't commit the transaction yet, first we need to write the metadata file.
     let storage_secret: Option<StorageCredential> = if let Some(secret_id) = &storage_secret_id {
         Some(
@@ -105,14 +102,9 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     let access = storage_profile
         .generate_table_config(
-            Idents {
-                warehouse_ident: warehouse_id,
-                namespace_ident: namespace_id,
-                table_ident: view_metadata.uuid().into(),
-            },
             &data_access,
             storage_secret.as_ref(),
-            view_metadata.location.as_ref(),
+            &view_location,
             // TODO: This should be a permission based on authz
             StoragePermissions::ReadWriteDelete,
         )
