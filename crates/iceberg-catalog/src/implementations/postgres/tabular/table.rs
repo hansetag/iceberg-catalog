@@ -24,7 +24,7 @@ use crate::implementations::postgres::tabular::{
 };
 use iceberg::spec::FormatVersion;
 use sqlx::types::Json;
-use sqlx::{PgConnection, Postgres, Transaction};
+use sqlx::PgConnection;
 use std::default::Default;
 use std::{
     collections::{HashMap, HashSet},
@@ -288,10 +288,10 @@ pub(crate) async fn create_table(
 
     for log in snapshot_log {
         let _ = sqlx::query!(
-            r#"INSERT INTO table_snapshot_log(snapshot_id, table_id, snapshot_id_log) VALUES ($1, $2, $3)"#,
+            r#"INSERT INTO table_snapshot_log(snapshot_id, table_id, timestamp) VALUES ($1, $2, $3)"#,
             log.snapshot_id,
             tabular_id,
-            log.snapshot_id_log
+            log.timestamp_ms()
         )
         .execute(&mut **transaction)
         .await
@@ -303,9 +303,10 @@ pub(crate) async fn create_table(
 
     for log in metadata_log {
         let _ = sqlx::query!(
-            r#"INSERT INTO table_metadata_log(table_id, timestamp, metadata_file) VALUES ($1, $2)"#,
+            r#"INSERT INTO table_metadata_log(table_id, timestamp, metadata_file) VALUES ($1, $2, $3)"#,
             tabular_id,
-            log
+            log.timestamp_ms,
+            log.metadata_file
         )
         .execute(&mut **transaction)
         .await

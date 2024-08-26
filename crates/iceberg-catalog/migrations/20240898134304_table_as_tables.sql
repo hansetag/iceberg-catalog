@@ -134,9 +134,9 @@ WHERE metadata ->> 'current-snapshot-id' IS NOT NULL
 
 create table table_snapshot_log
 (
-    table_id    uuid        not null,
-    snapshot_id bigint      not null,
-    timestamp   timestamptz not null,
+    table_id    uuid   not null,
+    snapshot_id bigint not null,
+    timestamp   bigint not null,
     FOREIGN KEY (table_id, snapshot_id) REFERENCES table_snapshot (table_id, snapshot_id) ON DELETE CASCADE,
     PRIMARY KEY (table_id, snapshot_id)
 );
@@ -147,15 +147,15 @@ select trigger_updated_at('table_snapshot_log');
 INSERT INTO table_snapshot_log (table_id, snapshot_id, timestamp)
 SELECT table_id,
        (snapshot ->> 'snapshot-id')::bigint,
-       to_timestamp((snapshot ->> 'timestamp-ms')::bigint)
+       (snapshot ->> 'timestamp-ms')::bigint
 FROM "table",
      jsonb_array_elements(metadata -> 'snapshots') AS snapshot;
 
 create table table_metadata_log
 (
-    table_id      uuid        not null REFERENCES "table" (table_id) ON DELETE CASCADE,
-    timestamp     timestamptz not null,
-    metadata_file text        not null,
+    table_id      uuid   not null REFERENCES "table" (table_id) ON DELETE CASCADE,
+    timestamp     bigint not null,
+    metadata_file text   not null,
     PRIMARY KEY (table_id, timestamp)
 );
 
@@ -164,7 +164,7 @@ select trigger_updated_at('table_metadata_log');
 
 -- metadata log is a list of dictionaries in the metadata, we need to unflatten it and insert it into table_metadata_log
 INSERT INTO table_metadata_log (table_id, timestamp, metadata_file)
-SELECT table_id, (log ->> 'timestamp-ms')::timestamptz, log ->> 'metadata-file'
+SELECT table_id, (log ->> 'timestamp-ms')::bigint, log ->> 'metadata-file'
 FROM "table",
      jsonb_array_elements(metadata -> 'metadata-log') AS log;
 
