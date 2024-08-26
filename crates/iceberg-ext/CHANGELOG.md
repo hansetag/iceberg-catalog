@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/hansetag/iceberg-catalog/compare/v0.2.1...v0.3.0) (2024-08-26)
+
+
+### Features
+
+* Add support for custom Locations for Namespaces & Tables ([1d2ac6f](https://github.com/hansetag/iceberg-catalog/commit/1d2ac6f4b3910bf161c47d0224689b6e611d15ab))
+* **aws:** sts credentials for s3 ([#236](https://github.com/hansetag/iceberg-catalog/issues/236)) ([dbf775b](https://github.com/hansetag/iceberg-catalog/commit/dbf775b6e226a8b8822f2e725ec317b4230aa0c4))
+
 ## [0.2.1](https://github.com/hansetag/iceberg-catalog/compare/v0.2.0...v0.2.1) (2024-07-29)
 
 

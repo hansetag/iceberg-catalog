@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.0](https://github.com/hansetag/iceberg-catalog/compare/v0.2.1...v0.3.0) (2024-08-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* dots can no longer be used in namespace names ([#257](https://github.com/hansetag/iceberg-catalog/issues/257))
+
+### Features
+
+* Add support for custom Locations for Namespaces & Tables ([1d2ac6f](https://github.com/hansetag/iceberg-catalog/commit/1d2ac6f4b3910bf161c47d0224689b6e611d15ab))
+* **aws:** sts credentials for s3 ([#236](https://github.com/hansetag/iceberg-catalog/issues/236)) ([dbf775b](https://github.com/hansetag/iceberg-catalog/commit/dbf775b6e226a8b8822f2e725ec317b4230aa0c4))
+* **compression-codec:** Support setting and altering write.metadata.compression-codec ([#235](https://github.com/hansetag/iceberg-catalog/issues/235)) ([f4fb4cb](https://github.com/hansetag/iceberg-catalog/commit/f4fb4cbb4ce7f357db8d4d37dce8b92173402777))
+* **storage:** add ability to narrow token permissions ([#249](https://github.com/hansetag/iceberg-catalog/issues/249)) ([ba9f046](https://github.com/hansetag/iceberg-catalog/commit/ba9f046cf48a380b7d0b6ce01a7f2045a9e47bea))
+* **storage:** azdls ([#223](https://github.com/hansetag/iceberg-catalog/issues/223)) ([fd11428](https://github.com/hansetag/iceberg-catalog/commit/fd1142852555d239e8ea8dac2cb9d5db76457ab1))
+
+
+### Bug Fixes
+
+* dots can no longer be used in namespace names ([#257](https://github.com/hansetag/iceberg-catalog/issues/257)) ([8ac52e0](https://github.com/hansetag/iceberg-catalog/commit/8ac52e0e998c1417f3cb19655aebb4b39f054374))
+* **kv2:** extend docs & fix mismatch between docs and expected env values ([#224](https://github.com/hansetag/iceberg-catalog/issues/224)) ([be3e3e6](https://github.com/hansetag/iceberg-catalog/commit/be3e3e60181acdb501303b7fb4215d79e65dd79e))
+
 ## [0.2.1](https://github.com/hansetag/iceberg-catalog/compare/v0.2.0...v0.2.1) (2024-07-29)
 
 
