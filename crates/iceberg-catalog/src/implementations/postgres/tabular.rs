@@ -145,7 +145,7 @@ where
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE w.status = 'active' and n."warehouse_id" = $1 AND (t.deleted_at is NULL OR $2)"#,
+        WHERE w.status = 'active' and n."warehouse_id" = $1 AND (t.deleted_at is NULL OR $2) "#,
         *warehouse_id,
         list_flags.include_deleted
     );
@@ -215,7 +215,7 @@ fn append_dynamic_filters(
     query_builder.push(r" AND (n.namespace_name, t.name, t.typ) IN ");
     query_builder.push("(");
 
-    let mut arg_idx = 2;
+    let mut arg_idx = args.len() + 1;
     for (i, (ns_ident, name, typ)) in batch_tables.iter().enumerate() {
         query_builder.push(format!("(${arg_idx}"));
         arg_idx += 1;
@@ -490,17 +490,17 @@ pub(crate) async fn drop_tabular<'a>(
     tabular_id: TabularIdentUuid,
     hard_delete: bool,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<Option<String>> {
+) -> Result<()> {
     // Set deleted_at to now() for rows that have metadata_location
     // Drop the row if it doesn't have metadata_location
 
     if hard_delete {
-        let r = sqlx::query!(
+        let _ = sqlx::query!(
             r#"DELETE FROM tabular
                 WHERE tabular_id = $1
                     AND typ = $2
                     AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
-               RETURNING tabular_id, metadata_location"#,
+               RETURNING tabular_id"#,
             *tabular_id,
             TabularType::from(tabular_id) as _
         )
@@ -518,12 +518,12 @@ pub(crate) async fn drop_tabular<'a>(
                 e.into_error_model(format!("Error dropping {}", tabular_id.typ_str()))
             }
         })?;
-        return Ok(r.metadata_location);
+        return Ok(());
     }
 
     // Soft delete, sets deleted_at to now and appends a uuid to the name to avoid conflicts of
     // new tables with the same name. Staged tables are permanently deleted.
-    let r = sqlx::query!(
+    let _ = sqlx::query!(
         r#"
     WITH updated AS (
         UPDATE tabular
@@ -533,7 +533,7 @@ pub(crate) async fn drop_tabular<'a>(
         AND typ = $2
         AND metadata_location IS NOT NULL
         AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
-        RETURNING tabular_id, metadata_location
+        RETURNING tabular_id
     ),
     deleted AS (
         DELETE FROM tabular
@@ -541,11 +541,11 @@ pub(crate) async fn drop_tabular<'a>(
         AND typ = $2
         AND metadata_location IS NULL
         AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
-        RETURNING tabular_id, metadata_location
+        RETURNING tabular_id
     )
-    SELECT tabular_id, metadata_location FROM updated
+    SELECT tabular_id FROM updated
     UNION ALL
-    SELECT tabular_id, metadata_location FROM deleted
+    SELECT tabular_id FROM deleted
     "#,
         *tabular_id,
         TabularType::from(tabular_id) as _,
@@ -566,7 +566,7 @@ pub(crate) async fn drop_tabular<'a>(
         }
     })?;
 
-    Ok(r.metadata_location)
+    Ok(())
 }
 
 fn try_parse_namespace_ident(namespace: Vec<String>) -> Result<NamespaceIdent> {

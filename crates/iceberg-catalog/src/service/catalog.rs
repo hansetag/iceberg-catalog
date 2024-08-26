@@ -240,7 +240,7 @@ where
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<Option<String>>;
+    ) -> Result<()>;
 
     /// Commit changes to a table.
     /// The table might be staged or not.

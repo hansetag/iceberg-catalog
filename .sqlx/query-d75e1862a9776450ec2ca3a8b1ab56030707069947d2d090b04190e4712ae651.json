@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n    WITH updated AS (\n        UPDATE tabular\n        -- Append a suffix to the name to avoid conflicts with new tables\n        SET deleted_at = now(), name = name || $3\n        WHERE tabular_id = $1\n        AND typ = $2\n        AND metadata_location IS NOT NULL\n        AND tabular_id IN (SELECT tabular_id FROM active_tabulars)\n        RETURNING tabular_id\n    ),\n    deleted AS (\n        DELETE FROM tabular\n        WHERE tabular_id = $1\n        AND typ = $2\n        AND metadata_location IS NULL\n        AND tabular_id IN (SELECT tabular_id FROM active_tabulars)\n        RETURNING tabular_id\n    )\n    SELECT tabular_id FROM updated\n    UNION ALL\n    SELECT tabular_id FROM deleted\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tabular_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        {
+          "Custom": {
+            "name": "tabular_type",
+            "kind": {
+              "Enum": [
+                "table",
+                "view"
+              ]
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d75e1862a9776450ec2ca3a8b1ab56030707069947d2d090b04190e4712ae651"
+}

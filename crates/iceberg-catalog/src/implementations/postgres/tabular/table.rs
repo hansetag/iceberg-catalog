@@ -205,7 +205,6 @@ pub(crate) async fn load_tables(
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1
         AND w.status = 'active'
-        AND ti."metadata_location" IS NOT NULL
         AND (ti.deleted_at IS NULL OR $3)
         AND t."table_id" = ANY($2)
         "#,
@@ -433,7 +432,7 @@ pub(crate) async fn rename_table(
 pub(crate) async fn drop_table<'a>(
     table_id: TableIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<Option<String>> {
+) -> Result<()> {
     let _ = sqlx::query!(
         r#"
         UPDATE "table" SET deleted_at = now()
@@ -888,7 +887,10 @@ pub(crate) mod tests {
         let exists = table_ident_to_id(
             warehouse_id,
             &table.table_ident,
-            ListFlags::default(),
+            ListFlags {
+                include_staged: true,
+                ..ListFlags::default()
+            },
             &state.read_pool(),
         )
         .await

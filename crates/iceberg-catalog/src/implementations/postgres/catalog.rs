@@ -203,7 +203,7 @@ impl Catalog for super::Catalog {
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<Option<String>> {
+    ) -> Result<()> {
         drop_table(table_id, transaction).await
     }
 
