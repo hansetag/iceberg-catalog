@@ -19,7 +19,7 @@ use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
 use crate::service::{
-    CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest,
+    CommitTransactionRequest, CreateNamespaceRequest, CreateNamespaceResponse,
     GetWarehouseResponse, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
     TableIdent, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
     WarehouseStatus,
@@ -32,7 +32,7 @@ use crate::{
     },
     SecretIdent,
 };
-use iceberg::spec::ViewMetadata;
+use iceberg::spec::{TableMetadata, ViewMetadata};
 use std::collections::{HashMap, HashSet};
 
 #[async_trait::async_trait]
@@ -117,10 +117,10 @@ impl Catalog for super::Catalog {
         namespace_id: NamespaceIdentUuid,
         table: &TableIdent,
         table_id: TableIdentUuid,
-        request: CreateTableRequest,
+        request: TableMetadata,
         // Metadata location may be none if stage-create is true
         metadata_location: Option<&String>,
-        transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateTableResponse> {
         create_table(
             namespace_id,

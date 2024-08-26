@@ -1,6 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
+use super::{
+    io::write_metadata_file, namespace::validate_namespace_ident, require_warehouse_id,
+    CatalogServer,
+};
 use crate::api::iceberg::v1::{
     ApiContext, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
     CreateTableRequest, DataAccess, ErrorModel, ListTablesResponse, LoadTableResult,
@@ -9,15 +13,6 @@ use crate::api::iceberg::v1::{
 };
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
-use http::StatusCode;
-use iceberg::{NamespaceIdent, TableUpdate};
-use serde::Serialize;
-use uuid::Uuid;
-
-use super::{
-    io::write_metadata_file, namespace::validate_namespace_ident, require_warehouse_id,
-    CatalogServer,
-};
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::{Idents, StorageCredential, StoragePermissions};
@@ -27,6 +22,12 @@ use crate::service::{
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
 use crate::service::{GetWarehouseResponse, TableIdentUuid, WarehouseStatus};
+use http::StatusCode;
+use iceberg::spec::TableMetadata;
+use iceberg::{NamespaceIdent, TableUpdate};
+use iceberg_ext::spec::TableMetadataAggregate;
+use serde::Serialize;
+use uuid::Uuid;
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -124,8 +125,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
         require_active_warehouse(status)?;
 
-        let table_id: TabularIdentUuid = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-        let table_location = storage_profile.initial_tabular_location(namespace_id, table_id);
+        let table_id: TableIdentUuid = Uuid::now_v7().into();
+        let table_location = storage_profile
+            .initial_tabular_location(namespace_id, TabularIdentUuid::Table(*table_id));
 
         // This is the only place where we change request
         request.location = Some(table_location.clone());
@@ -146,11 +148,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // serialize body before moving it
         let body = maybe_body_to_json(&request);
 
+        let table_metadata = create_table_request_into_table_metadata(table_id, request)?;
+
         let CreateTableResponse { table_metadata } = C::create_table(
             namespace_id,
             &table,
             TableIdentUuid::from(*table_id),
-            request,
+            table_metadata,
             metadata_location.as_ref(),
             transaction.transaction(),
         )
@@ -991,6 +995,47 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         Ok(())
     }
+}
+
+pub(crate) fn create_table_request_into_table_metadata(
+    table_id: TableIdentUuid,
+    request: CreateTableRequest,
+) -> Result<TableMetadata> {
+    let CreateTableRequest {
+        name: _,
+        location,
+        schema,
+        partition_spec,
+        write_order,
+        // Stage-create is already handled in the catalog service.
+        // If stage-create is true, the metadata_location is None,
+        // otherwise, it is the location of the metadata file.
+        stage_create: _,
+        properties,
+    } = request;
+
+    let location = location.ok_or_else(|| {
+        ErrorModel::conflict(
+            "Table location is required",
+            "CreateTableLocationRequired",
+            None,
+        )
+    })?;
+
+    let mut builder = TableMetadataAggregate::new(location.clone(), schema);
+    if let Some(partition_spec) = partition_spec {
+        builder.add_partition_spec(partition_spec)?;
+        builder.set_default_partition_spec(-1)?;
+    }
+    if let Some(write_order) = write_order {
+        builder.add_sort_order(write_order)?;
+        builder.set_default_sort_order(-1)?;
+    }
+    builder.set_properties(properties.unwrap_or_default())?;
+    builder.assign_uuid(*table_id)?;
+
+    let table_metadata = builder.build()?;
+    Ok(table_metadata)
 }
 
 pub(crate) fn require_no_location_specified(location: &Option<String>) -> Result<()> {

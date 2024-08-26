@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO \"table\" (table_id, metadata, table_format_version)\n        (\n            SELECT $1, $2, $3\n            WHERE EXISTS (SELECT 1\n                FROM active_tables\n                WHERE active_tables.table_id = $1))\n        ON CONFLICT ON CONSTRAINT \"table_pkey\"\n        DO UPDATE SET \"metadata\" = $2\n        RETURNING \"table_id\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        {
+          "Custom": {
+            "name": "table_format_version",
+            "kind": {
+              "Enum": [
+                "1",
+                "2"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e6cf2cae13b174b1efd33c85262e8d9d06c8aa13517898cbe8d9c4c650c53036"
+}
