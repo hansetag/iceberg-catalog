@@ -10,7 +10,7 @@ use std::collections::HashSet;
 type Result<T> = std::result::Result<T, ErrorModel>;
 
 #[derive(Debug)]
-#[allow(clippy::module_name_repetitions)]
+
 pub(crate) struct PartitionSpecBinder {
     spec_id: i32,
     schema: SchemaRef,

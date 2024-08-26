@@ -70,7 +70,7 @@ impl PartitionSpecExt for PartitionSpec {
 type Result<T> = std::result::Result<T, ErrorModel>;
 
 #[derive(Debug)]
-#[allow(clippy::module_name_repetitions)]
+
 pub struct TableMetadataAggregate {
     metadata: TableMetadata,
     changes: Vec<TableUpdate>,
@@ -213,13 +213,40 @@ impl TableMetadataAggregate {
             .into_iter()
             .map(ToOwned::to_owned)
             .collect::<HashSet<String>>();
-        if properties
-            .iter()
-            .any(|(prop_name, _)| reserved_props.contains(prop_name))
-        {
+        let mut conflicts: HashMap<String, String> = properties
+            .keys()
+            .filter(|key| reserved_props.contains(*key))
+            .map(|key| (key.clone(), properties[key].clone()))
+            .collect();
+
+        // If "format-version" is set, it must be the same as the current format version.
+        // Remove it from conflicts if it is.
+        if let Some(format_version) = conflicts.get("format-version") {
+            if ![
+                (self.metadata.format_version as u8).to_string(),
+                self.metadata.format_version.to_string(), // includes leading v
+            ]
+            .contains(format_version)
+            {
+                return Err(ErrorModel::builder()
+                    .code(StatusCode::CONFLICT.into())
+                    .message(format!(
+                        "Cannot set 'format-version' to '{}', must be '{}'",
+                        format_version, self.metadata.format_version
+                    ))
+                    .r#type("FailedToSetProperties")
+                    .build());
+            }
+            conflicts.remove("format-version");
+        }
+
+        if !conflicts.is_empty() {
             return Err(ErrorModel::builder()
                 .code(StatusCode::CONFLICT.into())
-                .message("Table properties should not contain reserved properties")
+                .message(format!(
+                    "Table properties should not contain reserved properties. Conflicts: {}",
+                    serde_json::to_string(&conflicts).unwrap_or(format!("{conflicts:?}"))
+                ))
                 .r#type("FailedToSetProperties")
                 .build());
         }

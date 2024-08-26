@@ -59,7 +59,7 @@ pub(crate) async fn create_view(
     transaction: &mut Transaction<'_, Postgres>,
     name: &str,
     metadata: ViewMetadata,
-) -> Result<ViewMetadata> {
+) -> Result<()> {
     let location = metadata.location.as_str();
     let tabular_id = create_tabular(
         CreateTabular {
@@ -138,7 +138,7 @@ pub(crate) async fn create_view(
 
     tracing::debug!("Inserted view properties for view",);
 
-    Ok(metadata)
+    Ok(())
 }
 
 pub(crate) async fn drop_view<'a>(
@@ -295,7 +295,6 @@ pub(crate) async fn create_view_schema(
     })?)
 }
 
-#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, FromRow, Clone, Copy)]
 struct ViewVersionResponse {
     version_id: ViewVersionId,
@@ -641,11 +640,11 @@ pub(crate) mod tests {
                 &namespace,
             )
             .await;
-        let table_uuid = TableIdentUuid::from(Uuid::now_v7());
+        let view_uuid = TableIdentUuid::from(Uuid::now_v7());
 
-        let request = view_request(Some(*table_uuid));
+        let request = view_request(Some(*view_uuid));
         let mut tx = pool.begin().await.unwrap();
-        let created_meta = super::create_view(
+        super::create_view(
             namespace_id,
             "s3://my_bucket/my_table/metadata/bar",
             &mut tx,
@@ -668,16 +667,15 @@ pub(crate) mod tests {
         assert_eq!(created_view.error.code, 409);
 
         // recreate with other uuid should fail
-        let build = ViewMetadataBuilder::new(request)
-            .assign_uuid(Uuid::now_v7())
-            .build()
-            .unwrap();
         let created_view = super::create_view(
             namespace_id,
             "s3://my_bucket/my_table/metadata/bar",
             &mut tx,
             "myview",
-            build,
+            ViewMetadataBuilder::new(request.clone())
+                .assign_uuid(Uuid::now_v7())
+                .build()
+                .unwrap(),
         )
         .await
         .expect_err("recreation should fail");
@@ -694,15 +692,13 @@ pub(crate) mod tests {
         .await
         .unwrap();
         assert_eq!(views.len(), 1);
-        let (view_id, view) = views.into_iter().next().unwrap();
-        assert_eq!(view_id, table_uuid);
+        let (list_view_uuid, view) = views.into_iter().next().unwrap();
+        assert_eq!(list_view_uuid, view_uuid);
         assert_eq!(view.name, "myview");
 
         let mut conn = state.read_pool().acquire().await.unwrap();
-        let metadata = load_view(TableIdentUuid::from(created_meta.view_uuid), &mut conn)
-            .await
-            .unwrap();
-        assert_eq!(metadata.metadata, created_meta);
+        let metadata = load_view(view_uuid, &mut conn).await.unwrap();
+        assert_eq!(metadata.metadata, request.clone());
     }
 
     #[sqlx::test]
@@ -791,22 +787,17 @@ pub(crate) mod tests {
         let request = view_request(None);
 
         let mut tx = pool.begin().await.unwrap();
-        let created_meta = super::create_view(
+        super::create_view(
             namespace_id,
             "s3://my_bucket/my_table/metadata/bar",
             &mut tx,
             "myview",
-            request,
+            request.clone(),
         )
         .await
         .unwrap();
         tx.commit().await.unwrap();
-        (
-            state,
-            created_meta,
-            warehouse_id,
-            namespace,
-            "myview".into(),
-        )
+
+        (state, request, warehouse_id, namespace, "myview".into())
     }
 }

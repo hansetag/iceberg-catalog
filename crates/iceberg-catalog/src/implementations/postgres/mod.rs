@@ -104,7 +104,7 @@ pub enum MigrationState {
 pub struct Catalog {}
 
 #[derive(Debug)]
-#[allow(clippy::module_name_repetitions)]
+
 pub struct PostgresTransaction {
     transaction: sqlx::Transaction<'static, sqlx::Postgres>,
 }
@@ -221,7 +221,7 @@ impl ReadWrite {
 }
 
 #[derive(Clone, Debug)]
-#[allow(clippy::module_name_repetitions)]
+
 pub struct CatalogState {
     pub read_write: ReadWrite,
 }

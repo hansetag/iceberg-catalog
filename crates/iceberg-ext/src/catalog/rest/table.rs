@@ -1,7 +1,9 @@
 use crate::catalog::{TableIdent, TableRequirement, TableUpdate};
 use crate::spec::{Schema, SortOrder, TableMetadata, TableMetadataAggregate, UnboundPartitionSpec};
 
-use super::{impl_into_response, ErrorModel, IcebergErrorResponse};
+#[cfg(feature = "axum")]
+use super::impl_into_response;
+use super::{ErrorModel, IcebergErrorResponse};
 
 /// Result used when a table is successfully loaded.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -73,18 +75,19 @@ pub struct CommitTransactionRequest {
     pub table_changes: Vec<CommitTableRequest>,
 }
 
+#[cfg(feature = "axum")]
 impl_into_response!(LoadTableResult);
+#[cfg(feature = "axum")]
 impl_into_response!(ListTablesResponse);
+#[cfg(feature = "axum")]
 impl_into_response!(CommitTableResponse);
 
-#[allow(clippy::module_name_repetitions)]
 pub trait TableRequirementExt {
     /// Assert if requirements match the given metadata.
     ///
     /// # Errors
     /// Fails if the requirements are not met.
-    fn assert(&self, metadata: &TableMetadata, is_staged: bool)
-        -> Result<(), IcebergErrorResponse>;
+    fn assert(&self, metadata: &TableMetadata, exists: bool) -> Result<(), IcebergErrorResponse>;
 }
 
 impl TableRequirementExt for TableRequirement {
@@ -209,8 +212,7 @@ impl TableRequirementExt for TableRequirement {
             TableRequirement::LastAssignedFieldIdMatch {
                 last_assigned_field_id,
             } => {
-                // ToDo: Check why requirement uses i64 for last_assigned_field_id
-                // and metadata i32
+                // ToDo: Harmonize types
                 let last_column_id: i64 = metadata.last_column_id.into();
                 if &last_column_id != last_assigned_field_id {
                     return Err(ErrorModel::conflict(
@@ -230,7 +232,6 @@ impl TableRequirementExt for TableRequirement {
     }
 }
 
-#[allow(clippy::module_name_repetitions)]
 pub trait TableUpdateExt {
     /// Apply the update to the given metadata builder.
     ///
@@ -274,8 +275,7 @@ impl TableUpdateExt for TableUpdate {
                 builder.set_default_partition_spec(spec_id)?;
             }
             TableUpdate::SetDefaultSortOrder { sort_order_id } => {
-                // ToDo: Check why TableUpdate uses i64 for sort_order_id
-                // and metadata i32
+                // ToDo: Harmonize types
                 builder.set_default_sort_order(sort_order_id)?;
             }
             TableUpdate::AddSpec { spec } => {

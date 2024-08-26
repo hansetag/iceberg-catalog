@@ -1,5 +1,6 @@
 use iceberg::NamespaceIdent;
 
+#[cfg(feature = "axum")]
 use super::impl_into_response;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -59,6 +60,7 @@ impl CreateNamespaceResponse {
     }
 }
 
+#[cfg(feature = "axum")]
 impl_into_response!(CreateNamespaceResponse);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -116,8 +118,11 @@ pub struct ListNamespacesResponse {
     pub namespaces: Vec<NamespaceIdent>,
 }
 
+#[cfg(feature = "axum")]
 impl_into_response!(UpdateNamespacePropertiesResponse);
+#[cfg(feature = "axum")]
 impl_into_response!(ListNamespacesResponse);
+#[cfg(feature = "axum")]
 impl_into_response!(GetNamespaceResponse);
 
 #[cfg(test)]

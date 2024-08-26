@@ -3,6 +3,8 @@ use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use uuid::Uuid;
 
+use super::TableIdentUuid;
+
 #[derive(Hash, PartialOrd, PartialEq, Debug, Clone, Copy, Eq)]
 pub enum TabularIdentUuid {
     Table(Uuid),
@@ -16,6 +18,12 @@ impl TabularIdentUuid {
             TabularIdentUuid::Table(_) => "Table",
             TabularIdentUuid::View(_) => "View",
         }
+    }
+}
+
+impl From<TableIdentUuid> for TabularIdentUuid {
+    fn from(ident: TableIdentUuid) -> Self {
+        TabularIdentUuid::Table(ident.0)
     }
 }
 

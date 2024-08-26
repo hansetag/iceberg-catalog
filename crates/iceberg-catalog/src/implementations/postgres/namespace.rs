@@ -4,7 +4,6 @@ use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToke
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, ErrorModel, GetNamespaceResponse,
     ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
-    UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 use crate::{catalog::namespace::MAX_NAMESPACE_DEPTH, service::NamespaceIdentUuid, WarehouseIdent};
 use chrono::Utc;
@@ -23,7 +22,7 @@ pub(crate) async fn get_namespace(
         SELECT 
             namespace_id,
             n.warehouse_id,
-            namespace_properties as "properties: Json<HashMap<String, String>>"
+            namespace_properties as "properties: Json<Option<HashMap<String, String>>>"
         FROM namespace n
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE n.warehouse_id = $1 AND n.namespace_name = $2
@@ -45,7 +44,7 @@ pub(crate) async fn get_namespace(
 
     Ok(GetNamespaceResponse {
         namespace: namespace.to_owned(),
-        properties: Some(row.properties.deref().clone()),
+        properties: row.properties.deref().clone(),
         namespace_id: row.namespace_id.into(),
         warehouse_id: row.warehouse_id.into(),
     })
@@ -181,6 +180,7 @@ pub(crate) async fn list_namespaces(
 
 pub(crate) async fn create_namespace(
     warehouse_id: WarehouseIdent,
+    namespace_id: NamespaceIdentUuid,
     request: CreateNamespaceRequest,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<CreateNamespaceResponse> {
@@ -191,9 +191,9 @@ pub(crate) async fn create_namespace(
 
     let _namespace_id = sqlx::query_scalar!(
         r#"
-        INSERT INTO namespace (warehouse_id, namespace_name, namespace_properties)
+        INSERT INTO namespace (warehouse_id, namespace_id, namespace_name, namespace_properties)
         (
-            SELECT $1, $2, $3
+            SELECT $1, $2, $3, $4
             WHERE EXISTS (
                 SELECT 1
                 FROM warehouse
@@ -203,6 +203,7 @@ pub(crate) async fn create_namespace(
         RETURNING namespace_id
         "#,
         *warehouse_id,
+        *namespace_id,
         &*namespace,
         serde_json::to_value(properties.clone()).map_err(|e| {
             ErrorModel::builder()
@@ -344,40 +345,9 @@ pub(crate) async fn drop_namespace(
 pub(crate) async fn update_namespace_properties(
     warehouse_id: WarehouseIdent,
     namespace: &NamespaceIdent,
-    request: UpdateNamespacePropertiesRequest,
+    properties: HashMap<String, String>,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<UpdateNamespacePropertiesResponse> {
-    let UpdateNamespacePropertiesRequest { removals, updates } = request;
-
-    let mut properties = get_namespace(warehouse_id, namespace, &mut *transaction)
-        .await?
-        .properties
-        .unwrap_or_default();
-
-    let mut updated = vec![];
-    let mut removed = vec![];
-    let mut missing = vec![];
-
-    if let Some(removals) = removals {
-        for key in removals {
-            if properties.remove(&key).is_some() {
-                removed.push(key.clone());
-            } else {
-                missing.push(key.clone());
-            }
-        }
-    }
-
-    if let Some(updates) = updates {
-        for (key, value) in updates {
-            // Push to updated if the value for the key is different.
-            // Also push on insert
-            if properties.insert(key.clone(), value.clone()) != Some(value.clone()) {
-                updated.push(key.clone());
-            }
-        }
-    }
-
+) -> Result<()> {
     let properties = serde_json::to_value(properties).map_err(|e| {
         ErrorModel::builder()
             .code(StatusCode::INTERNAL_SERVER_ERROR.into())
@@ -404,19 +374,12 @@ pub(crate) async fn update_namespace_properties(
     .await
     .map_err(|e| e.into_error_model("Error updating namespace properties".to_string()))?;
 
-    Ok(UpdateNamespacePropertiesResponse {
-        updated,
-        removed,
-        missing: if missing.is_empty() {
-            None
-        } else {
-            Some(missing)
-        },
-    })
+    Ok(())
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
+
     use crate::implementations::postgres::PostgresTransaction;
     use crate::service::{Catalog as _, Transaction as _};
 
@@ -435,8 +398,11 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
+        let namespace_id = NamespaceIdentUuid::default();
+
         let response = Catalog::create_namespace(
             warehouse_id,
+            namespace_id,
             CreateNamespaceRequest {
                 namespace: namespace.clone(),
                 properties: properties.clone(),
@@ -507,16 +473,14 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let response = Catalog::update_namespace_properties(
+        let new_props = HashMap::from_iter(vec![
+            ("key2".to_string(), "updated_value".to_string()),
+            ("new_key".to_string(), "new_value".to_string()),
+        ]);
+        Catalog::update_namespace_properties(
             warehouse_id,
             &namespace,
-            UpdateNamespacePropertiesRequest {
-                removals: Some(vec!["nonexistant".to_string(), "key1".to_string()]),
-                updates: Some(HashMap::from_iter(vec![
-                    ("key2".to_string(), "updated_value".to_string()),
-                    ("new_key".to_string(), "new_value".to_string()),
-                ])),
-            },
+            new_props.clone(),
             transaction.transaction(),
         )
         .await
@@ -524,14 +488,14 @@ pub(crate) mod tests {
 
         transaction.commit().await.unwrap();
 
-        let mut response_updated = response.updated.clone();
-        response_updated.sort();
-        assert_eq!(
-            response_updated,
-            vec![String::from("key2"), String::from("new_key")]
-        );
-        assert_eq!(response.removed, vec![String::from("key1")]);
-        assert_eq!(response.missing, Some(vec![String::from("nonexistant")]));
+        let mut t = PostgresTransaction::begin_read(state.clone())
+            .await
+            .unwrap();
+        let response = Catalog::get_namespace(warehouse_id, &namespace, t.transaction())
+            .await
+            .unwrap();
+        drop(t);
+        assert_eq!(response.properties, Some(new_props));
 
         let mut transaction = PostgresTransaction::begin_write(state.clone())
             .await
@@ -669,6 +633,7 @@ pub(crate) mod tests {
 
         let response = Catalog::create_namespace(
             warehouse_id,
+            NamespaceIdentUuid::default(),
             CreateNamespaceRequest {
                 namespace: namespace_1.clone(),
                 properties: None,
@@ -688,6 +653,7 @@ pub(crate) mod tests {
 
         let response = Catalog::create_namespace(
             warehouse_id,
+            NamespaceIdentUuid::default(),
             CreateNamespaceRequest {
                 namespace: namespace_2.clone(),
                 properties: None,

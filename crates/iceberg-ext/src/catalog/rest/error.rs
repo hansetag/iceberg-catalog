@@ -61,7 +61,7 @@ pub struct IcebergErrorResponse {
 }
 
 /// JSON error payload returned in a response with further details on the error
-#[allow(clippy::module_name_repetitions)]
+
 #[derive(Default, Debug, TypedBuilder, Serialize, Deserialize)]
 pub struct ErrorModel {
     /// Human-readable error message
@@ -259,6 +259,7 @@ impl axum::response::IntoResponse for IcebergErrorResponse {
 }
 
 #[cfg(test)]
+#[cfg(feature = "axum")]
 mod tests {
     use super::*;
     use futures_util::stream::StreamExt;

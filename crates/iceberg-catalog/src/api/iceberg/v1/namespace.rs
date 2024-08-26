@@ -70,7 +70,6 @@ where
     ) -> Result<UpdateNamespacePropertiesResponse>;
 }
 
-#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct NamespaceIdentUrl(Vec<String>);
 
@@ -288,7 +287,7 @@ impl PaginationQuery {
 }
 
 // Deliberately not ser / de so that it can't be used in the router directly
-#[allow(clippy::module_name_repetitions)]
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct NamespaceParameters {
     /// The prefix of the namespace

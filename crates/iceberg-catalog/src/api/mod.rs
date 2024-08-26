@@ -9,7 +9,6 @@ pub use iceberg_ext::catalog::rest::*;
 // Used only to group required traits for a State
 pub trait ThreadSafe: Clone + Send + Sync + 'static {}
 
-#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 pub struct ApiContext<S: ThreadSafe> {
     pub v1_state: S,
