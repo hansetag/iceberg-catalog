@@ -3,19 +3,19 @@ use crate::api::iceberg::v1::{DataAccess, NamespaceParameters};
 use crate::api::ApiContext;
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::catalog::io::write_metadata_file;
-use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{
-    maybe_body_to_json, require_active_warehouse, require_no_location_specified,
+    determine_tabular_location, maybe_body_to_json, require_active_warehouse,
     validate_table_or_view_ident,
 };
 use crate::catalog::views::validate_view_properties;
+use crate::catalog::{maybe_get_secret, require_warehouse_id};
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
 use crate::service::event_publisher::EventMetadata;
-use crate::service::storage::{Idents, StoragePermissions};
+use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
-use crate::service::{Catalog, SecretStore, State, TableIdentUuid, Transaction};
-use crate::service::{GetWarehouseResponse, Result};
+use crate::service::Result;
+use crate::service::{Catalog, SecretStore, State, Transaction};
 use http::StatusCode;
 use iceberg::spec::ViewMetadataBuilder;
 use iceberg::{TableIdent, ViewCreation};
@@ -38,17 +38,6 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let view = TableIdent::new(namespace.clone(), request.name.clone());
 
     validate_table_or_view_ident(&view)?;
-    require_no_location_specified(&request.location)?;
-
-    if request.location.is_some() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Specifying a View `location` is not supported. Location is managed by the Catalog.".to_string())
-            .r#type("LocationNotSupported".to_string())
-            .build()
-            .into());
-    }
-
     validate_view_properties(request.properties.keys())?;
 
     if request.view_version.representations().is_empty() {
@@ -81,33 +70,37 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
                     .build(),
             )?;
 
-    let mut transaction = C::Transaction::begin_write(state.v1_state.catalog.clone()).await?;
-    let GetWarehouseResponse {
-        id: _,
-        name: _,
-        project_id: _,
-        storage_profile,
-        storage_secret_id,
-        status,
-    } = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
-    require_active_warehouse(status)?;
+    let mut t = C::Transaction::begin_write(state.v1_state.catalog.clone()).await?;
+    let namespace = C::get_namespace(warehouse_id, &namespace, t.transaction()).await?;
+    let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+    let storage_profile = warehouse.storage_profile;
+    require_active_warehouse(warehouse.status)?;
 
     let view_id: TabularIdentUuid = TabularIdentUuid::View(uuid::Uuid::now_v7());
 
-    let view_location = storage_profile.initial_tabular_location(namespace_id, view_id);
+    let view_location = determine_tabular_location(
+        &namespace,
+        request.location.clone(),
+        view_id,
+        &storage_profile,
+    )?;
+
+    // Update the request for event
     let mut request = request;
-    let metadata_location = storage_profile.initial_metadata_location(
+    request.location = Some(view_location.to_string());
+    let request = request; // make it immutable
+
+    let metadata_location = storage_profile.default_metadata_location(
         &view_location,
         &CompressionCodec::try_from_properties(&request.properties)?,
         *view_id,
     );
-    request.location = Some(view_location.clone());
-    let request = request;
+
     // serialize body before moving it
     let body = maybe_body_to_json(&request);
     let view_creation = ViewMetadataBuilder::from_view_creation(ViewCreation {
         name: view.name.clone(),
-        location: view_location,
+        location: view_location.to_string(),
         representations: request.view_version.representations().clone(),
         schema: request.schema,
         properties: request.properties.clone(),
@@ -118,44 +111,30 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     .unwrap()
     .assign_uuid(*view_id.as_ref());
 
-    let metadata = C::create_view(
+    let metadata = view_creation.build().map_err(|e| {
+        ErrorModel::bad_request(
+            format!("Failed to create view metadata: {e}"),
+            "ViewMetadataCreationFailed",
+            Some(Box::new(e)),
+        )
+    })?;
+
+    C::create_view(
         namespace_id,
         &view,
-        view_creation.build().map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(format!("Failed to create view metadata: {e}"))
-                .r#type("ViewMetadataCreationFailed".to_string())
-                .build()
-        })?,
-        &metadata_location,
-        transaction.transaction(),
+        metadata.clone(),
+        &metadata_location.to_string(),
+        t.transaction(),
     )
     .await?;
 
     // We don't commit the transaction yet, first we need to write the metadata file.
-    let storage_secret = if let Some(secret_id) = &storage_secret_id {
-        Some(
-            state
-                .v1_state
-                .secrets
-                .get_secret_by_id(secret_id)
-                .await?
-                .secret,
-        )
-    } else {
-        None
-    };
+    let storage_secret =
+        maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
 
     let file_io = storage_profile.file_io(storage_secret.as_ref())?;
     let compression_codec = CompressionCodec::try_from_metadata(&metadata)?;
-    write_metadata_file(
-        metadata_location.as_str(),
-        &metadata,
-        compression_codec,
-        &file_io,
-    )
-    .await?;
+    write_metadata_file(&metadata_location, &metadata, compression_codec, &file_io).await?;
     tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
 
     // Generate the storage profile. This requires the storage secret
@@ -166,20 +145,15 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     // is a stage-create, we still fetch the secret.
     let config = storage_profile
         .generate_table_config(
-            Idents {
-                warehouse_ident: warehouse_id,
-                namespace_ident: namespace_id,
-                table_ident: TableIdentUuid::from(*view_id),
-            },
             &data_access,
             storage_secret.as_ref(),
-            metadata.location.as_ref(),
+            &view_location,
             // TODO: This should be a permission based on authz
             StoragePermissions::ReadWriteDelete,
         )
         .await?;
 
-    transaction.commit().await?;
+    t.commit().await?;
 
     let _ = state
         .v1_state
@@ -202,7 +176,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         .await;
 
     let load_view_result = LoadViewResult {
-        metadata_location,
+        metadata_location: metadata_location.to_string(),
         metadata,
         config: Some(config.into()),
     };

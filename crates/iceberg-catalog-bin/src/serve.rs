@@ -61,7 +61,6 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         tracing::info!("Running without publisher.");
     };
 
-    // TODO: what about this magic number
     let (tx, rx) = tokio::sync::mpsc::channel(1000);
 
     let x = CloudEventsPublisherBackgroundTask {

@@ -42,7 +42,7 @@ reqwest = { version = "^0.12", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
-iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "2f3fa3e12eee258868d701d472bf1f55169a34f4", features = [
+iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "f971738", features = [
     "storage-all",
 ] }
 typed-builder = "^0.19.1"
@@ -101,3 +101,6 @@ utoipa = { version = "4.2.3", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
 veil = "0.1.7"
 needs_env_var = "1.0.0"
+paste = "1.0.15"
+heck = "0.5.0"
+time = "0.3.36"

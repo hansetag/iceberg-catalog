@@ -1,3 +1,4 @@
+#[cfg(feature = "axum")]
 use super::impl_into_response;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

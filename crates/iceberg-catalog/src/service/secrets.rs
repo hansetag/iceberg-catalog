@@ -6,7 +6,7 @@ use serde::Serialize;
 
 /// Interface for Handling Secrets.
 #[async_trait]
-#[allow(clippy::module_name_repetitions)]
+
 pub trait SecretStore
 where
     Self: Send + Sync + 'static + HealthExt + Clone,

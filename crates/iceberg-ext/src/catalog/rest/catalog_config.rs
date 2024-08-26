@@ -1,3 +1,4 @@
+#[cfg(feature = "axum")]
 use super::impl_into_response;
 
 /// Server-provided configuration for the catalog.

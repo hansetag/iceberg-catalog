@@ -9,19 +9,19 @@ use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
-pub use az::{AzCredential, AzdlsProfile};
+pub use az::{AzCredential, AzdlsLocation, AzdlsProfile};
 use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
-use iceberg_ext::table_config::TableConfig;
-pub(crate) use s3::{parse_s3_location, S3Location};
+use iceberg_ext::configs::table::TableProperties;
+use iceberg_ext::configs::Location;
+pub use s3::S3Location;
 pub use s3::{S3Credential, S3Flavor, S3Profile};
 use serde::{Deserialize, Serialize};
 
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-#[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 pub enum StorageProfile {
     /// Azure storage profile
@@ -35,7 +35,7 @@ pub enum StorageProfile {
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
-#[allow(clippy::module_name_repetitions)]
+
 pub enum StorageType {
     #[strum(serialize = "s3")]
     S3,
@@ -53,7 +53,6 @@ pub enum StoragePermissions {
     ReadWriteDelete,
 }
 
-#[allow(clippy::module_name_repetitions)]
 impl StorageProfile {
     #[must_use]
     pub fn generate_catalog_config(&self, warehouse_id: WarehouseIdent) -> CatalogConfig {
@@ -118,34 +117,39 @@ impl StorageProfile {
         }
     }
 
-    #[must_use]
-    pub fn initial_tabular_location(
-        &self,
-        namespace_id: NamespaceIdentUuid,
-        table_id: TabularIdentUuid,
-    ) -> String {
+    /// Get the base location of this Storage Profiles
+    ///
+    /// # Errors
+    /// Can fail for un-normalized profiles.
+    pub fn base_location(&self) -> Result<Location, ValidationError> {
         match self {
-            StorageProfile::S3(profile) => profile.tabular_location(namespace_id, table_id),
-            StorageProfile::Azdls(profile) => {
-                profile.initial_tabular_location(namespace_id, table_id)
-            }
+            StorageProfile::S3(profile) => profile.base_location().map(Into::into),
+            StorageProfile::Azdls(profile) => profile.base_location(),
             #[cfg(test)]
-            StorageProfile::Test(_) => format!("/tmp/{namespace_id}/{table_id}"),
+            StorageProfile::Test(_) => std::str::FromStr::from_str("file://tmp/").map_err(|_| {
+                ValidationError::InvalidLocation {
+                    reason: "Invalid namespace location".to_string(),
+                    location: "file://tmp/".to_string(),
+                    source: None,
+                    storage_type: self.storage_type(),
+                }
+            }),
         }
     }
 
-    #[must_use]
-    pub fn initial_metadata_location(
+    /// Get the default location for the namespace.
+    ///
+    /// # Errors
+    /// Fails if the `key_prefix` is not valid for S3 URLs.
+    pub fn default_namespace_location(
         &self,
-        table_location: &str,
-        compression_codec: &CompressionCodec,
-        metadata_id: uuid::Uuid,
-    ) -> String {
-        let filename_extension_compression = compression_codec.as_file_extension();
-        format!(
-            "{}/metadata/{metadata_id}{filename_extension_compression}.metadata.json",
-            table_location.trim_end_matches('/')
-        )
+        namespace_id: NamespaceIdentUuid,
+    ) -> Result<Location, ValidationError> {
+        let mut base_location: Location = self.base_location()?;
+        base_location
+            .without_trailing_slash()
+            .push(&namespace_id.to_string());
+        Ok(base_location)
     }
 
     #[must_use]
@@ -164,17 +168,15 @@ impl StorageProfile {
     /// Fails if the underlying storage profile's generation fails.
     pub async fn generate_table_config(
         &self,
-        idents: Idents,
         data_access: &DataAccess,
         secret: Option<&StorageCredential>,
-        table_location: &str,
+        table_location: &Location,
         storage_permissions: StoragePermissions,
-    ) -> Result<TableConfig, TableConfigError> {
+    ) -> Result<TableProperties, TableConfigError> {
         match self {
             StorageProfile::S3(profile) => {
                 profile
                     .generate_table_config(
-                        idents,
                         data_access,
                         secret.map(|s| s.try_to_s3()).transpose()?,
                         table_location,
@@ -185,7 +187,6 @@ impl StorageProfile {
             StorageProfile::Azdls(profile) => {
                 profile
                     .generate_table_config(
-                        idents,
                         data_access,
                         table_location,
                         secret
@@ -198,31 +199,143 @@ impl StorageProfile {
                     .await
             }
             #[cfg(test)]
-            StorageProfile::Test(_) => Ok(TableConfig::default()),
+            StorageProfile::Test(_) => Ok(TableProperties::default()),
         }
     }
 
-    /// Validate the storage profile.
+    /// Try to normalize the storage profile.
+    /// Fails if some validation fails. This does not check physical filesystem access.
     ///
     /// # Errors
-    /// Fails if the underlying storage profile's validation fails.
-    pub async fn validate(
-        &mut self,
-        secret: Option<&StorageCredential>,
-    ) -> Result<(), ValidationError> {
+    /// Fails if the underlying storage profile's normalization fails.
+    pub fn normalize(&mut self) -> Result<(), ValidationError> {
+        // ------------- Common validations -------------
+        // Test if we can generate a default namespace location
+        let ns_location = self.default_namespace_location(NamespaceIdentUuid::default())?;
+        self.default_tabular_location(&ns_location, TableIdentUuid::default().into());
+
+        // ------------- Profile specific validations -------------
         match self {
-            StorageProfile::S3(profile) => {
-                profile
-                    .validate(secret.map(|s| s.try_to_s3()).transpose()?)
-                    .await
-            }
-            StorageProfile::Azdls(prof) => {
-                prof.validate(secret.map(|s| s.try_to_az()).transpose()?)
-                    .await
-            }
+            StorageProfile::S3(profile) => profile.normalize(),
+            StorageProfile::Azdls(prof) => prof.normalize(),
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(()),
         }
+    }
+
+    /// Validate physical access
+    ///
+    /// If location is not provided, a dummy table location is used.
+    ///
+    /// # Errors
+    /// Fails if a file cannot be written and deleted.
+    pub async fn validate_access(
+        &self,
+        credential: Option<&StorageCredential>,
+        location: Option<&Location>,
+    ) -> Result<(), ValidationError> {
+        let file_io = self.file_io(credential)?;
+
+        let ns_id = NamespaceIdentUuid::default();
+        let table_id = TableIdentUuid::default();
+        let ns_location = self.default_namespace_location(ns_id)?;
+        let test_location = location.map_or_else(
+            || self.default_tabular_location(&ns_location, table_id.into()),
+            std::borrow::ToOwned::to_owned,
+        );
+        // Validate direct read/write access
+        self.validate_read_write(&file_io, &test_location, false)
+            .await?;
+
+        // Test vended-credentials access
+        let test_vended_credentials = match self {
+            StorageProfile::S3(profile) => profile.sts_enabled,
+            StorageProfile::Azdls(_) => true,
+            #[cfg(test)]
+            StorageProfile::Test(_) => false,
+        };
+
+        if test_vended_credentials {
+            let tbl_config = self
+                .generate_table_config(
+                    &DataAccess {
+                        remote_signing: false,
+                        vended_credentials: true,
+                    },
+                    credential,
+                    &test_location,
+                    StoragePermissions::ReadWriteDelete,
+                )
+                .await?;
+            match &self {
+                StorageProfile::S3(_) => {
+                    let sts_file_io = s3::get_file_io_from_table_config(&tbl_config)?;
+                    self.validate_read_write(&sts_file_io, &test_location, true)
+                        .await?;
+                }
+                StorageProfile::Azdls(_) => {
+                    az::validate_vended_credentials(&tbl_config, &test_location, self).await?;
+                }
+                #[cfg(test)]
+                StorageProfile::Test(_) => {}
+            }
+        }
+
+        // Cleanup
+        crate::catalog::io::remove_all(&file_io, &test_location)
+            .await
+            .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(self.clone())))?;
+
+        Ok(())
+    }
+
+    async fn validate_read_write(
+        &self,
+        file_io: &iceberg::io::FileIO,
+        test_location: &Location,
+        is_vended_credentials: bool,
+    ) -> Result<(), ValidationError> {
+        let compression_codec = CompressionCodec::Gzip;
+
+        let mut test_file_write =
+            self.default_metadata_location(test_location, &compression_codec, uuid::Uuid::now_v7());
+        if is_vended_credentials {
+            test_file_write.push("test_vended_credentials");
+            tracing::debug!(
+                "Validating vended credential access to: {}",
+                test_file_write
+            );
+        } else {
+            test_file_write.pop().push("test");
+            tracing::debug!("Validating access to: {}", test_file_write);
+        }
+
+        // Test write
+        crate::catalog::io::write_metadata_file(
+            &test_file_write,
+            "test",
+            compression_codec,
+            file_io,
+        )
+        .await
+        .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(self.clone())))?;
+
+        // Test read
+        let _ = crate::catalog::io::read_file(file_io, &test_file_write)
+            .await
+            .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(self.clone())))?;
+
+        // Test delete
+        crate::catalog::io::delete_file(file_io, &test_file_write)
+            .await
+            .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(self.clone())))?;
+
+        tracing::debug!(
+            "Successfully wrote, read and deleted file at: {}",
+            test_file_write
+        );
+
+        Ok(())
     }
 
     /// Try to convert the storage profile into an S3 profile.
@@ -252,14 +365,56 @@ impl StorageProfile {
             }),
         }
     }
+
+    #[must_use]
+    pub fn is_allowed_location(&self, other: &Location) -> bool {
+        let base_location = self.base_location().ok();
+
+        if let Some(mut base_location) = base_location {
+            base_location.with_trailing_slash();
+            if other == &base_location {
+                return false;
+            }
+
+            other.is_sublocation_of(&base_location)
+        } else {
+            false
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Idents {
-    pub warehouse_ident: WarehouseIdent,
-    pub namespace_ident: NamespaceIdentUuid,
-    pub table_ident: TableIdentUuid,
+pub trait StorageLocations {
+    /// Get the default tabular location for the storage profile.
+    fn default_tabular_location(
+        &self,
+        namespace_location: &Location,
+        table_id: TabularIdentUuid,
+    ) -> Location {
+        let mut l = namespace_location.clone();
+        l.without_trailing_slash().push(&table_id.to_string());
+        l
+    }
+
+    #[must_use]
+    /// Get the default metadata location for the storage profile.
+    fn default_metadata_location(
+        &self,
+        table_location: &Location,
+        compression_codec: &CompressionCodec,
+        metadata_id: uuid::Uuid,
+    ) -> Location {
+        let filename_extension_compression = compression_codec.as_file_extension();
+        let filename = format!("{metadata_id}{filename_extension_compression}.metadata.json",);
+        let mut l = table_location.clone();
+
+        l.without_trailing_slash().extend(&["metadata", &filename]);
+        l
+    }
 }
+
+impl StorageLocations for StorageProfile {}
+impl StorageLocations for S3Profile {}
+impl StorageLocations for AzdlsProfile {}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TestProfile;
@@ -267,7 +422,6 @@ pub struct TestProfile;
 /// Storage secret for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
 #[serde(tag = "type")]
-#[allow(clippy::module_name_repetitions)]
 #[schema(rename_all = "kebab-case")]
 pub enum StorageCredential {
     /// Credentials for S3 storage
@@ -341,7 +495,51 @@ pub mod path_utils {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
+
+    #[test]
+    fn test_reduce_scheme_string() {
+        let path = "abfss://filesystem@dfs.windows.net/path/_test";
+        let reduced_path = path_utils::reduce_scheme_string(path, true);
+        assert_eq!(reduced_path, "/path/_test");
+
+        let reduced_path = path_utils::reduce_scheme_string(path, false);
+        // ToDo Tobi: Is this correct?
+        assert_eq!(reduced_path, "abfss:///path/_test");
+    }
+
+    #[test]
+    fn test_default_locations() {
+        let profile = StorageProfile::S3(S3Profile {
+            bucket: "my-bucket".to_string(),
+            endpoint: Some("http://localhost:9000".parse().unwrap()),
+            region: "us-east-1".to_string(),
+            assume_role_arn: None,
+            path_style_access: None,
+            key_prefix: Some("subfolder".to_string()),
+            sts_role_arn: None,
+            sts_enabled: false,
+            flavor: S3Flavor::Aws,
+        });
+
+        let target_location = "s3://my-bucket/subfolder/00000000-0000-0000-0000-000000000001/00000000-0000-0000-0000-000000000002";
+
+        let namespace_id: NamespaceIdentUuid =
+            uuid::uuid!("00000000-0000-0000-0000-000000000001").into();
+        let namespace_location = profile.default_namespace_location(namespace_id).unwrap();
+        let table_id = TabularIdentUuid::View(uuid::uuid!("00000000-0000-0000-0000-000000000002"));
+        let table_location = profile.default_tabular_location(&namespace_location, table_id);
+        assert_eq!(table_location.to_string(), target_location);
+
+        let mut namespace_location_without_slash = namespace_location.clone();
+        namespace_location_without_slash.without_trailing_slash();
+        let table_location =
+            profile.default_tabular_location(&namespace_location_without_slash, table_id);
+        assert!(!namespace_location_without_slash.to_string().ends_with('/'));
+        assert_eq!(table_location.to_string(), target_location);
+    }
 
     #[test]
     fn test_redact() {
@@ -405,5 +603,42 @@ mod tests {
                 aws_secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_string()
             })
         );
+    }
+
+    #[test]
+    fn test_is_allowed_location() {
+        let profile = StorageProfile::S3(S3Profile {
+            bucket: "my.bucket".to_string(),
+            endpoint: Some("http://localhost:9000".parse().unwrap()),
+            region: "us-east-1".to_string(),
+            assume_role_arn: None,
+            path_style_access: None,
+            key_prefix: Some("my/subpath".to_string()),
+            sts_role_arn: None,
+            sts_enabled: false,
+            flavor: S3Flavor::Aws,
+        });
+
+        let cases = vec![
+            ("s3://my.bucket/my/subpath/ns-id", true),
+            ("s3://my.bucket/my/subpath/ns-id/", true),
+            ("s3://my.bucket/my/subpath/ns-id/tbl-id", true),
+            ("s3://my.bucket/my/subpath/ns-id/tbl-id/", true),
+            ("s3://other.bucket/my/subpath/ns-id/tbl-id/", false),
+            ("s3://my.bucket/other/subpath/ns-id/tbl-id/", false),
+            // Exact path should not be accepted
+            ("s3://my.bucket/my/subpath", false),
+            ("s3://my.bucket/my/subpath/", false),
+        ];
+
+        for (sublocation, expected_result) in cases {
+            let sublocation = Location::from_str(sublocation).unwrap();
+            assert_eq!(
+                profile.is_allowed_location(&sublocation),
+                expected_result,
+                "Base Location: {}, Maybe sublocation: {sublocation}",
+                profile.base_location().unwrap(),
+            );
+        }
     }
 }

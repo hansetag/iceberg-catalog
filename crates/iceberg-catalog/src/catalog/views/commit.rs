@@ -1,3 +1,5 @@
+use std::str::FromStr as _;
+
 use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, DataAccess, ErrorModel, LoadViewResult, Prefix, Result,
     TableIdent, ViewParameters,
@@ -12,17 +14,18 @@ use crate::catalog::views::validate_view_updates;
 use crate::request_metadata::RequestMetadata;
 use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;
-use crate::service::storage::{Idents, StoragePermissions};
+use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, TableIdentUuid,
-    Transaction, ViewMetadataWithLocation,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, Transaction,
+    ViewMetadataWithLocation,
 };
 use http::StatusCode;
 use iceberg::spec::{AppendViewVersion, ViewMetadataBuilder};
 use iceberg::NamespaceIdent;
 use iceberg_ext::catalog::rest::ViewUpdate;
 use iceberg_ext::catalog::ViewRequirement;
+use iceberg_ext::configs::Location;
 use uuid::Uuid;
 
 /// Commit updates to a view
@@ -81,8 +84,6 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         updates,
     } = &request;
 
-    validate_view_updates(updates)?;
-
     identifier
         .as_ref()
         .map(validate_table_or_view_ident)
@@ -122,6 +123,8 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     .await?;
 
     // ------------------- BUSINESS LOGIC -------------------
+    validate_view_updates(updates)?;
+
     let namespace_id = C::namespace_ident_to_id(
         warehouse_id,
         &parameters.view.namespace,
@@ -176,7 +179,13 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         metadata_location: _,
         metadata: before_update_metadata,
     } = C::load_view(view_id, transaction.transaction()).await?;
-    let view_location = before_update_metadata.location.clone();
+    let view_location = Location::from_str(&before_update_metadata.location).map_err(|e| {
+        ErrorModel::internal(
+            format!("Invalid view location in DB: {e}"),
+            "InvalidViewLocation",
+            Some(Box::new(e)),
+        )
+    })?;
 
     state
         .v1_state
@@ -263,7 +272,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
             .build()
     })?;
 
-    let metadata_location = storage_profile.initial_metadata_location(
+    let metadata_location = storage_profile.default_metadata_location(
         &view_location,
         &CompressionCodec::try_from_properties(requested_update_metadata.properties())?,
         Uuid::now_v7(),
@@ -274,13 +283,10 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         view_id,
         &parameters.view,
         metadata_location.as_str(),
-        requested_update_metadata,
+        requested_update_metadata.clone(),
         transaction.transaction(),
     )
     .await?;
-    let updated_meta = C::load_view(view_id, transaction.transaction())
-        .await?
-        .metadata;
 
     // We don't commit the transaction yet, first we need to write the metadata file.
     let storage_secret = if let Some(secret_id) = &storage_secret_id {
@@ -297,10 +303,10 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     };
 
     let file_io = storage_profile.file_io(storage_secret.as_ref())?;
-    let compression_codec = CompressionCodec::try_from_metadata(&updated_meta)?;
+    let compression_codec = CompressionCodec::try_from_metadata(&requested_update_metadata)?;
     write_metadata_file(
-        metadata_location.as_str(),
-        &updated_meta,
+        &metadata_location,
+        &requested_update_metadata,
         compression_codec,
         &file_io,
     )
@@ -314,14 +320,9 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     // is a stage-create, we still fetch the secret.
     let config = storage_profile
         .generate_table_config(
-            Idents {
-                warehouse_ident: warehouse_id,
-                namespace_ident: namespace_id,
-                table_ident: TableIdentUuid::from(*view_id),
-            },
             &data_access,
             storage_secret.as_ref(),
-            updated_meta.location.as_str(),
+            &metadata_location,
             // TODO: This should be a permission based on authz
             StoragePermissions::ReadWriteDelete,
         )
@@ -352,8 +353,8 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         .await;
 
     Ok(LoadViewResult {
-        metadata_location,
-        metadata: updated_meta,
+        metadata_location: metadata_location.to_string(),
+        metadata: requested_update_metadata,
         config: Some(config.into()),
     })
 }
