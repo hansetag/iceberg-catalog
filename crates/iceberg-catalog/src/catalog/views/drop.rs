@@ -1,4 +1,5 @@
 use crate::api::iceberg::types::Prefix;
+use crate::api::iceberg::v1::tables::DropParams;
 use crate::api::iceberg::v1::ViewParameters;
 use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
@@ -16,6 +17,7 @@ use uuid::Uuid;
 
 pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     parameters: ViewParameters,
+    DropParams { purge_requested }: DropParams,
     state: ApiContext<State<A, C, S>>,
     request_metadata: RequestMetadata,
 ) -> Result<()> {
@@ -57,7 +59,15 @@ pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         .into_result()?;
 
     tracing::debug!("Proceeding to delete view");
-    C::drop_view(view_id, DropFlags::default(), transaction.transaction()).await?;
+    C::drop_view(
+        view_id,
+        DropFlags {
+            purge: purge_requested.unwrap_or(false),
+            hard_delete: false,
+        },
+        transaction.transaction(),
+    )
+    .await?;
 
     // TODO: Delete metadata files
     transaction.commit().await?;
@@ -129,6 +139,9 @@ mod test {
             ViewParameters {
                 prefix: Some(Prefix(prefix.to_string())),
                 view: TableIdent::from_strs(&table_ident).unwrap(),
+            },
+            DropParams {
+                purge_requested: None,
             },
             api_context.clone(),
             RequestMetadata::new_random(),

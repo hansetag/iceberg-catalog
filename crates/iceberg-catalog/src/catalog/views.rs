@@ -6,17 +6,17 @@ mod list;
 mod load;
 mod rename;
 
+use super::tables::validate_table_properties;
+use super::CatalogServer;
+use crate::api::iceberg::v1::tables::DropParams;
 use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, CreateViewRequest, DataAccess, ListTablesResponse,
     LoadViewResult, NamespaceParameters, PaginationQuery, Prefix, RenameTableRequest, Result,
     ViewParameters,
 };
 use crate::request_metadata::RequestMetadata;
-use iceberg_ext::catalog::rest::ViewUpdate;
-
-use super::tables::validate_table_properties;
-use super::CatalogServer;
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State};
+use iceberg_ext::catalog::rest::ViewUpdate;
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -67,10 +67,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     /// Drop a view from the catalog
     async fn drop_view(
         parameters: ViewParameters,
+        drop_params: DropParams,
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<()> {
-        drop::drop_view(parameters, state, request_metadata).await
+        drop::drop_view(parameters, drop_params, state, request_metadata).await
     }
 
     /// Check if a view exists

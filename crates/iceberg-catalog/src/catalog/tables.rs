@@ -484,9 +484,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     /// Drop a table from the catalog
     async fn drop_table(
         parameters: TableParameters,
-        DropParams {
-            purge_requested: purge,
-        }: DropParams,
+        DropParams { purge_requested }: DropParams,
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<()> {
@@ -525,17 +523,17 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
 
         let table_id = table_id.ok_or_else(|| {
-            ErrorModel::builder()
-                .code(StatusCode::NOT_FOUND.into())
-                .message(format!("Table does not exist in warehouse {warehouse_id}"))
-                .r#type("TableNotFound".to_string())
-                .build()
+            ErrorModel::not_found(
+                format!("Table does not exist in warehouse {warehouse_id}"),
+                "TableNotFound",
+                None,
+            )
         })?;
         C::drop_table(
             table_id,
             DropFlags {
-                purge: purge.unwrap_or_default(),
-                ..Default::default()
+                purge: purge_requested.unwrap_or_default(),
+                hard_delete: false,
             },
             transaction.transaction(),
         )

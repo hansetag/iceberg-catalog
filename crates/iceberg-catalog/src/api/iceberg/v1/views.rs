@@ -1,5 +1,6 @@
 use crate::api::iceberg::types::Prefix;
 use crate::api::iceberg::v1::namespace::{NamespaceIdentUrl, NamespaceParameters, PaginationQuery};
+use crate::api::iceberg::v1::tables::DropParams;
 use crate::api::iceberg::v1::DataAccess;
 use crate::api::{
     ApiContext, CommitViewRequest, CreateViewRequest, ListTablesResponse, LoadViewResult,
@@ -60,6 +61,7 @@ where
     /// Remove a view from the catalog
     async fn drop_view(
         parameters: ViewParameters,
+        drop_params: DropParams,
         state: ApiContext<S>,
         request_metadata: RequestMetadata,
     ) -> Result<()>;
@@ -185,6 +187,9 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                                     namespace: namespace.into(),
                                     name: view,
                                 },
+                            },
+                            DropParams {
+                                purge_requested: None,
                             },
                             api_context,
                             metadata,

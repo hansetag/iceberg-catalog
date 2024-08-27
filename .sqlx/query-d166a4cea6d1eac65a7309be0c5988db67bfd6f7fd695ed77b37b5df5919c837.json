@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM \"table\"\n        WHERE table_id = $1 AND NOT EXISTS (\n            SELECT 1\n            FROM active_tables\n            WHERE active_tables.table_id = $1\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d166a4cea6d1eac65a7309be0c5988db67bfd6f7fd695ed77b37b5df5919c837"
+}
