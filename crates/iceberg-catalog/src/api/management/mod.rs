@@ -8,9 +8,12 @@ pub mod v1 {
     use crate::service::auth::AuthZHandler;
     use std::marker::PhantomData;
 
+    use crate::api::iceberg::v1::PaginationQuery;
+    use crate::implementations::postgres::tabular::DeleteKind;
     use crate::service::{Catalog, SecretStore, State};
     use axum::extract::{Path, Query, State as AxumState};
     use axum::routing::{get, post};
+    use serde::Serialize;
     use warehouse::{
         AzCredential, AzdlsProfile, CreateWarehouseRequest, CreateWarehouseResponse,
         GetWarehouseResponse, ListProjectsResponse, ListWarehousesRequest, ListWarehousesResponse,
@@ -253,6 +256,48 @@ pub mod v1 {
             .await
     }
 
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub struct ListTabularsResponse {
+        pub tabulars: Vec<TabularResponse>,
+        pub next_page_token: Option<String>,
+    }
+
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub struct TabularResponse {
+        pub id: uuid::Uuid,
+        pub name: String,
+        pub namespace: Vec<String>,
+        pub warehouse_id: uuid::Uuid,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub deleted_at: chrono::DateTime<chrono::Utc>,
+        pub deleted_kind: DeleteKind,
+    }
+
+    /// List soft-deleted tabulars
+    #[utoipa::path(
+        get,
+        tag = "management",
+        path = "management/v1/warehouse/{warehouse_id}/deleted_tabulars",
+        responses(
+            (status = 200, description = "List of soft-deleted tabulars", body = [ListTabularsResponse])
+        )
+    )]
+    async fn list_deleted_tabulars<C: Catalog, A: AuthZHandler, S: SecretStore>(
+        Path(warehouse_id): Path<uuid::Uuid>,
+        Query(pagination): Query<PaginationQuery>,
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<Json<ListTabularsResponse>> {
+        ApiServer::<C, A, S>::list_soft_deleted_tabulars(
+            metadata,
+            warehouse_id.into(),
+            api_context,
+            pagination,
+        )
+        .await
+        .map(Json)
+    }
+
     impl<C: Catalog, A: AuthZHandler, S: SecretStore> ApiServer<C, A, S> {
         pub fn new_v1_router() -> Router<ApiContext<State<A, C, S>>> {
             Router::new()
@@ -291,6 +336,10 @@ pub mod v1 {
                 .route(
                     "/warehouse/:warehouse_id/storage-credential",
                     post(update_storage_credential),
+                )
+                .route(
+                    "/warehouse/:warehouse_id/deleted_tabulars",
+                    get(list_deleted_tabulars),
                 )
         }
     }

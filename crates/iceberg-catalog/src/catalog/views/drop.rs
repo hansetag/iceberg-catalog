@@ -8,8 +8,8 @@ use crate::service::auth::AuthZHandler;
 use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;
 use crate::service::tabular_idents::TabularIdentUuid;
-use crate::service::Result;
 use crate::service::{Catalog, SecretStore, State, Transaction};
+use crate::service::{DropFlags, Result};
 use http::StatusCode;
 use iceberg_ext::catalog::rest::ErrorModel;
 use uuid::Uuid;
@@ -57,7 +57,7 @@ pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         .into_result()?;
 
     tracing::debug!("Proceeding to delete view");
-    C::drop_view(view_id, transaction.transaction()).await?;
+    C::drop_view(view_id, DropFlags::default(), transaction.transaction()).await?;
 
     // TODO: Delete metadata files
     transaction.commit().await?;

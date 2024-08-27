@@ -1,6 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr as _;
 
+use super::commit_tables::apply_commit;
+use super::{
+    io::write_metadata_file, maybe_get_secret, namespace::validate_namespace_ident,
+    require_warehouse_id, CatalogServer,
+};
+use crate::api::iceberg::v1::tables::DropParams;
 use crate::api::iceberg::v1::{
     ApiContext, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
     CreateTableRequest, DataAccess, ErrorModel, ListTablesResponse, LoadTableResult,
@@ -9,27 +15,21 @@ use crate::api::iceberg::v1::{
 };
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
+use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
+use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
+use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
+use crate::service::tabular_idents::TabularIdentUuid;
+use crate::service::{
+    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, DropFlags, ListFlags,
+    LoadTableResponse as CatalogLoadTableResult, State, Transaction,
+};
+use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
 use iceberg_ext::configs::namespace::NamespaceProperties;
 use iceberg_ext::configs::Location;
 use serde::Serialize;
 use uuid::Uuid;
-
-use super::commit_tables::apply_commit;
-use super::{
-    io::write_metadata_file, maybe_get_secret, namespace::validate_namespace_ident,
-    require_warehouse_id, CatalogServer,
-};
-use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
-use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
-use crate::service::tabular_idents::TabularIdentUuid;
-use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
-    LoadTableResponse as CatalogLoadTableResult, State, Transaction,
-};
-use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -484,6 +484,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     /// Drop a table from the catalog
     async fn drop_table(
         parameters: TableParameters,
+        DropParams {
+            purge_requested: purge,
+        }: DropParams,
         state: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<()> {
@@ -528,7 +531,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .r#type("TableNotFound".to_string())
                 .build()
         })?;
-        C::drop_table(table_id, false, transaction.transaction()).await?;
+        C::drop_table(
+            table_id,
+            DropFlags {
+                purge: purge.unwrap_or_default(),
+                ..Default::default()
+            },
+            transaction.transaction(),
+        )
+        .await?;
 
         // ToDo: Delete metadata files
         state

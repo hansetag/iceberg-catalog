@@ -10,13 +10,17 @@ use http::StatusCode;
 use iceberg_ext::NamespaceIdent;
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery, MAX_PAGE_SIZE};
+use crate::implementations::postgres::catalog::DeletionDetails;
 use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
 use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
+use crate::service::DropFlags;
+use serde::Serialize;
 use sqlx::postgres::PgArguments;
 use sqlx::{Arguments, Execute, FromRow, PgConnection, Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::fmt::Debug;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 const MAX_PARAMETERS: usize = 30000;
@@ -85,7 +89,6 @@ struct TabularRow {
     tabular_id: Uuid,
     namespace: Vec<String>,
     tabular_name: String,
-    metadata_location: Option<String>,
     // apparently this is needed, we need 'as "typ: TabularType"' in the query else the select won't
     // work, but that apparently aliases the whole column to "typ: TabularType"
     #[sqlx(rename = "typ: TabularType")]
@@ -131,7 +134,6 @@ where
         SELECT t.tabular_id,
                n.namespace_name as "namespace",
                t.name as tabular_name,
-               t.metadata_location,
                t.typ as "typ: TabularType"
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
@@ -165,27 +167,22 @@ where
         tabular_id,
         namespace,
         tabular_name: name,
-        metadata_location,
         typ,
     } in rows
     {
         let namespace = try_parse_namespace_ident(namespace)?;
-
-        let staged = metadata_location.is_none();
-        if !staged || list_flags.include_staged {
-            match typ {
-                TabularType::Table => {
-                    table_map.insert(
-                        TabularIdentOwned::Table(TableIdent { namespace, name }),
-                        Some(TabularIdentUuid::Table(tabular_id)),
-                    );
-                }
-                TabularType::View => {
-                    table_map.insert(
-                        TabularIdentOwned::View(TableIdent { namespace, name }),
-                        Some(TabularIdentUuid::View(tabular_id)),
-                    );
-                }
+        match typ {
+            TabularType::Table => {
+                table_map.insert(
+                    TabularIdentOwned::Table(TableIdent { namespace, name }),
+                    Some(TabularIdentUuid::Table(tabular_id)),
+                );
+            }
+            TabularType::View => {
+                table_map.insert(
+                    TabularIdentOwned::View(TableIdent { namespace, name }),
+                    Some(TabularIdentUuid::View(tabular_id)),
+                );
             }
         }
     }
@@ -295,12 +292,12 @@ pub(crate) async fn create_tabular<'a>(
 
 pub(crate) async fn list_tabulars(
     warehouse_id: WarehouseIdent,
-    namespace: &NamespaceIdent,
+    namespace: Option<&NamespaceIdent>,
     list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
     typ: Option<TabularType>,
     pagination_query: PaginationQuery,
-) -> Result<PaginatedTabulars<TabularIdentUuid, TabularIdentOwned>> {
+) -> Result<PaginatedTabulars<TabularIdentUuid, (TabularIdentOwned, Option<DeletionDetails>)>> {
     let page_size = pagination_query
         .page_size
         .map(i64::from)
@@ -324,12 +321,14 @@ pub(crate) async fn list_tabulars(
             t.name as "tabular_name",
             namespace_name,
             typ as "typ: TabularType",
-            t.created_at
+            t.created_at,
+            t.deleted_at,
+            t.deletion_kind as "deletion_kind: DeleteKind"
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE n.warehouse_id = $1
-            AND namespace_name = $2
+            AND (namespace_name = $2 OR $2 IS NULL)
             AND w.status = 'active'
             AND (t.deleted_at IS NULL OR $8)
             AND (t."metadata_location" IS NOT NULL OR $3)
@@ -339,7 +338,7 @@ pub(crate) async fn list_tabulars(
             LIMIT $7
         "#,
         *warehouse_id,
-        &**namespace,
+        namespace.as_deref().map(|n| n.as_ref().as_slice()),
         list_flags.include_staged,
         typ as _,
         token_ts,
@@ -364,17 +363,37 @@ pub(crate) async fn list_tabulars(
         let namespace = try_parse_namespace_ident(table.namespace_name)?;
         let name = table.tabular_name;
 
+        let deletion_details = if let Some(deleted_at) = table.deleted_at {
+            Some(DeletionDetails {
+                deletion_kind: table.deletion_kind.ok_or(ErrorModel::internal(
+                    "Deletion kind is missing while deleted_at is set.",
+                    "MissingDeletionKind",
+                    None,
+                ))?,
+                deleted_at,
+                created_at: table.created_at,
+            })
+        } else {
+            None
+        };
+
         match table.typ {
             TabularType::Table => {
                 tabulars.insert(
                     TabularIdentUuid::Table(table.tabular_id),
-                    TabularIdentOwned::Table(TableIdent { namespace, name }),
+                    (
+                        TabularIdentOwned::Table(TableIdent { namespace, name }),
+                        deletion_details,
+                    ),
                 );
             }
             TabularType::View => {
                 tabulars.insert(
                     TabularIdentUuid::View(table.tabular_id),
-                    TabularIdentOwned::View(TableIdent { namespace, name }),
+                    (
+                        TabularIdentOwned::View(TableIdent { namespace, name }),
+                        deletion_details,
+                    ),
                 );
             }
         };
@@ -476,10 +495,19 @@ pub(crate) async fn rename_tabular(
     Ok(())
 }
 
+#[derive(Debug, Copy, Clone, sqlx::Type, Serialize, ToSchema)]
+#[sqlx(type_name = "deletion_kind", rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+pub enum DeleteKind {
+    // TODO: DeleteReferences / DeleteMetadata / DontTouchObjectStore?
+    Default,
+    Purge,
+}
+
 // ToDo: Switch to a soft delete
 pub(crate) async fn drop_tabular<'a>(
     tabular_id: TabularIdentUuid,
-    hard_delete: bool,
+    DropFlags { hard_delete, purge }: DropFlags,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
     // Set deleted_at to now() for rows that have metadata_location
@@ -499,11 +527,11 @@ pub(crate) async fn drop_tabular<'a>(
         .await
         .map_err(|e| {
             if let sqlx::Error::RowNotFound = e {
-                ErrorModel::builder()
-                    .code(StatusCode::NOT_FOUND.into())
-                    .message(format!("{} not found", tabular_id.typ_str()))
-                    .r#type("NoSuchTabularError".to_string())
-                    .build()
+                ErrorModel::not_found(
+                    format!("{} not found", tabular_id.typ_str()),
+                    "NoSuchTabularError".to_string(),
+                    Some(Box::new(e)),
+                )
             } else {
                 tracing::warn!("Error dropping tabular: {}", e);
                 e.into_error_model(format!("Error dropping {}", tabular_id.typ_str()))
@@ -519,7 +547,7 @@ pub(crate) async fn drop_tabular<'a>(
     WITH updated AS (
         UPDATE tabular
         -- Append a suffix to the name to avoid conflicts with new tables
-        SET deleted_at = now(), name = name || $3
+        SET deleted_at = now(), name = name || $3, deletion_kind = $4
         WHERE tabular_id = $1
         AND typ = $2
         AND metadata_location IS NOT NULL
@@ -540,7 +568,12 @@ pub(crate) async fn drop_tabular<'a>(
     "#,
         *tabular_id,
         TabularType::from(tabular_id) as _,
-        Uuid::now_v7().to_string()
+        Uuid::now_v7().to_string(),
+        if purge {
+            DeleteKind::Purge
+        } else {
+            DeleteKind::Default
+        } as _
     )
     .fetch_one(&mut **transaction)
     .await
@@ -562,13 +595,12 @@ pub(crate) async fn drop_tabular<'a>(
 
 fn try_parse_namespace_ident(namespace: Vec<String>) -> Result<NamespaceIdent> {
     NamespaceIdent::from_vec(namespace).map_err(|e| {
-        ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Error parsing namespace".to_string())
-            .r#type("NamespaceParseError".to_string())
-            .source(Some(Box::new(e)))
-            .build()
-            .into()
+        ErrorModel::internal(
+            "Error parsing namespace",
+            "NamespaceParseError",
+            Some(Box::new(e)),
+        )
+        .into()
     })
 }
 

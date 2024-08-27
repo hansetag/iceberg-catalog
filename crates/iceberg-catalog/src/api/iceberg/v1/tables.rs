@@ -12,6 +12,7 @@ use axum::routing::{get, post};
 use axum::{async_trait, Extension, Json, Router};
 use http::{HeaderMap, StatusCode};
 use iceberg::TableIdent;
+use serde::Deserialize;
 
 #[async_trait]
 pub trait Service<S: crate::api::ThreadSafe>
@@ -62,6 +63,7 @@ where
     /// Drop a table from the catalog
     async fn drop_table(
         parameters: TableParameters,
+        drop_params: DropParams,
         state: ApiContext<S>,
         request_metadata: RequestMetadata,
     ) -> Result<()>;
@@ -200,6 +202,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
             // Drop a table from the catalog
             .delete(
                 |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
+                 Query(drop_params): Query<DropParams>,
                  State(api_context): State<ApiContext<S>>,
                  Extension(metadata): Extension<RequestMetadata>| async {
                     I::drop_table(
@@ -210,6 +213,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                                 name: table,
                             },
                         },
+                        drop_params,
                         api_context,
                         metadata,
                     )
@@ -286,6 +290,12 @@ pub const DATA_ACCESS_HEADER: &str = "X-Iceberg-Access-Delegation";
 pub struct DataAccess {
     pub vended_credentials: bool,
     pub remote_signing: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DropParams {
+    pub purge_requested: Option<bool>,
 }
 
 pub(crate) fn parse_data_access(headers: &HeaderMap) -> DataAccess {
