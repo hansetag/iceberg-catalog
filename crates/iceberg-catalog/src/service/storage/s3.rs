@@ -233,7 +233,10 @@ impl S3Profile {
     #[must_use]
     pub fn generate_catalog_config(&self, warehouse_id: WarehouseIdent) -> CatalogConfig {
         CatalogConfig {
-            defaults: HashMap::default(),
+            // ToDo: s3.delete-enabled?
+            // if we don't do this, icebergs spark s3 attempts to sign a link that looks like /bucket?delete
+            // when DROP ... PURGE-ing a table.
+            defaults: HashMap::from_iter([("s3.delete-enabled".to_string(), "false".to_string())]),
             overrides: HashMap::from_iter(vec![(
                 configs::table::s3::SignerUri::KEY.to_string(),
                 CONFIG.s3_signer_uri_for_warehouse(warehouse_id).to_string(),

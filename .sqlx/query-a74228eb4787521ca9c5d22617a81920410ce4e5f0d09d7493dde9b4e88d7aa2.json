@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE tabular ti\n            SET name = $1\n            WHERE tabular_id = $2 AND typ = $3 AND metadata_location IS NOT NULL\n            AND $4 IN (\n                SELECT warehouse_id FROM warehouse WHERE status = 'active'\n            )\n            RETURNING tabular_id\n            ",
+  "query": "\n            UPDATE tabular ti\n            SET name = $1\n            WHERE tabular_id = $2 AND typ = $3\n                AND metadata_location IS NOT NULL\n                AND ti.deleted_at IS NULL\n                AND $4 IN (\n                    SELECT warehouse_id FROM warehouse WHERE status = 'active'\n                )\n            RETURNING tabular_id\n            ",
   "describe": {
     "columns": [
       {
@@ -31,5 +31,5 @@
       false
     ]
   },
-  "hash": "d1f5e2e2f3243375e84fde6a0dfe205d479cf14f711b9d0fefd6cf1080838c39"
+  "hash": "a74228eb4787521ca9c5d22617a81920410ce4e5f0d09d7493dde9b4e88d7aa2"
 }

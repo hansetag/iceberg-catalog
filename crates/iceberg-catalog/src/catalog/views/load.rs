@@ -76,7 +76,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let ViewMetadataWithLocation {
         metadata_location,
         metadata: view_metadata,
-    } = C::load_view(view_id, transaction.transaction()).await?;
+    } = C::load_view(view_id, false, transaction.transaction()).await?;
 
     let view_location = Location::from_str(&view_metadata.location).map_err(|e| {
         ErrorModel::internal(

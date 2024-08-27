@@ -178,7 +178,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let ViewMetadataWithLocation {
         metadata_location: _,
         metadata: before_update_metadata,
-    } = C::load_view(view_id, transaction.transaction()).await?;
+    } = C::load_view(view_id, false, transaction.transaction()).await?;
     let view_location = Location::from_str(&before_update_metadata.location).map_err(|e| {
         ErrorModel::internal(
             format!("Invalid view location in DB: {e}"),

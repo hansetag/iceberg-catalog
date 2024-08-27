@@ -26,7 +26,7 @@ use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
@@ -61,7 +61,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let tables = C::list_tables(
             warehouse_id,
             &namespace,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted: false,
+            },
             state.v1_state.catalog,
             pagination_query,
         )
@@ -250,11 +253,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         // ------------------- AUTHZ -------------------
-        let include_stage = false;
+        let include_deleted = false;
+        let include_staged = false;
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
-            include_stage,
+            ListFlags {
+                include_staged,
+                include_deleted,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -274,7 +281,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- BUSINESS LOGIC -------------------
         let table_id = require_table_id(&table, table_id)?;
         let mut t = C::Transaction::begin_read(state.v1_state.catalog).await?;
-        let mut metadatas = C::load_tables(warehouse_id, vec![table_id], t.transaction()).await?;
+        let mut metadatas = C::load_tables(
+            warehouse_id,
+            vec![table_id],
+            include_deleted,
+            t.transaction(),
+        )
+        .await?;
         let CatalogLoadTableResult {
             table_id: _,
             namespace_id: _,
@@ -346,10 +359,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- AUTHZ -------------------
         let include_staged = true;
+        let include_deleted = false;
+
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table_ident,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -377,8 +395,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } = request;
 
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let mut previous_table =
-            C::load_tables(warehouse_id, vec![table_id], t.transaction()).await?;
+        let mut previous_table = C::load_tables(
+            warehouse_id,
+            vec![table_id],
+            include_deleted,
+            t.transaction(),
+        )
+        .await?;
         let previous_table = remove_table(&table_id, &table_ident, &mut previous_table)?;
         let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
 
@@ -471,10 +494,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- AUTHZ -------------------
         let include_staged = true;
+        let include_deleted = false;
+
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -500,7 +528,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .r#type("TableNotFound".to_string())
                 .build()
         })?;
-        C::drop_table(table_id, transaction.transaction()).await?;
+        C::drop_table(table_id, false, transaction.transaction()).await?;
 
         // ToDo: Delete metadata files
         state
@@ -550,7 +578,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted: false,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -600,7 +631,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let source_id = C::table_ident_to_id(
             warehouse_id,
             &source,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted: false,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -713,6 +747,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- AUTHZ -------------------
         let include_staged = true;
+        let include_deleted = false;
+
         let identifiers = request
             .table_changes
             .iter()
@@ -722,7 +758,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let table_ids = C::table_idents_to_ids(
             warehouse_id,
             identifiers,
-            include_staged,
+            ListFlags {
+                include_staged,
+                include_deleted,
+            },
             state.v1_state.catalog.clone(),
         )
         .await
@@ -779,6 +818,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let mut previous_metadatas = C::load_tables(
             warehouse_id,
             table_ids.values().copied(),
+            include_deleted,
             transaction.transaction(),
         )
         .await?;

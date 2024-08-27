@@ -33,6 +33,7 @@ pub(crate) async fn list_views<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let views = C::list_views(
         warehouse_id,
         &namespace,
+        false,
         state.v1_state.catalog.clone(),
         pagination_query,
     )

@@ -31,7 +31,7 @@ pub(crate) enum TabularType {
 pub(crate) async fn tabular_ident_to_id<'a, 'e, 'c: 'e, E>(
     warehouse_id: WarehouseIdent,
     table: &TabularIdentBorrowed<'a>,
-    include_staged: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: E,
 ) -> Result<Option<TabularIdentUuid>>
 where
@@ -42,7 +42,7 @@ where
 
     let rows = sqlx::query!(
         r#"
-        SELECT t.tabular_id, t.metadata_location, typ AS "typ: TabularType"
+        SELECT t.tabular_id, t.typ as "typ: TabularType"
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
@@ -50,22 +50,23 @@ where
         AND n.warehouse_id = $3
         AND w.status = 'active'
         AND t.typ = $4
+        AND (t.deleted_at IS NULL OR $5)
+        AND (t.metadata_location IS NOT NULL OR $6)
         "#,
         t.namespace.as_ref(),
         t.name,
         *warehouse_id,
-        typ as _
+        typ as _,
+        list_flags.include_deleted,
+        list_flags.include_staged
     )
     .fetch_one(catalog_state)
     .await
     .map(|r| {
-        Some((
-            match r.typ {
-                TabularType::Table => TabularIdentUuid::Table(r.tabular_id),
-                TabularType::View => TabularIdentUuid::View(r.tabular_id),
-            },
-            r.metadata_location.is_none(),
-        ))
+        Some(match r.typ {
+            TabularType::Table => TabularIdentUuid::Table(r.tabular_id),
+            TabularType::View => TabularIdentUuid::View(r.tabular_id),
+        })
     });
 
     match rows {
@@ -75,13 +76,7 @@ where
                 .into_error_model(format!("Error fetching {}", table.typ_str()))
                 .into()),
         },
-        Ok(Some((table_id, staged))) => {
-            if staged && !include_staged {
-                return Ok(None);
-            }
-            Ok(Some(table_id))
-        }
-        Ok(None) => Ok(None),
+        Ok(opt) => Ok(opt),
     }
 }
 
@@ -100,7 +95,7 @@ struct TabularRow {
 pub(crate) async fn tabular_idents_to_ids<'e, 'c: 'e, E>(
     warehouse_id: WarehouseIdent,
     tables: HashSet<TabularIdentBorrowed<'_>>,
-    include_staged: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: E,
 ) -> Result<HashMap<TabularIdentOwned, Option<TabularIdentUuid>>>
 where
@@ -141,8 +136,9 @@ where
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE w.status = 'active' and n."warehouse_id" = $1"#,
-        *warehouse_id
+        WHERE w.status = 'active' and n."warehouse_id" = $1 AND (t.deleted_at is NULL OR $2) "#,
+        *warehouse_id,
+        list_flags.include_deleted
     );
     let checked_sql = statically_checked_query.sql();
 
@@ -176,7 +172,7 @@ where
         let namespace = try_parse_namespace_ident(namespace)?;
 
         let staged = metadata_location.is_none();
-        if !staged || include_staged {
+        if !staged || list_flags.include_staged {
             match typ {
                 TabularType::Table => {
                     table_map.insert(
@@ -210,7 +206,7 @@ fn append_dynamic_filters(
     query_builder.push(r" AND (n.namespace_name, t.name, t.typ) IN ");
     query_builder.push("(");
 
-    let mut arg_idx = 2;
+    let mut arg_idx = args.len() + 1;
     for (i, (ns_ident, name, typ)) in batch_tables.iter().enumerate() {
         query_builder.push(format!("(${arg_idx}"));
         arg_idx += 1;
@@ -300,7 +296,7 @@ pub(crate) async fn create_tabular<'a>(
 pub(crate) async fn list_tabulars(
     warehouse_id: WarehouseIdent,
     namespace: &NamespaceIdent,
-    include_staged: bool,
+    list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
     typ: Option<TabularType>,
     pagination_query: PaginationQuery,
@@ -335,6 +331,7 @@ pub(crate) async fn list_tabulars(
         WHERE n.warehouse_id = $1
             AND namespace_name = $2
             AND w.status = 'active'
+            AND (t.deleted_at IS NULL OR $8)
             AND (t."metadata_location" IS NOT NULL OR $3)
             AND (t.typ = $4 OR $4 IS NULL)
             AND ((t.created_at > $5 OR $5 IS NULL) OR (t.created_at = $5 AND t.tabular_id > $6))
@@ -343,11 +340,12 @@ pub(crate) async fn list_tabulars(
         "#,
         *warehouse_id,
         &**namespace,
-        include_staged,
+        list_flags.include_staged,
         typ as _,
         token_ts,
         token_id,
-        page_size
+        page_size,
+        list_flags.include_deleted
     )
     .fetch_all(&catalog_state.read_pool())
     .await
@@ -410,10 +408,12 @@ pub(crate) async fn rename_tabular(
             r#"
             UPDATE tabular ti
             SET name = $1
-            WHERE tabular_id = $2 AND typ = $3 AND metadata_location IS NOT NULL
-            AND $4 IN (
-                SELECT warehouse_id FROM warehouse WHERE status = 'active'
-            )
+            WHERE tabular_id = $2 AND typ = $3
+                AND metadata_location IS NOT NULL
+                AND ti.deleted_at IS NULL
+                AND $4 IN (
+                    SELECT warehouse_id FROM warehouse WHERE status = 'active'
+                )
             RETURNING tabular_id
             "#,
             &**dest_name,
@@ -441,10 +441,11 @@ pub(crate) async fn rename_tabular(
                 WHERE warehouse_id = $2 AND namespace_name = $3
             )
             WHERE tabular_id = $4 AND typ = $5 AND metadata_location IS NOT NULL
-            AND ti.name = $6
-            AND $2 IN (
-                SELECT warehouse_id FROM warehouse WHERE status = 'active'
-            )
+                AND ti.name = $6
+                AND ti.deleted_at IS NULL
+                AND $2 IN (
+                    SELECT warehouse_id FROM warehouse WHERE status = 'active'
+                )
             RETURNING tabular_id
             "#,
             &**dest_name,
@@ -478,17 +479,68 @@ pub(crate) async fn rename_tabular(
 // ToDo: Switch to a soft delete
 pub(crate) async fn drop_tabular<'a>(
     tabular_id: TabularIdentUuid,
+    hard_delete: bool,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
+    // Set deleted_at to now() for rows that have metadata_location
+    // Drop the row if it doesn't have metadata_location
+
+    if hard_delete {
+        let _ = sqlx::query!(
+            r#"DELETE FROM tabular
+                WHERE tabular_id = $1
+                    AND typ = $2
+                    AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
+               RETURNING tabular_id"#,
+            *tabular_id,
+            TabularType::from(tabular_id) as _
+        )
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|e| {
+            if let sqlx::Error::RowNotFound = e {
+                ErrorModel::builder()
+                    .code(StatusCode::NOT_FOUND.into())
+                    .message(format!("{} not found", tabular_id.typ_str()))
+                    .r#type("NoSuchTabularError".to_string())
+                    .build()
+            } else {
+                tracing::warn!("Error dropping tabular: {}", e);
+                e.into_error_model(format!("Error dropping {}", tabular_id.typ_str()))
+            }
+        })?;
+        return Ok(());
+    }
+
+    // Soft delete, sets deleted_at to now and appends a uuid to the name to avoid conflicts of
+    // new tables with the same name. Staged tables are permanently deleted.
     let _ = sqlx::query!(
         r#"
+    WITH updated AS (
+        UPDATE tabular
+        -- Append a suffix to the name to avoid conflicts with new tables
+        SET deleted_at = now(), name = name || $3
+        WHERE tabular_id = $1
+        AND typ = $2
+        AND metadata_location IS NOT NULL
+        AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
+        RETURNING tabular_id
+    ),
+    deleted AS (
         DELETE FROM tabular
-        WHERE tabular_id = $1 AND typ = $2
-        AND tabular_id IN (select tabular_id from active_tabulars)
-        RETURNING "tabular_id"
-        "#,
+        WHERE tabular_id = $1
+        AND typ = $2
+        AND metadata_location IS NULL
+        AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
+        RETURNING tabular_id
+    )
+    SELECT tabular_id FROM updated
+    UNION ALL
+    SELECT tabular_id FROM deleted
+    "#,
         *tabular_id,
-        TabularType::from(tabular_id) as _
+        TabularType::from(tabular_id) as _,
+        Uuid::now_v7().to_string()
     )
     .fetch_one(&mut **transaction)
     .await
@@ -497,7 +549,7 @@ pub(crate) async fn drop_tabular<'a>(
             ErrorModel::builder()
                 .code(StatusCode::NOT_FOUND.into())
                 .message(format!("{} not found", tabular_id.typ_str()))
-                .r#type("NoSuchTableError".to_string())
+                .r#type("NoSuchTabularError".to_string())
                 .build()
         } else {
             tracing::warn!("Error dropping tabular: {}", e);

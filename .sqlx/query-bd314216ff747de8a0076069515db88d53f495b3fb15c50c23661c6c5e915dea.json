@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        DELETE FROM tabular\n        WHERE tabular_id = $1 AND typ = $2\n        AND tabular_id IN (select tabular_id from active_tabulars)\n        RETURNING \"tabular_id\"\n        ",
+  "query": "DELETE FROM tabular\n                WHERE tabular_id = $1\n                    AND typ = $2\n                    AND tabular_id IN (SELECT tabular_id FROM active_tabulars)\n               RETURNING tabular_id",
   "describe": {
     "columns": [
       {
@@ -29,5 +29,5 @@
       false
     ]
   },
-  "hash": "0d10e12bd136e4d250b3daebfff624f1e2b5989df897bf5e48060ece27f61c5b"
+  "hash": "bd314216ff747de8a0076069515db88d53f495b3fb15c50c23661c6c5e915dea"
 }
