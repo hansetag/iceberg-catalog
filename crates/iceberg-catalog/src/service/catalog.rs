@@ -367,7 +367,7 @@ where
     ) -> Result<()>;
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Copy, PartialEq)]
 pub struct ListFlags {
     pub include_staged: bool,
     pub include_deleted: bool,

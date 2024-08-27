@@ -42,7 +42,7 @@ where
 
     let rows = sqlx::query!(
         r#"
-        SELECT t.tabular_id, t.metadata_location, typ AS "typ: TabularType"
+        SELECT t.tabular_id, t.typ as "typ: TabularType"
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
@@ -63,13 +63,10 @@ where
     .fetch_one(catalog_state)
     .await
     .map(|r| {
-        Some((
-            match r.typ {
-                TabularType::Table => TabularIdentUuid::Table(r.tabular_id),
-                TabularType::View => TabularIdentUuid::View(r.tabular_id),
-            },
-            r.metadata_location.is_none(),
-        ))
+        Some(match r.typ {
+            TabularType::Table => TabularIdentUuid::Table(r.tabular_id),
+            TabularType::View => TabularIdentUuid::View(r.tabular_id),
+        })
     });
 
     match rows {
@@ -79,13 +76,7 @@ where
                 .into_error_model(format!("Error fetching {}", table.typ_str()))
                 .into()),
         },
-        Ok(Some((table_id, staged))) => {
-            if staged && !list_flags.include_staged {
-                return Ok(None);
-            }
-            Ok(Some(table_id))
-        }
-        Ok(None) => Ok(None),
+        Ok(opt) => Ok(opt),
     }
 }
 
