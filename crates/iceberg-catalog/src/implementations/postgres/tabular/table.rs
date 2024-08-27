@@ -431,9 +431,10 @@ pub(crate) async fn rename_table(
 
 pub(crate) async fn drop_table<'a>(
     table_id: TableIdentUuid,
+    hard_delete: bool,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
-    drop_tabular(TabularIdentUuid::Table(*table_id), false, transaction).await
+    drop_tabular(TabularIdentUuid::Table(*table_id), hard_delete, transaction).await
 }
 
 pub(crate) async fn commit_table_transaction<'a>(
@@ -1400,7 +1401,9 @@ pub(crate) mod tests {
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let mut transaction = pool.begin().await.unwrap();
-        drop_table(table.table_id, &mut transaction).await.unwrap();
+        drop_table(table.table_id, false, &mut transaction)
+            .await
+            .unwrap();
         transaction.commit().await.unwrap();
 
         let err = get_table_metadata_by_id(
@@ -1412,5 +1415,18 @@ pub(crate) mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.error.code, StatusCode::NOT_FOUND);
+
+        let ok = get_table_metadata_by_id(
+            warehouse_id,
+            table.table_id,
+            ListFlags {
+                include_deleted: true,
+                ..ListFlags::default()
+            },
+            state.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(ok.table_id, table.table_id);
     }
 }

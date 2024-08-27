@@ -202,9 +202,10 @@ impl Catalog for super::Catalog {
 
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
+        hard_delete: bool,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()> {
-        drop_table(table_id, transaction).await
+        drop_table(table_id, hard_delete, transaction).await
     }
 
     async fn table_idents_to_ids(
@@ -340,7 +341,7 @@ impl Catalog for super::Catalog {
         metadata: ViewMetadata,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()> {
-        drop_view(view_id, transaction).await?;
+        drop_view(view_id, true, transaction).await?;
         create_view(
             namespace_id,
             metadata_location,
@@ -365,6 +366,7 @@ impl Catalog for super::Catalog {
         table_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()> {
-        drop_view(table_id, transaction).await
+        // we want to be able to undrop views, hence hard_delete -> false
+        drop_view(table_id, false, transaction).await
     }
 }

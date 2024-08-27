@@ -148,9 +148,36 @@ pub(crate) async fn create_view(
 
 pub(crate) async fn drop_view<'a>(
     view_id: TableIdentUuid,
+    hard_delete: bool,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
-    drop_tabular(TabularIdentUuid::View(*view_id), true, transaction).await?;
+    if hard_delete {
+        let _ = sqlx::query!(
+            r#"
+         DELETE FROM view
+         WHERE view_id = $1
+         AND view_id IN (select view_id from active_views)
+         RETURNING "view_id"
+         "#,
+            *view_id,
+        )
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|e| {
+            if let sqlx::Error::RowNotFound = e {
+                ErrorModel::builder()
+                    .code(StatusCode::NOT_FOUND.into())
+                    .message("View not found".to_string())
+                    .r#type("NoSuchViewError".to_string())
+                    .build()
+            } else {
+                tracing::warn!("Error dropping view: {}", e);
+                e.into_error_model("Error dropping view".to_string())
+            }
+        })?;
+    }
+
+    drop_tabular(TabularIdentUuid::View(*view_id), hard_delete, transaction).await?;
     Ok(())
 }
 
@@ -691,7 +718,7 @@ pub(crate) mod tests {
     async fn drop_view(pool: sqlx::PgPool) {
         let (state, created_meta, _, _, _) = prepare_view(pool).await;
         let mut tx = state.write_pool().begin().await.unwrap();
-        super::drop_view(created_meta.view_uuid.into(), &mut tx)
+        super::drop_view(created_meta.view_uuid.into(), true, &mut tx)
             .await
             .unwrap();
         tx.commit().await.unwrap();
@@ -702,6 +729,37 @@ pub(crate) mod tests {
         )
         .await
         .expect_err("dropped view should not be loadable");
+    }
+
+    #[sqlx::test]
+    async fn soft_drop_view(pool: sqlx::PgPool) {
+        let (state, created_meta, _, _, _) = prepare_view(pool).await;
+        let mut tx = state.write_pool().begin().await.unwrap();
+        super::drop_view(created_meta.view_uuid.into(), false, &mut tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        load_view(
+            created_meta.view_uuid.into(),
+            true,
+            &mut state.write_pool().acquire().await.unwrap(),
+        )
+        .await
+        .expect("soft-dropped view should loadable");
+        let mut tx = state.write_pool().begin().await.unwrap();
+
+        super::drop_view(created_meta.view_uuid.into(), true, &mut tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        load_view(
+            created_meta.view_uuid.into(),
+            true,
+            &mut state.write_pool().acquire().await.unwrap(),
+        )
+        .await
+        .expect_err("hard-delete view should not be loadable");
     }
 
     #[sqlx::test]
@@ -745,7 +803,7 @@ pub(crate) mod tests {
     async fn drop_view_not_existing(pool: sqlx::PgPool) {
         let (state, _, _, _, _) = prepare_view(pool).await;
         let mut tx = state.write_pool().begin().await.unwrap();
-        let e = super::drop_view(Uuid::now_v7().into(), &mut tx)
+        let e = super::drop_view(Uuid::now_v7().into(), true, &mut tx)
             .await
             .expect_err("dropping random uuid should not succeed");
         tx.commit().await.unwrap();

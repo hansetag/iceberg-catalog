@@ -239,6 +239,7 @@ where
     /// Consider in your implementation to implement an UNDROP feature.
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
+        hard_delete: bool,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 

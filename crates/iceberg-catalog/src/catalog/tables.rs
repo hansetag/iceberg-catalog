@@ -513,7 +513,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 .r#type("TableNotFound".to_string())
                 .build()
         })?;
-        C::drop_table(table_id, transaction.transaction()).await?;
+        C::drop_table(table_id, false, transaction.transaction()).await?;
 
         // ToDo: Delete metadata files
         state
