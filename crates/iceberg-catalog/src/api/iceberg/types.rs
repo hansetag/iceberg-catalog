@@ -180,7 +180,7 @@ impl<'de> Deserialize<'de> for NextPageToken {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DropParams {
     #[serde(deserialize_with = "deserialize_bool", default)]
@@ -208,9 +208,30 @@ mod tests {
     fn test_drop_parms() {
         let query = "purgeRequested=true";
         let params: DropParams = serde_urlencoded::from_str(query).unwrap();
+        assert_eq!(
+            params,
+            DropParams {
+                purge_requested: Some(true)
+            }
+        );
+
+        let query = "purgeRequested=True";
+        let params: DropParams = serde_urlencoded::from_str(query).unwrap();
+        assert_eq!(
+            params,
+            DropParams {
+                purge_requested: Some(true)
+            }
+        );
 
         let empty_query = "";
         let empty_params: DropParams = serde_urlencoded::from_str(empty_query).unwrap();
+        assert_eq!(
+            empty_params,
+            DropParams {
+                purge_requested: None
+            }
+        );
     }
 
     #[tokio::test]
