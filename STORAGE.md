@@ -13,26 +13,27 @@ We support remote signing and vended-credentials with minio & aws. Remote signin
 
 To use vended-credentials with aws, your storage profile needs to contain
 
-```
+```json
 {
-    ...
-    "storage-profile": {
-        "type": "s3",
-        "bucket": "examples",
-        "key-prefix": "initial-warehouse",
-        "assume-role-arn": null,
-        "endpoint": null,
-        "region": "local-01",
-        "path-style-access": true,
-        "sts_role_arn": "arn:aws:iam::....:role/....",
-        "flavor": "aws"
-    },
-    "storage-credential": {
-        "type": "s3",
-        "credential-type": "access-key",
-        "aws-access-key-id": "...",
-        "aws-secret-access-key": "..."
-    }
+  "warehouse-name": "test",
+  "project-id": "00000000-0000-0000-0000-000000000000",
+  "storage-profile": {
+    "type": "s3",
+    "bucket": "examples",
+    "key-prefix": "initial-warehouse",
+    "assume-role-arn": null,
+    "endpoint": null,
+    "region": "local-01",
+    "path-style-access": true,
+    "sts_role_arn": "arn:aws:iam::....:role/....",
+    "flavor": "aws"
+  },
+  "storage-credential": {
+    "type": "s3",
+    "credential-type": "access-key",
+    "aws-access-key-id": "...",
+    "aws-secret-access-key": "..."
+  }
 }
 ```
 
@@ -61,42 +62,44 @@ The `sts_role_arn` also needs a trust relationship to the user, e.g.:
 
 For minio, the setup does not require any additional configuration, we use AssumeRole using the provided credentials in the storage profile to get temporary credentials. Any provided `sts_role_arn` is ignored.
 
-```
+```json
 {
-    ...
-    "storage-profile": {
-        "type": "s3",
-        "bucket": "examples",
-        "key-prefix": "initial-warehouse",
-        "assume-role-arn": null,
-        "endpoint": "http://localhost:9000",
-        "region": "local-01",
-        "path-style-access": true,
-        "sts_role_arn": null,
-        "flavor": "minio",
-        "sts-enabled": false
-    },
-    "storage-credential": {
-        "type": "s3",
-        "credential-type": "access-key",
-        "aws-access-key-id": "minio-root-user",
-        "aws-secret-access-key": "minio-root-password"
-    }
+  "warehouse-name": "test",
+  "project-id": "00000000-0000-0000-0000-000000000000",
+  "storage-profile": {
+    "type": "s3",
+    "bucket": "examples",
+    "key-prefix": "initial-warehouse",
+    "assume-role-arn": null,
+    "endpoint": "http://localhost:9000",
+    "region": "local-01",
+    "path-style-access": true,
+    "sts_role_arn": null,
+    "flavor": "minio",
+    "sts-enabled": false
+  },
+  "storage-credential": {
+    "type": "s3",
+    "credential-type": "access-key",
+    "aws-access-key-id": "minio-root-user",
+    "aws-secret-access-key": "minio-root-password"
+  }
 }
 ```
 
 ## Azure Data Lake Storage Gen 2
 
-For Azure Data Lake Storage Gen 2, the app registration your client creds belong to needs to have the following permissions for the storage account (`account-name`):
+For Azure Data Lake Storage Gen 2, the app registration your client credentials belong to needs to have the following permissions for the storage account (`account-name`):
 
 - `Storage Blob Data Contributor`
 - `Storage Blob Delegator`
 
 A sample storage profile could look like this:
 
-```
- {
-  ...
+```json
+{
+  "warehouse-name": "test",
+  "project-id": "00000000-0000-0000-0000-000000000000",
   "storage-profile": {
     "type": "azdls",
     "filesystem": "...",
@@ -112,4 +115,3 @@ A sample storage profile could look like this:
   }
 }
 ```
-
