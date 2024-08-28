@@ -79,12 +79,12 @@ where
     .into_iter()
     .map(|(k, v)| match k {
         TabularIdentOwned::Table(t) => Ok((t, v.map(|v| TableIdentUuid::from(*v)))),
-        TabularIdentOwned::View(_) => Err(ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("DB returned a view when filtering for tables.".to_string())
-            .r#type("InternalDatabaseError".to_string())
-            .build()
-            .into()),
+        TabularIdentOwned::View(_) => Err(ErrorModel::internal(
+            "DB returned a view when filtering for tables.",
+            "InternalDatabaseError",
+            None,
+        )
+        .into()),
     })
     .collect::<Result<HashMap<_, Option<TableIdentUuid>>>>()?;
 
@@ -438,7 +438,7 @@ pub(crate) async fn drop_table<'a>(
         let _ = sqlx::query!(
             r#"
         DELETE FROM "table"
-        WHERE table_id = $1 AND NOT EXISTS (
+        WHERE table_id = $1 AND EXISTS (
             SELECT 1
             FROM active_tables
             WHERE active_tables.table_id = $1
@@ -446,10 +446,10 @@ pub(crate) async fn drop_table<'a>(
         "#,
             *table_id,
         )
-        .fetch_one(&mut **transaction)
+        .execute(&mut **transaction)
         .await
         .map_err(|e| {
-            tracing::warn!("Error dropping tabular: {}", e);
+            tracing::warn!(?table_id, ?drop_flags, "Error dropping tabular: {}", e);
             e.into_error_model("Error dropping table".to_string())
         })?;
     }
@@ -924,7 +924,6 @@ pub(crate) mod tests {
         .await
         .unwrap();
         assert!(exists.len() == 1 && exists.get(&table_ident).unwrap().is_none());
-        drop(table_ident);
 
         let table_1 = initialize_table(warehouse_id, state.clone(), true, None, None).await;
         let mut tables = HashSet::new();
@@ -1449,6 +1448,7 @@ pub(crate) mod tests {
         assert_eq!(ok.table_id, table.table_id);
 
         let mut transaction = pool.begin().await.unwrap();
+
         drop_table(
             table.table_id,
             DropFlags {

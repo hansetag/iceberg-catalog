@@ -118,12 +118,12 @@ where
     }
 
     if batch_tables.len() > (MAX_PARAMETERS / 2) {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("Too many tables or views to fetch".to_string())
-            .r#type("TooManyTablesOrViews".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "Too many tables or views to fetch",
+            "TooManyTablesOrViews",
+            None,
+        )
+        .into());
     }
 
     // This query is statically verified against our DB, we then take it apart to do some dynamic
@@ -138,9 +138,12 @@ where
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE w.status = 'active' and n."warehouse_id" = $1 AND (t.deleted_at is NULL OR $2) "#,
+        WHERE w.status = 'active' and n."warehouse_id" = $1
+            AND (t.deleted_at is NULL OR $2)
+            AND (t.metadata_location is not NULL OR $3) "#,
         *warehouse_id,
-        list_flags.include_deleted
+        list_flags.include_deleted,
+        list_flags.include_staged
     );
     let checked_sql = statically_checked_query.sql();
 
