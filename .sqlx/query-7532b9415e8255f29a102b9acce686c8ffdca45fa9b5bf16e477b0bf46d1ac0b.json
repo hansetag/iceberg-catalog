@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            t.tabular_id,\n            t.name as \"tabular_name\",\n            namespace_name,\n            typ as \"typ: TabularType\",\n            t.created_at,\n            t.deleted_at,\n            t.deletion_kind as \"deletion_kind: DeleteKind\"\n        FROM tabular t\n        INNER JOIN namespace n ON t.namespace_id = n.namespace_id\n        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n        WHERE n.warehouse_id = $1\n            AND (namespace_name = $2 OR $2 IS NULL)\n            AND w.status = 'active'\n            AND (t.deleted_at IS NULL OR $8)\n            AND (t.\"metadata_location\" IS NOT NULL OR $3)\n            AND (t.typ = $4 OR $4 IS NULL)\n            AND ((t.created_at > $5 OR $5 IS NULL) OR (t.created_at = $5 AND t.tabular_id > $6))\n            ORDER BY t.created_at, t.tabular_id ASC\n            LIMIT $7\n        ",
+  "query": "\n        SELECT\n            t.tabular_id,\n            t.name as \"tabular_name\",\n            namespace_name,\n            typ as \"typ: TabularType\",\n            t.created_at,\n            t.deleted_at,\n            t.deletion_kind as \"deletion_kind: DeleteKind\"\n        FROM tabular t\n        INNER JOIN namespace n ON t.namespace_id = n.namespace_id\n        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n        WHERE n.warehouse_id = $1\n            AND (namespace_name = $2 OR $2 IS NULL)\n            AND w.status = 'active'\n            AND (t.deleted_at IS NULL OR $8)\n            AND (t.deleted_at IS NOT NULL OR NOT $9)\n            AND (t.\"metadata_location\" IS NOT NULL OR $3)\n            AND (t.typ = $4 OR $4 IS NULL)\n            AND ((t.created_at > $5 OR $5 IS NULL) OR (t.created_at = $5 AND t.tabular_id > $6))\n            ORDER BY t.created_at, t.tabular_id ASC\n            LIMIT $7\n        ",
   "describe": {
     "columns": [
       {
@@ -78,6 +78,7 @@
         "Timestamptz",
         "Uuid",
         "Int8",
+        "Bool",
         "Bool"
       ]
     },
@@ -91,5 +92,5 @@
       true
     ]
   },
-  "hash": "07dc386cc75a6a71f29723627ef0221cd2fe577a04b9c0b60f02b0001ed9cb3b"
+  "hash": "7532b9415e8255f29a102b9acce686c8ffdca45fa9b5bf16e477b0bf46d1ac0b"
 }

@@ -119,6 +119,7 @@ fn validate_view_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
 #[cfg(test)]
 mod test {
     use crate::api::ApiContext;
+    use std::sync::Arc;
 
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
 
@@ -173,9 +174,12 @@ mod test {
             v1_state: State {
                 auth: AllowAllAuthState,
                 catalog: CatalogState::from_pools(pool.clone(), pool.clone()),
-                secrets: SecretsState::from_pools(pool.clone(), pool),
+                secrets: SecretsState::from_pools(pool.clone(), pool.clone()),
                 publisher: CloudEventsPublisher::new(tx.clone()),
                 contract_verifiers: ContractVerifiers::new(vec![]),
+                expiration_q: Arc::new(
+                    crate::implementations::postgres::task_runner::ExpirationTaskFetcher { pool },
+                ),
             },
         }
     }

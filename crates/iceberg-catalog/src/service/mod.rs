@@ -2,6 +2,7 @@ pub mod auth;
 mod catalog;
 pub mod config;
 pub mod contract_verification;
+pub mod deleter;
 pub mod event_publisher;
 pub mod health;
 pub mod secrets;
@@ -19,17 +20,18 @@ pub use catalog::{
 };
 use std::ops::Deref;
 
+use self::auth::AuthZHandler;
 use crate::api::iceberg::v1::Prefix;
 use crate::api::ThreadSafe as ServiceState;
 pub use crate::api::{ErrorModel, IcebergErrorResponse};
-use http::StatusCode;
-use std::str::FromStr;
-
+use crate::implementations::postgres::task_runner::{ExpirationInput, TableExpirationTask};
 use crate::service::contract_verification::ContractVerifiers;
+use crate::service::deleter::TaskQueue;
 use crate::service::event_publisher::CloudEventsPublisher;
+use http::StatusCode;
 pub use secrets::{SecretIdent, SecretStore};
-
-use self::auth::AuthZHandler;
+use std::str::FromStr;
+use std::sync::Arc;
 
 #[async_trait::async_trait]
 pub trait NamespaceIdentExt
@@ -68,6 +70,9 @@ pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
     pub secrets: S,
     pub publisher: CloudEventsPublisher,
     pub contract_verifiers: ContractVerifiers,
+    pub expiration_q: Arc<
+        dyn TaskQueue<Task = TableExpirationTask, Input = ExpirationInput> + Send + Sync + 'static,
+    >,
 }
 
 impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}

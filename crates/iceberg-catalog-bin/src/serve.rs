@@ -13,6 +13,9 @@ use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
 
+use iceberg_catalog::implementations::postgres::task_runner::{
+    DeleteTaskFetcher, ExpirationTaskFetcher,
+};
 use std::sync::Arc;
 
 pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -33,7 +36,8 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         .into(),
         SecretBackend::Postgres => {
             iceberg_catalog::implementations::postgres::SecretsState::from_pools(
-                read_pool, write_pool,
+                read_pool,
+                write_pool.clone(),
             )
             .into()
         }
@@ -50,6 +54,35 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         CONFIG.health_check_jitter_millis,
     );
     health_provider.spawn_health_checks().await;
+    let delete_handler = DeleteTaskFetcher {
+        pool: write_pool.clone(),
+    };
+    iceberg_catalog::service::deleter::delete_task::<_, Catalog, _>(
+        delete_handler.clone(),
+        catalog_state.clone(),
+        secrets_state.clone(),
+    );
+
+    let expiration_q = ExpirationTaskFetcher {
+        pool: write_pool.clone(),
+    };
+
+    tokio::task::spawn(
+        iceberg_catalog::service::deleter::tabular_expiration_task::<_, _, Catalog, _>(
+            expiration_q.clone(),
+            delete_handler,
+            catalog_state.clone(),
+            secrets_state.clone(),
+        ),
+    );
+
+    iceberg_catalog::service::deleter::delete_task::<_, Catalog, _>(
+        DeleteTaskFetcher {
+            pool: write_pool.clone(),
+        },
+        catalog_state.clone(),
+        secrets_state.clone(),
+    );
 
     let mut cloud_event_sinks = vec![];
 
@@ -77,6 +110,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
             auth_state,
             catalog_state,
             secrets_state,
+            expiration_q,
             CloudEventsPublisher::new(tx.clone()),
             ContractVerifiers::new(vec![]),
             if let Some(uri) = CONFIG.openid_provider_uri.clone() {

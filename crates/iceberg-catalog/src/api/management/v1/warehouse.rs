@@ -481,6 +481,24 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         C::list_soft_deleted_tabulars(warehouse_id, context.v1_state.catalog, pagination_query)
             .await
     }
+
+    async fn expire_soft_deleted_tabulars(
+        request_metadata: RequestMetadata,
+        warehouse_id: WarehouseIdent,
+        context: ApiContext<State<A, C, S>>,
+    ) -> Result<()> {
+        // ------------------- AuthZ -------------------
+        A::check_expire_soft_deletions(&request_metadata, warehouse_id, context.v1_state.auth)
+            .await?;
+
+        // ------------------- Business Logic -------------------
+        C::expire_soft_deleted_tabulars(
+            warehouse_id,
+            context.v1_state.catalog,
+            context.v1_state.expiration_q.clone(),
+        )
+        .await
+    }
 }
 
 impl axum::response::IntoResponse for ListProjectsResponse {

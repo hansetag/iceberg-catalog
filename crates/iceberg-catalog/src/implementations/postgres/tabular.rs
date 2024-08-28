@@ -1,7 +1,7 @@
 pub(crate) mod table;
 pub(crate) mod view;
 
-use super::{dbutils::DBErrorHandler as _, CatalogState};
+use super::dbutils::DBErrorHandler as _;
 use crate::{
     service::{ErrorModel, Result, TableIdent},
     WarehouseIdent,
@@ -291,14 +291,18 @@ pub(crate) async fn create_tabular<'a>(
     })?)
 }
 
-pub(crate) async fn list_tabulars(
+#[allow(clippy::too_many_lines)]
+pub(crate) async fn list_tabulars<'e, 'c, E>(
     warehouse_id: WarehouseIdent,
     namespace: Option<&NamespaceIdent>,
     list_flags: crate::service::ListFlags,
-    catalog_state: CatalogState,
+    catalog_state: E,
     typ: Option<TabularType>,
     pagination_query: PaginationQuery,
-) -> Result<PaginatedTabulars<TabularIdentUuid, (TabularIdentOwned, Option<DeletionDetails>)>> {
+) -> Result<PaginatedTabulars<TabularIdentUuid, (TabularIdentOwned, Option<DeletionDetails>)>>
+where
+    E: 'e + sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
     let page_size = pagination_query
         .page_size
         .map(i64::from)
@@ -332,6 +336,7 @@ pub(crate) async fn list_tabulars(
             AND (namespace_name = $2 OR $2 IS NULL)
             AND w.status = 'active'
             AND (t.deleted_at IS NULL OR $8)
+            AND (t.deleted_at IS NOT NULL OR NOT $9)
             AND (t."metadata_location" IS NOT NULL OR $3)
             AND (t.typ = $4 OR $4 IS NULL)
             AND ((t.created_at > $5 OR $5 IS NULL) OR (t.created_at = $5 AND t.tabular_id > $6))
@@ -345,9 +350,10 @@ pub(crate) async fn list_tabulars(
         token_ts,
         token_id,
         page_size,
-        list_flags.include_deleted
+        list_flags.include_deleted,
+        list_flags.only_deleted
     )
-    .fetch_all(&catalog_state.read_pool())
+    .fetch_all(catalog_state)
     .await
     .map_err(|e| e.into_error_model("Error fetching tables or views".to_string()))?;
 
@@ -496,7 +502,7 @@ pub(crate) async fn rename_tabular(
     Ok(())
 }
 
-#[derive(Debug, Copy, Clone, sqlx::Type)]
+#[derive(Debug, Copy, Clone, sqlx::Type, PartialEq, Eq)]
 #[sqlx(type_name = "deletion_kind", rename_all = "kebab-case")]
 pub enum DeleteKind {
     Default,

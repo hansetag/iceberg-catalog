@@ -65,6 +65,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             ListFlags {
                 include_staged,
                 include_deleted: false,
+                only_deleted: false,
             },
             state.v1_state.catalog,
             pagination_query,
@@ -262,6 +263,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             ListFlags {
                 include_staged,
                 include_deleted,
+                only_deleted: false,
             },
             state.v1_state.catalog.clone(),
         )
@@ -368,6 +370,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             ListFlags {
                 include_staged,
                 include_deleted,
+                only_deleted: false,
             },
             state.v1_state.catalog.clone(),
         )
@@ -504,6 +507,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             ListFlags {
                 include_staged,
                 include_deleted,
+                only_deleted: false,
             },
             state.v1_state.catalog.clone(),
         )
@@ -591,6 +595,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             ListFlags {
                 include_staged,
                 include_deleted: false,
+                only_deleted: false,
             },
             state.v1_state.catalog.clone(),
         )
@@ -644,6 +649,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             ListFlags {
                 include_staged,
                 include_deleted: false,
+                only_deleted: false,
             },
             state.v1_state.catalog.clone(),
         )
@@ -771,6 +777,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             ListFlags {
                 include_staged,
                 include_deleted,
+                only_deleted: false,
             },
             state.v1_state.catalog.clone(),
         )

@@ -246,7 +246,7 @@ pub(crate) async fn list_tables(
         warehouse_id,
         Some(namespace),
         list_flags,
-        catalog_state,
+        &catalog_state.read_pool(),
         Some(TabularType::Table),
         pagination_query,
     )

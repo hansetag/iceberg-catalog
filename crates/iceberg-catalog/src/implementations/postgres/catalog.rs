@@ -14,11 +14,15 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
+use crate::api::iceberg::types::PageToken;
 use crate::api::management::v1::{DeletedTabularResponse, ListDeletedTabularsResponse};
+use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
 use crate::implementations::postgres::tabular::{list_tabulars, DeleteKind};
+use crate::implementations::postgres::task_runner::{ExpirationInput, TableExpirationTask};
+use crate::service::deleter::TaskQueue;
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, DropFlags,
     GetWarehouseResponse, ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent,
@@ -39,6 +43,7 @@ use crate::{
 use iceberg::spec::ViewMetadata;
 use iceberg_ext::catalog::rest::ErrorModel;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 #[async_trait::async_trait]
 impl Catalog for super::Catalog {
@@ -388,8 +393,9 @@ impl Catalog for super::Catalog {
             ListFlags {
                 include_deleted: true,
                 include_staged: false,
+                only_deleted: true,
             },
-            catalog_state,
+            &catalog_state.read_pool(),
             None,
             pagination_query,
         )
@@ -419,6 +425,87 @@ impl Catalog for super::Catalog {
                 .collect::<Result<Vec<_>>>()?,
             next_page_token,
         })
+    }
+
+    async fn expire_soft_deleted_tabulars(
+        warehouse_ident: WarehouseIdent,
+        catalog_state: Self::State,
+        expiration_q: Arc<
+            dyn TaskQueue<Task = TableExpirationTask, Input = ExpirationInput>
+                + Send
+                + Sync
+                + 'static,
+        >,
+    ) -> Result<()> {
+        let mut pagination = PaginationQuery {
+            page_size: Some(100),
+            page_token: PageToken::NotSpecified,
+        };
+        loop {
+            let mut transaction =
+                catalog_state.write_pool().begin().await.map_err(|e| {
+                    e.into_error_model("acquiring database transaction failed.".into())
+                })?;
+            tracing::debug!("Fetching new page");
+            let tabular_page = list_tabulars(
+                warehouse_ident,
+                None,
+                ListFlags {
+                    include_deleted: true,
+                    include_staged: false,
+                    only_deleted: true,
+                },
+                &mut *transaction,
+                None,
+                pagination.clone(),
+            )
+            .await?;
+
+            let next_page_token = tabular_page.next_page_token;
+            let tabulars = tabular_page.tabulars;
+
+            tracing::debug!(
+                "Fetched new page with '{}' items, starting to drop",
+                tabulars.len()
+            );
+
+            for (id, (_, delete_opts)) in tabulars {
+                let deleted = delete_opts.ok_or(ErrorModel::internal(
+                    "Expected delete options to be Some, but found None",
+                    "InternalDBError",
+                    None,
+                ))?;
+                // TODO: bail out or skip errors?
+                if deleted.deletion_kind == DeleteKind::Default {
+                    tracing::info!("Nor purge requested");
+                    drop_table(
+                        (*id).into(),
+                        DropFlags::default().hard_delete(),
+                        &mut transaction,
+                    )
+                    .await?;
+                } else if deleted.deletion_kind == DeleteKind::Purge {
+                    expiration_q
+                        .enqueue(ExpirationInput {
+                            tabular_id: *id,
+                            warehouse_ident,
+                            tabular_type: id.into(),
+                        })
+                        .await?;
+                }
+            }
+            transaction.commit().await.map_err(|e| {
+                tracing::warn!(?e, "failed to commit");
+                e.into_error_model("failed to commit transaction".into())
+            })?;
+            if let Some(next_page_token) = next_page_token {
+                pagination.page_token = PageToken::new_present(next_page_token);
+            } else {
+                break;
+            }
+        }
+
+        Ok(())
     }
 }
 

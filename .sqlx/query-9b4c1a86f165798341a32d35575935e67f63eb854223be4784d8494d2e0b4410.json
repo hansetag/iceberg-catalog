@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO deletions (task_id, entity_id, location, warehouse_id)\n        VALUES ($1, $2, $3, $4)\n        ON CONFLICT ON CONSTRAINT unique_location_per_warehouse DO NOTHING\n        RETURNING task_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9b4c1a86f165798341a32d35575935e67f63eb854223be4784d8494d2e0b4410"
+}

@@ -62,7 +62,7 @@ fn require_warehouse_id(prefix: Option<Prefix>) -> Result<WarehouseIdent> {
         .try_into()
 }
 
-async fn maybe_get_secret<S: SecretStore>(
+pub(crate) async fn maybe_get_secret<S: SecretStore>(
     secret: Option<crate::SecretIdent>,
     state: &S,
 ) -> Result<Option<StorageCredential>, IcebergErrorResponse> {

@@ -42,6 +42,7 @@ where
         ListFlags {
             include_deleted,
             include_staged: false,
+            only_deleted: false,
         },
         catalog_state,
     )
@@ -441,8 +442,9 @@ pub(crate) async fn list_views(
         ListFlags {
             include_deleted,
             include_staged: false,
+            only_deleted: false,
         },
-        catalog_state,
+        &catalog_state.read_pool(),
         Some(TabularType::View),
         paginate_query,
     )

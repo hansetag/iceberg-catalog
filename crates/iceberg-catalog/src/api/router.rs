@@ -1,9 +1,11 @@
 use crate::service::event_publisher::CloudEventsPublisher;
 use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
+use std::sync::Arc;
 
 use super::management::v1::ManagementApiDoc;
 use crate::api::management::v1::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
+use crate::implementations::postgres::task_runner::ExpirationTaskFetcher;
 use crate::service::contract_verification::ContractVerifiers;
 use crate::service::health::ServiceHealthProvider;
 use crate::service::token_verification::Verifier;
@@ -34,6 +36,7 @@ pub fn new_full_router<
     auth_state: A::State,
     catalog_state: C::State,
     secrets_state: S,
+    expiration_q: ExpirationTaskFetcher,
     publisher: CloudEventsPublisher,
     table_change_checkers: ContractVerifiers,
     token_verifier: Option<Verifier>,
@@ -92,6 +95,7 @@ pub fn new_full_router<
             secrets: secrets_state,
             publisher,
             contract_verifiers: table_change_checkers,
+            expiration_q: Arc::new(expiration_q),
         },
     });
 

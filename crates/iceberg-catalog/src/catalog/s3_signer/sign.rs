@@ -80,6 +80,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     // which in turn needs to sign HEAD requests for files reachable from the
                     // dropped table.
                     include_deleted: true,
+                    only_deleted: false,
                 },
                 state.v1_state.catalog.clone(),
             )
@@ -126,6 +127,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     include_staged,
                     // we were able to resolve the table to id so we know the table is not deleted
                     include_deleted: false,
+                    only_deleted: false,
                 },
                 state.v1_state.catalog,
             )

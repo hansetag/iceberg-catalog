@@ -345,4 +345,12 @@ impl AuthZHandler for AllowAllAuthZHandler {
     ) -> Result<()> {
         Ok(())
     }
+
+    async fn check_expire_soft_deletions(
+        _: &RequestMetadata,
+        _: WarehouseIdent,
+        _: Self::State,
+    ) -> Result<()> {
+        Ok(())
+    }
 }

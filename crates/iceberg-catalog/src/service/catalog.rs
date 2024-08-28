@@ -1,9 +1,3 @@
-use crate::SecretIdent;
-use iceberg::spec::{TableMetadata, ViewMetadata};
-pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
-use iceberg_ext::configs::Location;
-use std::collections::{HashMap, HashSet};
-
 use super::{
     storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent,
     WarehouseStatus,
@@ -16,6 +10,15 @@ pub use crate::api::iceberg::v1::{
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::api::management::v1::ListDeletedTabularsResponse;
 use crate::service::health::HealthExt;
+use crate::SecretIdent;
+
+use crate::implementations::postgres::task_runner::{ExpirationInput, TableExpirationTask};
+use crate::service::deleter::TaskQueue;
+use iceberg::spec::{TableMetadata, ViewMetadata};
+pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
+use iceberg_ext::configs::Location;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 #[async_trait::async_trait]
 pub trait Transaction<D>
@@ -372,12 +375,44 @@ where
         catalog_state: Self::State,
         pagination_query: PaginationQuery,
     ) -> Result<ListDeletedTabularsResponse>;
+
+    async fn expire_soft_deleted_tabulars(
+        warehouse_id: WarehouseIdent,
+        catalog_state: Self::State,
+        expiration_q: Arc<
+            dyn TaskQueue<Task = TableExpirationTask, Input = ExpirationInput>
+                + Send
+                + Sync
+                + 'static,
+        >,
+    ) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Default, Copy, PartialEq)]
 pub struct ListFlags {
     pub include_staged: bool,
     pub include_deleted: bool,
+    pub only_deleted: bool,
+}
+
+impl ListFlags {
+    #[must_use]
+    pub fn all() -> Self {
+        Self {
+            include_staged: true,
+            include_deleted: true,
+            only_deleted: false,
+        }
+    }
+
+    #[must_use]
+    pub fn only_deleted() -> Self {
+        Self {
+            include_staged: false,
+            include_deleted: false,
+            only_deleted: true,
+        }
+    }
 }
 
 #[derive(Clone, Default, Debug, Copy, PartialEq, Eq)]
