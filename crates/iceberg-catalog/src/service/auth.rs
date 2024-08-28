@@ -76,6 +76,12 @@ where
         state: Self::State,
     ) -> Result<()>;
 
+    async fn check_list_soft_deletions(
+        metadata: &RequestMetadata,
+        warehouse_id: WarehouseIdent,
+        state: Self::State,
+    ) -> Result<()>;
+
     /// Check if the user is allowed to load a table.
     ///
     /// `table` is an optional argument because we might not be able

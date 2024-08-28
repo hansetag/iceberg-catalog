@@ -468,19 +468,18 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
     }
 
     async fn list_soft_deleted_tabulars(
-        _request_metadata: RequestMetadata,
+        request_metadata: RequestMetadata,
         warehouse_id: WarehouseIdent,
         context: ApiContext<State<A, C, S>>,
         pagination_query: PaginationQuery,
     ) -> Result<ListTabularsResponse> {
         // ------------------- AuthZ -------------------
-        // TODO: authz check
+        A::check_list_soft_deletions(&request_metadata, warehouse_id, context.v1_state.auth)
+            .await?;
 
         // ------------------- Business Logic -------------------
-        let tabulars =
-            C::list_soft_deleted_tabulars(warehouse_id, context.v1_state.catalog, pagination_query)
-                .await?;
-        Ok(tabulars)
+        C::list_soft_deleted_tabulars(warehouse_id, context.v1_state.catalog, pagination_query)
+            .await
     }
 }
 
