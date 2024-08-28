@@ -183,7 +183,7 @@ impl<'de> Deserialize<'de> for NextPageToken {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DropParams {
-    #[serde(deserialize_with = "deserialize_bool")]
+    #[serde(deserialize_with = "deserialize_bool", default)]
     pub purge_requested: Option<bool>,
 }
 
@@ -203,6 +203,15 @@ mod tests {
     use axum::{body::Body, extract::Query, http::Request, routing::get, Router};
     use http_body_util::BodyExt;
     use tower::ServiceExt;
+
+    #[test]
+    fn test_drop_parms() {
+        let query = "purgeRequested=true";
+        let params: DropParams = serde_urlencoded::from_str(query).unwrap();
+
+        let empty_query = "";
+        let empty_params: DropParams = serde_urlencoded::from_str(empty_query).unwrap();
+    }
 
     #[tokio::test]
     async fn test_page_token_de() {
