@@ -1,4 +1,4 @@
-use crate::api::iceberg::types::Prefix;
+use crate::api::iceberg::types::{DropParams, Prefix};
 use crate::api::iceberg::v1::namespace::{NamespaceIdentUrl, NamespaceParameters, PaginationQuery};
 use crate::api::{
     ApiContext, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
@@ -12,7 +12,6 @@ use axum::routing::{get, post};
 use axum::{async_trait, Extension, Json, Router};
 use http::{HeaderMap, StatusCode};
 use iceberg::TableIdent;
-use serde::Deserialize;
 
 #[async_trait]
 pub trait Service<S: crate::api::ThreadSafe>
@@ -290,12 +289,6 @@ pub const DATA_ACCESS_HEADER: &str = "X-Iceberg-Access-Delegation";
 pub struct DataAccess {
     pub vended_credentials: bool,
     pub remote_signing: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DropParams {
-    pub purge_requested: Option<bool>,
 }
 
 pub(crate) fn parse_data_access(headers: &HeaderMap) -> DataAccess {

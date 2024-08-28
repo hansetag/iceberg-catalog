@@ -8,7 +8,7 @@ mod rename;
 
 use super::tables::validate_table_properties;
 use super::CatalogServer;
-use crate::api::iceberg::v1::tables::DropParams;
+use crate::api::iceberg::types::DropParams;
 use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, CreateViewRequest, DataAccess, ListTablesResponse,
     LoadViewResult, NamespaceParameters, PaginationQuery, Prefix, RenameTableRequest, Result,

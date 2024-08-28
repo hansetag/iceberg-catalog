@@ -1,5 +1,4 @@
-use crate::api::iceberg::types::Prefix;
-use crate::api::iceberg::v1::tables::DropParams;
+use crate::api::iceberg::types::{DropParams, Prefix};
 use crate::api::iceberg::v1::ViewParameters;
 use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
