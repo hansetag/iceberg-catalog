@@ -91,12 +91,9 @@ pub(crate) async fn create_view(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Error creating view".to_string())
-            .r#type("InternalDatabaseError".to_string())
-            .build(),
-
+        sqlx::Error::RowNotFound => {
+            ErrorModel::internal("Error creating view", "InternalDatabaseError", None)
+        }
         _ => e.into_error_model("Error creating view".to_string()),
     })?;
 
@@ -665,18 +662,24 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
+        tx.commit().await.unwrap();
 
+        let mut tx = pool.begin().await.unwrap();
         // recreate with same uuid should fail
         let created_view = super::create_view(
             namespace_id,
             "s3://my_bucket/my_table/metadata/bar",
             &mut tx,
-            "myview",
+            "myview2",
             request.clone(),
         )
         .await
         .expect_err("recreation should fail");
-        assert_eq!(created_view.error.code, 409);
+        // this is not a conflict error since uuids are not externally controlled
+        assert_eq!(created_view.error.code, 500, "{}", created_view.error);
+        tx.commit().await.unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
 
         // recreate with other uuid should fail
         let created_view = super::create_view(
@@ -691,7 +694,7 @@ pub(crate) mod tests {
         )
         .await
         .expect_err("recreation should fail");
-        assert_eq!(created_view.error.code, 409);
+        assert_eq!(created_view.error.code, 409, "{}", created_view.error);
 
         tx.commit().await.unwrap();
 

@@ -407,13 +407,13 @@ impl Catalog for super::Catalog {
 
                     Ok(TabularResponse {
                         id: *k,
-                        // we suffix deleted tables with a 36 character UUID
-                        name: i.name.chars().take(i.name.chars().count() - 36).collect(),
+                        name: i.name,
                         namespace: i.namespace.inner(),
+                        typ: k.into(),
                         warehouse_id: *warehouse_id,
                         created_at: deleted.created_at,
                         deleted_at: deleted.deleted_at,
-                        deleted_kind: deleted.deletion_kind,
+                        deleted_kind: deleted.deletion_kind.into(),
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,

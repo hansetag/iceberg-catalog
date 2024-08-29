@@ -14,13 +14,11 @@ use crate::implementations::postgres::catalog::DeletionDetails;
 use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
 use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
 use crate::service::DropFlags;
-use serde::Serialize;
 use sqlx::postgres::PgArguments;
 use sqlx::{Arguments, Execute, FromRow, PgConnection, Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::fmt::Debug;
-use utoipa::ToSchema;
 use uuid::Uuid;
 
 const MAX_PARAMETERS: usize = 30000;
@@ -283,11 +281,11 @@ pub(crate) async fn create_tabular<'a>(
     .map_err(|e| match &e {
         sqlx::Error::RowNotFound => {
             tracing::debug!("conflicted out {id}, {namespace_id}, {typ}");
-            ErrorModel::builder()
-                .code(StatusCode::CONFLICT.into())
-                .message("Table or View with same name already exists in Namespace".to_string())
-                .r#type("TableOrViewAlreadyExists".to_string())
-                .build()
+            ErrorModel::conflict(
+                "Table or View with same name already exists in Namespace",
+                "TableOrViewAlreadyExists",
+                None,
+            )
         }
         _ => e.into_error_model(format!("Error creating {typ}")),
     })?)
@@ -498,13 +496,29 @@ pub(crate) async fn rename_tabular(
     Ok(())
 }
 
-#[derive(Debug, Copy, Clone, sqlx::Type, Serialize, ToSchema)]
+#[derive(Debug, Copy, Clone, sqlx::Type)]
 #[sqlx(type_name = "deletion_kind", rename_all = "kebab-case")]
-#[serde(rename_all = "kebab-case")]
 pub enum DeleteKind {
-    // TODO: DeleteReferences / DeleteMetadata / DontTouchObjectStore?
     Default,
     Purge,
+}
+
+impl From<DeleteKind> for crate::api::management::v1::DeleteKind {
+    fn from(kind: DeleteKind) -> Self {
+        match kind {
+            DeleteKind::Default => crate::api::management::v1::DeleteKind::Default,
+            DeleteKind::Purge => crate::api::management::v1::DeleteKind::Purge,
+        }
+    }
+}
+
+impl From<TabularType> for crate::api::management::v1::TabularType {
+    fn from(typ: TabularType) -> Self {
+        match typ {
+            TabularType::Table => crate::api::management::v1::TabularType::Table,
+            TabularType::View => crate::api::management::v1::TabularType::View,
+        }
+    }
 }
 
 // ToDo: Switch to a soft delete
@@ -543,14 +557,14 @@ pub(crate) async fn drop_tabular<'a>(
         return Ok(());
     }
 
-    // Soft delete, sets deleted_at to now and appends a uuid to the name to avoid conflicts of
-    // new tables with the same name. Staged tables are permanently deleted.
+    // Soft delete, sets deleted_at to now
+    // Staged tables are permanently deleted.
     let _ = sqlx::query!(
         r#"
     WITH updated AS (
         UPDATE tabular
         -- Append a suffix to the name to avoid conflicts with new tables
-        SET deleted_at = now(), name = name || $3, deletion_kind = $4
+        SET deleted_at = now(), deletion_kind = $3
         WHERE tabular_id = $1
         AND typ = $2
         AND metadata_location IS NOT NULL
@@ -571,7 +585,6 @@ pub(crate) async fn drop_tabular<'a>(
     "#,
         *tabular_id,
         TabularType::from(tabular_id) as _,
-        Uuid::now_v7().to_string(),
         if purge {
             DeleteKind::Purge
         } else {
@@ -582,11 +595,11 @@ pub(crate) async fn drop_tabular<'a>(
     .await
     .map_err(|e| {
         if let sqlx::Error::RowNotFound = e {
-            ErrorModel::builder()
-                .code(StatusCode::NOT_FOUND.into())
-                .message(format!("{} not found", tabular_id.typ_str()))
-                .r#type("NoSuchTabularError".to_string())
-                .build()
+            ErrorModel::not_found(
+                format!("{} not found", tabular_id.typ_str()),
+                "NoSuchTabularError",
+                None,
+            )
         } else {
             tracing::warn!("Error dropping tabular: {}", e);
             e.into_error_model(format!("Error dropping {}", tabular_id.typ_str()))

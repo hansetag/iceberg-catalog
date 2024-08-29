@@ -741,6 +741,7 @@ pub(crate) mod tests {
         )
         .await
         .unwrap_err();
+
         assert_eq!(
             create_err.error.code,
             StatusCode::CONFLICT,

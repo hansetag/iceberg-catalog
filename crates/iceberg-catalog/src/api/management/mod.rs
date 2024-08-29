@@ -9,7 +9,8 @@ pub mod v1 {
     use std::marker::PhantomData;
 
     use crate::api::iceberg::v1::PaginationQuery;
-    use crate::implementations::postgres::tabular::DeleteKind;
+
+    use crate::service::tabular_idents::TabularIdentUuid;
     use crate::service::{Catalog, SecretStore, State};
     use axum::extract::{Path, Query, State as AxumState};
     use axum::routing::{get, post};
@@ -267,10 +268,32 @@ pub mod v1 {
         pub id: uuid::Uuid,
         pub name: String,
         pub namespace: Vec<String>,
+        pub typ: TabularType,
         pub warehouse_id: uuid::Uuid,
         pub created_at: chrono::DateTime<chrono::Utc>,
         pub deleted_at: chrono::DateTime<chrono::Utc>,
         pub deleted_kind: DeleteKind,
+    }
+
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub enum TabularType {
+        Table,
+        View,
+    }
+
+    impl From<TabularIdentUuid> for TabularType {
+        fn from(ident: TabularIdentUuid) -> Self {
+            match ident {
+                TabularIdentUuid::Table(_) => TabularType::Table,
+                TabularIdentUuid::View(_) => TabularType::View,
+            }
+        }
+    }
+
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub enum DeleteKind {
+        Default,
+        Purge,
     }
 
     /// List soft-deleted tabulars
