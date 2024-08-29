@@ -5,7 +5,7 @@ info:
     Implementation of the Iceberg REST Catalog server.
   license:
     name: Apache-2.0
-  version: 0.2.1
+  version: 0.3.0
 paths:
   management/v1/project:
     get:
@@ -156,6 +156,28 @@ paths:
       responses:
         '200':
           description: Warehouse deactivated successfully
+  management/v1/warehouse/{warehouse_id}/deleted_tabulars:
+    get:
+      tags:
+      - management
+      summary: List soft-deleted tabulars
+      operationId: list_deleted_tabulars
+      parameters:
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: List of soft-deleted tabulars
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ListTabularsResponse'
   management/v1/warehouse/{warehouse_id}/rename:
     post:
       tags:
@@ -258,13 +280,13 @@ components:
           allOf:
           - $ref: '#/components/schemas/Url'
           nullable: true
-        endpoint-suffix:
-          type: string
-          description: 'The endpoint suffix to use for the storage account. Default: `dfs.core.windows.net`.'
-          nullable: true
         filesystem:
           type: string
           description: Name of the azdls filesystem, in blobstorage also known as container.
+        host:
+          type: string
+          description: 'The host to use for the storage account. Default: `dfs.core.windows.net`.'
+          nullable: true
         key-prefix:
           type: string
           description: |-
@@ -308,6 +330,11 @@ components:
           type: string
           format: uuid
           description: ID of the created warehouse.
+    DeleteKind:
+      type: string
+      enum:
+      - Default
+      - Purge
     GetWarehouseResponse:
       type: object
       required:
@@ -342,6 +369,18 @@ components:
           items:
             $ref: '#/components/schemas/ProjectResponse'
           description: List of projects
+    ListTabularsResponse:
+      type: object
+      required:
+      - tabulars
+      properties:
+        next_page_token:
+          type: string
+          nullable: true
+        tabulars:
+          type: array
+          items:
+            $ref: '#/components/schemas/TabularResponse'
     ListWarehousesRequest:
       type: object
       properties:
@@ -411,6 +450,7 @@ components:
       required:
       - bucket
       - region
+      - sts-enabled
       properties:
         assume-role-arn:
           type: string
@@ -420,12 +460,11 @@ components:
           type: string
           description: Name of the S3 bucket
         endpoint:
-          type: string
-          description: |-
-            Optional endpoint to use for S3 requests, if not provided
-            the region will be used to determine the endpoint.
-            If both region and endpoint are provided, the endpoint will be used.
+          allOf:
+          - $ref: '#/components/schemas/url.Url'
           nullable: true
+        flavor:
+          $ref: '#/components/schemas/S3Flavor'
         key-prefix:
           type: string
           description: |-
@@ -434,11 +473,19 @@ components:
           nullable: true
         path-style-access:
           type: boolean
-          description: Path style access for S3 requests.
+          description: |-
+            Path style access for S3 requests.
+            If the underlying S3 supports both, we recommend to not set `path_style_access`.
           nullable: true
         region:
           type: string
           description: Region to use for S3 requests.
+        sts-enabled:
+          type: boolean
+        sts-role-arn:
+          type: string
+          description: Optional role ARN to assume for sts vended-credentials
+          nullable: true
     StorageCredential:
       oneOf:
       - allOf:
@@ -489,6 +536,43 @@ components:
       description: Storage profile for a warehouse.
       discriminator:
         propertyName: type
+    TabularResponse:
+      type: object
+      required:
+      - id
+      - name
+      - namespace
+      - typ
+      - warehouse_id
+      - created_at
+      - deleted_at
+      - deleted_kind
+      properties:
+        created_at:
+          $ref: '#/components/schemas/chrono.DateTime'
+        deleted_at:
+          $ref: '#/components/schemas/chrono.DateTime'
+        deleted_kind:
+          $ref: '#/components/schemas/DeleteKind'
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        namespace:
+          type: array
+          items:
+            type: string
+        typ:
+          $ref: '#/components/schemas/TabularType'
+        warehouse_id:
+          type: string
+          format: uuid
+    TabularType:
+      type: string
+      enum:
+      - Table
+      - View
     UpdateWarehouseCredentialRequest:
       type: object
       properties:

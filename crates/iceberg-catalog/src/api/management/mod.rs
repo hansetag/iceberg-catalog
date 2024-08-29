@@ -38,7 +38,8 @@ pub mod v1 {
             list_warehouses,
             rename_warehouse,
             update_storage_credential,
-            update_storage_profile
+            update_storage_profile,
+            list_deleted_tabulars
         ),
         components(schemas(
             AzCredential,
@@ -57,7 +58,11 @@ pub mod v1 {
             StorageProfile,
             UpdateWarehouseCredentialRequest,
             UpdateWarehouseStorageRequest,
-            WarehouseStatus
+            WarehouseStatus,
+            ListTabularsResponse,
+            TabularResponse,
+            TabularType,
+            DeleteKind,
         ))
     )]
     pub struct ManagementApiDoc;
@@ -257,6 +262,31 @@ pub mod v1 {
             .await
     }
 
+    /// List soft-deleted tabulars
+    #[utoipa::path(
+        get,
+        tag = "management",
+        path = "management/v1/warehouse/{warehouse_id}/deleted_tabulars",
+        responses(
+            (status = 200, description = "List of soft-deleted tabulars", body = [ListTabularsResponse])
+        )
+    )]
+    async fn list_deleted_tabulars<C: Catalog, A: AuthZHandler, S: SecretStore>(
+        Path(warehouse_id): Path<uuid::Uuid>,
+        Query(pagination): Query<PaginationQuery>,
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<Json<ListTabularsResponse>> {
+        ApiServer::<C, A, S>::list_soft_deleted_tabulars(
+            metadata,
+            warehouse_id.into(),
+            api_context,
+            pagination,
+        )
+        .await
+        .map(Json)
+    }
+
     #[derive(Debug, Serialize, utoipa::ToSchema)]
     pub struct ListTabularsResponse {
         pub tabulars: Vec<TabularResponse>,
@@ -294,31 +324,6 @@ pub mod v1 {
     pub enum DeleteKind {
         Default,
         Purge,
-    }
-
-    /// List soft-deleted tabulars
-    #[utoipa::path(
-        get,
-        tag = "management",
-        path = "management/v1/warehouse/{warehouse_id}/deleted_tabulars",
-        responses(
-            (status = 200, description = "List of soft-deleted tabulars", body = [ListTabularsResponse])
-        )
-    )]
-    async fn list_deleted_tabulars<C: Catalog, A: AuthZHandler, S: SecretStore>(
-        Path(warehouse_id): Path<uuid::Uuid>,
-        Query(pagination): Query<PaginationQuery>,
-        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
-        Extension(metadata): Extension<RequestMetadata>,
-    ) -> Result<Json<ListTabularsResponse>> {
-        ApiServer::<C, A, S>::list_soft_deleted_tabulars(
-            metadata,
-            warehouse_id.into(),
-            api_context,
-            pagination,
-        )
-        .await
-        .map(Json)
     }
 
     impl<C: Catalog, A: AuthZHandler, S: SecretStore> ApiServer<C, A, S> {
