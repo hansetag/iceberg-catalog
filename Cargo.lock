@@ -3414,6 +3414,7 @@ checksum = "9252111cf132ba0929b6f8e030cac2a24b507f3a4d6db6fb2896f27b354c714b"
 [[package]]
 name = "needs_env_var"
 version = "1.0.0"
+source = "git+https://github.com/twuebi/needs_env_var.git?rev=bf14242#bf1424284b6e61bffbbb7ed0748be33b2fd72819"
 
 [[package]]
 name = "nkeys"
