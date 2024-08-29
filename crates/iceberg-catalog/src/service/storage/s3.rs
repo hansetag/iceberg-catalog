@@ -859,7 +859,7 @@ mod test {
         assert_eq!(location.to_string(), expected);
     }
 
-    #[needs_env_var(TEST_MINIO)]
+    #[needs_env_var(TEST_MINIO = 1)]
     mod minio {
         use crate::service::storage::{
             S3Credential, S3Flavor, S3Profile, StorageCredential, StorageProfile,
@@ -897,7 +897,7 @@ mod test {
         }
     }
 
-    #[needs_env_var(TEST_AWS)]
+    #[needs_env_var(TEST_AWS = 1)]
     mod aws {
         use crate::service::storage::{StorageCredential, StorageProfile};
 
