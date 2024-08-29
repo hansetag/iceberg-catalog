@@ -3414,8 +3414,6 @@ checksum = "9252111cf132ba0929b6f8e030cac2a24b507f3a4d6db6fb2896f27b354c714b"
 [[package]]
 name = "needs_env_var"
 version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4993ef217a71dd939d08c47d0230bfca02aeedcf108c46c800eb60caa51dc467"
 
 [[package]]
 name = "nkeys"

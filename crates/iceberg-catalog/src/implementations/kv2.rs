@@ -257,7 +257,7 @@ fn secret_ident_to_key(secret_id: SecretIdent) -> String {
 mod tests {
     use needs_env_var::needs_env_var;
 
-    #[needs_env_var(TEST_KV2)]
+    #[needs_env_var(TEST_KV2 = 1)]
     mod kv2 {
         use crate::service::storage::{S3Credential, StorageCredential};
         use crate::CONFIG;

@@ -742,7 +742,7 @@ mod test {
     use super::*;
     use needs_env_var::needs_env_var;
 
-    #[needs_env_var(TEST_AZURE)]
+    #[needs_env_var(TEST_AZURE = 1)]
     mod azure_tests {
         use crate::service::storage::{AzCredential, AzdlsProfile};
         use crate::service::storage::{StorageCredential, StorageProfile};
