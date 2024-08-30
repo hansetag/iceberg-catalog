@@ -48,13 +48,12 @@ Then open your browser and head to `localhost:8888`.
 
 For more information on deployment, please check the [User Guide](USER_GUIDE.md).
 
-
 # Status
 
 ### Supported Operations - Iceberg-Rest
 
 | Operation | Status  | Description                                                              |
-|-----------|:-------:|--------------------------------------------------------------------------|
+| --------- | :-----: | ------------------------------------------------------------------------ |
 | Namespace | ![done] | All operations implemented                                               |
 | Table     | ![done] | All operations implemented - additional integration tests in development |
 | Views     | ![done] | Remove unused files and log entries                                      |
@@ -63,7 +62,7 @@ For more information on deployment, please check the [User Guide](USER_GUIDE.md)
 ### Storage Profile Support
 
 | Storage              |    Status    | Comment                                                   |
-|----------------------|:------------:|-----------------------------------------------------------|
+| -------------------- | :----------: | --------------------------------------------------------- |
 | S3 - AWS             | ![semi-done] | vended-credentials & remote-signing, assume role missing  |
 | S3 - Custom          |   ![done]    | vended-credentials & remote-signing, tested against minio |
 | Azure ADLS Gen2      |   ![done]    |                                                           |
@@ -76,28 +75,28 @@ Details on how to configure the storage profiles can be found in the [Storage Gu
 ### Supported Catalog Backends
 
 | Backend  | Status  | Comment |
-|----------|:-------:|---------|
+| -------- | :-----: | ------- |
 | Postgres | ![done] |         |
 | MongoDB  | ![open] |         |
 
 ### Supported Secret Stores
 
 | Backend         | Status  | Comment       |
-|-----------------|:-------:|---------------|
+| --------------- | :-----: | ------------- |
 | Postgres        | ![done] |               |
 | kv2 (hcp-vault) | ![done] | userpass auth |
 
 ### Supported Event Stores
 
 | Backend | Status  | Comment |
-|---------|:-------:|---------|
+| ------- | :-----: | ------- |
 | Nats    | ![done] |         |
 | Kafka   | ![open] |         |
 
 ### Supported Operations - Management API
 
 | Operation            | Status  | Description                                        |
-|----------------------|:-------:|----------------------------------------------------|
+| -------------------- | :-----: | -------------------------------------------------- |
 | Warehouse Management | ![done] | Create / Update / Delete a Warehouse               |
 | AuthZ                | ![open] | Manage access to warehouses, namespaces and tables |
 | More to come!        | ![open] |                                                    |
@@ -105,7 +104,7 @@ Details on how to configure the storage profiles can be found in the [Storage Gu
 ### Auth(N/Z) Handlers
 
 | Operation       | Status  | Description                                                                                                        |
-|-----------------|:-------:|--------------------------------------------------------------------------------------------------------------------|
+| --------------- | :-----: | ------------------------------------------------------------------------------------------------------------------ |
 | OIDC (AuthN)    | ![done] | Secure access to the catalog via OIDC                                                                              |
 | Custom (AuthZ)  | ![done] | If you are willing to implement a single rust Trait, the `AuthZHandler` can be implement to connect to your system |
 | OpenFGA (AuthZ) | ![open] | Internal Authorization management                                                                                  |
@@ -143,8 +142,8 @@ Following options are global and apply to all warehouses:
 ### General
 
 | Variable                            | Example                                | Description                                                                                                                                                                                                                    |
-|-------------------------------------|----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ICEBERG_REST__BASE_URI`            | `https://example.com:8080 `            | Base URL where the catalog is externally reachable. Default: `https://localhost:8080`                                                                                                                                          |
+| ----------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ICEBERG_REST__BASE_URI`            | `https://example.com:8080`            | Base URL where the catalog is externally reachable. Default: `https://localhost:8080`                                                                                                                                          |
 | `ICEBERG_REST__DEFAULT_PROJECT_ID`  | `00000000-0000-0000-0000-000000000000` | The default project ID to use if the user does not specify a project when connecting. We recommend setting the Project-ID only in single Project setups. Each Project can still contain multiple Warehouses. Default: Not set. |
 | `ICEBERG_REST__RESERVED_NAMESPACES` | `system,examples`                      | Reserved Namespaces that cannot be created via the REST interface                                                                                                                                                              |
 | `ICEBERG_REST__METRICS_PORT`        | `9000`                                 | Port where the metrics endpoint is reachable. Default: `9000`                                                                                                                                                                  |
@@ -156,7 +155,7 @@ Following options are global and apply to all warehouses:
 Configuration parameters if Postgres is used as a backend, you may either provide connection strings or use the `PG_*` environment variables, connection strings take precedence:
 
 | Variable                                    | Example                                               | Description                                                                                                                                |
-|---------------------------------------------|-------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| ------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ICEBERG_REST__PG_DATABASE_URL_READ`        | `postgres://postgres:password@localhost:5432/iceberg` | Postgres Database connection string used for reading                                                                                       |
 | `ICEBERG_REST__PG_DATABASE_URL_WRITE`       | `postgres://postgres:password@localhost:5432/iceberg` | Postgres Database connection string used for writing.                                                                                      |
 | `ICEBERG_REST__PG_ENCRYPTION_KEY`           | `<This is unsafe, please set a proper key>`           | If `ICEBERG_REST__SECRET_BACKEND=postgres`, this key is used to encrypt secrets. It is required to change this for production deployments. |
@@ -174,27 +173,24 @@ Configuration parameters if Postgres is used as a backend, you may either provid
 | `ICEBERG_REST__PG_TEST_BEFORE_ACQUIRE`      | `true`                                                | Test connections before acquiring from the pool                                                                                            |
 | `ICEBERG_REST__PG_CONNECTION_MAX_LIFETIME`  | `1800`                                                | Maximum lifetime of connections in seconds                                                                                                 |
 
-
 ### KV2 (HCP Vault)
 
 Configuration parameters if a KV2 compatible storage is used as a backend. Currently, we only support the `userpass` authentication method. You may provide the envs as single values like `ICEBERG_REST__KV2__URL=http://vault.local` etc. or as a compound value like:
 `ICEBERG_REST__KV2='{url="http://localhost:1234", user="test", password="test", secret_mount="secret"}'`
 
 | Variable                          | Example               | Description                                      |
-|-----------------------------------|-----------------------|--------------------------------------------------|
+| --------------------------------- | --------------------- | ------------------------------------------------ |
 | `ICEBERG_REST__KV2__URL`          | `https://vault.local` | URL of the KV2 backend                           |
 | `ICEBERG_REST__KV2__USER`         | `admin`               | Username to authenticate against the KV2 backend |
 | `ICEBERG_REST__KV2__PASSWORD`     | `password`            | Password to authenticate against the KV2 backend |
 | `ICEBERG_REST__KV2__SECRET_MOUNT` | `kv/data/iceberg`     | Path to the secret mount in the KV2 backend      |
-
 
 ### Nats
 
 If you want the server to publish events to a NATS server, set the following environment variables:
 
 | Variable                        | Example                 | Description                                                            |
-|---------------------------------|-------------------------|------------------------------------------------------------------------|
-| `ICEBERG_REST__NATS_URI`        | `nats://localhost:4222` | The URL of the NATS server to connect to                               |
+| ------------------------------- | ----------------------- | ---------------------------------------------------------------------- |
 | `ICEBERG_REST__NATS_ADDRESS`    | `nats://localhost:4222` | The URL of the NATS server to connect to                               |
 | `ICEBERG_REST__NATS_TOPIC`      | `iceberg`               | The subject to publish events to                                       |
 | `ICEBERG_REST__NATS_USER`       | `test-user`             | User to authenticate against nats, needs `ICEBERG_REST__NATS_PASSWORD` |
@@ -207,23 +203,20 @@ If you want the server to publish events to a NATS server, set the following env
 If you want to limit ac
 cess to the API, set `ICEBERG_REST__OPENID_PROVIDER_URI` to the URI of your OpenID Connect Provider. The catalog will then verify access tokens against this provider. The provider must have the `.well-known/openid-configuration` endpoint under `${ICEBERG_REST__OPENID_PROVIDER_URI}/.well-known/openid-configuration` and the openid-configuration needs to have the `jwks_uri` and `issuer` defined.
 
-If `ICEBERG_REST__OPENID_PROVIDER_URI` is set, every request needs have an authorization header, e.g. 
+If `ICEBERG_REST__OPENID_PROVIDER_URI` is set, every request needs have an authorization header, e.g.
+
 ```sh
 curl {your-catalog-url}/catalog/v1/transactions/commit -X POST -H "authorization: Bearer {your-token-here}" -H "content-type: application/json" -d ...
-``` 
-
+```
 
 | Variable                            | Example                                      | Description                                                                                                                                                                                                                                                  |
-|-------------------------------------|----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ----------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ICEBERG_REST__OPENID_PROVIDER_URI` | `https://keycloak.local/realms/{your-realm}` | OpenID Provider URL, with keycloak this is the url pointing to your realm, for Azure App Registration it would be something like `https://login.microsoftonline.com/{your-tenant-id-here}/v2.0/`. If this variable is not set, endpoints are **not** secured |
-
 
 ## License
 
 Licensed under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
 
 [open]: https://cdn.jsdelivr.net/gh/Readme-Workflows/Readme-Icons@main/icons/octicons/IssueNeutral.svg
-
 [semi-done]: https://cdn.jsdelivr.net/gh/Readme-Workflows/Readme-Icons@main/icons/octicons/ApprovedChangesGrey.svg
-
 [done]: https://cdn.jsdelivr.net/gh/Readme-Workflows/Readme-Icons@main/icons/octicons/ApprovedChanges.svg
