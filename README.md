@@ -195,6 +195,7 @@ If you want the server to publish events to a NATS server, set the following env
 | Variable                        | Example                 | Description                                                            |
 |---------------------------------|-------------------------|------------------------------------------------------------------------|
 | `ICEBERG_REST__NATS_URI`        | `nats://localhost:4222` | The URL of the NATS server to connect to                               |
+| `ICEBERG_REST__NATS_ADDRESS`    | `nats://localhost:4222` | The URL of the NATS server to connect to                               |
 | `ICEBERG_REST__NATS_TOPIC`      | `iceberg`               | The subject to publish events to                                       |
 | `ICEBERG_REST__NATS_USER`       | `test-user`             | User to authenticate against nats, needs `ICEBERG_REST__NATS_PASSWORD` |
 | `ICEBERG_REST__NATS_PASSWORD`   | `test-password`         | Password to authenticate against nats, needs `ICEBERG_REST__NATS_USER` |
