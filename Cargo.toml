@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "crates/iceberg-catalog",
-    "crates/iceberg-catalog-bin",
-    "crates/iceberg-ext",
+  "crates/iceberg-catalog",
+  "crates/iceberg-catalog-bin",
+  "crates/iceberg-ext",
 ]
 resolver = "2"
 
@@ -17,17 +17,17 @@ license = "Apache-2.0"
 async-nats = "0.36.0"
 async-compression = { version = "^0.4", features = ["tokio", "gzip"] }
 azure_core = { version = "0.20.0", default-features = false, features = [
-    "hmac_rust",
-    "enable_reqwest_rustls",
+  "hmac_rust",
+  "enable_reqwest_rustls",
 ] }
 azure_storage = { version = "0.20.0", default-features = false, features = [
-    "enable_reqwest_rustls",
+  "enable_reqwest_rustls",
 ] }
 azure_storage_blobs = { version = "0.20.0", default-features = false, features = [
-    "enable_reqwest_rustls",
+  "enable_reqwest_rustls",
 ] }
 azure_identity = { version = "0.20.0", default-features = false, features = [
-    "enable_reqwest_rustls",
+  "enable_reqwest_rustls",
 ] }
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-sts = "1.36.0"
@@ -39,8 +39,8 @@ serde_json = { version = "^1.0", features = ["raw_value"] }
 url = { version = "^2.5", features = ["serde"] }
 uuid = { version = "^1.6", features = ["serde", "v4", "v5", "v7"] }
 reqwest = { version = "^0.12", default-features = false, features = [
-    "json",
-    "rustls-tls",
+  "json",
+  "rustls-tls",
 ] }
 iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "47bfdda", features = [
     "storage-all",
@@ -68,33 +68,33 @@ headers = { version = "^0.4" }
 hostname = "0.4.0"
 http-body-util = "^0.1"
 jwks_client_rs = { version = "0.5.1", default-features = false, features = [
-    "rustls-tls",
+  "rustls-tls",
 ] }
 lazy-regex = { version = "3.2.0", features = ["lite"] }
 lru = "0.12.4"
 strum = { version = "^0.26", features = ["derive"] }
 sqlx = { version = "^0.8.0", default-features = false, features = [
-    "runtime-tokio",
-    "tls-rustls",
-    "postgres",
-    "macros",
-    "json",
-    "migrate",
-    "uuid",
-    "chrono",
+  "runtime-tokio",
+  "tls-rustls",
+  "postgres",
+  "macros",
+  "json",
+  "migrate",
+  "uuid",
+  "chrono",
 ] }
 thiserror = "1.0.63"
 tokio = { version = "1", default-features = false, features = [
-    "signal",
-    "rt-multi-thread",
+  "signal",
+  "rt-multi-thread",
 ] }
 tower = { version = "^0.4" }
 tower-http = { version = "^0.5", features = [
-    "catch-panic",
-    "compression-full",
-    "sensitive-headers",
-    "timeout",
-    "trace",
+  "catch-panic",
+  "compression-full",
+  "sensitive-headers",
+  "timeout",
+  "trace",
 ] }
 tracing = { version = "^0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
