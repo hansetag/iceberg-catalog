@@ -19,14 +19,19 @@ ICEBERG_REST_TEST_S3_REGION = os.environ.get("ICEBERG_REST_TEST_S3_REGION", None
 ICEBERG_REST_TEST_S3_PATH_STYLE_ACCESS = os.environ.get(
     "ICEBERG_REST_TEST_S3_PATH_STYLE_ACCESS"
 )
-ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION = os.environ.get(
-    "ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION", "1.5.2"
-)
 ICEBERG_REST_TEST_S3_STS_MODE = os.environ.get("ICEBERG_REST_TEST_S3_STS_MODE", "both")
-ICEBERG_REST_TEST_TRINO_URI = os.environ.get("ICEBERG_REST_TEST_TRINO_URI")
 OPENID_PROVIDER_URI = os.environ.get("ICEBERG_REST_TEST_OPENID_PROVIDER_URI")
 OPENID_CLIENT_ID = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_ID")
 OPENID_CLIENT_SECRET = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_SECRET")
+
+# ---- TRINO
+ICEBERG_REST_TEST_TRINO_URI = os.environ.get("ICEBERG_REST_TEST_TRINO_URI")
+# ---- SPARK
+ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION = os.environ.get(
+    "ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION", "1.5.2"
+)
+# ---- STARROCKS
+ICEBERG_REST_TEST_STARROCKS_URI = os.environ.get("ICEBERG_REST_TEST_STARROCKS_URI")
 
 if ICEBERG_REST_TEST_S3_STS_MODE == "both":
     STS = [True, False]
@@ -133,7 +138,7 @@ class Warehouse:
         )
 
     @property
-    def spark_catalog_name(self) -> str:
+    def normalized_catalog_name(self) -> str:
         return f"catalog_{self.warehouse_name.replace('-', '_')}"
 
 
@@ -231,7 +236,7 @@ def spark(warehouse: Warehouse):
         f"org.apache.iceberg:iceberg-aws-bundle:{ICEBERG_REST_TEST_SPARK_ICEBERG_VERSION}"
     )
     # random 5 char string
-    catalog_name = warehouse.spark_catalog_name
+    catalog_name = warehouse.normalized_catalog_name
     configuration = {
         "spark.jars.packages": spark_jars_packages,
         "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
@@ -267,7 +272,7 @@ def trino(warehouse: Warehouse):
     cur = conn.cursor()
     cur.execute(
         f"""
-        CREATE CATALOG {warehouse.spark_catalog_name} USING iceberg
+        CREATE CATALOG {warehouse.normalized_catalog_name} USING iceberg
         WITH (
             "iceberg.catalog.type" = 'rest',
             "fs.native-s3.enabled" = 'true',
@@ -286,7 +291,43 @@ def trino(warehouse: Warehouse):
     conn = connect(
         host=ICEBERG_REST_TEST_TRINO_URI,
         user="trino",
-        catalog=warehouse.spark_catalog_name,
+        catalog=warehouse.normalized_catalog_name,
     )
 
     yield conn
+
+
+@pytest.fixture(scope="session")
+def starrocks(warehouse: Warehouse):
+    if ICEBERG_REST_TEST_STARROCKS_URI is None:
+        pytest.skip("ICEBERG_REST_TEST_STARROCKS_URI is not set")
+
+    from sqlalchemy import create_engine
+
+    engine = create_engine(ICEBERG_REST_TEST_STARROCKS_URI)
+    connection = engine.connect()
+    connection.execute("DROP CATALOG IF EXISTS rest_catalog")
+    connection.execute(
+        f"""
+        CREATE EXTERNAL CATALOG rest_catalog
+        PROPERTIES
+        (
+            "type" = "iceberg",
+            "iceberg.catalog.type" = "rest",
+            "iceberg.catalog.uri" = "{warehouse.server.catalog_url}",
+            "iceberg.catalog.warehouse" = "{warehouse.project_id}/{warehouse.warehouse_name}",
+            "header.x-iceberg-access-delegation" = "vended-credentials",
+            "iceberg.catalog.oauth2-server-uri" = "{OPENID_PROVIDER_URI.rstrip('/')}/protocol/openid-connect/token",
+            "iceberg.catalog.credential" = "{OPENID_CLIENT_ID}:{OPENID_CLIENT_SECRET}",
+            "iceberg.catalog.s3.endpoint" = "{ICEBERG_REST_TEST_S3_ENDPOINT}",
+            "iceberg.catalog.s3.path-style-access" = "true",
+            "aws.s3.endpoint" = "{ICEBERG_REST_TEST_S3_ENDPOINT}",
+            "aws.s3.path-style-access" = "true",
+            "aws.s3.path_style_access" = "true",
+            "iceberg.catalog.s3.path_style_access" = "true"
+        )
+        """
+    )
+    connection.execute("SET CATALOG rest_catalog")
+
+    yield connection

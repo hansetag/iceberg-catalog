@@ -19,4 +19,4 @@ done
 # Running tests
 echo "Running tests ..."
 cd python
-tox -q -e pyiceberg,spark_remote_signing,spark_sts,trino
+tox -q -e pyiceberg,spark_remote_signing,spark_sts,trino,starrocks
