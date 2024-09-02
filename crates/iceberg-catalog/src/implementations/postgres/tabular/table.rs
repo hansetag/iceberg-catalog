@@ -1,5 +1,5 @@
 use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogState};
-use crate::service::TableCommit;
+use crate::service::{DropFlags, TableCommit};
 use crate::{
     service::{
         storage::StorageProfile, CreateTableRequest, CreateTableResponse, ErrorModel,
@@ -79,12 +79,12 @@ where
     .into_iter()
     .map(|(k, v)| match k {
         TabularIdentOwned::Table(t) => Ok((t, v.map(|v| TableIdentUuid::from(*v)))),
-        TabularIdentOwned::View(_) => Err(ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("DB returned a view when filtering for tables.".to_string())
-            .r#type("InternalDatabaseError".to_string())
-            .build()
-            .into()),
+        TabularIdentOwned::View(_) => Err(ErrorModel::internal(
+            "DB returned a view when filtering for tables.",
+            "InternalDatabaseError",
+            None,
+        )
+        .into()),
     })
     .collect::<Result<HashMap<_, Option<TableIdentUuid>>>>()?;
 
@@ -244,7 +244,7 @@ pub(crate) async fn list_tables(
 ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
     let tabulars = list_tabulars(
         warehouse_id,
-        namespace,
+        Some(namespace),
         list_flags,
         catalog_state,
         Some(TabularType::Table),
@@ -254,7 +254,7 @@ pub(crate) async fn list_tables(
     let tables = tabulars
         .tabulars
         .into_iter()
-        .map(|(k, v)| match k {
+        .map(|(k, (v, _))| match k {
             TabularIdentUuid::Table(t) => Ok((TableIdentUuid::from(t), v.into_inner())),
             TabularIdentUuid::View(_) => Err(ErrorModel::internal(
                 "DB returned a view when filtering for tables.",
@@ -431,10 +431,29 @@ pub(crate) async fn rename_table(
 
 pub(crate) async fn drop_table<'a>(
     table_id: TableIdentUuid,
-    hard_delete: bool,
+    drop_flags: DropFlags,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
-    drop_tabular(TabularIdentUuid::Table(*table_id), hard_delete, transaction).await
+    if drop_flags.hard_delete {
+        let _ = sqlx::query!(
+            r#"
+        DELETE FROM "table"
+        WHERE table_id = $1 AND EXISTS (
+            SELECT 1
+            FROM active_tables
+            WHERE active_tables.table_id = $1
+        )
+        "#,
+            *table_id,
+        )
+        .execute(&mut **transaction)
+        .await
+        .map_err(|e| {
+            tracing::warn!(?table_id, ?drop_flags, "Error dropping tabular: {}", e);
+            e.into_error_model("Error dropping table".to_string())
+        })?;
+    }
+    drop_tabular(TabularIdentUuid::Table(*table_id), drop_flags, transaction).await
 }
 
 pub(crate) async fn commit_table_transaction<'a>(
@@ -722,6 +741,7 @@ pub(crate) mod tests {
         )
         .await
         .unwrap_err();
+
         assert_eq!(
             create_err.error.code,
             StatusCode::CONFLICT,
@@ -905,7 +925,6 @@ pub(crate) mod tests {
         .await
         .unwrap();
         assert!(exists.len() == 1 && exists.get(&table_ident).unwrap().is_none());
-        drop(table_ident);
 
         let table_1 = initialize_table(warehouse_id, state.clone(), true, None, None).await;
         let mut tables = HashSet::new();
@@ -1401,7 +1420,7 @@ pub(crate) mod tests {
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let mut transaction = pool.begin().await.unwrap();
-        drop_table(table.table_id, false, &mut transaction)
+        drop_table(table.table_id, DropFlags::default(), &mut transaction)
             .await
             .unwrap();
         transaction.commit().await.unwrap();
@@ -1428,5 +1447,32 @@ pub(crate) mod tests {
         .await
         .unwrap();
         assert_eq!(ok.table_id, table.table_id);
+
+        let mut transaction = pool.begin().await.unwrap();
+
+        drop_table(
+            table.table_id,
+            DropFlags {
+                hard_delete: true,
+                ..DropFlags::default()
+            },
+            &mut transaction,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+
+        let err = get_table_metadata_by_id(
+            warehouse_id,
+            table.table_id,
+            ListFlags {
+                include_deleted: true,
+                ..ListFlags::default()
+            },
+            state.clone(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.error.code, StatusCode::NOT_FOUND);
     }
 }

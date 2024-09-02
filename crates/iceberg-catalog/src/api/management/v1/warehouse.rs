@@ -1,10 +1,11 @@
-use crate::api::management::v1::ApiServer;
+use crate::api::management::v1::{ApiServer, ListDeletedTabularsResponse};
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
 pub use crate::service::storage::{
     AzCredential, AzdlsProfile, S3Credential, S3Profile, StorageCredential, StorageProfile,
 };
 
+use crate::api::iceberg::v1::PaginationQuery;
 pub use crate::service::WarehouseStatus;
 use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
 use crate::{ProjectIdent, WarehouseIdent};
@@ -464,6 +465,21 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         }
 
         Ok(())
+    }
+
+    async fn list_soft_deleted_tabulars(
+        request_metadata: RequestMetadata,
+        warehouse_id: WarehouseIdent,
+        context: ApiContext<State<A, C, S>>,
+        pagination_query: PaginationQuery,
+    ) -> Result<ListDeletedTabularsResponse> {
+        // ------------------- AuthZ -------------------
+        A::check_list_soft_deletions(&request_metadata, warehouse_id, context.v1_state.auth)
+            .await?;
+
+        // ------------------- Business Logic -------------------
+        C::list_soft_deleted_tabulars(warehouse_id, context.v1_state.catalog, pagination_query)
+            .await
     }
 }
 

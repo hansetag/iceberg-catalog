@@ -11,11 +11,11 @@ pub mod token_verification;
 
 pub use catalog::{
     Catalog, CommitTableResponse, CreateNamespaceRequest, CreateNamespaceResponse,
-    CreateTableRequest, CreateTableResponse, GetNamespaceResponse, GetStorageConfigResponse,
-    GetTableMetadataResponse, GetWarehouseResponse, ListFlags, ListNamespacesQuery,
-    ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result, TableCommit, TableIdent,
-    Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
-    ViewMetadataWithLocation,
+    CreateTableRequest, CreateTableResponse, DropFlags, GetNamespaceResponse,
+    GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse, ListFlags,
+    ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
+    TableCommit, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
+    UpdateNamespacePropertiesResponse, ViewMetadataWithLocation,
 };
 use std::ops::Deref;
 

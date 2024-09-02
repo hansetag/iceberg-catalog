@@ -14,13 +14,15 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
+use crate::api::management::v1::{DeletedTabularResponse, ListDeletedTabularsResponse};
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
+use crate::implementations::postgres::tabular::{list_tabulars, DeleteKind};
 use crate::service::{
-    CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, GetWarehouseResponse,
-    ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result, TableIdent,
-    WarehouseStatus,
+    CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, DropFlags,
+    GetWarehouseResponse, ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent,
+    Result, TableIdent, WarehouseStatus,
 };
 use crate::{
     api::iceberg::v1::{PaginatedTabulars, PaginationQuery},
@@ -35,6 +37,7 @@ use crate::{
     SecretIdent,
 };
 use iceberg::spec::ViewMetadata;
+use iceberg_ext::catalog::rest::ErrorModel;
 use std::collections::{HashMap, HashSet};
 
 #[async_trait::async_trait]
@@ -202,10 +205,10 @@ impl Catalog for super::Catalog {
 
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
-        hard_delete: bool,
+        drop_flags: DropFlags,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()> {
-        drop_table(table_id, hard_delete, transaction).await
+        drop_table(table_id, drop_flags, transaction).await
     }
 
     async fn table_idents_to_ids(
@@ -341,7 +344,7 @@ impl Catalog for super::Catalog {
         metadata: ViewMetadata,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()> {
-        drop_view(view_id, true, transaction).await?;
+        drop_view(view_id, DropFlags::default().hard_delete(), transaction).await?;
         create_view(
             namespace_id,
             metadata_location,
@@ -364,9 +367,64 @@ impl Catalog for super::Catalog {
 
     async fn drop_view<'a>(
         table_id: TableIdentUuid,
+        drop_flags: DropFlags,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()> {
         // we want to be able to undrop views, hence hard_delete -> false
-        drop_view(table_id, false, transaction).await
+        drop_view(table_id, drop_flags, transaction).await
     }
+
+    async fn list_soft_deleted_tabulars(
+        warehouse_id: WarehouseIdent,
+        catalog_state: Self::State,
+        pagination_query: PaginationQuery,
+    ) -> Result<ListDeletedTabularsResponse> {
+        let PaginatedTabulars {
+            tabulars,
+            next_page_token,
+        } = list_tabulars(
+            warehouse_id,
+            None,
+            ListFlags {
+                include_deleted: true,
+                include_staged: false,
+            },
+            catalog_state,
+            None,
+            pagination_query,
+        )
+        .await?;
+        Ok(ListDeletedTabularsResponse {
+            tabulars: tabulars
+                .into_iter()
+                .map(|(k, (ident, delete_opts))| {
+                    let i = ident.into_inner();
+                    let deleted = delete_opts.ok_or(ErrorModel::internal(
+                        "Expected delete options to be Some, but found None",
+                        "InternalDBError",
+                        None,
+                    ))?;
+
+                    Ok(DeletedTabularResponse {
+                        id: *k,
+                        name: i.name,
+                        namespace: i.namespace.inner(),
+                        typ: k.into(),
+                        warehouse_id: *warehouse_id,
+                        created_at: deleted.created_at,
+                        deleted_at: deleted.deleted_at,
+                        deleted_kind: deleted.deletion_kind.into(),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?,
+            next_page_token,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DeletionDetails {
+    pub(crate) deletion_kind: DeleteKind,
+    pub(crate) deleted_at: chrono::DateTime<chrono::Utc>,
+    pub(crate) created_at: chrono::DateTime<chrono::Utc>,
 }

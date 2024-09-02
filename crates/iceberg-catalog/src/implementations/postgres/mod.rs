@@ -13,7 +13,6 @@ use crate::service::health::{Health, HealthExt, HealthStatus};
 use crate::CONFIG;
 use anyhow::anyhow;
 use async_trait::async_trait;
-pub use secrets::SecretsState as SecretsStore;
 use sqlx::migrate::{Migrate, MigrateError};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{ConnectOptions, Error, Executor, PgPool};
@@ -21,6 +20,9 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+pub use secrets::SecretsState;
+pub use tabular::DeleteKind;
 
 /// # Errors
 /// Returns an error if the pool creation fails.
@@ -255,7 +257,6 @@ impl CatalogState {
         self.read_write.write_pool.clone()
     }
 }
-pub use secrets::SecretsState;
 
 impl DynAppConfig {
     pub fn to_pool_opts(&self) -> PgPoolOptions {

@@ -115,5 +115,8 @@ services:
       start_period: 15s
     networks:
       iceberg_net:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
 networks:
   iceberg_net:
