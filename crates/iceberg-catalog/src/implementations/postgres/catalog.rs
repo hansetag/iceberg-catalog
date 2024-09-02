@@ -14,7 +14,7 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
-use crate::api::management::v1::{ListTabularsResponse, TabularResponse};
+use crate::api::management::v1::{DeletedTabularResponse, ListDeletedTabularsResponse};
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
@@ -378,7 +378,7 @@ impl Catalog for super::Catalog {
         warehouse_id: WarehouseIdent,
         catalog_state: Self::State,
         pagination_query: PaginationQuery,
-    ) -> Result<ListTabularsResponse> {
+    ) -> Result<ListDeletedTabularsResponse> {
         let PaginatedTabulars {
             tabulars,
             next_page_token,
@@ -394,7 +394,7 @@ impl Catalog for super::Catalog {
             pagination_query,
         )
         .await?;
-        Ok(ListTabularsResponse {
+        Ok(ListDeletedTabularsResponse {
             tabulars: tabulars
                 .into_iter()
                 .map(|(k, (ident, delete_opts))| {
@@ -405,7 +405,7 @@ impl Catalog for super::Catalog {
                         None,
                     ))?;
 
-                    Ok(TabularResponse {
+                    Ok(DeletedTabularResponse {
                         id: *k,
                         name: i.name,
                         namespace: i.namespace.inner(),

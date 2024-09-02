@@ -11,7 +11,7 @@ pub mod v1 {
     use crate::api::iceberg::v1::PaginationQuery;
 
     use crate::service::tabular_idents::TabularIdentUuid;
-    use crate::service::{Catalog, SecretStore, State};
+    use crate::service::{storage::S3Flavor, Catalog, SecretStore, State};
     use axum::extract::{Path, Query, State as AxumState};
     use axum::routing::{get, post};
     use serde::Serialize;
@@ -54,13 +54,14 @@ pub mod v1 {
             RenameWarehouseRequest,
             S3Credential,
             S3Profile,
+            S3Flavor,
             StorageCredential,
             StorageProfile,
             UpdateWarehouseCredentialRequest,
             UpdateWarehouseStorageRequest,
             WarehouseStatus,
-            ListTabularsResponse,
-            TabularResponse,
+            ListDeletedTabularsResponse,
+            DeletedTabularResponse,
             TabularType,
             DeleteKind,
         ))
@@ -83,7 +84,7 @@ pub mod v1 {
     #[utoipa::path(
         post,
         tag = "management",
-        path = "management/v1/warehouse",
+        path = "/management/v1/warehouse",
         request_body = CreateWarehouseRequest,
         responses(
             (status = 201, description = "Warehouse created successfully", body = [CreateWarehouseResponse]),
@@ -101,7 +102,7 @@ pub mod v1 {
     #[utoipa::path(
         get,
         tag = "management",
-        path = "management/v1/project",
+        path = "/management/v1/project",
         responses(
             (status = 200, description = "List of projects", body = [ListProjectsResponse])
         )
@@ -120,7 +121,7 @@ pub mod v1 {
     #[utoipa::path(
         get,
         tag = "management",
-        path = "management/v1/warehouse",
+        path = "/management/v1/warehouse",
         params(ListWarehousesRequest),
         responses(
             (status = 200, description = "List of warehouses", body = [ListWarehousesResponse])
@@ -138,7 +139,7 @@ pub mod v1 {
     #[utoipa::path(
         get,
         tag = "management",
-        path = "management/v1/warehouse/{warehouse_id}",
+        path = "/management/v1/warehouse/{warehouse_id}",
         responses(
             (status = 200, description = "Warehouse details", body = [GetWarehouseResponse])
         )
@@ -155,7 +156,7 @@ pub mod v1 {
     #[utoipa::path(
         delete,
         tag = "management",
-        path = "management/v1/warehouse/{warehouse_id}",
+        path = "/management/v1/warehouse/{warehouse_id}",
         responses(
             (status = 200, description = "Warehouse deleted successfully")
         )
@@ -172,7 +173,7 @@ pub mod v1 {
     #[utoipa::path(
         post,
         tag = "management",
-        path = "management/v1/warehouse/{warehouse_id}/rename",
+        path = "/management/v1/warehouse/{warehouse_id}/rename",
         request_body = RenameWarehouseRequest,
         responses(
             (status = 200, description = "Warehouse renamed successfully")
@@ -192,7 +193,7 @@ pub mod v1 {
     #[utoipa::path(
         post,
         tag = "management",
-        path = "management/v1/warehouse/{warehouse_id}/deactivate",
+        path = "/management/v1/warehouse/{warehouse_id}/deactivate",
         responses(
             (status = 200, description = "Warehouse deactivated successfully")
         )
@@ -209,7 +210,7 @@ pub mod v1 {
     #[utoipa::path(
         post,
         tag = "management",
-        path = "management/v1/warehouse/{warehouse_id}/activate",
+        path = "/management/v1/warehouse/{warehouse_id}/activate",
         responses(
             (status = 200, description = "Warehouse activated successfully")
         )
@@ -226,7 +227,7 @@ pub mod v1 {
     #[utoipa::path(
         post,
         tag = "management",
-        path = "management/v1/warehouse/{warehouse_id}/storage",
+        path = "/management/v1/warehouse/{warehouse_id}/storage",
         request_body = UpdateWarehouseStorageRequest,
         responses(
             (status = 200, description = "Storage profile updated successfully")
@@ -246,7 +247,7 @@ pub mod v1 {
     #[utoipa::path(
         post,
         tag = "management",
-        path = "management/v1/warehouse/{warehouse_id}/storage-credential",
+        path = "/management/v1/warehouse/{warehouse_id}/storage-credential",
         request_body = UpdateWarehouseCredentialRequest,
         responses(
             (status = 200, description = "Storage credential updated successfully")
@@ -263,12 +264,14 @@ pub mod v1 {
     }
 
     /// List soft-deleted tabulars
+    ///
+    /// List all soft-deleted tabulars in the warehouse that are visible to you.
     #[utoipa::path(
         get,
         tag = "management",
-        path = "management/v1/warehouse/{warehouse_id}/deleted_tabulars",
+        path = "/management/v1/warehouse/{warehouse_id}/deleted_tabulars",
         responses(
-            (status = 200, description = "List of soft-deleted tabulars", body = [ListTabularsResponse])
+            (status = 200, description = "List of soft-deleted tabulars", body = [ListDeletedTabularsResponse])
         )
     )]
     async fn list_deleted_tabulars<C: Catalog, A: AuthZHandler, S: SecretStore>(
@@ -276,7 +279,7 @@ pub mod v1 {
         Query(pagination): Query<PaginationQuery>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
-    ) -> Result<Json<ListTabularsResponse>> {
+    ) -> Result<Json<ListDeletedTabularsResponse>> {
         ApiServer::<C, A, S>::list_soft_deleted_tabulars(
             metadata,
             warehouse_id.into(),
@@ -288,24 +291,36 @@ pub mod v1 {
     }
 
     #[derive(Debug, Serialize, utoipa::ToSchema)]
-    pub struct ListTabularsResponse {
-        pub tabulars: Vec<TabularResponse>,
+    pub struct ListDeletedTabularsResponse {
+        /// List of tabulars
+        pub tabulars: Vec<DeletedTabularResponse>,
+        /// Token to fetch the next page
         pub next_page_token: Option<String>,
     }
 
     #[derive(Debug, Serialize, utoipa::ToSchema)]
-    pub struct TabularResponse {
+    pub struct DeletedTabularResponse {
+        /// Unique identifier of the tabular
         pub id: uuid::Uuid,
+        /// Name of the tabular
         pub name: String,
+        /// List of namespace parts the tabular belongs to
         pub namespace: Vec<String>,
+        /// Type of the tabular
         pub typ: TabularType,
+        /// Warehouse ID where the tabular is stored
         pub warehouse_id: uuid::Uuid,
+        /// Date when the tabular was created
         pub created_at: chrono::DateTime<chrono::Utc>,
+        /// Date when the tabular was deleted
         pub deleted_at: chrono::DateTime<chrono::Utc>,
+        /// Kind of deletion, default or purge
         pub deleted_kind: DeleteKind,
     }
 
+    /// Type of tabular
     #[derive(Debug, Serialize, utoipa::ToSchema)]
+    #[serde(rename_all = "kebab-case")]
     pub enum TabularType {
         Table,
         View,

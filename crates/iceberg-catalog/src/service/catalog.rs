@@ -14,7 +14,7 @@ pub use crate::api::iceberg::v1::{
     UpdateNamespacePropertiesResponse,
 };
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
-use crate::api::management::v1::ListTabularsResponse;
+use crate::api::management::v1::ListDeletedTabularsResponse;
 use crate::service::health::HealthExt;
 
 #[async_trait::async_trait]
@@ -371,7 +371,7 @@ where
         warehouse_id: WarehouseIdent,
         catalog_state: Self::State,
         pagination_query: PaginationQuery,
-    ) -> Result<ListTabularsResponse>;
+    ) -> Result<ListDeletedTabularsResponse>;
 }
 
 #[derive(Debug, Clone, Default, Copy, PartialEq)]

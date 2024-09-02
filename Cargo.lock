@@ -6084,6 +6084,7 @@ dependencies = [
  "quote",
  "regex",
  "syn 2.0.74",
+ "url",
  "uuid",
 ]
 
