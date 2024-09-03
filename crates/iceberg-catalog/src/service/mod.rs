@@ -2,12 +2,12 @@ pub mod auth;
 mod catalog;
 pub mod config;
 pub mod contract_verification;
-pub mod deleter;
 pub mod event_publisher;
 pub mod health;
 pub mod secrets;
 pub mod storage;
 pub mod tabular_idents;
+pub mod task_queue;
 pub mod token_verification;
 
 pub use catalog::{
@@ -24,14 +24,14 @@ use self::auth::AuthZHandler;
 use crate::api::iceberg::v1::Prefix;
 use crate::api::ThreadSafe as ServiceState;
 pub use crate::api::{ErrorModel, IcebergErrorResponse};
-use crate::implementations::postgres::task_runner::{ExpirationInput, TableExpirationTask};
 use crate::service::contract_verification::ContractVerifiers;
-use crate::service::deleter::TaskQueue;
 use crate::service::event_publisher::CloudEventsPublisher;
+use crate::service::task_queue::TaskQueue;
 use http::StatusCode;
 pub use secrets::{SecretIdent, SecretStore};
 use std::str::FromStr;
 use std::sync::Arc;
+use task_queue::tabular_expiration_queue::{ExpirationInput, TableExpirationTask};
 
 #[async_trait::async_trait]
 pub trait NamespaceIdentExt

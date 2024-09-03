@@ -12,8 +12,8 @@ use crate::api::management::v1::ListDeletedTabularsResponse;
 use crate::service::health::HealthExt;
 use crate::SecretIdent;
 
-use crate::implementations::postgres::task_runner::{ExpirationInput, TableExpirationTask};
-use crate::service::deleter::TaskQueue;
+use crate::service::task_queue::tabular_expiration_queue::{ExpirationInput, TableExpirationTask};
+use crate::service::task_queue::TaskQueue;
 use iceberg::spec::{TableMetadata, ViewMetadata};
 pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
 use iceberg_ext::configs::Location;

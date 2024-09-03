@@ -63,22 +63,25 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     };
 
     let handle_1 = tokio::task::spawn(
-        iceberg_catalog::service::deleter::tabular_expiration_task::<_, _, Catalog, _>(
+        iceberg_catalog::service::task_queue::tabular_expiration_queue::tabular_expiration_task::<
+            _,
+            _,
+            Catalog,
+            _,
+        >(
             expiration_q.clone(),
             delete_handler.clone(),
             catalog_state.clone(),
             secrets_state.clone(),
         ),
     );
-    let handle_2 = tokio::task::spawn(iceberg_catalog::service::deleter::delete_task::<
-        _,
-        Catalog,
-        _,
-    >(
-        delete_handler,
-        catalog_state.clone(),
-        secrets_state.clone(),
-    ));
+    let handle_2 = tokio::task::spawn(
+        iceberg_catalog::service::task_queue::delete_queue::delete_queue::<_, Catalog, _>(
+            delete_handler,
+            catalog_state.clone(),
+            secrets_state.clone(),
+        ),
+    );
 
     let mut cloud_event_sinks = vec![];
 

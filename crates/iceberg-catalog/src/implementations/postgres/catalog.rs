@@ -21,8 +21,8 @@ use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
 use crate::implementations::postgres::tabular::{list_tabulars, DeleteKind};
-use crate::implementations::postgres::task_runner::{ExpirationInput, TableExpirationTask};
-use crate::service::deleter::TaskQueue;
+use crate::service::task_queue::tabular_expiration_queue::{ExpirationInput, TableExpirationTask};
+use crate::service::task_queue::TaskQueue;
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, DropFlags,
     GetWarehouseResponse, ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent,

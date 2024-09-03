@@ -1,55 +1,16 @@
 use crate::api::management::v1::TabularType;
 use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::TabularType as DbTabularType;
-use crate::service::deleter::{DeleteInput, TaskQueue};
+
+use crate::service::task_queue::delete_queue::{DeleteInput, Deletion};
+use crate::service::task_queue::tabular_expiration_queue::{ExpirationInput, TableExpirationTask};
+use crate::service::task_queue::{Task, TaskQueue, TaskStatus};
 use crate::WarehouseIdent;
 use async_trait::async_trait;
 use chrono::Utc;
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use sqlx::{FromRow, PgConnection, PgPool};
 use uuid::Uuid;
-
-#[derive(Debug)]
-pub struct TableExpirationTask {
-    pub tabular_id: Uuid,
-    pub warehouse_ident: WarehouseIdent,
-    pub tabular_type: TabularType,
-    pub task: Task,
-}
-
-#[derive(Debug)]
-pub struct ExpirationInput {
-    pub tabular_id: Uuid,
-    pub warehouse_ident: WarehouseIdent,
-    pub tabular_type: TabularType,
-}
-
-#[derive(Debug, FromRow, Clone, PartialEq)]
-pub struct Deletion {
-    pub entity_id: Uuid,
-    pub location: String,
-    pub warehouse_id: Uuid,
-    pub task: Task,
-}
-
-#[derive(Debug, FromRow, Clone, PartialEq)]
-pub struct Task {
-    pub task_id: Uuid,
-    pub task_name: String,
-    pub status: DeletionStatus,
-    pub picked_up_at: Option<chrono::DateTime<Utc>>,
-    pub parent_task_id: Option<Uuid>,
-    pub attempt: i32,
-}
-
-#[derive(sqlx::Type, Debug, Copy, Clone, PartialEq)]
-#[sqlx(type_name = "task_status", rename_all = "kebab-case")]
-pub enum DeletionStatus {
-    Pending,
-    Finished,
-    Running,
-    Failed,
-}
 
 pub(crate) async fn queue_task(
     conn: &mut PgConnection,
@@ -177,7 +138,7 @@ async fn pick_task(
     SET status = 'running', picked_up_at = $2, attempt = task.attempt + 1
     FROM updated_task
     WHERE task.task_id = updated_task.task_id
-    RETURNING task.task_id, task.status as "status: DeletionStatus", task.picked_up_at, task.attempt, task.parent_task_id, task.task_name
+    RETURNING task.task_id, task.status as "status: TaskStatus", task.picked_up_at, task.attempt, task.parent_task_id, task.task_name
     "#,
         name,
         Utc::now()
