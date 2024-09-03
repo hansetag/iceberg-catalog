@@ -13,7 +13,7 @@ use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
 
-use iceberg_catalog::implementations::postgres::task_runner::{
+use iceberg_catalog::implementations::postgres::task_queues::{
     DeleteTaskFetcher, ExpirationTaskFetcher,
 };
 use std::sync::Arc;

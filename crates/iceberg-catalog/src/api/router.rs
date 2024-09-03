@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::management::v1::ManagementApiDoc;
 use crate::api::management::v1::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
-use crate::implementations::postgres::task_runner::ExpirationTaskFetcher;
+use crate::implementations::postgres::task_queues::ExpirationTaskFetcher;
 use crate::service::contract_verification::ContractVerifiers;
 use crate::service::health::ServiceHealthProvider;
 use crate::service::token_verification::Verifier;

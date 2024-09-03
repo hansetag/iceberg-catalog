@@ -4,7 +4,7 @@ pub(crate) mod namespace;
 mod pagination;
 pub(crate) mod secrets;
 pub(crate) mod tabular;
-pub mod task_runner;
+pub mod task_queues;
 pub(crate) mod warehouse;
 
 use self::dbutils::DBErrorHandler;

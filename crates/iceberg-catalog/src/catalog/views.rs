@@ -178,7 +178,7 @@ mod test {
                 publisher: CloudEventsPublisher::new(tx.clone()),
                 contract_verifiers: ContractVerifiers::new(vec![]),
                 expiration_q: Arc::new(
-                    crate::implementations::postgres::task_runner::ExpirationTaskFetcher { pool },
+                    crate::implementations::postgres::task_queues::ExpirationTaskFetcher { pool },
                 ),
             },
         }
