@@ -5,11 +5,10 @@ use crate::implementations::postgres::tabular::TabularType as DbTabularType;
 use crate::service::task_queue::delete_queue::{DeleteInput, Deletion};
 use crate::service::task_queue::tabular_expiration_queue::{ExpirationInput, TableExpirationTask};
 use crate::service::task_queue::{Task, TaskQueue, TaskStatus};
-use crate::WarehouseIdent;
 use async_trait::async_trait;
 use chrono::Utc;
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
-use sqlx::{FromRow, PgConnection, PgPool};
+use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 pub(crate) async fn queue_task(

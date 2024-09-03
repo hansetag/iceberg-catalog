@@ -2,18 +2,13 @@ use crate::api::management::v1::TabularType;
 use crate::api::Result;
 use crate::catalog::maybe_get_secret;
 use crate::service::task_queue::delete_queue::{DeleteInput, Deletion};
-use crate::service::task_queue::{retrying_record_failure, unwrap_or_continue, Task, TaskQueue};
-use crate::service::{
-    Catalog, DropFlags, GetTableMetadataResponse, LoadTableResponse, SecretStore, TableIdentUuid,
-    Transaction,
-};
+use crate::service::task_queue::{retrying_record_failure, Task, TaskQueue};
+use crate::service::{Catalog, DropFlags, SecretStore, TableIdentUuid, Transaction};
 use crate::WarehouseIdent;
-use async_trait::async_trait;
-use chrono::Utc;
+
 use iceberg::io::FileIO;
 use iceberg::spec::TableMetadata;
 use iceberg_ext::catalog::rest::ErrorModel;
-use sqlx::FromRow;
 use std::time::Duration;
 use uuid::Uuid;
 

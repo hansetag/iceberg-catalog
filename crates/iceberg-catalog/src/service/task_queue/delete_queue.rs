@@ -1,14 +1,9 @@
-use crate::api::management::v1::TabularType;
 use crate::api::Result;
 use crate::catalog::maybe_get_secret;
 use crate::service::task_queue::{retrying_record_failure, unwrap_or_continue, Task, TaskQueue};
-use crate::service::{Catalog, DropFlags, SecretStore, TableIdentUuid, Transaction};
+use crate::service::{Catalog, SecretStore, Transaction};
 use crate::WarehouseIdent;
-use async_trait::async_trait;
-use chrono::Utc;
 use iceberg::io::FileIO;
-use iceberg::spec::TableMetadata;
-use iceberg_ext::catalog::rest::ErrorModel;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -50,18 +45,18 @@ pub async fn delete_queue<
             continue;
         };
 
-        span.record("id", &deletion.entity_id.to_string().as_str());
-        span.record("location", &deletion.location.as_str());
-        span.record("attempt", &deletion.task.attempt);
-        span.record("warehouse_id", &deletion.warehouse_id.to_string().as_str());
-        span.record("task", &format!("{:?}", deletion.task));
+        span.record("id", deletion.entity_id.to_string().as_str());
+        span.record("location", deletion.location.as_str());
+        span.record("attempt", deletion.task.attempt);
+        span.record("warehouse_id", deletion.warehouse_id.to_string().as_str());
+        span.record("task", format!("{:?}", deletion.task));
 
         tracing::info!("Got deletion");
 
         let warehouse = deletion.warehouse_id;
 
         let file_io = unwrap_or_continue!(
-            get_file_io::<C, F, S>(&conn, secret_state.clone(), warehouse).await,
+            get_file_io::<C, S>(&conn, secret_state.clone(), warehouse).await,
             "Failed to get file io: {:?}",
             fetcher,
             &deletion.task
@@ -88,11 +83,7 @@ pub async fn delete_queue<
     }
 }
 
-async fn get_file_io<
-    C: Catalog,
-    F: TaskQueue<Task = Deletion, Input = DeleteInput> + Send + Sync + 'static,
-    S: SecretStore,
->(
+async fn get_file_io<C: Catalog, S: SecretStore>(
     conn: &C::State,
     secret_state: S,
     warehouse: Uuid,
