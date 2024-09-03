@@ -57,32 +57,28 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     let delete_handler = DeleteTaskFetcher {
         pool: write_pool.clone(),
     };
-    iceberg_catalog::service::deleter::delete_task::<_, Catalog, _>(
-        delete_handler.clone(),
-        catalog_state.clone(),
-        secrets_state.clone(),
-    );
 
     let expiration_q = ExpirationTaskFetcher {
         pool: write_pool.clone(),
     };
 
-    tokio::task::spawn(
+    let handle_1 = tokio::task::spawn(
         iceberg_catalog::service::deleter::tabular_expiration_task::<_, _, Catalog, _>(
             expiration_q.clone(),
-            delete_handler,
+            delete_handler.clone(),
             catalog_state.clone(),
             secrets_state.clone(),
         ),
     );
-
-    iceberg_catalog::service::deleter::delete_task::<_, Catalog, _>(
-        DeleteTaskFetcher {
-            pool: write_pool.clone(),
-        },
+    let handle_2 = tokio::task::spawn(iceberg_catalog::service::deleter::delete_task::<
+        _,
+        Catalog,
+        _,
+    >(
+        delete_handler,
         catalog_state.clone(),
         secrets_state.clone(),
-    );
+    ));
 
     let mut cloud_event_sinks = vec![];
 
@@ -129,7 +125,11 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         };
     });
 
-    service_serve(listener, router).await?;
+    tokio::select!(
+        _ = handle_1 => tracing::error!("Tabular expiration task failed"),
+        _ = handle_2 => tracing::error!("Delete task failed"),
+        err = service_serve(listener, router) => tracing::error!("Service failed: {err:?}"),
+    );
 
     tracing::debug!("Sending shutdown signal to event publisher.");
     tx.send(Message::Shutdown).await?;

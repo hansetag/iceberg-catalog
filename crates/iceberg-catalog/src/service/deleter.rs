@@ -17,18 +17,21 @@ macro_rules! unwrap_or_continue {
             Ok(x) => x,
             Err(e) => {
                 tracing::error!($err_msg, e);
-                retrying_record_failure(&$fetcher, &$task).await;
+                retrying_record_failure(&$fetcher, &$task, format!("{e:?}")).await;
                 continue;
             }
         }
     };
 }
 
-async fn retrying_record_failure(fetcher: &impl TaskQueue, task: &Task) {
+async fn retrying_record_failure(fetcher: &impl TaskQueue, task: &Task, details: String) {
     let mut retry = 0;
-    while let Err(e) = fetcher.record_failure(task.task_id, 5).await {
+    while let Err(e) = fetcher
+        .record_failure(task.task_id, 5, details.clone())
+        .await
+    {
         tracing::error!("Failed to record failure: {:?}", e);
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(1 + retry)).await;
         retry += 1;
         if retry > 5 {
             tracing::error!("Giving up trying to record failure.");
@@ -45,7 +48,7 @@ pub trait TaskQueue: std::fmt::Debug {
     fn queue_name(&self) -> &'static str;
     async fn poll(&self) -> Result<Option<Self::Task>>;
     async fn record_success(&self, id: Uuid) -> Result<()>;
-    async fn record_failure(&self, id: Uuid, n_retries: i32) -> Result<()>;
+    async fn record_failure(&self, id: Uuid, n_retries: i32, error_details: String) -> Result<()>;
     async fn enqueue(
         &self,
         task: Self::Input,
@@ -78,6 +81,8 @@ pub async fn tabular_expiration_task<
     secret_state: S,
 ) {
     loop {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+
         let expiration = match fetcher.poll().await {
             Ok(expiration) => expiration,
             Err(err) => {
@@ -87,7 +92,6 @@ pub async fn tabular_expiration_task<
                 continue;
             }
         };
-
         let Some(TableExpirationTask {
             tabular_id,
             warehouse_ident,
@@ -97,6 +101,7 @@ pub async fn tabular_expiration_task<
         else {
             continue;
         };
+        tracing::info!("Got expiration: tabular_id: '{tabular_id}', whident: '{warehouse_ident}', typ: '{tabular_type}', task: '{task:?}'");
 
         let span = tracing::span!(
             tracing::Level::INFO,
@@ -106,7 +111,7 @@ pub async fn tabular_expiration_task<
         );
         let _entered = span.enter();
         let mut trx = unwrap_or_continue!(
-            C::Transaction::begin_read(catalog_state.clone()).await,
+            C::Transaction::begin_write(catalog_state.clone()).await,
             "Failed to start transaction: {:?}",
             fetcher,
             &task
@@ -114,6 +119,7 @@ pub async fn tabular_expiration_task<
 
         match tabular_type {
             TabularType::Table => {
+                tracing::info!("Table");
                 let mut table_metadata = unwrap_or_continue!(
                     C::load_tables(
                         warehouse_ident,
@@ -152,13 +158,38 @@ pub async fn tabular_expiration_task<
                     fetcher,
                     &task
                 );
-
+                tracing::info!("Got fio");
                 unwrap_or_continue!(
                     handle_old_metadata(
                         warehouse_ident,
                         &fio,
                         &table_metadata.table_metadata,
                         &delete_queue,
+                    )
+                    .await,
+                    "{:?}",
+                    fetcher,
+                    &task
+                );
+                let location = unwrap_or_continue!(
+                    table_metadata.metadata_location.as_deref().ok_or_else(|| {
+                        ErrorModel::internal(
+                            "Table metadata location not found",
+                            "MetadataLocationNotFound",
+                            None,
+                        )
+                    }),
+                    "{:?}",
+                    fetcher,
+                    &task
+                );
+                unwrap_or_continue!(
+                    find_files(
+                        &table_metadata.table_metadata,
+                        location,
+                        warehouse_ident,
+                        &delete_queue,
+                        &fio,
                     )
                     .await,
                     "{:?}",
@@ -182,15 +213,26 @@ pub async fn tabular_expiration_task<
                     &task
                 );
 
-                unwrap_or_continue!(
-                    trx.commit().await,
-                    "Failed to commit transaction: {:?}",
-                    fetcher,
-                    &task
-                );
+                let mut retry = 0;
+                while let Err(e) = fetcher.record_success(task.task_id).await {
+                    tracing::error!("Failed to record success: {:?}", e);
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    retry += 1;
+                    if retry > 5 {
+                        tracing::error!("Giving up trying to record success.");
+                        break;
+                    }
+                }
             }
             TabularType::View => {}
         }
+
+        unwrap_or_continue!(
+            trx.commit().await,
+            "Failed to commit transaction: {:?}",
+            fetcher,
+            &task
+        );
     }
 }
 
@@ -293,88 +335,90 @@ async fn find_files<D: TaskQueue<Task = Deletion, Input = DeleteInput>>(
     Ok(())
 }
 
-pub fn delete_task<
+pub async fn delete_task<
     F: TaskQueue<Task = Deletion> + Send + Sync + 'static,
     C: Catalog,
     S: SecretStore,
 >(
     fetcher: F,
-    catalog_state: C::State,
+    conn: C::State,
     secret_state: S,
 ) {
-    tokio::task::spawn(async move {
-        let conn = catalog_state.clone();
-        loop {
-            // TODO: does the FOR UPDATE lock last beyond the await? Probably not?
-            //       maybe all of this needs to happen in a transaction.
-            let deletion = match fetcher.poll().await {
-                Ok(deletion) => deletion,
-                Err(err) => {
-                    // TODO: add retry counter + exponential backoff
-                    tracing::error!("Failed to fetch deletion: {:?}", err);
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue;
-                }
-            };
+    loop {
+        tokio::time::sleep(Duration::from_secs(7)).await;
 
-            if let Some(deletion) = deletion {
-                let span = tracing::span!(tracing::Level::INFO, "deleting", id = %deletion.task.task_id, location = %deletion.location, attempt = %deletion.task.attempt, warehouse_id = %deletion.warehouse_id);
-                let _entered = span.enter();
-                let warehouse = deletion.warehouse_id;
-
-                let mut t = unwrap_or_continue!(
-                    C::Transaction::begin_read(conn.clone()).await,
-                    "Failed to start transaction: {:?}",
-                    fetcher,
-                    &deletion.task
-                );
-
-                let warehouse = unwrap_or_continue!(
-                    C::get_warehouse(warehouse.into(), t.transaction()).await,
-                    "Failed to get warehouse: {:?}",
-                    fetcher,
-                    &deletion.task
-                );
-                unwrap_or_continue!(
-                    t.commit().await,
-                    "Failed to commit transaction: {:?}",
-                    fetcher,
-                    &deletion.task
-                );
-                let secret = unwrap_or_continue!(
-                    maybe_get_secret(warehouse.storage_secret_id, &secret_state).await,
-                    "Failed to get secret: {:?}",
-                    fetcher,
-                    &deletion.task
-                );
-
-                let prof = unwrap_or_continue!(
-                    warehouse.storage_profile.file_io(secret.as_ref()),
-                    "Failed to get storage profile: {:?}",
-                    fetcher,
-                    &deletion.task
-                );
-
-                unwrap_or_continue!(
-                    prof.delete(&deletion.location).await,
-                    "Failed to delete: {:?}",
-                    fetcher,
-                    &deletion.task
-                );
-
-                tracing::info!("Deleted task: {:?}", deletion);
-                let mut retry = 0;
-                while let Err(e) = fetcher.record_success(deletion.task.task_id).await {
-                    tracing::error!("Failed to record success: {:?}", e);
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    retry += 1;
-                    if retry > 5 {
-                        tracing::error!("Giving up trying to record success.");
-                        break;
-                    }
-                }
+        // TODO: does the FOR UPDATE lock last beyond the await? Probably not?
+        //       maybe all of this needs to happen in a transaction.
+        let deletion = match fetcher.poll().await {
+            Ok(deletion) => deletion,
+            Err(err) => {
+                // TODO: add retry counter + exponential backoff
+                tracing::error!("Failed to fetch deletion: {:?}", err);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
             }
+        };
+        let Some(deletion) = deletion else {
+            continue;
+        };
+
+        tracing::info!("Got deletion: {:?}", deletion);
+
+        let span = tracing::span!(tracing::Level::INFO, "deleting", id = %deletion.task.task_id, location = %deletion.location, attempt = %deletion.task.attempt, warehouse_id = %deletion.warehouse_id);
+        let _entered = span.enter();
+        let warehouse = deletion.warehouse_id;
+
+        let mut t = unwrap_or_continue!(
+            C::Transaction::begin_write(conn.clone()).await,
+            "Failed to start transaction: {:?}",
+            fetcher,
+            &deletion.task
+        );
+
+        let warehouse = unwrap_or_continue!(
+            C::get_warehouse(warehouse.into(), t.transaction()).await,
+            "Failed to get warehouse: {:?}",
+            fetcher,
+            &deletion.task
+        );
+        unwrap_or_continue!(
+            t.commit().await,
+            "Failed to commit transaction: {:?}",
+            fetcher,
+            &deletion.task
+        );
+
+        let secret = unwrap_or_continue!(
+            maybe_get_secret(warehouse.storage_secret_id, &secret_state).await,
+            "Failed to get secret: {:?}",
+            fetcher,
+            &deletion.task
+        );
+
+        let prof = unwrap_or_continue!(
+            warehouse.storage_profile.file_io(secret.as_ref()),
+            "Failed to get storage profile: {:?}",
+            fetcher,
+            &deletion.task
+        );
+
+        unwrap_or_continue!(
+            prof.delete(&deletion.location).await,
+            "Failed to delete: {:?}",
+            fetcher,
+            &deletion.task
+        );
+
+        tracing::info!("Deleted task: {:?}", deletion);
+        let mut retry = 0;
+        while let Err(e) = fetcher.record_success(deletion.task.task_id).await {
+            tracing::error!("Failed to record success: {:?}", e);
             tokio::time::sleep(Duration::from_secs(1)).await;
+            retry += 1;
+            if retry > 5 {
+                tracing::error!("Giving up trying to record success.");
+                break;
+            }
         }
-    });
+    }
 }

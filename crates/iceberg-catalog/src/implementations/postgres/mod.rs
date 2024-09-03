@@ -269,19 +269,19 @@ impl DynAppConfig {
             )
             .after_connect(|_conn, meta| {
                 Box::pin(async move {
-                    tracing::debug!(metadata = ?meta, "pg pool established a new connection");
+                    // tracing::debug!(metadata = ?meta, "pg pool established a new connection");
                     Ok(())
                 })
             })
             .before_acquire(|_conn, meta| {
                 Box::pin(async move {
-                    tracing::trace!(metadata = ?meta, "acquiring connection from pg pool");
+                    // tracing::trace!(metadata = ?meta, "acquiring connection from pg pool");
                     Ok(true)
                 })
             })
             .after_release(|_conn, meta| {
                 Box::pin(async move {
-                    tracing::trace!(metadata = ?meta, "connection was released back to pg pool");
+                    // tracing::trace!(metadata = ?meta, "connection was released back to pg pool");
                     Ok(true)
                 })
             })

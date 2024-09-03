@@ -1,8 +1,14 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO tabular_expirations(task_id, tabular_id, warehouse_id, typ) VALUES ($1, $2, $3, $4)",
+  "query": "INSERT INTO tabular_expirations(task_id, tabular_id, warehouse_id, typ) VALUES ($1, $2, $3, $4) RETURNING task_id",
   "describe": {
-    "columns": [],
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid"
+      }
+    ],
     "parameters": {
       "Left": [
         "Uuid",
@@ -21,7 +27,9 @@
         }
       ]
     },
-    "nullable": []
+    "nullable": [
+      false
+    ]
   },
-  "hash": "b4a279586c58641912426eb3812b423d0444f420935fbb0317a6fa30f07c3cc6"
+  "hash": "6718645388fd772e1f4057140805797c980d7281b6af58208edc829dd2030c58"
 }
