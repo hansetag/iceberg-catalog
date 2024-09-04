@@ -9,6 +9,7 @@ use crate::service::task_queue::tabular_expiration_queue::{
 };
 use crate::service::task_queue::tabular_purge_queue::{TabularPurgeInput, TabularPurgeTask};
 use crate::service::task_queue::{Task, TaskQueue, TaskStatus};
+use crate::WarehouseIdent;
 use async_trait::async_trait;
 use chrono::Utc;
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
@@ -20,6 +21,7 @@ pub(crate) async fn queue_task(
     task_name: &str,
     parenet_task_id: Option<Uuid>,
     idempotency_key: Uuid,
+    warehouse_ident: WarehouseIdent,
 ) -> Result<Uuid, IcebergErrorResponse> {
     let task_id = Uuid::now_v7();
     let task_handle = sqlx::query!(
@@ -28,14 +30,16 @@ pub(crate) async fn queue_task(
                         task_name,
                         status,
                         parent_task_id,
-                        idempotency_key)
-        VALUES ($1, $2, 'pending', $3, $4)
+                        idempotency_key,
+                        warehouse_id)
+        VALUES ($1, $2, 'pending', $3, $4, $5)
         ON CONFLICT ON CONSTRAINT unique_idempotency_key DO NOTHING
         RETURNING task_id"#,
         task_id,
         task_name,
         parenet_task_id,
-        idempotency_key
+        idempotency_key,
+        *warehouse_ident
     )
     .fetch_optional(conn)
     .await
@@ -210,6 +214,7 @@ impl TaskQueue for TabularPurgeTaskFetcher {
             self.queue_name(),
             parent_id,
             idempotency_key,
+            warehouse_ident,
         )
         .await?;
 
@@ -327,8 +332,14 @@ impl TaskQueue for ExpirationTaskFetcher {
 
         let idempotency_key = Uuid::new_v5(&warehouse_ident, tabular_id.as_bytes());
 
-        let task_id =
-            queue_task(&mut transaction, self.queue_name(), None, idempotency_key).await?;
+        let task_id = queue_task(
+            &mut transaction,
+            self.queue_name(),
+            None,
+            idempotency_key,
+            warehouse_ident,
+        )
+        .await?;
 
         let it = sqlx::query!(
             "INSERT INTO tabular_expirations(task_id, tabular_id, warehouse_id, typ, deletion_kind) VALUES ($1, $2, $3, $4, $5) RETURNING task_id",

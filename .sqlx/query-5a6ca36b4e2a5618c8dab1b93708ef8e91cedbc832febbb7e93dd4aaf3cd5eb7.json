@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO task(\n                        task_id,\n                        task_name,\n                        status,\n                        parent_task_id,\n                        idempotency_key,\n                        warehouse_id)\n        VALUES ($1, $2, 'pending', $3, $4, $5)\n        ON CONFLICT ON CONSTRAINT unique_idempotency_key DO NOTHING\n        RETURNING task_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5a6ca36b4e2a5618c8dab1b93708ef8e91cedbc832febbb7e93dd4aaf3cd5eb7"
+}

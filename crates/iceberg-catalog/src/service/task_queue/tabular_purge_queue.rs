@@ -47,6 +47,7 @@ pub async fn purge_task<C: Catalog, S: SecretStore>(
             tabular_id = %tabular_id,
             warehouse_id = %warehouse_ident,
             %tabular_type,
+            task_name = %task.task_name,
             task = ?task,
         );
         let _entered = span.enter();

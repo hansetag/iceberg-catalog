@@ -44,6 +44,7 @@ pub async fn tabular_expiration_task<C: Catalog>(
             "tabular_expiration",
             tabular_id = %expiration.tabular_id,
             task = ?expiration.task,
+            task_name = %expiration.task.task_name,
         );
         let _entered = span.enter();
 
@@ -109,7 +110,6 @@ where
             })
             .await?;
         tracing::debug!("Enqueued cleanup task: {:?}", id);
-        return Ok(());
     }
 
     trx.commit().await.map_err(|e| {
