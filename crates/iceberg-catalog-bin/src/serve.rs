@@ -13,9 +13,7 @@ use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
 
-use iceberg_catalog::implementations::postgres::task_queues::{
-    DeleteTaskFetcher, ExpirationTaskFetcher,
-};
+use iceberg_catalog::implementations::postgres::task_queues::ExpirationTaskFetcher;
 use std::sync::Arc;
 
 pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -54,30 +52,18 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         CONFIG.health_check_jitter_millis,
     );
     health_provider.spawn_health_checks().await;
-    let delete_handler = DeleteTaskFetcher {
-        read_write: ReadWrite::from_pools(read_pool.clone(), write_pool.clone()),
-    };
 
     let expiration_q = ExpirationTaskFetcher {
         read_write: ReadWrite::from_pools(read_pool, write_pool.clone()),
     };
 
-    let handle_1 = tokio::task::spawn(
+    let expiration_queue_handler = tokio::task::spawn(
         iceberg_catalog::service::task_queue::tabular_expiration_queue::tabular_expiration_task::<
-            _,
             _,
             Catalog,
             _,
         >(
             expiration_q.clone(),
-            delete_handler.clone(),
-            catalog_state.clone(),
-            secrets_state.clone(),
-        ),
-    );
-    let handle_2 = tokio::task::spawn(
-        iceberg_catalog::service::task_queue::delete_queue::delete_queue::<_, Catalog, _>(
-            delete_handler,
             catalog_state.clone(),
             secrets_state.clone(),
         ),
@@ -129,8 +115,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     });
 
     tokio::select!(
-        _ = handle_1 => tracing::error!("Tabular expiration task failed"),
-        _ = handle_2 => tracing::error!("Delete task failed"),
+        _ = expiration_queue_handler => tracing::error!("Tabular expiration task failed"),
         err = service_serve(listener, router) => tracing::error!("Service failed: {err:?}"),
     );
 

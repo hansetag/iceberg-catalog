@@ -1,25 +1,21 @@
 use crate::api::management::v1::TabularType;
 use crate::api::Result;
 use crate::catalog::maybe_get_secret;
-use crate::service::task_queue::delete_queue::{DeleteInput, Deletion};
 use crate::service::task_queue::{retrying_record_failure, Task, TaskQueue};
 use crate::service::{Catalog, DropFlags, SecretStore, TableIdentUuid, Transaction};
 use crate::WarehouseIdent;
 
-use iceberg::io::FileIO;
-use iceberg::spec::TableMetadata;
 use iceberg_ext::catalog::rest::ErrorModel;
 use std::time::Duration;
 use uuid::Uuid;
 
+// TODO: concurrent workers
 pub async fn tabular_expiration_task<
     F: TaskQueue<Task = TableExpirationTask> + Send + Sync + 'static,
-    D: TaskQueue<Task = Deletion, Input = DeleteInput> + Send + Sync + 'static,
     C: Catalog,
     S: SecretStore,
 >(
     fetcher: F,
-    delete_queue: D,
     catalog_state: C::State,
     secret_state: S,
 ) {
@@ -59,12 +55,10 @@ pub async fn tabular_expiration_task<
             TabularType::Table => {
                 tracing::info!("Table");
 
-                if let Err(err) = handle_table::<C, D, S>(
+                if let Err(err) = handle_table::<C, S>(
                     warehouse_ident,
                     tabular_id,
                     &secret_state,
-                    &delete_queue,
-                    task.task_id,
                     catalog_state.clone(),
                 )
                 .await
@@ -97,17 +91,14 @@ pub async fn tabular_expiration_task<
 // Deletes data files referenced by current table metadata
 // Deletes current table metadata
 // Drops the table from the catalog
-async fn handle_table<C, D, S>(
+async fn handle_table<C, S>(
     warehouse_ident: WarehouseIdent,
     tabular_id: Uuid,
     secret_state: &S,
-    delete_queue: &D,
-    task_id: Uuid,
     catalog_state: C::State,
 ) -> Result<()>
 where
     C: Catalog,
-    D: TaskQueue<Task = Deletion, Input = DeleteInput> + Send + Sync + 'static,
     S: SecretStore,
 {
     let mut trx = C::Transaction::begin_write(catalog_state)
@@ -135,21 +126,14 @@ where
         return Err(ErrorModel::internal("Table not found", "TableNotFound", None).into());
     };
 
-    let warehouse = C::get_warehouse(warehouse_ident, trx.transaction())
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get warehouse: {:?}", e);
-            e
-        })?;
-
-    let secret = maybe_get_secret(warehouse.storage_secret_id, secret_state)
+    let secret = maybe_get_secret(table_metadata.storage_secret_ident, secret_state)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get secret: {:?}", e);
             e
         })?;
 
-    let fio = warehouse
+    let fio = table_metadata
         .storage_profile
         .file_io(secret.as_ref())
         .map_err(|e| {
@@ -158,42 +142,15 @@ where
         })?;
     tracing::debug!("Got FileIO");
 
-    handle_old_metadata(
-        warehouse_ident,
-        &fio,
-        &table_metadata.table_metadata,
-        delete_queue,
-        task_id,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to handle old metadata: {:?}", e);
-        e
-    })?;
-
-    let location = table_metadata.metadata_location.as_deref().ok_or_else(|| {
-        let err = ErrorModel::internal(
-            "Table metadata location not found",
-            "MetadataLocationNotFound",
-            None,
-        );
-        tracing::error!("Table metadata location not found: {:?}", err);
-        err
-    })?;
-
-    find_files(
-        &table_metadata.table_metadata,
-        location,
-        warehouse_ident,
-        delete_queue,
-        &fio,
-        task_id,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to find files: {:?}", e);
-        e
-    })?;
+    fio.remove_all(table_metadata.table_metadata.location())
+        .await
+        .map_err(|e| {
+            ErrorModel::internal(
+                "Failed to remove location.",
+                "FileIOError",
+                Some(Box::new(e)),
+            )
+        })?;
 
     C::drop_table(
         tabular_id.into(),
@@ -213,108 +170,6 @@ where
         tracing::error!("Failed to commit transaction: {:?}", e);
         e
     })?;
-
-    Ok(())
-}
-
-async fn handle_old_metadata(
-    warehouse_id: WarehouseIdent,
-    fio: &FileIO,
-    meta: &TableMetadata,
-    fetcher: &impl TaskQueue<Task = Deletion, Input = DeleteInput>,
-    task_id: Uuid,
-) -> Result<()> {
-    for old_meta in &meta.metadata_log {
-        // old metadata doesnt exist in db hence we're going to s3
-        let input = fio
-            .new_input(old_meta.metadata_file.as_str())
-            .map_err(|e| {
-                ErrorModel::internal("Failed to create input", "FileIOError", Some(Box::new(e)))
-            })?;
-        let metadata = input.read().await.map_err(|e| {
-            ErrorModel::internal("Failed to read input", "FileIOError", Some(Box::new(e)))
-        })?;
-        let meta = serde_json::from_slice::<TableMetadata>(&metadata).map_err(|e| {
-            ErrorModel::internal(
-                "Failed to deserialize metadata",
-                "SerdeJsonError",
-                Some(Box::new(e)),
-            )
-        })?;
-
-        find_files::<_>(
-            &meta,
-            old_meta.metadata_file.as_str(),
-            warehouse_id,
-            fetcher,
-            fio,
-            task_id,
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-async fn find_files<D: TaskQueue<Task = Deletion, Input = DeleteInput>>(
-    metadata: &TableMetadata,
-    metadata_location: &str,
-    warehouse_ident: WarehouseIdent,
-    conn: &D,
-    fio: &FileIO,
-    task_id: Uuid,
-) -> Result<()> {
-    for file in metadata.snapshots.values() {
-        let list = file.load_manifest_list(fio, metadata).await.map_err(|e| {
-            ErrorModel::internal(
-                "Failed to load manifest list",
-                "FileIOError",
-                Some(Box::new(e)),
-            )
-        })?;
-
-        for fi in list.entries() {
-            let man = fi.load_manifest(fio).await.map_err(|e| {
-                ErrorModel::internal("Failed to load manifest", "FileIOError", Some(Box::new(e)))
-            })?;
-            for e in man.entries() {
-                conn.enqueue(DeleteInput {
-                    entity_id: metadata.table_uuid,
-                    location: e.data_file().file_path().to_string(),
-                    warehouse_id: warehouse_ident,
-                    parent_task: Some(task_id),
-                })
-                .await?;
-            }
-            tracing::info!("fi manifest_path: {}", fi.manifest_path);
-
-            conn.enqueue(DeleteInput {
-                entity_id: metadata.table_uuid,
-                location: fi.manifest_path.clone(),
-                warehouse_id: warehouse_ident,
-                parent_task: Some(task_id),
-            })
-            .await?;
-        }
-        tracing::info!("fi manifest_list: {}", file.manifest_list());
-
-        conn.enqueue(DeleteInput {
-            entity_id: metadata.table_uuid,
-            location: file.manifest_list().to_string(),
-            warehouse_id: warehouse_ident,
-            parent_task: Some(task_id),
-        })
-        .await?;
-
-        // TODO: delete statistics files
-    }
-
-    conn.enqueue(DeleteInput {
-        entity_id: metadata.table_uuid,
-        location: metadata_location.to_string(),
-        warehouse_id: warehouse_ident,
-        parent_task: Some(task_id),
-    })
-    .await?;
 
     Ok(())
 }

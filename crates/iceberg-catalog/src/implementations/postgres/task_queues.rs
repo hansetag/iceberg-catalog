@@ -3,7 +3,6 @@ use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::TabularType as DbTabularType;
 
 use crate::implementations::postgres::ReadWrite;
-use crate::service::task_queue::delete_queue::{DeleteInput, Deletion};
 use crate::service::task_queue::tabular_expiration_queue::{ExpirationInput, TableExpirationTask};
 use crate::service::task_queue::{Task, TaskQueue, TaskStatus};
 use async_trait::async_trait;
@@ -110,112 +109,6 @@ async fn pick_task(
     }
 
     Ok(x)
-}
-
-#[derive(Debug, Clone)]
-pub struct DeleteTaskFetcher {
-    pub read_write: ReadWrite,
-}
-
-#[async_trait]
-impl TaskQueue for DeleteTaskFetcher {
-    type Task = Deletion;
-    type Input = DeleteInput;
-
-    fn queue_name(&self) -> &'static str {
-        "deletion"
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn pick_new_task(&self) -> crate::api::Result<Option<Self::Task>> {
-        let Some(task) = pick_task(&self.read_write.write_pool, self.queue_name()).await? else {
-            tracing::info!("No task found: {}", self.queue_name());
-            return Ok(None);
-        };
-
-        let deletion = sqlx::query!(
-            r#"
-            SELECT entity_id, location, warehouse_id
-            FROM deletions
-            WHERE task_id = $1
-            "#,
-            task.task_id
-        )
-        .fetch_one(&self.read_write.read_pool)
-        .await
-        .map_err(|e| e.into_error_model("Failed to pick deletion task.".into()))?;
-
-        tracing::debug!("Deletion task: {:?}", deletion);
-
-        Ok(Some(Deletion {
-            entity_id: deletion.entity_id,
-            location: deletion.location,
-            warehouse_id: deletion.warehouse_id,
-            task,
-        }))
-    }
-
-    async fn record_success(&self, id: Uuid) -> crate::api::Result<()> {
-        record_success(id, &self.read_write.write_pool).await
-    }
-
-    async fn record_failure(
-        &self,
-        id: Uuid,
-        n_retries: i32,
-        error_details: String,
-    ) -> crate::api::Result<()> {
-        record_failure(&self.read_write.write_pool, id, n_retries, error_details).await
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn enqueue(
-        &self,
-        DeleteInput {
-            entity_id,
-            location,
-            warehouse_id,
-            parent_task,
-        }: DeleteInput,
-    ) -> crate::api::Result<Uuid> {
-        tracing::debug!("queuing delete");
-        let mut conn = self.read_write.write_pool.begin().await.map_err(|e| {
-            tracing::error!(?e, "failed to begin transaction");
-            e.into_error_model("Failed to queue deletion task.".into())
-        })?;
-
-        let idempotency_key = Uuid::new_v5(&warehouse_id, location.as_bytes());
-
-        let task_id =
-            queue_task(&mut conn, self.queue_name(), parent_task, idempotency_key).await?;
-
-        let it = sqlx::query!(
-            r#"INSERT INTO deletions (task_id, entity_id, location, warehouse_id)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT ON CONSTRAINT unique_location_per_warehouse DO NOTHING
-                RETURNING task_id"#,
-            task_id,
-            entity_id,
-            location,
-            *warehouse_id,
-        )
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(|e| e.into_error_model("fail".into()))?;
-
-        conn.commit().await.map_err(|e| {
-            tracing::error!(?e, "failed to commit");
-            e.into_error_model("Failed to queue deletion task.".into())
-        })?;
-
-        match it {
-            Some(row) => tracing::debug!("Queued delete task: {:?}", row),
-            None => {
-                tracing::debug!("Delete task already exists for location: {}", location);
-            }
-        }
-        Ok(task_id)
-    }
 }
 
 #[derive(Debug, Clone)]

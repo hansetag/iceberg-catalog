@@ -26,16 +26,3 @@ create table tabular_expirations
     typ          tabular_type not null,
     task_id      uuid primary key references task (task_id)
 );
-
-create table deletions
-(
-    entity_id    uuid not null,
-    warehouse_id uuid not null,
-    location     text not null,
-    task_id      uuid primary key references task (task_id)
-);
-
-
-
-alter table deletions
-    add constraint unique_location_per_warehouse unique (warehouse_id, location);

@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub mod delete_queue;
 pub mod tabular_expiration_queue;
 
 #[async_trait]
@@ -66,18 +65,3 @@ async fn retrying_record_failure(fetcher: &impl TaskQueue, task: &Task, details:
         }
     }
 }
-
-macro_rules! unwrap_or_continue {
-    ($cont:expr, $err_msg:expr, $fetcher:expr, $task:expr) => {
-        match $cont {
-            Ok(x) => x,
-            Err(e) => {
-                tracing::error!($err_msg, e);
-                retrying_record_failure(&$fetcher, &$task, format!("{e:?}")).await;
-                continue;
-            }
-        }
-    };
-}
-
-pub(crate) use unwrap_or_continue;

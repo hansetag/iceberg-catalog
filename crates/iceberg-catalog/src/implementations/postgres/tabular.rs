@@ -337,7 +337,7 @@ where
             AND w.status = 'active'
             AND (t.typ = $3 OR $3 IS NULL)
             -- active tables are tables that are not staged and not deleted
-            AND (NOT (t.deleted_at IS NULL AND t.metadata_location IS NULL) OR $4)
+            AND ((t.deleted_at IS NOT NULL OR t.metadata_location IS NULL) OR $4)
             AND (t.deleted_at IS NULL OR $5)
             AND (t.metadata_location IS NOT NULL OR $6)
             AND ((t.created_at > $7 OR $7 IS NULL) OR (t.created_at = $7 AND t.tabular_id > $8))
