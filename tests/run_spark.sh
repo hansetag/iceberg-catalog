@@ -19,4 +19,4 @@ done
 # Running tests
 echo "Running tests ..."
 cd python
-tox -q -e spark_remote_signing,spark_sts
+tox -q -e spark_remote_signing,spark_sts,spark_adls

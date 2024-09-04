@@ -190,7 +190,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             metadata: table_metadata,
             config: Some(config.into()),
         };
-        tracing::info!("Table created: {:?}", load_table_result);
 
         // Metadata file written, now we can commit the transaction
         t.commit().await?;
