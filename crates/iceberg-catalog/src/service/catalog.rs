@@ -388,11 +388,21 @@ where
     ) -> Result<()>;
 }
 
-#[derive(Debug, Clone, Default, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ListFlags {
+    pub include_active: bool,
     pub include_staged: bool,
     pub include_deleted: bool,
-    pub only_deleted: bool,
+}
+
+impl Default for ListFlags {
+    fn default() -> Self {
+        Self {
+            include_active: true,
+            include_staged: false,
+            include_deleted: false,
+        }
+    }
 }
 
 impl ListFlags {
@@ -401,7 +411,7 @@ impl ListFlags {
         Self {
             include_staged: true,
             include_deleted: true,
-            only_deleted: false,
+            include_active: true,
         }
     }
 
@@ -409,8 +419,8 @@ impl ListFlags {
     pub fn only_deleted() -> Self {
         Self {
             include_staged: false,
-            include_deleted: false,
-            only_deleted: true,
+            include_deleted: true,
+            include_active: false,
         }
     }
 }

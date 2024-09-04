@@ -390,11 +390,7 @@ impl Catalog for super::Catalog {
         } = list_tabulars(
             warehouse_id,
             None,
-            ListFlags {
-                include_deleted: true,
-                include_staged: false,
-                only_deleted: true,
-            },
+            ListFlags::only_deleted(),
             &catalog_state.read_pool(),
             None,
             pagination_query,
@@ -450,11 +446,7 @@ impl Catalog for super::Catalog {
             let tabular_page = list_tabulars(
                 warehouse_ident,
                 None,
-                ListFlags {
-                    include_deleted: true,
-                    include_staged: false,
-                    only_deleted: true,
-                },
+                ListFlags::only_deleted(),
                 &mut *transaction,
                 None,
                 pagination.clone(),

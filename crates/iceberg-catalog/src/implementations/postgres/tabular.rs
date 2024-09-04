@@ -335,23 +335,24 @@ where
         WHERE n.warehouse_id = $1
             AND (namespace_name = $2 OR $2 IS NULL)
             AND w.status = 'active'
-            AND (t.deleted_at IS NULL OR $8)
-            AND (t.deleted_at IS NOT NULL OR NOT $9)
-            AND (t."metadata_location" IS NOT NULL OR $3)
-            AND (t.typ = $4 OR $4 IS NULL)
-            AND ((t.created_at > $5 OR $5 IS NULL) OR (t.created_at = $5 AND t.tabular_id > $6))
+            AND (t.typ = $3 OR $3 IS NULL)
+            -- active tables are tables that are not staged and not deleted
+            AND (NOT (t.deleted_at IS NULL AND t.metadata_location IS NULL) OR $4)
+            AND (t.deleted_at IS NULL OR $5)
+            AND (t.metadata_location IS NOT NULL OR $6)
+            AND ((t.created_at > $7 OR $7 IS NULL) OR (t.created_at = $7 AND t.tabular_id > $8))
             ORDER BY t.created_at, t.tabular_id ASC
-            LIMIT $7
+            LIMIT $9
         "#,
         *warehouse_id,
         namespace.as_deref().map(|n| n.as_ref().as_slice()),
-        list_flags.include_staged,
         typ as _,
+        list_flags.include_active,
+        list_flags.include_deleted,
+        list_flags.include_staged,
         token_ts,
         token_id,
         page_size,
-        list_flags.include_deleted,
-        list_flags.only_deleted
     )
     .fetch_all(catalog_state)
     .await

@@ -42,7 +42,7 @@ where
         ListFlags {
             include_deleted,
             include_staged: false,
-            only_deleted: false,
+            include_active: true,
         },
         catalog_state,
     )
@@ -442,7 +442,7 @@ pub(crate) async fn list_views(
         ListFlags {
             include_deleted,
             include_staged: false,
-            only_deleted: false,
+            include_active: true,
         },
         &catalog_state.read_pool(),
         Some(TabularType::View),

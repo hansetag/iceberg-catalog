@@ -59,13 +59,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
         let include_staged = false;
+        let include_deleted = false;
+        let include_active = true;
+
         let tables = C::list_tables(
             warehouse_id,
             &namespace,
             ListFlags {
+                include_active,
                 include_staged,
-                include_deleted: false,
-                only_deleted: false,
+                include_deleted,
             },
             state.v1_state.catalog,
             pagination_query,
@@ -255,15 +258,17 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         // ------------------- AUTHZ -------------------
-        let include_deleted = false;
         let include_staged = false;
+        let include_deleted = false;
+        let include_active = true;
+
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
             ListFlags {
+                include_active,
                 include_staged,
                 include_deleted,
-                only_deleted: false,
             },
             state.v1_state.catalog.clone(),
         )
@@ -363,14 +368,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_staged = true;
         let include_deleted = false;
+        let include_active = true;
 
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table_ident,
             ListFlags {
+                include_active,
                 include_staged,
                 include_deleted,
-                only_deleted: false,
             },
             state.v1_state.catalog.clone(),
         )
@@ -500,14 +506,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_staged = true;
         let include_deleted = false;
+        let include_active = true;
 
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
             ListFlags {
+                include_active,
                 include_staged,
                 include_deleted,
-                only_deleted: false,
             },
             state.v1_state.catalog.clone(),
         )
@@ -589,13 +596,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- AUTHZ -------------------
         let include_staged = false;
+        let include_deleted = false;
+        let include_active = true;
+
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
             ListFlags {
+                include_active,
                 include_staged,
-                include_deleted: false,
-                only_deleted: false,
+                include_deleted,
             },
             state.v1_state.catalog.clone(),
         )
@@ -643,13 +653,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- AUTHZ -------------------
         let include_staged = false;
+        let include_deleted = false;
+        let include_active = true;
+
         let source_id = C::table_ident_to_id(
             warehouse_id,
             &source,
             ListFlags {
+                include_active,
                 include_staged,
-                include_deleted: false,
-                only_deleted: false,
+                include_deleted,
             },
             state.v1_state.catalog.clone(),
         )
@@ -764,6 +777,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_staged = true;
         let include_deleted = false;
+        let include_active = true;
 
         let identifiers = request
             .table_changes
@@ -775,9 +789,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             warehouse_id,
             identifiers,
             ListFlags {
+                include_active,
                 include_staged,
                 include_deleted,
-                only_deleted: false,
             },
             state.v1_state.catalog.clone(),
         )
