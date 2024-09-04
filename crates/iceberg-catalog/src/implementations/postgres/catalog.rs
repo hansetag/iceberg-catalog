@@ -14,15 +14,15 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
-use crate::implementations::postgres::tabular::list_tabulars;
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
+use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_deleted};
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, DeletionDetails,
-    DropFlags, GetWarehouseResponse, ListFlags, ListNamespacesQuery, ListNamespacesResponse,
-    NamespaceIdent, Result, TableIdent, WarehouseStatus,
+    GetWarehouseResponse, ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent,
+    Result, TableIdent, WarehouseStatus,
 };
 use crate::{
     api::iceberg::v1::{PaginatedTabulars, PaginationQuery},
@@ -204,10 +204,9 @@ impl Catalog for super::Catalog {
 
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
-        drop_flags: DropFlags,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()> {
-        drop_table(table_id, drop_flags, transaction).await
+        drop_table(table_id, transaction).await
     }
 
     async fn table_idents_to_ids(
@@ -343,7 +342,7 @@ impl Catalog for super::Catalog {
         metadata: ViewMetadata,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()> {
-        drop_view(view_id, DropFlags::default().hard_delete(), transaction).await?;
+        drop_view(view_id, transaction).await?;
         create_view(
             namespace_id,
             metadata_location,
@@ -366,11 +365,9 @@ impl Catalog for super::Catalog {
 
     async fn drop_view<'a>(
         table_id: TableIdentUuid,
-        drop_flags: DropFlags,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()> {
-        // we want to be able to undrop views, hence hard_delete -> false
-        drop_view(table_id, drop_flags, transaction).await
+        drop_view(table_id, transaction).await
     }
 
     async fn list_tabulars(
@@ -389,5 +386,12 @@ impl Catalog for super::Catalog {
             pagination_query,
         )
         .await
+    }
+
+    async fn mark_tabular_as_deleted(
+        table_id: TabularIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
+    ) -> Result<()> {
+        mark_tabular_as_deleted(table_id, transaction).await
     }
 }

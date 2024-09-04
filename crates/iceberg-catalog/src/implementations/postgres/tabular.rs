@@ -13,7 +13,7 @@ use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery, MAX_PAGE_SIZE}
 
 use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
 use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
-use crate::service::{DeletionDetails, DropFlags};
+use crate::service::DeletionDetails;
 use sqlx::postgres::PgArguments;
 use sqlx::{Arguments, Execute, FromRow, PgConnection, Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
@@ -327,8 +327,7 @@ where
             namespace_name,
             typ as "typ: TabularType",
             t.created_at,
-            t.deleted_at,
-            t.deletion_kind as "deletion_kind: DeleteKind"
+            t.deleted_at
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
@@ -373,14 +372,6 @@ where
 
         let deletion_details = if let Some(deleted_at) = table.deleted_at {
             Some(DeletionDetails {
-                deletion_kind: table
-                    .deletion_kind
-                    .ok_or(ErrorModel::internal(
-                        "Deletion kind is missing while deleted_at is set.",
-                        "MissingDeletionKind",
-                        None,
-                    ))?
-                    .into(),
                 deleted_at,
                 created_at: table.created_at,
             })
@@ -508,16 +499,16 @@ pub(crate) async fn rename_tabular(
 
 #[derive(Debug, Copy, Clone, sqlx::Type, PartialEq, Eq)]
 #[sqlx(type_name = "deletion_kind", rename_all = "kebab-case")]
-pub enum DeleteKind {
+pub enum DeletionKind {
     Default,
     Purge,
 }
 
-impl From<DeleteKind> for crate::api::management::v1::DeleteKind {
-    fn from(kind: DeleteKind) -> Self {
+impl From<DeletionKind> for crate::api::management::v1::DeleteKind {
+    fn from(kind: DeletionKind) -> Self {
         match kind {
-            DeleteKind::Default => crate::api::management::v1::DeleteKind::Default,
-            DeleteKind::Purge => crate::api::management::v1::DeleteKind::Purge,
+            DeletionKind::Default => crate::api::management::v1::DeleteKind::Default,
+            DeletionKind::Purge => crate::api::management::v1::DeleteKind::Purge,
         }
     }
 }
@@ -531,75 +522,18 @@ impl From<TabularType> for crate::api::management::v1::TabularType {
     }
 }
 
-// ToDo: Switch to a soft delete
-pub(crate) async fn drop_tabular<'a>(
+pub(crate) async fn mark_tabular_as_deleted(
     tabular_id: TabularIdentUuid,
-    DropFlags { hard_delete, purge }: DropFlags,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
-    // Set deleted_at to now() for rows that have metadata_location
-    // Drop the row if it doesn't have metadata_location
-
-    if hard_delete {
-        let _ = sqlx::query!(
-            r#"DELETE FROM tabular
-                WHERE tabular_id = $1
-                    AND typ = $2
-                    AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
-               RETURNING tabular_id"#,
-            *tabular_id,
-            TabularType::from(tabular_id) as _
-        )
-        .fetch_one(&mut **transaction)
-        .await
-        .map_err(|e| {
-            if let sqlx::Error::RowNotFound = e {
-                ErrorModel::not_found(
-                    format!("{} not found", tabular_id.typ_str()),
-                    "NoSuchTabularError".to_string(),
-                    Some(Box::new(e)),
-                )
-            } else {
-                tracing::warn!("Error dropping tabular: {}", e);
-                e.into_error_model(format!("Error dropping {}", tabular_id.typ_str()))
-            }
-        })?;
-        return Ok(());
-    }
-
-    // Soft delete, sets deleted_at to now
-    // Staged tables are permanently deleted.
     let _ = sqlx::query!(
         r#"
-    WITH updated AS (
         UPDATE tabular
-        -- Append a suffix to the name to avoid conflicts with new tables
-        SET deleted_at = now(), deletion_kind = $3
+        SET deleted_at = now()
         WHERE tabular_id = $1
-        AND typ = $2
-        AND metadata_location IS NOT NULL
-        AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
         RETURNING tabular_id
-    ),
-    deleted AS (
-        DELETE FROM tabular
-        WHERE tabular_id = $1
-        AND typ = $2
-        AND metadata_location IS NULL
-        AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
-        RETURNING tabular_id
-    )
-    SELECT tabular_id FROM updated
-    UNION ALL
-    SELECT tabular_id FROM deleted
-    "#,
-        *tabular_id,
-        TabularType::from(tabular_id) as _,
-        if purge {
-            DeleteKind::Purge
-        } else {
-            DeleteKind::Default
-        } as _
+        "#,
+        *tabular_id
     )
     .fetch_one(&mut **transaction)
     .await
@@ -607,8 +541,38 @@ pub(crate) async fn drop_tabular<'a>(
         if let sqlx::Error::RowNotFound = e {
             ErrorModel::not_found(
                 format!("{} not found", tabular_id.typ_str()),
-                "NoSuchTabularError",
-                None,
+                "NoSuchTabularError".to_string(),
+                Some(Box::new(e)),
+            )
+        } else {
+            tracing::warn!("Error marking tabular as deleted: {}", e);
+            e.into_error_model(format!("Error marking {} as deleted", tabular_id.typ_str()))
+        }
+    })?;
+    Ok(())
+}
+
+pub(crate) async fn drop_tabular<'a>(
+    tabular_id: TabularIdentUuid,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<()> {
+    let _ = sqlx::query!(
+        r#"DELETE FROM tabular
+                WHERE tabular_id = $1
+                    AND typ = $2
+                    AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
+               RETURNING tabular_id"#,
+        *tabular_id,
+        TabularType::from(tabular_id) as _
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::RowNotFound = e {
+            ErrorModel::not_found(
+                format!("{} not found", tabular_id.typ_str()),
+                "NoSuchTabularError".to_string(),
+                Some(Box::new(e)),
             )
         } else {
             tracing::warn!("Error dropping tabular: {}", e);

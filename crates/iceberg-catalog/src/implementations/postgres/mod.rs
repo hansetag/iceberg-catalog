@@ -23,7 +23,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub use secrets::SecretsState;
-pub use tabular::DeleteKind;
+pub use tabular::DeletionKind;
 
 /// # Errors
 /// Returns an error if the pool creation fails.

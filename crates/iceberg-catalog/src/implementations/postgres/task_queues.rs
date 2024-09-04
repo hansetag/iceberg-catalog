@@ -1,9 +1,13 @@
 use crate::api::management::v1::TabularType;
 use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::TabularType as DbTabularType;
+use crate::implementations::postgres::DeletionKind;
 
 use crate::implementations::postgres::ReadWrite;
-use crate::service::task_queue::tabular_expiration_queue::{ExpirationInput, TableExpirationTask};
+use crate::service::task_queue::tabular_expiration_queue::{
+    TabularExpirationInput, TabularExpirationTask,
+};
+use crate::service::task_queue::tabular_purge_queue::{TabularPurgeInput, TabularPurgeTask};
 use crate::service::task_queue::{Task, TaskQueue, TaskStatus};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -51,7 +55,7 @@ async fn record_failure(
     conn: &PgPool,
     id: Uuid,
     n_retries: i32,
-    details: String,
+    details: &str,
 ) -> Result<(), IcebergErrorResponse> {
     let _ = sqlx::query!(
         r#"
@@ -117,17 +121,138 @@ pub struct ExpirationTaskFetcher {
 }
 
 #[derive(Debug, Clone)]
-pub struct PgTaskQueue {
+pub struct TabularPurgeTaskFetcher {
     pub read_write: ReadWrite,
 }
 
 #[async_trait]
-impl TaskQueue for ExpirationTaskFetcher {
-    type Task = TableExpirationTask;
-    type Input = ExpirationInput;
+impl TaskQueue for TabularPurgeTaskFetcher {
+    type Task = TabularPurgeTask;
+    type Input = TabularPurgeInput;
 
     fn queue_name(&self) -> &'static str {
-        "expiration"
+        "tabular_purges"
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn pick_new_task(&self) -> crate::api::Result<Option<Self::Task>> {
+        let task = pick_task(&self.read_write.write_pool, self.queue_name()).await?;
+
+        let Some(task) = task else {
+            tracing::info!("No task found");
+            return Ok(None);
+        };
+
+        let purge = sqlx::query!(
+            r#"
+            SELECT tabular_id, warehouse_id, typ as "tabular_type: DbTabularType"
+            FROM tabular_purges
+            WHERE task_id = $1
+            "#,
+            task.task_id
+        )
+        .fetch_one(&self.read_write.read_pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(?e, "error selecting tabular expiration");
+            // TODO: should we reset task status here?
+            e.into_error_model("failed to read task after picking one up".into())
+        })?;
+
+        tracing::info!("Purge task: {:?}", purge);
+        Ok(Some(TabularPurgeTask {
+            tabular_id: purge.tabular_id,
+            warehouse_ident: purge.warehouse_id.into(),
+            tabular_type: purge.tabular_type.into(),
+            task,
+        }))
+    }
+
+    async fn record_success(&self, id: Uuid) -> crate::api::Result<()> {
+        record_success(id, &self.read_write.write_pool).await
+    }
+
+    async fn record_failure(
+        &self,
+        id: Uuid,
+        n_retries: i32,
+        error_details: &str,
+    ) -> crate::api::Result<()> {
+        record_failure(&self.read_write.write_pool, id, n_retries, error_details).await
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn enqueue(
+        &self,
+        TabularPurgeInput {
+            tabular_id,
+            warehouse_ident,
+            tabular_type,
+            parent_id,
+        }: TabularPurgeInput,
+    ) -> crate::api::Result<Uuid> {
+        let mut transaction = self
+            .read_write
+            .write_pool
+            .begin()
+            .await
+            .map_err(|e| e.into_error_model("fail".into()))?;
+
+        tracing::info!(
+            "Queuing expiration for '{tabular_id}' of type: '{}' under warehouse: '{warehouse_ident}'",
+            tabular_type.to_string(),
+        );
+
+        let idempotency_key = Uuid::new_v5(&warehouse_ident, tabular_id.as_bytes());
+
+        let task_id = queue_task(
+            &mut transaction,
+            self.queue_name(),
+            parent_id,
+            idempotency_key,
+        )
+        .await?;
+
+        let it = sqlx::query!(
+            "INSERT INTO tabular_purges(task_id, tabular_id, warehouse_id, typ) VALUES ($1, $2, $3, $4) RETURNING task_id",
+            task_id,
+            tabular_id,
+            *warehouse_ident,
+            match tabular_type {
+                TabularType::Table => DbTabularType::Table,
+                TabularType::View => DbTabularType::View,
+            } as _
+        )
+
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|e| {
+                tracing::error!(?e, "failed to insert into tabular_purges");
+                e.into_error_model("fail".into()) })?;
+
+        match it {
+            Some(row) => tracing::info!("Queued purge task: {:?}", row),
+            None => {
+                tracing::info!("Purge task already exists.");
+            }
+        }
+
+        transaction.commit().await.map_err(|e| {
+            tracing::error!(?e, "failed to commit");
+            e.into_error_model("fail".into())
+        })?;
+
+        Ok(task_id)
+    }
+}
+
+#[async_trait]
+impl TaskQueue for ExpirationTaskFetcher {
+    type Task = TabularExpirationTask;
+    type Input = TabularExpirationInput;
+
+    fn queue_name(&self) -> &'static str {
+        "tabular_expiration"
     }
 
     #[tracing::instrument(skip(self))]
@@ -141,7 +266,7 @@ impl TaskQueue for ExpirationTaskFetcher {
 
         let expiration = sqlx::query!(
             r#"
-            SELECT tabular_id, warehouse_id, typ as "tabular_type: DbTabularType"
+            SELECT tabular_id, warehouse_id, typ as "tabular_type: DbTabularType", deletion_kind as "deletion_kind: DeletionKind"
             FROM tabular_expirations
             WHERE task_id = $1
             "#,
@@ -156,7 +281,8 @@ impl TaskQueue for ExpirationTaskFetcher {
         })?;
 
         tracing::info!("Expiration task: {:?}", expiration);
-        Ok(Some(TableExpirationTask {
+        Ok(Some(TabularExpirationTask {
+            deletion_kind: expiration.deletion_kind.into(),
             tabular_id: expiration.tabular_id,
             warehouse_ident: expiration.warehouse_id.into(),
             tabular_type: expiration.tabular_type.into(),
@@ -172,7 +298,7 @@ impl TaskQueue for ExpirationTaskFetcher {
         &self,
         id: Uuid,
         n_retries: i32,
-        error_details: String,
+        error_details: &str,
     ) -> crate::api::Result<()> {
         record_failure(&self.read_write.write_pool, id, n_retries, error_details).await
     }
@@ -180,11 +306,12 @@ impl TaskQueue for ExpirationTaskFetcher {
     #[tracing::instrument(skip(self))]
     async fn enqueue(
         &self,
-        ExpirationInput {
+        TabularExpirationInput {
             tabular_id,
             warehouse_ident,
             tabular_type,
-        }: ExpirationInput,
+            purge,
+        }: TabularExpirationInput,
     ) -> crate::api::Result<Uuid> {
         let mut transaction = self
             .read_write
@@ -204,13 +331,18 @@ impl TaskQueue for ExpirationTaskFetcher {
             queue_task(&mut transaction, self.queue_name(), None, idempotency_key).await?;
 
         let it = sqlx::query!(
-            "INSERT INTO tabular_expirations(task_id, tabular_id, warehouse_id, typ) VALUES ($1, $2, $3, $4) RETURNING task_id",
+            "INSERT INTO tabular_expirations(task_id, tabular_id, warehouse_id, typ, deletion_kind) VALUES ($1, $2, $3, $4, $5) RETURNING task_id",
             task_id,
             tabular_id,
             *warehouse_ident,
             match tabular_type {
                 TabularType::Table => DbTabularType::Table,
                 TabularType::View => DbTabularType::View,
+            } as _,
+            if purge {
+                DeletionKind::Purge
+            } else {
+                DeletionKind::Default
             } as _
         )
 

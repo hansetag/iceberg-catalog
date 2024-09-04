@@ -14,14 +14,16 @@ use crate::api::iceberg::v1::{
     NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
     TableIdent, TableParameters,
 };
+use crate::api::management::v1::TabularType;
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
+use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, DropFlags, ListFlags,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
@@ -532,6 +534,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
+        let hard_delete = false;
+        let purge = purge_requested.unwrap_or(false);
+
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
 
         let table_id = table_id.ok_or_else(|| {
@@ -541,17 +546,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 None,
             )
         })?;
-        C::drop_table(
-            table_id,
-            DropFlags {
-                purge: purge_requested.unwrap_or_default(),
-                hard_delete: false,
-            },
-            transaction.transaction(),
-        )
-        .await?;
 
-        // ToDo: Delete metadata files
         state
             .v1_state
             .contract_verifiers
@@ -559,7 +554,46 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .await?
             .into_result()?;
 
-        transaction.commit().await?;
+        if hard_delete {
+            C::drop_table(table_id, transaction.transaction()).await?;
+            // TODO: committing here means maybe dangling data if queue fails
+            //       commiting after queuing means we may end up with a dangling view
+            //       I feel that some undeleted files are less bad than a view that cannot be loaded
+            transaction.commit().await?;
+
+            if purge {
+                let queued = state
+                    .v1_state
+                    .queues
+                    .queue_tabular_expiration(TabularExpirationInput {
+                        tabular_id: *table_id,
+                        warehouse_ident: warehouse_id,
+                        tabular_type: TabularType::Table,
+                        purge,
+                    })
+                    .await?;
+                tracing::debug!("Queued purge task: '{queued}' for dropped table '{table_id}'.");
+            }
+        } else {
+            C::mark_tabular_as_deleted(
+                TabularIdentUuid::Table(*table_id),
+                transaction.transaction(),
+            )
+            .await?;
+            transaction.commit().await?;
+
+            let queued = state
+                .v1_state
+                .queues
+                .queue_tabular_expiration(TabularExpirationInput {
+                    tabular_id: table_id.into(),
+                    warehouse_ident: warehouse_id,
+                    tabular_type: TabularType::Table,
+                    purge,
+                })
+                .await?;
+            tracing::info!("Queued expiration task: {queued}");
+        }
 
         emit_change_event(
             EventMetadata {

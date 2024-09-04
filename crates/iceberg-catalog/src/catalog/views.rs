@@ -134,6 +134,7 @@ mod test {
 
     use iceberg::NamespaceIdent;
 
+    use crate::service::task_queue::TaskQueues;
     use sqlx::PgPool;
 
     pub(crate) async fn setup(
@@ -177,10 +178,17 @@ mod test {
                 secrets: SecretsState::from_pools(pool.clone(), pool.clone()),
                 publisher: CloudEventsPublisher::new(tx.clone()),
                 contract_verifiers: ContractVerifiers::new(vec![]),
-                expiration_q: Arc::new(
-                    crate::implementations::postgres::task_queues::ExpirationTaskFetcher {
-                        read_write: ReadWrite::from_pools(pool.clone(), pool),
-                    },
+                queues: TaskQueues::new(
+                    Arc::new(
+                        crate::implementations::postgres::task_queues::ExpirationTaskFetcher {
+                            read_write: ReadWrite::from_pools(pool.clone(), pool.clone()),
+                        },
+                    ),
+                    Arc::new(
+                        crate::implementations::postgres::task_queues::TabularPurgeTaskFetcher {
+                            read_write: ReadWrite::from_pools(pool.clone(), pool),
+                        },
+                    ),
                 ),
             },
         }

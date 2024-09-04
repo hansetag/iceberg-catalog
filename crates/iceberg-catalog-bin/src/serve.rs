@@ -13,7 +13,10 @@ use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
 
-use iceberg_catalog::implementations::postgres::task_queues::ExpirationTaskFetcher;
+use iceberg_catalog::implementations::postgres::task_queues::{
+    ExpirationTaskFetcher, TabularPurgeTaskFetcher,
+};
+use iceberg_catalog::service::task_queue::TaskQueues;
 use std::sync::Arc;
 
 pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -53,20 +56,13 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     );
     health_provider.spawn_health_checks().await;
 
-    let expiration_q = ExpirationTaskFetcher {
-        read_write: ReadWrite::from_pools(read_pool, write_pool.clone()),
-    };
-
-    let expiration_queue_handler = tokio::task::spawn(
-        iceberg_catalog::service::task_queue::tabular_expiration_queue::tabular_expiration_task::<
-            _,
-            Catalog,
-            _,
-        >(
-            expiration_q.clone(),
-            catalog_state.clone(),
-            secrets_state.clone(),
-        ),
+    let queues = TaskQueues::new(
+        Arc::new(ExpirationTaskFetcher {
+            read_write: ReadWrite::from_pools(read_pool.clone(), write_pool.clone()),
+        }),
+        Arc::new(TabularPurgeTaskFetcher {
+            read_write: ReadWrite::from_pools(read_pool, write_pool.clone()),
+        }),
     );
 
     let mut cloud_event_sinks = vec![];
@@ -93,9 +89,9 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     let router =
         new_full_router::<Catalog, Catalog, AllowAllAuthZHandler, AllowAllAuthZHandler, Secrets>(
             auth_state,
-            catalog_state,
-            secrets_state,
-            expiration_q,
+            catalog_state.clone(),
+            secrets_state.clone(),
+            queues.clone(),
             CloudEventsPublisher::new(tx.clone()),
             ContractVerifiers::new(vec![]),
             if let Some(uri) = CONFIG.openid_provider_uri.clone() {
@@ -115,7 +111,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     });
 
     tokio::select!(
-        _ = expiration_queue_handler => tracing::error!("Tabular expiration task failed"),
+        _ = queues.spawn_queues::<Catalog, _>(catalog_state, secrets_state) => tracing::error!("Tabular queue task failed"),
         err = service_serve(listener, router) => tracing::error!("Service failed: {err:?}"),
     );
 

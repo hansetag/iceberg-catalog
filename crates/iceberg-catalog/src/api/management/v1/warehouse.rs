@@ -1,19 +1,15 @@
-use crate::api::management::v1::{
-    ApiServer, DeleteKind, DeletedTabularResponse, ListDeletedTabularsResponse,
-};
+use crate::api::management::v1::{ApiServer, DeletedTabularResponse, ListDeletedTabularsResponse};
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
 pub use crate::service::storage::{
     AzCredential, AzdlsProfile, S3Credential, S3Profile, StorageCredential, StorageProfile,
 };
 
-use crate::api::iceberg::types::PageToken;
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 
-use crate::service::task_queue::tabular_expiration_queue::ExpirationInput;
 pub use crate::service::WarehouseStatus;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, DropFlags, ListFlags, State, Transaction,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, ListFlags, State, Transaction,
 };
 use crate::{ProjectIdent, WarehouseIdent};
 use iceberg_ext::catalog::rest::ErrorModel;
@@ -515,93 +511,11 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
                         warehouse_id: *warehouse_id,
                         created_at: deleted.created_at,
                         deleted_at: deleted.deleted_at,
-                        deleted_kind: deleted.deletion_kind,
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,
             next_page_token,
         })
-    }
-
-    async fn expire_soft_deleted_tabulars(
-        request_metadata: RequestMetadata,
-        warehouse_id: WarehouseIdent,
-        context: ApiContext<State<A, C, S>>,
-    ) -> Result<()> {
-        // ------------------- AuthZ -------------------
-        A::check_expire_soft_deletions(&request_metadata, warehouse_id, context.v1_state.auth)
-            .await?;
-
-        // ------------------- Business Logic -------------------
-        let mut pagination = PaginationQuery {
-            page_size: Some(100),
-            page_token: PageToken::NotSpecified,
-        };
-
-        loop {
-            tracing::debug!("Fetching new page");
-            let tabular_page = C::list_tabulars(
-                warehouse_id,
-                ListFlags::only_deleted(),
-                context.v1_state.catalog.clone(),
-                pagination.clone(),
-            )
-            .await?;
-
-            let next_page_token = tabular_page.next_page_token;
-            let tabulars = tabular_page.tabulars;
-
-            tracing::debug!(
-                "Fetched new page with '{}' items, starting to drop",
-                tabulars.len()
-            );
-
-            for (id, (_, delete_opts)) in tabulars {
-                let deleted = delete_opts.ok_or(ErrorModel::internal(
-                    "Expected delete options to be Some, but found None",
-                    "InternalDBError",
-                    None,
-                ))?;
-
-                // TODO: bail out or skip errors?
-                if deleted.deletion_kind == DeleteKind::Default {
-                    tracing::info!("Nor purge requested");
-
-                    let mut transaction =
-                        C::Transaction::begin_write(context.v1_state.catalog.clone()).await?;
-                    C::drop_table(
-                        (*id).into(),
-                        DropFlags::default().hard_delete(),
-                        transaction.transaction(),
-                    )
-                    .await?;
-                    transaction.commit().await.map_err(|e| {
-                        tracing::warn!(?e, "failed to commit");
-                        e
-                    })?;
-                } else if deleted.deletion_kind == DeleteKind::Purge {
-                    tracing::debug!("Purge requested");
-                    context
-                        .v1_state
-                        .expiration_q
-                        .enqueue(ExpirationInput {
-                            tabular_id: *id,
-                            warehouse_ident: warehouse_id,
-                            tabular_type: id.into(),
-                        })
-                        .await?;
-                }
-            }
-
-            if let Some(next_page_token) = next_page_token {
-                pagination.page_token = PageToken::new_present(next_page_token);
-            } else {
-                tracing::debug!("No more pages to fetch");
-                break;
-            }
-        }
-
-        Ok(())
     }
 }
 

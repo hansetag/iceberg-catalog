@@ -1,5 +1,5 @@
 use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogState};
-use crate::service::{DropFlags, TableCommit};
+use crate::service::TableCommit;
 use crate::{
     service::{
         storage::StorageProfile, CreateTableRequest, CreateTableResponse, ErrorModel,
@@ -431,12 +431,10 @@ pub(crate) async fn rename_table(
 
 pub(crate) async fn drop_table<'a>(
     table_id: TableIdentUuid,
-    drop_flags: DropFlags,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
-    if drop_flags.hard_delete {
-        let _ = sqlx::query!(
-            r#"
+    let _ = sqlx::query!(
+        r#"
         DELETE FROM "table"
         WHERE table_id = $1 AND EXISTS (
             SELECT 1
@@ -444,16 +442,16 @@ pub(crate) async fn drop_table<'a>(
             WHERE active_tables.table_id = $1
         )
         "#,
-            *table_id,
-        )
-        .execute(&mut **transaction)
-        .await
-        .map_err(|e| {
-            tracing::warn!(?table_id, ?drop_flags, "Error dropping tabular: {}", e);
-            e.into_error_model("Error dropping table".to_string())
-        })?;
-    }
-    drop_tabular(TabularIdentUuid::Table(*table_id), drop_flags, transaction).await
+        *table_id,
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|e| {
+        tracing::warn!(?table_id, "Error dropping tabular: {}", e);
+        e.into_error_model("Error dropping table".to_string())
+    })?;
+
+    drop_tabular(TabularIdentUuid::Table(*table_id), transaction).await
 }
 
 pub(crate) async fn commit_table_transaction<'a>(
@@ -1420,9 +1418,7 @@ pub(crate) mod tests {
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let mut transaction = pool.begin().await.unwrap();
-        drop_table(table.table_id, DropFlags::default(), &mut transaction)
-            .await
-            .unwrap();
+        drop_table(table.table_id, &mut transaction).await.unwrap();
         transaction.commit().await.unwrap();
 
         let err = get_table_metadata_by_id(
@@ -1450,16 +1446,7 @@ pub(crate) mod tests {
 
         let mut transaction = pool.begin().await.unwrap();
 
-        drop_table(
-            table.table_id,
-            DropFlags {
-                hard_delete: true,
-                ..DropFlags::default()
-            },
-            &mut transaction,
-        )
-        .await
-        .unwrap();
+        drop_table(table.table_id, &mut transaction).await.unwrap();
         transaction.commit().await.unwrap();
 
         let err = get_table_metadata_by_id(

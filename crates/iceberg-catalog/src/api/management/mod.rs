@@ -314,12 +314,10 @@ pub mod v1 {
         pub created_at: chrono::DateTime<chrono::Utc>,
         /// Date when the tabular was deleted
         pub deleted_at: chrono::DateTime<chrono::Utc>,
-        /// Kind of deletion, default or purge
-        pub deleted_kind: DeleteKind,
     }
 
     /// Type of tabular
-    #[derive(Debug, Serialize, utoipa::ToSchema, strum::Display)]
+    #[derive(Debug, Serialize, Clone, Copy, utoipa::ToSchema, strum::Display)]
     #[serde(rename_all = "kebab-case")]
     pub enum TabularType {
         Table,
@@ -340,28 +338,6 @@ pub mod v1 {
     pub enum DeleteKind {
         Default,
         Purge,
-    }
-
-    /// Expire soft-deleted tabulars
-    #[utoipa::path(
-        post,
-        tag = "management",
-        path = "management/v1/warehouse/{warehouse_id}/deleted_tabulars/expiration",
-        responses(
-            (status = 200, description = "Soft-deleted tabulars expired successfully")
-        )
-    )]
-    async fn expire_deleted_tabulars<C: Catalog, A: AuthZHandler, S: SecretStore>(
-        Path(warehouse_id): Path<uuid::Uuid>,
-        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
-        Extension(metadata): Extension<RequestMetadata>,
-    ) -> Result<()> {
-        ApiServer::<C, A, S>::expire_soft_deleted_tabulars(
-            metadata,
-            warehouse_id.into(),
-            api_context,
-        )
-        .await
     }
 
     impl<C: Catalog, A: AuthZHandler, S: SecretStore> ApiServer<C, A, S> {
@@ -406,10 +382,6 @@ pub mod v1 {
                 .route(
                     "/warehouse/:warehouse_id/deleted_tabulars",
                     get(list_deleted_tabulars),
-                )
-                .route(
-                    "/warehouse/:warehouse_id/deleted_tabulars/expiration",
-                    post(expire_deleted_tabulars),
                 )
         }
     }

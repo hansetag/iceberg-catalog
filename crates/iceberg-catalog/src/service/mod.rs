@@ -26,12 +26,10 @@ use crate::api::ThreadSafe as ServiceState;
 pub use crate::api::{ErrorModel, IcebergErrorResponse};
 use crate::service::contract_verification::ContractVerifiers;
 use crate::service::event_publisher::CloudEventsPublisher;
-use crate::service::task_queue::TaskQueue;
+use crate::service::task_queue::TaskQueues;
 use http::StatusCode;
 pub use secrets::{SecretIdent, SecretStore};
 use std::str::FromStr;
-use std::sync::Arc;
-use task_queue::tabular_expiration_queue::{ExpirationInput, TableExpirationTask};
 
 #[async_trait::async_trait]
 pub trait NamespaceIdentExt
@@ -70,9 +68,7 @@ pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
     pub secrets: S,
     pub publisher: CloudEventsPublisher,
     pub contract_verifiers: ContractVerifiers,
-    pub expiration_q: Arc<
-        dyn TaskQueue<Task = TableExpirationTask, Input = ExpirationInput> + Send + Sync + 'static,
-    >,
+    pub queues: TaskQueues,
 }
 
 impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}

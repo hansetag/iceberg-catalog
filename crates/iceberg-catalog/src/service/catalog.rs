@@ -8,7 +8,6 @@ pub use crate::api::iceberg::v1::{
     UpdateNamespacePropertiesResponse,
 };
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
-use crate::api::management::v1::DeleteKind;
 use crate::service::health::HealthExt;
 use crate::SecretIdent;
 
@@ -240,8 +239,12 @@ where
     /// Consider in your implementation to implement an UNDROP feature.
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
-        drop_flags: DropFlags,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
+
+    async fn mark_tabular_as_deleted(
+        table_id: TabularIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()>;
 
     /// Commit changes to a table.
@@ -356,7 +359,6 @@ where
 
     async fn drop_view<'a>(
         view_id: TableIdentUuid,
-        drop_flags: DropFlags,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
@@ -441,7 +443,6 @@ pub struct ViewMetadataWithLocation {
 
 #[derive(Debug, Clone, Copy)]
 pub struct DeletionDetails {
-    pub deletion_kind: DeleteKind,
     pub deleted_at: chrono::DateTime<chrono::Utc>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }

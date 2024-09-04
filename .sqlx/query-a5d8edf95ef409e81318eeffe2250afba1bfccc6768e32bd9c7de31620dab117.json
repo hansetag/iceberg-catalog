@@ -19,7 +19,8 @@
                 "pending",
                 "running",
                 "done",
-                "failed"
+                "failed",
+                "cancelled"
               ]
             }
           }
