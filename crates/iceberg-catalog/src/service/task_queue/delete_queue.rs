@@ -31,7 +31,7 @@ pub async fn delete_queue<
         // TODO: make this configurable
         tokio::time::sleep(Duration::from_secs(7)).await;
 
-        let deletion = match fetcher.poll().await {
+        let deletion = match fetcher.pick_new_task().await {
             Ok(deletion) => deletion,
             Err(err) => {
                 // TODO: add retry counter + exponential backoff

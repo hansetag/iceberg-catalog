@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Error};
 use iceberg_catalog::api::router::{new_full_router, serve as service_serve};
-use iceberg_catalog::implementations::postgres::{Catalog, CatalogState};
+use iceberg_catalog::implementations::postgres::{Catalog, CatalogState, ReadWrite};
 use iceberg_catalog::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
@@ -36,7 +36,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         .into(),
         SecretBackend::Postgres => {
             iceberg_catalog::implementations::postgres::SecretsState::from_pools(
-                read_pool,
+                read_pool.clone(),
                 write_pool.clone(),
             )
             .into()
@@ -55,11 +55,11 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     );
     health_provider.spawn_health_checks().await;
     let delete_handler = DeleteTaskFetcher {
-        pool: write_pool.clone(),
+        read_write: ReadWrite::from_pools(read_pool.clone(), write_pool.clone()),
     };
 
     let expiration_q = ExpirationTaskFetcher {
-        pool: write_pool.clone(),
+        read_write: ReadWrite::from_pools(read_pool, write_pool.clone()),
     };
 
     let handle_1 = tokio::task::spawn(

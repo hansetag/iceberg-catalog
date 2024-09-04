@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use sqlx::FromRow;
+use std::fmt::Debug;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -10,10 +11,11 @@ pub mod tabular_expiration_queue;
 #[async_trait]
 pub trait TaskQueue: std::fmt::Debug {
     type Task: Send + Sync + 'static;
-    type Input: Send + Sync + 'static;
+    type Input: Debug + Send + Sync + 'static;
 
     fn queue_name(&self) -> &'static str;
-    async fn poll(&self) -> crate::api::Result<Option<Self::Task>>;
+
+    async fn pick_new_task(&self) -> crate::api::Result<Option<Self::Task>>;
     async fn record_success(&self, id: Uuid) -> crate::api::Result<()>;
     async fn record_failure(
         &self,
@@ -21,12 +23,8 @@ pub trait TaskQueue: std::fmt::Debug {
         n_retries: i32,
         error_details: String,
     ) -> crate::api::Result<()>;
-    async fn enqueue(
-        &self,
-        task: Self::Input,
-        // TODO: taking transaction here enables us to have all-or-nothing semantics for enqueuing
-        //       not sure if all possible backends support this though
-    ) -> crate::api::Result<Uuid>;
+
+    async fn enqueue(&self, task: Self::Input) -> crate::api::Result<Uuid>;
 }
 
 #[derive(Debug, Clone, PartialEq)]

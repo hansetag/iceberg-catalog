@@ -2,6 +2,7 @@ use crate::api::management::v1::TabularType;
 use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::TabularType as DbTabularType;
 
+use crate::implementations::postgres::ReadWrite;
 use crate::service::task_queue::delete_queue::{DeleteInput, Deletion};
 use crate::service::task_queue::tabular_expiration_queue::{ExpirationInput, TableExpirationTask};
 use crate::service::task_queue::{Task, TaskQueue, TaskStatus};
@@ -47,50 +48,6 @@ pub(crate) async fn queue_task(
     Ok(task_id)
 }
 
-pub(crate) async fn queue_delete(
-    conn: &mut PgConnection,
-    DeleteInput {
-        entity_id,
-        location,
-        warehouse_id,
-        parent_task,
-    }: DeleteInput,
-    task_name: &'static str,
-) -> Result<Uuid, IcebergErrorResponse> {
-    tracing::info!(
-        "Queuing delete for '{location}' under entity_id: {}",
-        entity_id
-    );
-
-    let idempotency_key = Uuid::new_v5(&warehouse_id, location.as_bytes());
-
-    let task_id = queue_task(conn, task_name, parent_task, idempotency_key).await?;
-
-    let it = sqlx::query!(
-        r#"
-        INSERT INTO deletions (task_id, entity_id, location, warehouse_id)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT ON CONSTRAINT unique_location_per_warehouse DO NOTHING
-        RETURNING task_id
-        "#,
-        task_id,
-        entity_id,
-        location,
-        *warehouse_id,
-    )
-    .fetch_optional(conn)
-    .await
-    .map_err(|e| e.into_error_model("fail".into()))?;
-
-    match it {
-        Some(row) => tracing::info!("Queued delete task: {:?}", row),
-        None => {
-            tracing::info!("Delete task already exists for location: {}", location);
-        }
-    }
-    Ok(task_id)
-}
-
 async fn record_failure(
     conn: &PgPool,
     id: Uuid,
@@ -120,7 +77,7 @@ async fn record_failure(
 
 #[tracing::instrument]
 async fn pick_task(
-    conn: &mut PgConnection,
+    pool: &PgPool,
     name: &'static str,
 ) -> Result<Option<Task>, IcebergErrorResponse> {
     let x = sqlx::query_as!(
@@ -142,12 +99,14 @@ async fn pick_task(
         name,
         Utc::now()
     )
-    .fetch_optional(&mut *conn)
+    .fetch_optional(pool)
     .await
-    .map_err(|e| e.into_error_model("fail".into()))?;
+    .map_err(|e| {
+        tracing::error!(?e, "Failed to pick a task");
+        e.into_error_model(format!("Failed to pick a '{name}' task")) })?;
 
-    if let Some(deletion) = x.as_ref() {
-        tracing::info!("Picked up task: {:?}", deletion);
+    if let Some(task) = x.as_ref() {
+        tracing::info!("Picked up task: {:?}", task);
     }
 
     Ok(x)
@@ -155,7 +114,7 @@ async fn pick_task(
 
 #[derive(Debug, Clone)]
 pub struct DeleteTaskFetcher {
-    pub pool: PgPool,
+    pub read_write: ReadWrite,
 }
 
 #[async_trait]
@@ -167,19 +126,9 @@ impl TaskQueue for DeleteTaskFetcher {
         "deletion"
     }
 
-    async fn poll(&self) -> crate::api::Result<Option<Self::Task>> {
-        let mut conn = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| e.into_error_model("fail".into()))?;
-        let task = pick_task(&mut conn, self.queue_name()).await?;
-
-        let Some(task) = task else {
-            // this commit is probably unnecessary, but it's here to be safe
-            conn.commit()
-                .await
-                .map_err(|e| e.into_error_model("fail".into()))?;
+    #[tracing::instrument(skip(self))]
+    async fn pick_new_task(&self) -> crate::api::Result<Option<Self::Task>> {
+        let Some(task) = pick_task(&self.read_write.write_pool, self.queue_name()).await? else {
             tracing::info!("No task found: {}", self.queue_name());
             return Ok(None);
         };
@@ -192,14 +141,12 @@ impl TaskQueue for DeleteTaskFetcher {
             "#,
             task.task_id
         )
-        .fetch_one(&mut *conn)
+        .fetch_one(&self.read_write.read_pool)
         .await
-        .map_err(|e| e.into_error_model("fail".into()))?;
+        .map_err(|e| e.into_error_model("Failed to pick deletion task.".into()))?;
 
-        conn.commit()
-            .await
-            .map_err(|e| e.into_error_model("fail".into()))?;
-        tracing::info!("Deletion task: {:?}", deletion);
+        tracing::debug!("Deletion task: {:?}", deletion);
+
         Ok(Some(Deletion {
             entity_id: deletion.entity_id,
             location: deletion.location,
@@ -209,7 +156,7 @@ impl TaskQueue for DeleteTaskFetcher {
     }
 
     async fn record_success(&self, id: Uuid) -> crate::api::Result<()> {
-        record_success(id, &self.pool).await
+        record_success(id, &self.read_write.write_pool).await
     }
 
     async fn record_failure(
@@ -218,34 +165,69 @@ impl TaskQueue for DeleteTaskFetcher {
         n_retries: i32,
         error_details: String,
     ) -> crate::api::Result<()> {
-        record_failure(&self.pool, id, n_retries, error_details).await
+        record_failure(&self.read_write.write_pool, id, n_retries, error_details).await
     }
 
-    async fn enqueue(&self, task: Self::Input) -> crate::api::Result<Uuid> {
-        let mut conn = self.pool.begin().await.map_err(|e| {
+    #[tracing::instrument(skip(self))]
+    async fn enqueue(
+        &self,
+        DeleteInput {
+            entity_id,
+            location,
+            warehouse_id,
+            parent_task,
+        }: DeleteInput,
+    ) -> crate::api::Result<Uuid> {
+        tracing::debug!("queuing delete");
+        let mut conn = self.read_write.write_pool.begin().await.map_err(|e| {
             tracing::error!(?e, "failed to begin transaction");
-            e.into_error_model("fail".into())
+            e.into_error_model("Failed to queue deletion task.".into())
         })?;
-        let task_id = queue_delete(&mut conn, task, self.queue_name())
-            .await
-            .map_err(|e| {
-                tracing::error!(?e, "failed to queue delete");
-                e
-            })?;
+
+        let idempotency_key = Uuid::new_v5(&warehouse_id, location.as_bytes());
+
+        let task_id =
+            queue_task(&mut conn, self.queue_name(), parent_task, idempotency_key).await?;
+
+        let it = sqlx::query!(
+            r#"INSERT INTO deletions (task_id, entity_id, location, warehouse_id)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT ON CONSTRAINT unique_location_per_warehouse DO NOTHING
+                RETURNING task_id"#,
+            task_id,
+            entity_id,
+            location,
+            *warehouse_id,
+        )
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(|e| e.into_error_model("fail".into()))?;
+
         conn.commit().await.map_err(|e| {
             tracing::error!(?e, "failed to commit");
-            e.into_error_model("fail".into())
+            e.into_error_model("Failed to queue deletion task.".into())
         })?;
+
+        match it {
+            Some(row) => tracing::debug!("Queued delete task: {:?}", row),
+            None => {
+                tracing::debug!("Delete task already exists for location: {}", location);
+            }
+        }
         Ok(task_id)
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ExpirationTaskFetcher {
-    pub pool: PgPool,
+    pub read_write: ReadWrite,
 }
 
-#[async_trait]
+#[derive(Debug, Clone)]
+pub struct PgTaskQueue {
+    pub read_write: ReadWrite,
+}
+
 #[async_trait]
 impl TaskQueue for ExpirationTaskFetcher {
     type Task = TableExpirationTask;
@@ -255,24 +237,16 @@ impl TaskQueue for ExpirationTaskFetcher {
         "expiration"
     }
 
-    async fn poll(&self) -> crate::api::Result<Option<Self::Task>> {
-        let mut conn = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| e.into_error_model("fail".into()))?;
-        let task = pick_task(&mut conn, self.queue_name()).await?;
+    #[tracing::instrument(skip(self))]
+    async fn pick_new_task(&self) -> crate::api::Result<Option<Self::Task>> {
+        let task = pick_task(&self.read_write.write_pool, self.queue_name()).await?;
 
         let Some(task) = task else {
             tracing::info!("No task found");
-            // this commit is probably unnecessary, but it's here to be safe
-            conn.commit()
-                .await
-                .map_err(|e| e.into_error_model("fail".into()))?;
             return Ok(None);
         };
 
-        let deletion = sqlx::query!(
+        let expiration = sqlx::query!(
             r#"
             SELECT tabular_id, warehouse_id, typ as "tabular_type: DbTabularType"
             FROM tabular_expirations
@@ -280,27 +254,25 @@ impl TaskQueue for ExpirationTaskFetcher {
             "#,
             task.task_id
         )
-        .fetch_one(&mut *conn)
+        .fetch_one(&self.read_write.read_pool)
         .await
         .map_err(|e| {
-            tracing::error!(?e, "error selecting tab expir");
-            e.into_error_model("fail".into())
+            tracing::error!(?e, "error selecting tabular expiration");
+            // TODO: should we reset task status here?
+            e.into_error_model("failed to read task after picking one up".into())
         })?;
 
-        conn.commit()
-            .await
-            .map_err(|e| e.into_error_model("fail".into()))?;
-        tracing::info!("Expiration task: {:?}", deletion);
+        tracing::info!("Expiration task: {:?}", expiration);
         Ok(Some(TableExpirationTask {
-            tabular_id: deletion.tabular_id,
-            warehouse_ident: deletion.warehouse_id.into(),
-            tabular_type: deletion.tabular_type.into(),
+            tabular_id: expiration.tabular_id,
+            warehouse_ident: expiration.warehouse_id.into(),
+            tabular_type: expiration.tabular_type.into(),
             task,
         }))
     }
 
     async fn record_success(&self, id: Uuid) -> crate::api::Result<()> {
-        record_success(id, &self.pool).await
+        record_success(id, &self.read_write.write_pool).await
     }
 
     async fn record_failure(
@@ -309,9 +281,10 @@ impl TaskQueue for ExpirationTaskFetcher {
         n_retries: i32,
         error_details: String,
     ) -> crate::api::Result<()> {
-        record_failure(&self.pool, id, n_retries, error_details).await
+        record_failure(&self.read_write.write_pool, id, n_retries, error_details).await
     }
 
+    #[tracing::instrument(skip(self))]
     async fn enqueue(
         &self,
         ExpirationInput {
@@ -321,7 +294,8 @@ impl TaskQueue for ExpirationTaskFetcher {
         }: ExpirationInput,
     ) -> crate::api::Result<Uuid> {
         let mut transaction = self
-            .pool
+            .read_write
+            .write_pool
             .begin()
             .await
             .map_err(|e| e.into_error_model("fail".into()))?;

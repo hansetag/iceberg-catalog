@@ -124,7 +124,7 @@ mod test {
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
 
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
-    use crate::implementations::postgres::{Catalog, CatalogState, SecretsState};
+    use crate::implementations::postgres::{Catalog, CatalogState, ReadWrite, SecretsState};
     use crate::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
     use crate::service::contract_verification::ContractVerifiers;
     use crate::service::event_publisher::CloudEventsPublisher;
@@ -178,7 +178,9 @@ mod test {
                 publisher: CloudEventsPublisher::new(tx.clone()),
                 contract_verifiers: ContractVerifiers::new(vec![]),
                 expiration_q: Arc::new(
-                    crate::implementations::postgres::task_queues::ExpirationTaskFetcher { pool },
+                    crate::implementations::postgres::task_queues::ExpirationTaskFetcher {
+                        read_write: ReadWrite::from_pools(pool.clone(), pool),
+                    },
                 ),
             },
         }

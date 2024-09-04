@@ -26,7 +26,7 @@ pub async fn tabular_expiration_task<
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
 
-        let expiration = match fetcher.poll().await {
+        let expiration = match fetcher.pick_new_task().await {
             Ok(expiration) => expiration,
             Err(err) => {
                 // TODO: add retry counter + exponential backoff
@@ -35,6 +35,7 @@ pub async fn tabular_expiration_task<
                 continue;
             }
         };
+
         let Some(TableExpirationTask {
             tabular_id,
             warehouse_ident,
