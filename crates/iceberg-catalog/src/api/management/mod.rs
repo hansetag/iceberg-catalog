@@ -335,7 +335,8 @@ pub mod v1 {
         }
     }
 
-    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    #[derive(Debug, Serialize, utoipa::ToSchema, Clone, Copy, PartialEq, Eq)]
+    #[serde(rename_all = "kebab-case")]
     pub enum DeleteKind {
         Default,
         Purge,

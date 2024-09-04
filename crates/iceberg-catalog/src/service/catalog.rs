@@ -8,17 +8,15 @@ pub use crate::api::iceberg::v1::{
     UpdateNamespacePropertiesResponse,
 };
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
-use crate::api::management::v1::ListDeletedTabularsResponse;
+use crate::api::management::v1::DeleteKind;
 use crate::service::health::HealthExt;
 use crate::SecretIdent;
 
-use crate::service::task_queue::tabular_expiration_queue::{ExpirationInput, TableExpirationTask};
-use crate::service::task_queue::TaskQueue;
+use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use iceberg::spec::{TableMetadata, ViewMetadata};
 pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
 use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 #[async_trait::async_trait]
 pub trait Transaction<D>
@@ -370,22 +368,12 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()>;
 
-    async fn list_soft_deleted_tabulars(
+    async fn list_tabulars(
         warehouse_id: WarehouseIdent,
+        list_flags: ListFlags,
         catalog_state: Self::State,
         pagination_query: PaginationQuery,
-    ) -> Result<ListDeletedTabularsResponse>;
-
-    async fn expire_soft_deleted_tabulars(
-        warehouse_id: WarehouseIdent,
-        catalog_state: Self::State,
-        expiration_q: Arc<
-            dyn TaskQueue<Task = TableExpirationTask, Input = ExpirationInput>
-                + Send
-                + Sync
-                + 'static,
-        >,
-    ) -> Result<()>;
+    ) -> Result<PaginatedTabulars<TabularIdentUuid, (TabularIdentOwned, Option<DeletionDetails>)>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -449,4 +437,11 @@ impl DropFlags {
 pub struct ViewMetadataWithLocation {
     pub metadata_location: String,
     pub metadata: ViewMetadata,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DeletionDetails {
+    pub deletion_kind: DeleteKind,
+    pub deleted_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }

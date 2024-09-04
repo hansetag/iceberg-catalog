@@ -10,10 +10,10 @@ use http::StatusCode;
 use iceberg_ext::NamespaceIdent;
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery, MAX_PAGE_SIZE};
-use crate::implementations::postgres::catalog::DeletionDetails;
+
 use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
 use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
-use crate::service::DropFlags;
+use crate::service::{DeletionDetails, DropFlags};
 use sqlx::postgres::PgArguments;
 use sqlx::{Arguments, Execute, FromRow, PgConnection, Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
@@ -373,11 +373,14 @@ where
 
         let deletion_details = if let Some(deleted_at) = table.deleted_at {
             Some(DeletionDetails {
-                deletion_kind: table.deletion_kind.ok_or(ErrorModel::internal(
-                    "Deletion kind is missing while deleted_at is set.",
-                    "MissingDeletionKind",
-                    None,
-                ))?,
+                deletion_kind: table
+                    .deletion_kind
+                    .ok_or(ErrorModel::internal(
+                        "Deletion kind is missing while deleted_at is set.",
+                        "MissingDeletionKind",
+                        None,
+                    ))?
+                    .into(),
                 deleted_at,
                 created_at: table.created_at,
             })
