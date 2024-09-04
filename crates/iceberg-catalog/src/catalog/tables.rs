@@ -22,6 +22,7 @@ use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
+use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
@@ -493,6 +494,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Drop a table from the catalog
     async fn drop_table(
         parameters: TableParameters,
@@ -555,22 +557,39 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .into_result()?;
 
         if hard_delete {
+            let purge_input = if purge {
+                let table = C::load_tables(
+                    warehouse_id,
+                    vec![table_id],
+                    true,
+                    transaction.transaction(),
+                )
+                .await?
+                .remove(&table_id)
+                .ok_or_else(|| ErrorModel::internal("Table not found", "InternalDBError", None))?;
+                Some(TabularPurgeInput {
+                    tabular_location: table.table_metadata.location,
+                    tabular_id: *table_id,
+                    warehouse_ident: warehouse_id,
+                    tabular_type: TabularType::Table,
+                    parent_id: None,
+                })
+            } else {
+                None
+            };
+
             C::drop_table(table_id, transaction.transaction()).await?;
-            // TODO: committing here means maybe dangling data if queue fails
-            //       commiting after queuing means we may end up with a dangling view
-            //       I feel that some undeleted files are less bad than a view that cannot be loaded
+            // TODO: committing here means maybe dangling data if queue_tabular_purge fails
+            //       commiting after queuing means we may end up with a table pointing nowhere
+            //       I feel that some undeleted files are less bad than a table that's there but can't be loaded
+
             transaction.commit().await?;
 
-            if purge {
+            if let Some(tabular_purge_input) = purge_input {
                 let queued = state
                     .v1_state
                     .queues
-                    .queue_tabular_expiration(TabularExpirationInput {
-                        tabular_id: *table_id,
-                        warehouse_ident: warehouse_id,
-                        tabular_type: TabularType::Table,
-                        purge,
-                    })
+                    .queue_tabular_purge(tabular_purge_input)
                     .await?;
                 tracing::debug!("Queued purge task: '{queued}' for dropped table '{table_id}'.");
             }

@@ -6,7 +6,9 @@ use crate::WarehouseIdent;
 use std::sync::Arc;
 
 use crate::service::task_queue::tabular_purge_queue::{TabularPurgeInput, TabularPurgeTask};
+use iceberg_ext::catalog::rest::ErrorModel;
 use std::time::Duration;
+use tracing::Instrument;
 use uuid::Uuid;
 
 // TODO: concurrent workers
@@ -23,8 +25,6 @@ pub async fn tabular_expiration_task<C: Catalog>(
     catalog_state: C::State,
 ) {
     loop {
-        tokio::time::sleep(Duration::from_secs(10)).await;
-
         let expiration = match fetcher.pick_new_task().await {
             Ok(expiration) => expiration,
             Err(err) => {
@@ -39,28 +39,49 @@ pub async fn tabular_expiration_task<C: Catalog>(
             continue;
         };
 
-        let span = tracing::span!(
-            tracing::Level::INFO,
+        let span = tracing::debug_span!(
             "tabular_expiration",
-            tabular_id = %expiration.tabular_id,
-            task = ?expiration.task,
             task_name = %expiration.task.task_name,
+            tabular_id = %expiration.tabular_id,
+            warehouse_id = %expiration.warehouse_ident,
+            tabular_type = %expiration.tabular_type,
+            deletion_kind = ?expiration.deletion_kind,
+            task = ?expiration.task,
         );
-        let _entered = span.enter();
 
-        match handle_table::<C>(catalog_state.clone(), &cleaner, &expiration).await {
-            Ok(()) => {
-                fetcher.retrying_record_success(&expiration.task).await;
-                tracing::info!("Successfully handled table expiration");
-            }
-            Err(e) => {
-                tracing::error!("Failed to handle table expiration: {:?}", e);
-                fetcher
-                    .retrying_record_failure(&expiration.task, &format!("{e:?}"))
-                    .await;
-            }
-        };
+        instrumented_expire::<C>(
+            fetcher.clone(),
+            &cleaner,
+            catalog_state.clone(),
+            &expiration,
+        )
+        .instrument(span.or_current())
+        .await;
+
+        tokio::time::sleep(Duration::from_secs(10)).await;
     }
+}
+
+async fn instrumented_expire<C: Catalog>(
+    fetcher: Arc<
+        dyn TaskQueue<Task = TabularExpirationTask, Input = TabularExpirationInput> + Send + Sync,
+    >,
+    cleaner: &Arc<dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput> + Send + Sync>,
+    catalog_state: C::State,
+    expiration: &TabularExpirationTask,
+) {
+    match handle_table::<C>(catalog_state.clone(), cleaner, expiration).await {
+        Ok(()) => {
+            fetcher.retrying_record_success(&expiration.task).await;
+            tracing::info!("Successfully handled table expiration");
+        }
+        Err(e) => {
+            tracing::error!("Failed to handle table expiration: {:?}", e);
+            fetcher
+                .retrying_record_failure(&expiration.task, &format!("{e:?}"))
+                .await;
+        }
+    };
 }
 
 // Loads the table metadata
@@ -75,13 +96,7 @@ async fn handle_table<C>(
     delete_queue: &Arc<
         dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput> + Send + Sync + 'static,
     >,
-    TabularExpirationTask {
-        deletion_kind,
-        tabular_id,
-        warehouse_ident,
-        tabular_type,
-        task,
-    }: &TabularExpirationTask,
+    expiration: &TabularExpirationTask,
 ) -> Result<()>
 where
     C: Catalog,
@@ -93,23 +108,23 @@ where
             e
         })?;
 
-    C::drop_table(TableIdentUuid::from(*tabular_id), trx.transaction())
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to drop table: {:?}", e);
-            e
-        })?;
+    // We need to load the table metadata to get the location and we cannot load the table after
+    // dropping it.
+    let cleanup_task = maybe_prepare_purge_input::<C>(expiration, &mut trx).await?;
 
-    if matches!(deletion_kind, DeleteKind::Purge) {
-        let id = delete_queue
-            .enqueue(TabularPurgeInput {
-                tabular_id: *tabular_id,
-                warehouse_ident: *warehouse_ident,
-                tabular_type: *tabular_type,
-                parent_id: Some(task.task_id),
-            })
-            .await?;
-        tracing::debug!("Enqueued cleanup task: {:?}", id);
+    C::drop_table(
+        TableIdentUuid::from(expiration.tabular_id),
+        trx.transaction(),
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to drop table: {:?}", e);
+        e
+    })?;
+
+    if let Some(task) = cleanup_task {
+        let id = delete_queue.enqueue(task).await?;
+        tracing::debug!("Enqueued purge task: {:?}", id);
     }
 
     trx.commit().await.map_err(|e| {
@@ -118,6 +133,50 @@ where
     })?;
 
     Ok(())
+}
+
+async fn maybe_prepare_purge_input<C>(
+    TabularExpirationTask {
+        deletion_kind,
+        tabular_id,
+        warehouse_ident,
+        tabular_type,
+        task,
+    }: &TabularExpirationTask,
+    trx: &mut C::Transaction,
+) -> Result<Option<TabularPurgeInput>>
+where
+    C: Catalog,
+{
+    Ok(if matches!(deletion_kind, DeleteKind::Purge) {
+        let tabular_location = C::load_tables(
+            *warehouse_ident,
+            [TableIdentUuid::from(*tabular_id)],
+            true,
+            trx.transaction(),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load table: {:?}", e);
+            e
+        })?
+        .remove(&TableIdentUuid::from(*tabular_id))
+        .ok_or_else(|| {
+            tracing::error!("Table not found");
+            ErrorModel::internal("Table not found", "InternalDBError", None)
+        })?
+        .table_metadata
+        .location;
+        Some(TabularPurgeInput {
+            tabular_id: *tabular_id,
+            tabular_location,
+            warehouse_ident: *warehouse_ident,
+            tabular_type: *tabular_type,
+            parent_id: Some(task.task_id),
+        })
+    } else {
+        None
+    })
 }
 
 #[derive(Debug)]

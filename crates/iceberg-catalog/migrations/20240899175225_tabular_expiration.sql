@@ -35,8 +35,9 @@ alter table tabular
 
 create table tabular_purges
 (
-    tabular_id   uuid         not null,
-    warehouse_id uuid         not null,
-    typ          tabular_type not null,
-    task_id      uuid primary key references task (task_id)
+    tabular_id       uuid         not null,
+    tabular_location text         not null,
+    warehouse_id     uuid         not null,
+    typ              tabular_type not null,
+    task_id          uuid primary key references task (task_id)
 );

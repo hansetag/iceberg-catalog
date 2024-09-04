@@ -149,7 +149,7 @@ impl TaskQueue for TabularPurgeTaskFetcher {
 
         let purge = sqlx::query!(
             r#"
-            SELECT tabular_id, warehouse_id, typ as "tabular_type: DbTabularType"
+            SELECT tabular_id, tabular_location, warehouse_id, typ as "tabular_type: DbTabularType"
             FROM tabular_purges
             WHERE task_id = $1
             "#,
@@ -166,6 +166,7 @@ impl TaskQueue for TabularPurgeTaskFetcher {
         tracing::info!("Purge task: {:?}", purge);
         Ok(Some(TabularPurgeTask {
             tabular_id: purge.tabular_id,
+            tabular_location: purge.tabular_location,
             warehouse_ident: purge.warehouse_id.into(),
             tabular_type: purge.tabular_type.into(),
             task,
@@ -189,6 +190,7 @@ impl TaskQueue for TabularPurgeTaskFetcher {
     async fn enqueue(
         &self,
         TabularPurgeInput {
+            tabular_location,
             tabular_id,
             warehouse_ident,
             tabular_type,
@@ -219,21 +221,22 @@ impl TaskQueue for TabularPurgeTaskFetcher {
         .await?;
 
         let it = sqlx::query!(
-            "INSERT INTO tabular_purges(task_id, tabular_id, warehouse_id, typ) VALUES ($1, $2, $3, $4) RETURNING task_id",
-            task_id,
-            tabular_id,
-            *warehouse_ident,
-            match tabular_type {
-                TabularType::Table => DbTabularType::Table,
-                TabularType::View => DbTabularType::View,
-            } as _
-        )
-
+                "INSERT INTO tabular_purges(task_id, tabular_id, warehouse_id, typ, tabular_location) VALUES ($1, $2, $3, $4, $5) RETURNING task_id",
+                task_id,
+                tabular_id,
+                *warehouse_ident,
+                match tabular_type {
+                    TabularType::Table => DbTabularType::Table,
+                    TabularType::View => DbTabularType::View,
+                } as _,
+                tabular_location,
+            )
             .fetch_optional(&mut *transaction)
             .await
             .map_err(|e| {
                 tracing::error!(?e, "failed to insert into tabular_purges");
-                e.into_error_model("fail".into()) })?;
+                e.into_error_model("fail".into())
+            })?;
 
         match it {
             Some(row) => tracing::info!("Queued purge task: {:?}", row),

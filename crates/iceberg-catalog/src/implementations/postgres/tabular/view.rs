@@ -536,6 +536,8 @@ pub(crate) mod tests {
     use iceberg::{NamespaceIdent, TableIdent};
 
     use crate::api::iceberg::v1::PaginationQuery;
+    use crate::implementations::postgres::tabular::mark_tabular_as_deleted;
+    use crate::service::tabular_idents::TabularIdentUuid;
     use crate::WarehouseIdent;
     use serde_json::json;
     use sqlx::PgPool;
@@ -737,7 +739,7 @@ pub(crate) mod tests {
     async fn soft_drop_view(pool: sqlx::PgPool) {
         let (state, created_meta, _, _, _) = prepare_view(pool).await;
         let mut tx = state.write_pool().begin().await.unwrap();
-        super::drop_view(created_meta.view_uuid.into(), &mut tx)
+        mark_tabular_as_deleted(TabularIdentUuid::View(created_meta.view_uuid), &mut tx)
             .await
             .unwrap();
         tx.commit().await.unwrap();

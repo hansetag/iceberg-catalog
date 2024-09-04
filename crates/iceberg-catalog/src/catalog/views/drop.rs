@@ -66,23 +66,29 @@ pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     tracing::debug!("Proceeding to delete view");
 
     if hard_delete {
+        // if we drop the view, we need to get the location to purge the files
+        // TODO: consider making drop_view return the location instead
+        let purge_input = if purge_requested {
+            let view = C::load_view(view_id, true, transaction.transaction()).await?;
+            Some(TabularPurgeInput {
+                tabular_location: view.metadata.location.clone(),
+                tabular_id: *view_id,
+                warehouse_ident: warehouse_id,
+                tabular_type: TabularType::View,
+                parent_id: None,
+            })
+        } else {
+            None
+        };
+
         C::drop_view(view_id, transaction.transaction()).await?;
-        // TODO: committing here means maybe dangling data if queue fails
-        //       commiting after queuing means we may end up with a dangling view
+        // TODO: committing here means maybe dangling data if the queue fails
+        //       OTOH committing after queuing means we may end up with a view pointing to deleted files
         //       I feel that some undeleted files are less bad than a view that cannot be loaded
         transaction.commit().await?;
 
-        if purge_requested {
-            state
-                .v1_state
-                .queues
-                .queue_tabular_purge(TabularPurgeInput {
-                    tabular_id: *view_id,
-                    warehouse_ident: warehouse_id,
-                    tabular_type: TabularType::View,
-                    parent_id: None,
-                })
-                .await?;
+        if let Some(task) = purge_input {
+            state.v1_state.queues.queue_tabular_purge(task).await?;
         }
     } else {
         C::mark_tabular_as_deleted(TabularIdentUuid::View(*view_id), transaction.transaction())
