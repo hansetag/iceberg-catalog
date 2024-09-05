@@ -14,7 +14,7 @@ use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
 
 use iceberg_catalog::implementations::postgres::task_queues::{
-    ExpirationTaskFetcher, TabularPurgeTaskFetcher,
+    TabularExpirationQueue, TabularPurgeQueue,
 };
 use iceberg_catalog::service::task_queue::TaskQueues;
 use std::sync::Arc;
@@ -57,11 +57,11 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     health_provider.spawn_health_checks().await;
 
     let queues = TaskQueues::new(
-        Arc::new(ExpirationTaskFetcher::from_config(
+        Arc::new(TabularExpirationQueue::from_config(
             ReadWrite::from_pools(read_pool.clone(), write_pool.clone()),
             CONFIG.queue_config.clone(),
         )?),
-        Arc::new(TabularPurgeTaskFetcher::from_config(
+        Arc::new(TabularPurgeQueue::from_config(
             ReadWrite::from_pools(read_pool.clone(), write_pool.clone()),
             CONFIG.queue_config.clone(),
         )?),

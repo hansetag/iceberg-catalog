@@ -1,14 +1,11 @@
-use crate::service::task_queue::tabular_expiration_queue::{
-    TabularExpirationInput, TabularExpirationTask,
-};
-use crate::service::task_queue::tabular_purge_queue::{TabularPurgeInput, TabularPurgeTask};
+use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
+use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::{Catalog, SecretStore};
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::fmt::Debug;
-use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -17,32 +14,15 @@ pub mod tabular_purge_queue;
 
 #[derive(Debug, Clone)]
 pub struct TaskQueues {
-    tabular_expiration: Arc<
-        dyn TaskQueue<Task = TabularExpirationTask, Input = TabularExpirationInput>
-            + Send
-            + Sync
-            + 'static,
-    >,
-    tabular_purge: Arc<
-        dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput> + Send + Sync + 'static,
-    >,
+    tabular_expiration: tabular_expiration_queue::ExpirationQueue,
+    tabular_purge: tabular_purge_queue::TabularPurgeQueue,
 }
 
 impl TaskQueues {
     #[must_use]
     pub fn new(
-        expiration: Arc<
-            dyn TaskQueue<Task = TabularExpirationTask, Input = TabularExpirationInput>
-                + Send
-                + Sync
-                + 'static,
-        >,
-        purge: Arc<
-            dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput>
-                + Send
-                + Sync
-                + 'static,
-        >,
+        expiration: tabular_expiration_queue::ExpirationQueue,
+        purge: tabular_purge_queue::TabularPurgeQueue,
     ) -> Self {
         Self {
             tabular_expiration: expiration,
@@ -101,18 +81,17 @@ impl TaskQueues {
 }
 
 #[async_trait]
-pub trait TaskQueue: std::fmt::Debug {
+pub trait TaskQueue: Debug {
     type Task: Send + Sync + 'static;
     type Input: Debug + Send + Sync + 'static;
 
     fn config(&self) -> &TaskQueueConfig;
     fn queue_name(&self) -> &'static str;
 
+    async fn enqueue(&self, task: Self::Input) -> crate::api::Result<()>;
     async fn pick_new_task(&self) -> crate::api::Result<Option<Self::Task>>;
     async fn record_success(&self, id: Uuid) -> crate::api::Result<()>;
     async fn record_failure(&self, id: Uuid, error_details: &str) -> crate::api::Result<()>;
-
-    async fn enqueue(&self, task: Self::Input) -> crate::api::Result<()>;
 
     async fn retrying_record_success(&self, task: &Task) {
         self.retrying_record_success_or_failure(task, SuccessOrFailure::Success)

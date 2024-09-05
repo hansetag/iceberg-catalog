@@ -180,10 +180,10 @@ mod test {
                 contract_verifiers: ContractVerifiers::new(vec![]),
                 queues: TaskQueues::new(
                     Arc::new(
-                        crate::implementations::postgres::task_queues::ExpirationTaskFetcher::from_config(ReadWrite::from_pools(pool.clone(), pool.clone()), CONFIG.queue_config.clone()).unwrap(),
+                        crate::implementations::postgres::task_queues::TabularExpirationQueue::from_config(ReadWrite::from_pools(pool.clone(), pool.clone()), CONFIG.queue_config.clone()).unwrap(),
                     ),
                     Arc::new(
-                        crate::implementations::postgres::task_queues::TabularPurgeTaskFetcher::from_config(ReadWrite::from_pools(pool.clone(), pool), CONFIG.queue_config.clone()).unwrap()
+                        crate::implementations::postgres::task_queues::TabularPurgeQueue::from_config(ReadWrite::from_pools(pool.clone(), pool), CONFIG.queue_config.clone()).unwrap()
                     )
                 )
             },

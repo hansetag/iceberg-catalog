@@ -5,23 +5,23 @@ use crate::service::{Catalog, TableIdentUuid, Transaction};
 use crate::WarehouseIdent;
 use std::sync::Arc;
 
-use crate::service::task_queue::tabular_purge_queue::{TabularPurgeInput, TabularPurgeTask};
+use crate::service::task_queue::tabular_purge_queue::{TabularPurgeInput, TabularPurgeQueue};
 
 use std::time::Duration;
 use tracing::Instrument;
 use uuid::Uuid;
 
+pub type ExpirationQueue = Arc<
+    dyn TaskQueue<Task = TabularExpirationTask, Input = TabularExpirationInput>
+        + Send
+        + Sync
+        + 'static,
+>;
+
 // TODO: concurrent workers
 pub async fn tabular_expiration_task<C: Catalog>(
-    fetcher: Arc<
-        dyn TaskQueue<Task = TabularExpirationTask, Input = TabularExpirationInput>
-            + Send
-            + Sync
-            + 'static,
-    >,
-    cleaner: Arc<
-        dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput> + Send + Sync + 'static,
-    >,
+    fetcher: ExpirationQueue,
+    cleaner: TabularPurgeQueue,
     catalog_state: C::State,
 ) {
     loop {
@@ -63,10 +63,8 @@ pub async fn tabular_expiration_task<C: Catalog>(
 }
 
 async fn instrumented_expire<C: Catalog>(
-    fetcher: Arc<
-        dyn TaskQueue<Task = TabularExpirationTask, Input = TabularExpirationInput> + Send + Sync,
-    >,
-    cleaner: &Arc<dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput> + Send + Sync>,
+    fetcher: ExpirationQueue,
+    cleaner: &TabularPurgeQueue,
     catalog_state: C::State,
     expiration: &TabularExpirationTask,
 ) {
@@ -93,9 +91,7 @@ async fn instrumented_expire<C: Catalog>(
 // Drops the table from the catalog
 async fn handle_table<C>(
     catalog_state: C::State,
-    delete_queue: &Arc<
-        dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput> + Send + Sync + 'static,
-    >,
+    delete_queue: &TabularPurgeQueue,
     expiration: &TabularExpirationTask,
 ) -> Result<()>
 where
@@ -133,7 +129,7 @@ where
     };
 
     if matches!(expiration.deletion_kind, DeleteKind::Purge) {
-        let id = delete_queue
+        delete_queue
             .enqueue(TabularPurgeInput {
                 tabular_id: expiration.tabular_id,
                 warehouse_ident: expiration.warehouse_ident,
@@ -142,7 +138,6 @@ where
                 tabular_location,
             })
             .await?;
-        tracing::debug!("Enqueued purge task: {:?}", id);
     }
 
     // Here we commit after the queuing of the deletion since we're in a fault-tolerant workflow
@@ -164,7 +159,7 @@ pub struct TabularExpirationTask {
     pub task: Task,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TabularExpirationInput {
     pub tabular_id: Uuid,
     pub warehouse_ident: WarehouseIdent,

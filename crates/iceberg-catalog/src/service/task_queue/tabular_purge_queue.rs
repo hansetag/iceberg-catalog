@@ -11,11 +11,12 @@ use std::time::Duration;
 use tracing::Instrument;
 use uuid::Uuid;
 
+pub type TabularPurgeQueue =
+    Arc<dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput> + Send + Sync + 'static>;
+
 // TODO: concurrent workers
 pub async fn purge_task<C: Catalog, S: SecretStore>(
-    fetcher: Arc<
-        dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput> + Send + Sync + 'static,
-    >,
+    fetcher: TabularPurgeQueue,
     catalog_state: C::State,
     secret_state: S,
 ) {
@@ -152,7 +153,7 @@ pub struct TabularPurgeTask {
     pub task: Task,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TabularPurgeInput {
     pub tabular_id: Uuid,
     pub warehouse_ident: WarehouseIdent,
