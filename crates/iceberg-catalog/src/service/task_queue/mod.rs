@@ -3,9 +3,10 @@ use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::{Catalog, SecretStore};
 use async_trait::async_trait;
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sqlx::FromRow;
 use std::fmt::Debug;
+use std::str::FromStr;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -169,10 +170,31 @@ pub struct TaskQueueConfig {
     )]
     pub max_age: chrono::Duration,
     #[serde(
-        deserialize_with = "crate::config::seconds_to_duration",
-        serialize_with = "crate::config::duration_to_seconds"
+        deserialize_with = "seconds_to_std_duration",
+        serialize_with = "std_duration_to_seconds"
     )]
-    pub poll_interval: chrono::Duration,
+    pub poll_interval: Duration,
+}
+
+pub(crate) fn seconds_to_std_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let buf = String::deserialize(deserializer)?;
+
+    Ok(Duration::from_secs(
+        u64::from_str(&buf).map_err(serde::de::Error::custom)?,
+    ))
+}
+
+pub(crate) fn std_duration_to_seconds<S>(
+    duration: &Duration,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    duration.as_secs().to_string().serialize(serializer)
 }
 
 impl Default for TaskQueueConfig {
@@ -180,7 +202,7 @@ impl Default for TaskQueueConfig {
         Self {
             max_retries: 5,
             max_age: valid_max_age(3600),
-            poll_interval: chrono::Duration::seconds(10),
+            poll_interval: Duration::from_secs(10),
         }
     }
 }

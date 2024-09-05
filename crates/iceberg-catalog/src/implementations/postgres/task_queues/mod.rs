@@ -13,41 +13,6 @@ use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
-macro_rules! impl_pg_task_queue {
-    ($name:ident) => {
-        use crate::implementations::postgres::task_queues::PgQueue;
-        use crate::implementations::postgres::ReadWrite;
-
-        #[derive(Debug, Clone)]
-        pub struct $name {
-            pg_queue: PgQueue,
-        }
-
-        impl $name {
-            #[must_use]
-            pub fn new(read_write: ReadWrite) -> Self {
-                Self {
-                    pg_queue: PgQueue::new(read_write),
-                }
-            }
-
-            /// Create a new `$name` with the default configuration.
-            ///
-            /// # Errors
-            /// Returns an error if the max age duration is invalid.
-            pub fn from_config(
-                read_write: ReadWrite,
-                config: TaskQueueConfig,
-            ) -> anyhow::Result<Self> {
-                Ok(Self {
-                    pg_queue: PgQueue::from_config(read_write, config)?,
-                })
-            }
-        }
-    };
-}
-use impl_pg_task_queue;
-
 #[derive(Debug, Clone)]
 struct PgQueue {
     pub read_write: ReadWrite,
@@ -204,6 +169,41 @@ async fn record_success(id: Uuid, pool: &PgPool) -> Result<(), IcebergErrorRespo
     .map_err(|e| e.into_error_model("fail".into()))?;
     Ok(())
 }
+
+macro_rules! impl_pg_task_queue {
+    ($name:ident) => {
+        use crate::implementations::postgres::task_queues::PgQueue;
+        use crate::implementations::postgres::ReadWrite;
+
+        #[derive(Debug, Clone)]
+        pub struct $name {
+            pg_queue: PgQueue,
+        }
+
+        impl $name {
+            #[must_use]
+            pub fn new(read_write: ReadWrite) -> Self {
+                Self {
+                    pg_queue: PgQueue::new(read_write),
+                }
+            }
+
+            /// Create a new `$name` with the default configuration.
+            ///
+            /// # Errors
+            /// Returns an error if the max age duration is invalid.
+            pub fn from_config(
+                read_write: ReadWrite,
+                config: TaskQueueConfig,
+            ) -> anyhow::Result<Self> {
+                Ok(Self {
+                    pg_queue: PgQueue::from_config(read_write, config)?,
+                })
+            }
+        }
+    };
+}
+use impl_pg_task_queue;
 
 #[cfg(test)]
 mod test {

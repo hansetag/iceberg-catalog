@@ -28,60 +28,6 @@ impl TaskQueue for TabularExpirationQueue {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn pick_new_task(&self) -> crate::api::Result<Option<Self::Task>> {
-        let task = pick_task(
-            &self.pg_queue.read_write.write_pool,
-            self.queue_name(),
-            &self.pg_queue.max_age,
-        )
-        .await?;
-
-        let Some(task) = task else {
-            tracing::info!("No task found");
-            return Ok(None);
-        };
-
-        let expiration = sqlx::query!(
-            r#"
-            SELECT tabular_id, warehouse_id, typ as "tabular_type: DbTabularType", deletion_kind as "deletion_kind: DeletionKind"
-            FROM tabular_expirations
-            WHERE task_id = $1
-            "#,
-            task.task_id
-        )
-            .fetch_one(&self.pg_queue.read_write.read_pool)
-            .await
-            .map_err(|e| {
-                tracing::error!(?e, "error selecting tabular expiration");
-                // TODO: should we reset task status here?
-                e.into_error_model("failed to read task after picking one up".into())
-            })?;
-
-        tracing::info!("Expiration task: {:?}", expiration);
-        Ok(Some(TabularExpirationTask {
-            deletion_kind: expiration.deletion_kind.into(),
-            tabular_id: expiration.tabular_id,
-            warehouse_ident: expiration.warehouse_id.into(),
-            tabular_type: expiration.tabular_type.into(),
-            task,
-        }))
-    }
-
-    async fn record_success(&self, id: Uuid) -> crate::api::Result<()> {
-        record_success(id, &self.pg_queue.read_write.write_pool).await
-    }
-
-    async fn record_failure(&self, id: Uuid, error_details: &str) -> crate::api::Result<()> {
-        record_failure(
-            &self.pg_queue.read_write.write_pool,
-            id,
-            self.config().max_retries,
-            error_details,
-        )
-        .await
-    }
-
-    #[tracing::instrument(skip(self))]
     async fn enqueue(
         &self,
         TabularExpirationInput {
@@ -157,6 +103,60 @@ impl TaskQueue for TabularExpirationQueue {
         })?;
 
         Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn pick_new_task(&self) -> crate::api::Result<Option<Self::Task>> {
+        let task = pick_task(
+            &self.pg_queue.read_write.write_pool,
+            self.queue_name(),
+            &self.pg_queue.max_age,
+        )
+        .await?;
+
+        let Some(task) = task else {
+            tracing::info!("No task found");
+            return Ok(None);
+        };
+
+        let expiration = sqlx::query!(
+            r#"
+            SELECT tabular_id, warehouse_id, typ as "tabular_type: DbTabularType", deletion_kind as "deletion_kind: DeletionKind"
+            FROM tabular_expirations
+            WHERE task_id = $1
+            "#,
+            task.task_id
+        )
+            .fetch_one(&self.pg_queue.read_write.read_pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(?e, "error selecting tabular expiration");
+                // TODO: should we reset task status here?
+                e.into_error_model("failed to read task after picking one up".into())
+            })?;
+
+        tracing::info!("Expiration task: {:?}", expiration);
+        Ok(Some(TabularExpirationTask {
+            deletion_kind: expiration.deletion_kind.into(),
+            tabular_id: expiration.tabular_id,
+            warehouse_ident: expiration.warehouse_id.into(),
+            tabular_type: expiration.tabular_type.into(),
+            task,
+        }))
+    }
+
+    async fn record_success(&self, id: Uuid) -> crate::api::Result<()> {
+        record_success(id, &self.pg_queue.read_write.write_pool).await
+    }
+
+    async fn record_failure(&self, id: Uuid, error_details: &str) -> crate::api::Result<()> {
+        record_failure(
+            &self.pg_queue.read_write.write_pool,
+            id,
+            self.config().max_retries,
+            error_details,
+        )
+        .await
     }
 }
 

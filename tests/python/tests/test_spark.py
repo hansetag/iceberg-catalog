@@ -1,8 +1,4 @@
-import urllib
-import uuid
-from urllib.parse import urlparse
-
-import boto3
+import sys
 
 import conftest
 import pandas as pd
@@ -235,11 +231,11 @@ def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse):
 
     file_io = io._infer_file_io_from_scheme(table_0.location(), properties)
     import time
-    # TODO: This is a hack to wait for the file to be deleted, should be adjusted together with making job poll interval
-    #       configurable
-    time.sleep(25)
+    # sleep to give time for the t
+    time.sleep(5)
+
     inp = file_io.new_input(table_0.location())
-    assert not inp.exists()
+    assert not inp.exists(), f"Table location {table_0.location()} still exists"
 
     tables = warehouse.pyiceberg_catalog.list_tables(namespace)
     assert len(tables) == 4

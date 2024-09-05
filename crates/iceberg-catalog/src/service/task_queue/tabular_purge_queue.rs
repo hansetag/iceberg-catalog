@@ -21,6 +21,10 @@ pub async fn purge_task<C: Catalog, S: SecretStore>(
     secret_state: S,
 ) {
     loop {
+        // add some jitter to avoid syncing with other queues
+        // TODO: probably should have a random number here
+        tokio::time::sleep(fetcher.config().poll_interval + Duration::from_millis(13)).await;
+
         let purge_task = match fetcher.pick_new_task().await {
             Ok(expiration) => expiration,
             Err(err) => {
@@ -53,10 +57,6 @@ pub async fn purge_task<C: Catalog, S: SecretStore>(
         )
         .instrument(span.or_current())
         .await;
-
-        // add some jitter to avoid syncing with other queues
-        // TODO: probably should have a random number here
-        tokio::time::sleep(Duration::from_millis(10 * 1000 + 363)).await;
     }
 }
 

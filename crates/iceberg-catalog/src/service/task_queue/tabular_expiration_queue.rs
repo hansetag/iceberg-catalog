@@ -25,6 +25,8 @@ pub async fn tabular_expiration_task<C: Catalog>(
     catalog_state: C::State,
 ) {
     loop {
+        tokio::time::sleep(fetcher.config().poll_interval).await;
+
         let expiration = match fetcher.pick_new_task().await {
             Ok(expiration) => expiration,
             Err(err) => {
@@ -57,8 +59,6 @@ pub async fn tabular_expiration_task<C: Catalog>(
         )
         .instrument(span.or_current())
         .await;
-
-        tokio::time::sleep(Duration::from_secs(10)).await;
     }
 }
 
