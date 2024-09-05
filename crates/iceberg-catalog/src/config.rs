@@ -7,11 +7,11 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use url::Url;
 
+use crate::service::task_queue::TaskQueueConfig;
+use crate::WarehouseIdent;
 use itertools::Itertools;
 use serde::{Deserialize, Deserializer, Serialize};
 use veil::Redact;
-
-use crate::WarehouseIdent;
 
 const DEFAULT_RESERVED_NAMESPACES: [&str; 2] = ["system", "examples"];
 const DEFAULT_ENCRYPTION_KEY: &str = "<This is unsafe, please set a proper key>";
@@ -112,6 +112,39 @@ pub struct DynAppConfig {
     pub kv2: Option<KV2Config>,
     // ------------- Secrets -------------
     pub secret_backend: SecretBackend,
+
+    // ------------- Queues -------------
+    pub queue_config: TaskQueueConfig,
+
+    // ------------- Tabular -------------
+    /// Delay in seconds after which a tabular will be deleted
+    // TODO: make this an enum?
+    #[serde(
+        deserialize_with = "seconds_to_duration",
+        serialize_with = "duration_to_seconds"
+    )]
+    pub tabular_expiration_delay_seconds: chrono::Duration,
+}
+
+pub(crate) fn seconds_to_duration<'de, D>(deserializer: D) -> Result<chrono::Duration, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let buf = String::deserialize(deserializer)?;
+
+    Ok(chrono::Duration::seconds(
+        i64::from_str(&buf).map_err(serde::de::Error::custom)?,
+    ))
+}
+
+pub(crate) fn duration_to_seconds<S>(
+    duration: &chrono::Duration,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    duration.num_seconds().to_string().serialize(serializer)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -170,6 +203,8 @@ impl Default for DynAppConfig {
             health_check_jitter_millis: 500,
             kv2: None,
             secret_backend: SecretBackend::Postgres,
+            queue_config: TaskQueueConfig::default(),
+            tabular_expiration_delay_seconds: chrono::Duration::days(7),
         }
     }
 }
@@ -192,6 +227,10 @@ impl DynAppConfig {
     pub fn warehouse_prefix(&self, warehouse_id: WarehouseIdent) -> String {
         self.prefix_template
             .replace("{warehouse_id}", warehouse_id.to_string().as_str())
+    }
+
+    pub fn tabular_expiration_delay(&self) -> chrono::Duration {
+        self.tabular_expiration_delay_seconds
     }
 }
 

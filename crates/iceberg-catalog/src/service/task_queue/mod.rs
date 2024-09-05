@@ -5,6 +5,7 @@ use crate::service::task_queue::tabular_purge_queue::{TabularPurgeInput, Tabular
 use crate::service::{Catalog, SecretStore};
 use async_trait::async_trait;
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -52,14 +53,14 @@ impl TaskQueues {
     pub(crate) async fn queue_tabular_expiration(
         &self,
         task: TabularExpirationInput,
-    ) -> crate::api::Result<Uuid> {
+    ) -> crate::api::Result<()> {
         self.tabular_expiration.enqueue(task).await
     }
 
     pub(crate) async fn queue_tabular_purge(
         &self,
         task: TabularPurgeInput,
-    ) -> crate::api::Result<Uuid> {
+    ) -> crate::api::Result<()> {
         self.tabular_purge.enqueue(task).await
     }
 
@@ -104,18 +105,14 @@ pub trait TaskQueue: std::fmt::Debug {
     type Task: Send + Sync + 'static;
     type Input: Debug + Send + Sync + 'static;
 
+    fn config(&self) -> &TaskQueueConfig;
     fn queue_name(&self) -> &'static str;
 
     async fn pick_new_task(&self) -> crate::api::Result<Option<Self::Task>>;
     async fn record_success(&self, id: Uuid) -> crate::api::Result<()>;
-    async fn record_failure(
-        &self,
-        id: Uuid,
-        n_retries: i32,
-        error_details: &str,
-    ) -> crate::api::Result<()>;
+    async fn record_failure(&self, id: Uuid, error_details: &str) -> crate::api::Result<()>;
 
-    async fn enqueue(&self, task: Self::Input) -> crate::api::Result<Uuid>;
+    async fn enqueue(&self, task: Self::Input) -> crate::api::Result<()>;
 
     async fn retrying_record_success(&self, task: &Task) {
         self.retrying_record_success_or_failure(task, SuccessOrFailure::Success)
@@ -131,9 +128,7 @@ pub trait TaskQueue: std::fmt::Debug {
         let mut retry = 0;
         while let Err(e) = match result {
             SuccessOrFailure::Success => self.record_success(task.task_id).await,
-            SuccessOrFailure::Failure(details) => {
-                self.record_failure(task.task_id, 5, details).await
-            }
+            SuccessOrFailure::Failure(details) => self.record_failure(task.task_id, details).await,
         } {
             tracing::error!("Failed to record {}: {:?}", result.as_str(), e);
             tokio::time::sleep(Duration::from_secs(1 + retry)).await;
@@ -184,4 +179,36 @@ impl<'a> SuccessOrFailure<'a> {
             SuccessOrFailure::Failure(_) => "failure",
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskQueueConfig {
+    pub max_retries: i32,
+    #[serde(
+        deserialize_with = "crate::config::seconds_to_duration",
+        serialize_with = "crate::config::duration_to_seconds"
+    )]
+    pub max_age: chrono::Duration,
+    #[serde(
+        deserialize_with = "crate::config::seconds_to_duration",
+        serialize_with = "crate::config::duration_to_seconds"
+    )]
+    pub poll_interval: chrono::Duration,
+}
+
+impl Default for TaskQueueConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 5,
+            max_age: valid_max_age(3600),
+            poll_interval: chrono::Duration::seconds(10),
+        }
+    }
+}
+
+const fn valid_max_age(num: i64) -> chrono::Duration {
+    assert!(num > 0, "max_age must be greater than 0");
+    let dur = chrono::Duration::seconds(num);
+    assert!(dur.num_microseconds().is_some());
+    dur
 }

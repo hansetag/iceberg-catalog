@@ -237,7 +237,7 @@ pub enum WarehouseStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
-pub struct WarehouseIdent(uuid::Uuid);
+pub struct WarehouseIdent(pub(crate) uuid::Uuid);
 
 impl WarehouseIdent {
     #[must_use]

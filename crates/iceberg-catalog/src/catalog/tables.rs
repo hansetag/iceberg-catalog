@@ -28,6 +28,7 @@ use crate::service::{
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
+use crate::CONFIG;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
 use iceberg_ext::configs::namespace::NamespaceProperties;
@@ -563,7 +564,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             //       I feel that some undeleted files are less bad than a table that's there but can't be loaded
             transaction.commit().await?;
 
-            let queued = state
+            state
                 .v1_state
                 .queues
                 .queue_tabular_purge(TabularPurgeInput {
@@ -574,7 +575,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     parent_id: None,
                 })
                 .await?;
-            tracing::debug!("Queued purge task: '{queued}' for dropped table '{table_id}'.");
+            tracing::debug!("Queued purge task for dropped table '{table_id}'.");
         } else {
             C::mark_tabular_as_deleted(
                 TabularIdentUuid::Table(*table_id),
@@ -583,7 +584,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .await?;
             transaction.commit().await?;
 
-            let queued = state
+            state
                 .v1_state
                 .queues
                 .queue_tabular_expiration(TabularExpirationInput {
@@ -591,9 +592,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     warehouse_ident: warehouse_id,
                     tabular_type: TabularType::Table,
                     purge,
+                    expire_at: chrono::Utc::now() + CONFIG.tabular_expiration_delay(),
                 })
                 .await?;
-            tracing::info!("Queued expiration task: {queued}");
+            tracing::debug!("Queued expiration task for dropped table '{table_id}'.");
         }
 
         emit_change_event(

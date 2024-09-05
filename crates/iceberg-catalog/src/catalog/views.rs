@@ -130,7 +130,7 @@ mod test {
     use crate::service::event_publisher::CloudEventsPublisher;
     use crate::service::storage::{StorageProfile, TestProfile};
     use crate::service::State;
-    use crate::WarehouseIdent;
+    use crate::{WarehouseIdent, CONFIG};
 
     use iceberg::NamespaceIdent;
 
@@ -180,16 +180,12 @@ mod test {
                 contract_verifiers: ContractVerifiers::new(vec![]),
                 queues: TaskQueues::new(
                     Arc::new(
-                        crate::implementations::postgres::task_queues::ExpirationTaskFetcher {
-                            read_write: ReadWrite::from_pools(pool.clone(), pool.clone()),
-                        },
+                        crate::implementations::postgres::task_queues::ExpirationTaskFetcher::from_config(ReadWrite::from_pools(pool.clone(), pool.clone()), CONFIG.queue_config.clone()).unwrap(),
                     ),
                     Arc::new(
-                        crate::implementations::postgres::task_queues::TabularPurgeTaskFetcher {
-                            read_write: ReadWrite::from_pools(pool.clone(), pool),
-                        },
-                    ),
-                ),
+                        crate::implementations::postgres::task_queues::TabularPurgeTaskFetcher::from_config(ReadWrite::from_pools(pool.clone(), pool), CONFIG.queue_config.clone()).unwrap()
+                    )
+                )
             },
         }
     }

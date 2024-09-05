@@ -13,6 +13,7 @@ use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::Result;
 use crate::service::{Catalog, SecretStore, State, Transaction};
+use crate::CONFIG;
 use http::StatusCode;
 use iceberg_ext::catalog::rest::ErrorModel;
 use uuid::Uuid;
@@ -103,6 +104,7 @@ pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
                 warehouse_ident: warehouse_id,
                 tabular_type: TabularType::View,
                 purge: purge_requested,
+                expire_at: chrono::Utc::now() + CONFIG.tabular_expiration_delay(),
             })
             .await?;
     }

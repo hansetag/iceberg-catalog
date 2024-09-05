@@ -6,7 +6,7 @@ use crate::WarehouseIdent;
 use std::sync::Arc;
 
 use crate::service::task_queue::tabular_purge_queue::{TabularPurgeInput, TabularPurgeTask};
-use iceberg_ext::catalog::rest::ErrorModel;
+
 use std::time::Duration;
 use tracing::Instrument;
 use uuid::Uuid;
@@ -170,4 +170,5 @@ pub struct TabularExpirationInput {
     pub warehouse_ident: WarehouseIdent,
     pub tabular_type: TabularType,
     pub purge: bool,
+    pub expire_at: chrono::DateTime<chrono::Utc>,
 }

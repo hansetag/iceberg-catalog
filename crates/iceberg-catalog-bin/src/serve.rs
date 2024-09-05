@@ -57,12 +57,14 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     health_provider.spawn_health_checks().await;
 
     let queues = TaskQueues::new(
-        Arc::new(ExpirationTaskFetcher {
-            read_write: ReadWrite::from_pools(read_pool.clone(), write_pool.clone()),
-        }),
-        Arc::new(TabularPurgeTaskFetcher {
-            read_write: ReadWrite::from_pools(read_pool, write_pool.clone()),
-        }),
+        Arc::new(ExpirationTaskFetcher::from_config(
+            ReadWrite::from_pools(read_pool.clone(), write_pool.clone()),
+            CONFIG.queue_config.clone(),
+        )?),
+        Arc::new(TabularPurgeTaskFetcher::from_config(
+            ReadWrite::from_pools(read_pool.clone(), write_pool.clone()),
+            CONFIG.queue_config.clone(),
+        )?),
     );
 
     let mut cloud_event_sinks = vec![];
