@@ -555,13 +555,13 @@ pub(crate) async fn mark_tabular_as_deleted(
 pub(crate) async fn drop_tabular<'a>(
     tabular_id: TabularIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<()> {
-    let _ = sqlx::query!(
+) -> Result<String> {
+    let location = sqlx::query_scalar!(
         r#"DELETE FROM tabular
                 WHERE tabular_id = $1
                     AND typ = $2
                     AND tabular_id IN (SELECT tabular_id FROM active_tabulars)
-               RETURNING tabular_id"#,
+               RETURNING location"#,
         *tabular_id,
         TabularType::from(tabular_id) as _
     )
@@ -580,7 +580,7 @@ pub(crate) async fn drop_tabular<'a>(
         }
     })?;
 
-    Ok(())
+    Ok(location)
 }
 
 fn try_parse_namespace_ident(namespace: Vec<String>) -> Result<NamespaceIdent> {

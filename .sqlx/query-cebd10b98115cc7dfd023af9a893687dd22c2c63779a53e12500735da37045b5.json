@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM tabular\n                WHERE tabular_id = $1\n                    AND typ = $2\n                    AND tabular_id IN (SELECT tabular_id FROM active_tabulars)\n               RETURNING tabular_id",
+  "query": "DELETE FROM tabular\n                WHERE tabular_id = $1\n                    AND typ = $2\n                    AND tabular_id IN (SELECT tabular_id FROM active_tabulars)\n               RETURNING location",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "tabular_id",
-        "type_info": "Uuid"
+        "name": "location",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -29,5 +29,5 @@
       false
     ]
   },
-  "hash": "bd314216ff747de8a0076069515db88d53f495b3fb15c50c23661c6c5e915dea"
+  "hash": "cebd10b98115cc7dfd023af9a893687dd22c2c63779a53e12500735da37045b5"
 }

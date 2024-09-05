@@ -147,13 +147,13 @@ pub(crate) async fn create_view(
 pub(crate) async fn drop_view<'a>(
     view_id: TableIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<()> {
+) -> Result<String> {
     let _ = sqlx::query!(
         r#"
      DELETE FROM view
      WHERE view_id = $1
      AND view_id IN (select view_id from active_views)
-     RETURNING "view_id"
+     RETURNING view_id
      "#,
         *view_id,
     )
@@ -172,8 +172,7 @@ pub(crate) async fn drop_view<'a>(
         }
     })?;
 
-    drop_tabular(TabularIdentUuid::View(*view_id), transaction).await?;
-    Ok(())
+    drop_tabular(TabularIdentUuid::View(*view_id), transaction).await
 }
 
 /// Rename a table. Tables may be moved across namespaces.

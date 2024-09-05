@@ -205,7 +205,7 @@ impl Catalog for super::Catalog {
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<()> {
+    ) -> Result<String> {
         drop_table(table_id, transaction).await
     }
 
@@ -366,7 +366,7 @@ impl Catalog for super::Catalog {
     async fn drop_view<'a>(
         table_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<()> {
+    ) -> Result<String> {
         drop_view(table_id, transaction).await
     }
 

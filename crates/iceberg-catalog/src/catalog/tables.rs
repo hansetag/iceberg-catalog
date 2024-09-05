@@ -557,42 +557,24 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .into_result()?;
 
         if hard_delete {
-            let purge_input = if purge {
-                let table = C::load_tables(
-                    warehouse_id,
-                    vec![table_id],
-                    true,
-                    transaction.transaction(),
-                )
-                .await?
-                .remove(&table_id)
-                .ok_or_else(|| ErrorModel::internal("Table not found", "InternalDBError", None))?;
-                Some(TabularPurgeInput {
-                    tabular_location: table.table_metadata.location,
+            let location = C::drop_table(table_id, transaction.transaction()).await?;
+            // TODO: committing here means maybe dangling data if queue_tabular_purge fails
+            //       commiting after queuing means we may end up with a table pointing nowhere
+            //       I feel that some undeleted files are less bad than a table that's there but can't be loaded
+            transaction.commit().await?;
+
+            let queued = state
+                .v1_state
+                .queues
+                .queue_tabular_purge(TabularPurgeInput {
                     tabular_id: *table_id,
+                    tabular_location: location,
                     warehouse_ident: warehouse_id,
                     tabular_type: TabularType::Table,
                     parent_id: None,
                 })
-            } else {
-                None
-            };
-
-            C::drop_table(table_id, transaction.transaction()).await?;
-            // TODO: committing here means maybe dangling data if queue_tabular_purge fails
-            //       commiting after queuing means we may end up with a table pointing nowhere
-            //       I feel that some undeleted files are less bad than a table that's there but can't be loaded
-
-            transaction.commit().await?;
-
-            if let Some(tabular_purge_input) = purge_input {
-                let queued = state
-                    .v1_state
-                    .queues
-                    .queue_tabular_purge(tabular_purge_input)
-                    .await?;
-                tracing::debug!("Queued purge task: '{queued}' for dropped table '{table_id}'.");
-            }
+                .await?;
+            tracing::debug!("Queued purge task: '{queued}' for dropped table '{table_id}'.");
         } else {
             C::mark_tabular_as_deleted(
                 TabularIdentUuid::Table(*table_id),

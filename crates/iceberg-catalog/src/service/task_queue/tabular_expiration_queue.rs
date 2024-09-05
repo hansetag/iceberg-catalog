@@ -110,73 +110,49 @@ where
 
     // We need to load the table metadata to get the location and we cannot load the table after
     // dropping it.
-    let cleanup_task = maybe_prepare_purge_input::<C>(expiration, &mut trx).await?;
 
-    C::drop_table(
-        TableIdentUuid::from(expiration.tabular_id),
-        trx.transaction(),
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to drop table: {:?}", e);
-        e
-    })?;
+    let tabular_location = match expiration.tabular_type {
+        TabularType::Table => C::drop_table(
+            TableIdentUuid::from(expiration.tabular_id),
+            trx.transaction(),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to drop table: {:?}", e);
+            e
+        })?,
+        TabularType::View => C::drop_view(
+            TableIdentUuid::from(expiration.tabular_id),
+            trx.transaction(),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to drop table: {:?}", e);
+            e
+        })?,
+    };
 
-    if let Some(task) = cleanup_task {
-        let id = delete_queue.enqueue(task).await?;
+    if matches!(expiration.deletion_kind, DeleteKind::Purge) {
+        let id = delete_queue
+            .enqueue(TabularPurgeInput {
+                tabular_id: expiration.tabular_id,
+                warehouse_ident: expiration.warehouse_ident,
+                tabular_type: expiration.tabular_type,
+                parent_id: Some(expiration.task.task_id),
+                tabular_location,
+            })
+            .await?;
         tracing::debug!("Enqueued purge task: {:?}", id);
     }
 
+    // Here we commit after the queuing of the deletion since we're in a fault-tolerant workflow
+    // which will restart if the commit fails.
     trx.commit().await.map_err(|e| {
         tracing::error!("Failed to commit transaction: {:?}", e);
         e
     })?;
 
     Ok(())
-}
-
-async fn maybe_prepare_purge_input<C>(
-    TabularExpirationTask {
-        deletion_kind,
-        tabular_id,
-        warehouse_ident,
-        tabular_type,
-        task,
-    }: &TabularExpirationTask,
-    trx: &mut C::Transaction,
-) -> Result<Option<TabularPurgeInput>>
-where
-    C: Catalog,
-{
-    Ok(if matches!(deletion_kind, DeleteKind::Purge) {
-        let tabular_location = C::load_tables(
-            *warehouse_ident,
-            [TableIdentUuid::from(*tabular_id)],
-            true,
-            trx.transaction(),
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to load table: {:?}", e);
-            e
-        })?
-        .remove(&TableIdentUuid::from(*tabular_id))
-        .ok_or_else(|| {
-            tracing::error!("Table not found");
-            ErrorModel::internal("Table not found", "InternalDBError", None)
-        })?
-        .table_metadata
-        .location;
-        Some(TabularPurgeInput {
-            tabular_id: *tabular_id,
-            tabular_location,
-            warehouse_ident: *warehouse_ident,
-            tabular_type: *tabular_type,
-            parent_id: Some(task.task_id),
-        })
-    } else {
-        None
-    })
 }
 
 #[derive(Debug)]

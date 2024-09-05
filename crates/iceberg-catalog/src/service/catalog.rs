@@ -237,10 +237,12 @@ where
     /// Should drop staged and non-staged tables.
     ///
     /// Consider in your implementation to implement an UNDROP feature.
+    ///
+    /// Returns the table location
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<()>;
+    ) -> Result<String>;
 
     async fn mark_tabular_as_deleted(
         table_id: TabularIdentUuid,
@@ -360,7 +362,7 @@ where
     async fn drop_view<'a>(
         view_id: TableIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<()>;
+    ) -> Result<String>;
 
     async fn rename_view(
         warehouse_id: WarehouseIdent,

@@ -432,7 +432,7 @@ pub(crate) async fn rename_table(
 pub(crate) async fn drop_table<'a>(
     table_id: TableIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<()> {
+) -> Result<String> {
     let _ = sqlx::query!(
         r#"
         DELETE FROM "table"
@@ -441,14 +441,23 @@ pub(crate) async fn drop_table<'a>(
             FROM active_tables
             WHERE active_tables.table_id = $1
         )
+        RETURNING table_id
         "#,
         *table_id,
     )
-    .execute(&mut **transaction)
+    .fetch_optional(&mut **transaction)
     .await
     .map_err(|e| {
-        tracing::warn!(?table_id, "Error dropping tabular: {}", e);
-        e.into_error_model("Error dropping table".to_string())
+        if let sqlx::Error::RowNotFound = e {
+            ErrorModel::not_found(
+                "Table not found",
+                "NoSuchTabularError".to_string(),
+                Some(Box::new(e)),
+            )
+        } else {
+            tracing::warn!("Error dropping table: {}", e);
+            e.into_error_model("Error dropping table".into())
+        }
     })?;
 
     drop_tabular(TabularIdentUuid::Table(*table_id), transaction).await
