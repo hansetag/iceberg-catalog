@@ -571,6 +571,7 @@ pub(crate) mod tests {
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use crate::service::ListFlags;
 
+    use crate::implementations::postgres::tabular::mark_tabular_as_deleted;
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
     use iceberg_ext::configs::Location;
@@ -1418,7 +1419,9 @@ pub(crate) mod tests {
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let mut transaction = pool.begin().await.unwrap();
-        drop_table(table.table_id, &mut transaction).await.unwrap();
+        mark_tabular_as_deleted(TabularIdentUuid::Table(*table.table_id), &mut transaction)
+            .await
+            .unwrap();
         transaction.commit().await.unwrap();
 
         let err = get_table_metadata_by_id(
