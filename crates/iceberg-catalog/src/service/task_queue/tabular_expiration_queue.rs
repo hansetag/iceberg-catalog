@@ -82,13 +82,6 @@ async fn instrumented_expire<C: Catalog>(
     };
 }
 
-// Loads the table metadata
-// Gets the FileIO for the table
-// Deletes data files referenced by old metadata
-// Deletes the old metadata
-// Deletes data files referenced by current table metadata
-// Deletes current table metadata
-// Drops the table from the catalog
 async fn handle_table<C>(
     catalog_state: C::State,
     delete_queue: &TabularPurgeQueue,
@@ -103,9 +96,6 @@ where
             tracing::error!("Failed to start transaction: {:?}", e);
             e
         })?;
-
-    // We need to load the table metadata to get the location and we cannot load the table after
-    // dropping it.
 
     let tabular_location = match expiration.tabular_type {
         TabularType::Table => C::drop_table(
