@@ -8,7 +8,7 @@ use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
 use crate::service::storage::{StorageCredential, StoragePermissions};
 use crate::service::{Catalog, SecretStore, State, Transaction, ViewMetadataWithLocation};
-use crate::service::{GetWarehouseResponse, Result};
+use crate::service::{Result, Warehouse};
 use http::StatusCode;
 use iceberg_ext::catalog::rest::{ErrorModel, LoadViewResult};
 use iceberg_ext::configs::Location;
@@ -63,7 +63,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     })?;
     let mut transaction = C::Transaction::begin_read(state.v1_state.catalog).await?;
 
-    let GetWarehouseResponse {
+    let Warehouse {
         id: _,
         name: _,
         project_id: _,

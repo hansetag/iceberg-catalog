@@ -758,6 +758,7 @@ mod test {
         NamespaceIdentUuid,
     };
     use needs_env_var::needs_env_var;
+    use uuid::Uuid;
 
     #[test]
     fn test_is_valid_bucket_name() {
@@ -806,25 +807,30 @@ mod test {
         };
         let sp: StorageProfile = profile.clone().into();
 
+        let warehouse_id = WarehouseIdent::from(Uuid::now_v7());
         let namespace_id = NamespaceIdentUuid::from(uuid::Uuid::now_v7());
         let table_id = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-        let namespace_location = sp.default_namespace_location(namespace_id).unwrap();
+        let namespace_location = sp
+            .default_namespace_location(warehouse_id, namespace_id)
+            .unwrap();
 
         let location = sp.default_tabular_location(&namespace_location, table_id);
         assert_eq!(
             location.to_string(),
-            format!("s3://test-bucket/test_prefix/{namespace_id}/{table_id}")
+            format!("s3://test-bucket/test_prefix/{warehouse_id}/{namespace_id}/{table_id}")
         );
 
         let mut profile = profile.clone();
         profile.key_prefix = None;
         let sp: StorageProfile = profile.into();
 
-        let namespace_location = sp.default_namespace_location(namespace_id).unwrap();
+        let namespace_location = sp
+            .default_namespace_location(warehouse_id, namespace_id)
+            .unwrap();
         let location = sp.default_tabular_location(&namespace_location, table_id);
         assert_eq!(
             location.to_string(),
-            format!("s3://test-bucket/{namespace_id}/{table_id}")
+            format!("s3://test-bucket/{warehouse_id}/{namespace_id}/{table_id}")
         );
     }
 

@@ -741,6 +741,7 @@ mod test {
 
     use super::*;
     use needs_env_var::needs_env_var;
+    use uuid::Uuid;
 
     #[needs_env_var(TEST_AZURE = 1)]
     mod azure_tests {
@@ -814,14 +815,17 @@ mod test {
 
         let sp: StorageProfile = profile.clone().into();
 
+        let warehouse_id = WarehouseIdent::from(Uuid::now_v7());
         let namespace_id = NamespaceIdentUuid::from(uuid::Uuid::now_v7());
         let table_id = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-        let namespace_location = sp.default_namespace_location(namespace_id).unwrap();
+        let namespace_location = sp
+            .default_namespace_location(warehouse_id, namespace_id)
+            .unwrap();
 
         let location = sp.default_tabular_location(&namespace_location, table_id);
         assert_eq!(
             location.to_string(),
-            format!("abfss://filesystem@account.dfs.core.windows.net/test_prefix/{namespace_id}/{table_id}")
+            format!("abfss://filesystem@account.dfs.core.windows.net/test_prefix/{warehouse_id}/{namespace_id}/{table_id}")
         );
 
         let mut profile = profile.clone();
@@ -829,11 +833,13 @@ mod test {
         profile.host = Some("blob.com".to_string());
         let sp: StorageProfile = profile.into();
 
-        let namespace_location = sp.default_namespace_location(namespace_id).unwrap();
+        let namespace_location = sp
+            .default_namespace_location(warehouse_id, namespace_id)
+            .unwrap();
         let location = sp.default_tabular_location(&namespace_location, table_id);
         assert_eq!(
             location.to_string(),
-            format!("abfss://filesystem@account.blob.com/{namespace_id}/{table_id}")
+            format!("abfss://filesystem@account.blob.com/{warehouse_id}/{namespace_id}/{table_id}")
         );
     }
 

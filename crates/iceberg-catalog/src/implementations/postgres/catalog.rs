@@ -22,8 +22,8 @@ use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_d
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, DeletionDetails,
-    GetWarehouseResponse, ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent,
-    Result, TableIdent, WarehouseStatus,
+    ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result, TableIdent,
+    Warehouse, WarehouseStatus,
 };
 use crate::{
     api::iceberg::v1::{PaginatedTabulars, PaginationQuery},
@@ -67,7 +67,7 @@ impl Catalog for super::PostgresCatalog {
     async fn get_warehouse<'a>(
         warehouse_id: WarehouseIdent,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
-    ) -> Result<GetWarehouseResponse> {
+    ) -> Result<Warehouse> {
         get_warehouse(warehouse_id, transaction).await
     }
 
@@ -239,7 +239,7 @@ impl Catalog for super::PostgresCatalog {
         include_inactive: Option<Vec<WarehouseStatus>>,
         warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
         catalog_state: Self::State,
-    ) -> Result<Vec<GetWarehouseResponse>> {
+    ) -> Result<Vec<Warehouse>> {
         list_warehouses(
             project_id,
             include_inactive,

@@ -14,19 +14,20 @@ use crate::api::iceberg::v1::{
     NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
     TableIdent, TableParameters,
 };
+
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::api::management::v1::TabularType;
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
+use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
-    LoadTableResponse as CatalogLoadTableResult, State, Transaction,
+    LoadTableResponse as CatalogLoadTableResult, State, Transaction, Warehouse,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 
@@ -121,14 +122,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let namespace = C::get_namespace(warehouse_id, &namespace, t.transaction()).await?;
         let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
-        let storage_profile = warehouse.storage_profile;
+        let storage_profile = &warehouse.storage_profile;
         require_active_warehouse(warehouse.status)?;
 
         let table_location = determine_tabular_location(
             &namespace,
             request.location.clone(),
             TabularIdentUuid::Table(*table_id),
-            &storage_profile,
+            &warehouse,
         )?;
 
         // Update the request for event
@@ -1076,7 +1077,7 @@ pub(super) fn determine_tabular_location(
     namespace: &GetNamespaceResponse,
     request_table_location: Option<String>,
     table_id: TabularIdentUuid,
-    storage_profile: &StorageProfile,
+    warehouse: &Warehouse,
 ) -> Result<Location> {
     let request_table_location = request_table_location
         .map(|l| Location::from_str(&l))
@@ -1090,7 +1091,7 @@ pub(super) fn determine_tabular_location(
         })?;
 
     if let Some(location) = request_table_location {
-        if !storage_profile.is_allowed_location(&location) {
+        if !warehouse.is_allowed_location(&location) {
             return Err(ErrorModel::bad_request(
                 format!("Specified table location is not allowed: {location}"),
                 "InvalidTableLocation",
@@ -1107,8 +1108,9 @@ pub(super) fn determine_tabular_location(
 
         let namespace_location = match namespace_props.get_location() {
             Some(location) => location,
-            None => storage_profile
-                .default_namespace_location(namespace.namespace_id)
+            None => warehouse
+                .storage_profile
+                .default_namespace_location(warehouse.id, namespace.namespace_id)
                 .map_err(|e| {
                     ErrorModel::internal(
                         "Failed to generate default namespace location",
@@ -1118,7 +1120,9 @@ pub(super) fn determine_tabular_location(
                 })?,
         };
 
-        Ok(storage_profile.default_tabular_location(&namespace_location, table_id))
+        Ok(warehouse
+            .storage_profile
+            .default_tabular_location(&namespace_location, table_id))
     }
 }
 

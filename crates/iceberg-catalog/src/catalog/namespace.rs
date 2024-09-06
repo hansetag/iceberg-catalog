@@ -8,7 +8,7 @@ use crate::request_metadata::RequestMetadata;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, NamespaceIdentExt, State, Transaction as _,
 };
-use crate::service::{GetWarehouseResponse, NamespaceIdentUuid};
+use crate::service::{NamespaceIdentUuid, Warehouse};
 use crate::CONFIG;
 use http::StatusCode;
 use iceberg::NamespaceIdent;
@@ -341,7 +341,7 @@ pub(crate) fn validate_namespace_ident(namespace: &NamespaceIdent) -> Result<()>
 
 fn set_namespace_location_property(
     namespace_props: &mut NamespaceProperties,
-    warehouse: &GetWarehouseResponse,
+    warehouse: &Warehouse,
     namespace_id: NamespaceIdentUuid,
 ) -> Result<()> {
     let mut location = namespace_props.get_location();
@@ -352,7 +352,7 @@ fn set_namespace_location_property(
     // For customer specified location, we need to check if we can write to the location.
     // If no location is specified, we use our default location.
     let location = if let Some(location) = location {
-        if warehouse.storage_profile.is_allowed_location(&location) {
+        if warehouse.is_allowed_location(&location) {
             location
         } else {
             return Err(ErrorModel::bad_request(
@@ -365,7 +365,7 @@ fn set_namespace_location_property(
     } else {
         warehouse
             .storage_profile
-            .default_namespace_location(namespace_id)?
+            .default_namespace_location(warehouse.id, namespace_id)?
     };
 
     namespace_props.insert(&location);

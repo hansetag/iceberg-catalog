@@ -17,8 +17,8 @@ use crate::service::event_publisher::EventMetadata;
 use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, Transaction,
-    ViewMetadataWithLocation,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction,
+    ViewMetadataWithLocation, Warehouse,
 };
 use http::StatusCode;
 use iceberg::spec::{AppendViewVersion, ViewMetadataBuilder};
@@ -150,7 +150,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
 
-    let GetWarehouseResponse {
+    let Warehouse {
         id: _,
         name: _,
         project_id: _,

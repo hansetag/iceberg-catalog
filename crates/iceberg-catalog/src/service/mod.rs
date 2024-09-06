@@ -13,10 +13,10 @@ pub mod token_verification;
 pub use catalog::{
     Catalog, CommitTableResponse, CreateNamespaceRequest, CreateNamespaceResponse,
     CreateTableRequest, CreateTableResponse, DeletionDetails, DropFlags, GetNamespaceResponse,
-    GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse, ListFlags,
-    ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
-    TableCommit, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
-    UpdateNamespacePropertiesResponse, ViewMetadataWithLocation,
+    GetStorageConfigResponse, GetTableMetadataResponse, ListFlags, ListNamespacesQuery,
+    ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result, TableCommit, TableIdent,
+    Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
+    ViewMetadataWithLocation, Warehouse,
 };
 use std::ops::Deref;
 
@@ -238,6 +238,12 @@ pub enum WarehouseStatus {
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
 pub struct WarehouseIdent(pub(crate) uuid::Uuid);
+
+impl Default for WarehouseIdent {
+    fn default() -> Self {
+        Self(uuid::Uuid::now_v7())
+    }
+}
 
 impl WarehouseIdent {
     #[must_use]

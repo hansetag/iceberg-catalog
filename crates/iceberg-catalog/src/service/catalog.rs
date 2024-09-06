@@ -80,7 +80,7 @@ pub struct GetStorageConfigResponse {
 }
 
 #[derive(Debug, Clone)]
-pub struct GetWarehouseResponse {
+pub struct Warehouse {
     /// ID of the warehouse.
     pub id: WarehouseIdent,
     /// Name of the warehouse.
@@ -95,6 +95,30 @@ pub struct GetWarehouseResponse {
     pub status: WarehouseStatus,
     /// Tabular delete profile used for the warehouse.
     pub tabular_delete_profile: TabularDeleteProfile,
+}
+
+impl Warehouse {
+    pub(crate) fn base_location(&self) -> Result<Location> {
+        let mut location = self.storage_profile.base_location()?;
+        location.without_trailing_slash().push(&self.id.to_string());
+        Ok(location)
+    }
+
+    #[must_use]
+    pub fn is_allowed_location(&self, other: &Location) -> bool {
+        let base_location = self.base_location().ok();
+
+        if let Some(mut base_location) = base_location {
+            base_location.with_trailing_slash();
+            if other == &base_location {
+                return false;
+            }
+
+            other.is_sublocation_of(&base_location)
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -285,13 +309,13 @@ where
         // If Some, return only the warehouses in the set
         warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
         catalog_state: Self::State,
-    ) -> Result<Vec<GetWarehouseResponse>>;
+    ) -> Result<Vec<Warehouse>>;
 
     /// Get the warehouse metadata - should only return active warehouses.
     async fn get_warehouse<'a>(
         warehouse_id: WarehouseIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<GetWarehouseResponse>;
+    ) -> Result<Warehouse>;
 
     /// Delete a warehouse.
     async fn delete_warehouse<'a>(
@@ -453,4 +477,86 @@ pub struct DeletionDetails {
     pub expiration_date: chrono::DateTime<chrono::Utc>,
     pub deleted_at: chrono::DateTime<chrono::Utc>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[cfg(test)]
+mod test {
+    use crate::service::storage::{S3Flavor, S3Profile, StorageProfile};
+    use crate::service::{Warehouse, WarehouseStatus};
+    use iceberg_ext::configs::Location;
+    use std::str::FromStr;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_is_allowed_location() {
+        let profile = StorageProfile::S3(S3Profile {
+            bucket: "my.bucket".to_string(),
+            endpoint: Some("http://localhost:9000".parse().unwrap()),
+            region: "us-east-1".to_string(),
+            assume_role_arn: None,
+            path_style_access: None,
+            key_prefix: Some("my/subpath".to_string()),
+            sts_role_arn: None,
+            sts_enabled: false,
+            flavor: S3Flavor::Aws,
+        });
+        let warehouse = Warehouse {
+            id: Uuid::now_v7().into(),
+            name: "my-warehouse".to_string(),
+            project_id: Uuid::now_v7().into(),
+            storage_profile: profile,
+            storage_secret_id: None,
+            status: WarehouseStatus::Active,
+            tabular_delete_profile: Default::default(),
+        };
+
+        let cases = vec![
+            (
+                format!("s3://my.bucket/my/subpath/{}/ns-id", warehouse.id),
+                true,
+            ),
+            (
+                format!("s3://my.bucket/my/subpath/{}/ns-id/", warehouse.id),
+                true,
+            ),
+            (
+                format!("s3://my.bucket/my/subpath/{}/ns-id/tbl-id", warehouse.id),
+                true,
+            ),
+            (
+                format!("s3://my.bucket/my/subpath/{}/ns-id/tbl-id/", warehouse.id),
+                true,
+            ),
+            (
+                format!(
+                    "s3://other.bucket/my/subpath/{}/ns-id/tbl-id/",
+                    warehouse.id
+                ),
+                false,
+            ),
+            (
+                format!(
+                    "s3://my.bucket/other/subpath/{}/ns-id/tbl-id/",
+                    warehouse.id
+                ),
+                false,
+            ),
+            // Exact path should not be accepted
+            (format!("s3://my.bucket/my/subpath/{}", warehouse.id), false),
+            (
+                format!("s3://my.bucket/my/subpath/{}/", warehouse.id),
+                false,
+            ),
+        ];
+
+        for (sublocation, expected_result) in cases {
+            let sublocation = Location::from_str(&sublocation).unwrap();
+            assert_eq!(
+                warehouse.is_allowed_location(&sublocation),
+                expected_result,
+                "Base Location: {}, Maybe sublocation: {sublocation}",
+                warehouse.base_location().unwrap(),
+            );
+        }
+    }
 }

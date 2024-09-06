@@ -1,7 +1,7 @@
 use super::dbutils::DBErrorHandler as _;
 use crate::api::{CatalogConfig, ErrorModel, Result};
 use crate::service::config::ConfigProvider;
-use crate::service::{GetWarehouseResponse, WarehouseStatus};
+use crate::service::{Warehouse, WarehouseStatus};
 use crate::{service::storage::StorageProfile, ProjectIdent, SecretIdent, WarehouseIdent};
 use http::StatusCode;
 use sqlx::Error;
@@ -115,7 +115,7 @@ pub(crate) async fn list_warehouses(
     include_status: Option<Vec<WarehouseStatus>>,
     warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
     catalog_state: CatalogState,
-) -> Result<Vec<GetWarehouseResponse>> {
+) -> Result<Vec<Warehouse>> {
     #[derive(sqlx::FromRow, Debug, PartialEq)]
     struct WarehouseRecord {
         warehouse_id: uuid::Uuid,
@@ -197,7 +197,7 @@ pub(crate) async fn list_warehouses(
                 DbTabularDeleteProfile::Hard => TabularDeleteProfile::Hard {},
             };
 
-            Ok(GetWarehouseResponse {
+            Ok(Warehouse {
                 id: warehouse.warehouse_id.into(),
                 name: warehouse.warehouse_name,
                 project_id,
@@ -213,7 +213,7 @@ pub(crate) async fn list_warehouses(
 pub(crate) async fn get_warehouse<'a>(
     warehouse_id: WarehouseIdent,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<GetWarehouseResponse> {
+) -> Result<Warehouse> {
     let warehouse = sqlx::query!(
         r#"
         SELECT 
@@ -248,7 +248,7 @@ pub(crate) async fn get_warehouse<'a>(
         DbTabularDeleteProfile::Hard => TabularDeleteProfile::Hard {},
     };
 
-    Ok(GetWarehouseResponse {
+    Ok(Warehouse {
         id: warehouse_id,
         name: warehouse.warehouse_name,
         project_id: ProjectIdent::from(warehouse.project_id),
