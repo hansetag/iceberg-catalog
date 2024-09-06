@@ -1067,7 +1067,11 @@ fn require_table_ids(
                 Ok((table_ident, table_id))
             } else {
                 Err(ErrorModel::not_found(
-                    format!("Table {table_ident:#?} does not exist."),
+                    format!(
+                        "Table '{}.{}' does not exist.",
+                        table_ident.namespace.to_url_string(),
+                        table_ident.name
+                    ),
                     "TableNotFound",
                     None,
                 )
@@ -1083,7 +1087,11 @@ fn require_table_id(
 ) -> Result<TableIdentUuid> {
     table_id.ok_or_else(|| {
         ErrorModel::not_found(
-            format!("Table {table_ident:#?} does not exist."),
+            format!(
+                "Table '{}.{}' does not exist.",
+                table_ident.namespace.to_url_string(),
+                table_ident.name
+            ),
             "TableNotFound",
             None,
         )
@@ -1113,7 +1121,11 @@ fn remove_table<T>(
         .remove(table_id)
         .ok_or_else(|| {
             ErrorModel::not_found(
-                format!("Table {table_ident:#?} does not exist."),
+                format!(
+                    "Table '{}.{}' does not exist.",
+                    table_ident.namespace.to_url_string(),
+                    table_ident.name
+                ),
                 "TableNotFound",
                 None,
             )
