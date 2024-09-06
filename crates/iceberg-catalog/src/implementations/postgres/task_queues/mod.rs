@@ -33,7 +33,7 @@ impl PgQueue {
             max_age: sqlx::postgres::types::PgInterval {
                 months: 0,
                 days: 0,
-                microseconds, // 3 seconds
+                microseconds,
             },
         }
     }
