@@ -104,7 +104,7 @@ pub enum MigrationState {
 }
 
 #[derive(Debug, Clone)]
-pub struct Catalog {}
+pub struct PostgresCatalog {}
 
 #[derive(Debug)]
 

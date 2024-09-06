@@ -188,8 +188,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 pub(crate) mod test {
     use super::*;
 
-    use crate::catalog::views::test::new_namespace;
-
+    use crate::implementations::postgres::namespace::tests::initialize_namespace;
     use crate::implementations::postgres::secrets::SecretsState;
     use crate::implementations::AllowAllAuthZHandler;
     use iceberg::NamespaceIdent;
@@ -198,7 +197,11 @@ pub(crate) mod test {
 
     pub(crate) async fn create_view(
         api_context: ApiContext<
-            State<AllowAllAuthZHandler, crate::implementations::postgres::Catalog, SecretsState>,
+            State<
+                AllowAllAuthZHandler,
+                crate::implementations::postgres::PostgresCatalog,
+                SecretsState,
+            >,
         >,
         namespace: NamespaceIdent,
         rq: CreateViewRequest,
@@ -258,12 +261,12 @@ pub(crate) mod test {
         .expect("Recreate with with another name it should work");
 
         rq.name = old_name;
-        let new_ns = new_namespace(
-            api_context.v1_state.catalog.clone(),
-            whi,
-            Some(vec![Uuid::now_v7().to_string()]),
-        )
-        .await;
+        let namespace = NamespaceIdent::from_vec(vec![Uuid::now_v7().to_string()]).unwrap();
+        let new_ns =
+            initialize_namespace(api_context.v1_state.catalog.clone(), whi, &namespace, None)
+                .await
+                .namespace;
+
         let _view = create_view(api_context, new_ns, rq, Some(whi.to_string()))
             .await
             .expect("Recreate with same name but different ns should work.");

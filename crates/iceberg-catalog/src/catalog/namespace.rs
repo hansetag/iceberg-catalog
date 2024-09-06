@@ -1,9 +1,13 @@
+use super::{require_warehouse_id, CatalogServer};
 use crate::api::iceberg::v1::{
     ApiContext, CreateNamespaceRequest, CreateNamespaceResponse, ErrorModel, GetNamespaceResponse,
     ListNamespacesQuery, ListNamespacesResponse, NamespaceParameters, Prefix, Result,
     UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 use crate::request_metadata::RequestMetadata;
+use crate::service::{
+    auth::AuthZHandler, secrets::SecretStore, Catalog, NamespaceIdentExt, State, Transaction as _,
+};
 use crate::service::{GetWarehouseResponse, NamespaceIdentUuid};
 use crate::CONFIG;
 use http::StatusCode;
@@ -12,11 +16,6 @@ use iceberg_ext::configs::namespace::NamespaceProperties;
 use iceberg_ext::configs::{ConfigProperty as _, Location};
 use std::collections::HashMap;
 use std::ops::Deref;
-
-use super::{require_warehouse_id, CatalogServer};
-use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, NamespaceIdentExt, State, Transaction as _,
-};
 
 pub const UNSUPPORTED_NAMESPACE_PROPERTIES: &[&str] = &[];
 // If this is increased, we need to modify namespace creation and deletion
@@ -443,7 +442,6 @@ fn namespace_location_may_not_changed(
 
 #[cfg(test)]
 mod tests {
-
     #[test]
     fn test_update_ns_properties() {
         use super::*;

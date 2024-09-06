@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Error};
 use iceberg_catalog::api::router::{new_full_router, serve as service_serve};
-use iceberg_catalog::implementations::postgres::{Catalog, CatalogState, ReadWrite};
+use iceberg_catalog::implementations::postgres::{CatalogState, PostgresCatalog, ReadWrite};
 use iceberg_catalog::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
@@ -88,22 +88,27 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     let metrics_layer =
         iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?;
 
-    let router =
-        new_full_router::<Catalog, Catalog, AllowAllAuthZHandler, AllowAllAuthZHandler, Secrets>(
-            auth_state,
-            catalog_state.clone(),
-            secrets_state.clone(),
-            queues.clone(),
-            CloudEventsPublisher::new(tx.clone()),
-            ContractVerifiers::new(vec![]),
-            if let Some(uri) = CONFIG.openid_provider_uri.clone() {
-                Some(Verifier::new(uri).await?)
-            } else {
-                None
-            },
-            health_provider,
-            Some(metrics_layer),
-        );
+    let router = new_full_router::<
+        PostgresCatalog,
+        PostgresCatalog,
+        AllowAllAuthZHandler,
+        AllowAllAuthZHandler,
+        Secrets,
+    >(
+        auth_state,
+        catalog_state.clone(),
+        secrets_state.clone(),
+        queues.clone(),
+        CloudEventsPublisher::new(tx.clone()),
+        ContractVerifiers::new(vec![]),
+        if let Some(uri) = CONFIG.openid_provider_uri.clone() {
+            Some(Verifier::new(uri).await?)
+        } else {
+            None
+        },
+        health_provider,
+        Some(metrics_layer),
+    );
 
     let publisher_handle = tokio::task::spawn(async move {
         match x.publish().await {
@@ -113,7 +118,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     });
 
     tokio::select!(
-        _ = queues.spawn_queues::<Catalog, _>(catalog_state, secrets_state) => tracing::error!("Tabular queue task failed"),
+        _ = queues.spawn_queues::<PostgresCatalog, _>(catalog_state, secrets_state) => tracing::error!("Tabular queue task failed"),
         err = service_serve(listener, router) => tracing::error!("Service failed: {err:?}"),
     );
 

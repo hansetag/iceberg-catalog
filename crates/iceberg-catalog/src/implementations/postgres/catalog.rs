@@ -40,7 +40,7 @@ use iceberg::spec::ViewMetadata;
 use std::collections::{HashMap, HashSet};
 
 #[async_trait::async_trait]
-impl Catalog for super::Catalog {
+impl Catalog for super::PostgresCatalog {
     type Transaction = PostgresTransaction;
     type State = CatalogState;
 
