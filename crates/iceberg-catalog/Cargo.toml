@@ -18,7 +18,7 @@ sqlx = ["dep:sqlx"]
 s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]
 router = ["dep:tower-http"]
 nats = ["dep:async-nats"]
-kafka = ["dep:rdkkafka"]
+kafka = ["dep:rdkafka"]
 default = ["sqlx-postgres", "s3-signer", "router"]
 
 [dependencies]

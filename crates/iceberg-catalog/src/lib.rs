@@ -18,6 +18,8 @@ pub use config::{SecretBackend, CONFIG};
 
 pub mod implementations;
 
+pub mod vendor;
+
 mod request_metadata;
 
 #[cfg(feature = "router")]

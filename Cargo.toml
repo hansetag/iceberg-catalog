@@ -15,6 +15,7 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 async-nats = "0.36.0"
+rdkafka = { version = "0.36.2", features = ["cmake-build"] }
 async-compression = { version = "^0.4", features = ["tokio", "gzip"] }
 azure_core = { version = "0.20.0", default-features = false, features = [
   "hmac_rust",
@@ -99,7 +100,12 @@ tower-http = { version = "^0.5", features = [
 tracing = { version = "^0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 urlencoding = "^2.1"
-utoipa = { version = "4.2.3", features = ["axum_extras", "chrono", "url", "uuid"] }
+utoipa = { version = "4.2.3", features = [
+  "axum_extras",
+  "chrono",
+  "url",
+  "uuid",
+] }
 utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
 veil = "0.1.7"
 paste = "1.0.15"
