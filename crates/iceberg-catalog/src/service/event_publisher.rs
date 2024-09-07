@@ -2,7 +2,7 @@ use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
 use cloudevents::Event;
 use std::sync::Arc;
-use std::{fmt::Debug, time::Duration};
+use std::fmt::Debug;
 use uuid::Uuid;
 
 #[cfg(feature = "kafka")]
