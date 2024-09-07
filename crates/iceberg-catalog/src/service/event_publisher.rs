@@ -1,9 +1,14 @@
 use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
 use cloudevents::Event;
-use std::fmt::Debug;
 use std::sync::Arc;
+use std::{fmt::Debug, time::Duration};
 use uuid::Uuid;
+
+#[cfg(feature = "kafka")]
+use crate::vendor::cloudevents::binding::rdkafka::{FutureRecordExt, MessageRecord};
+#[cfg(feature = "kafka")]
+use rdkafka::producer::{FutureProducer, FutureRecord};
 
 #[derive(Debug, Clone)]
 pub struct CloudEventsPublisher {
@@ -180,6 +185,51 @@ impl CloudEventBackend for NatsBackend {
 
     fn name(&self) -> &'static str {
         "nats-publisher"
+    }
+}
+
+#[cfg(feature = "kafka")]
+pub struct KafkaBackend {
+    pub producer: FutureProducer,
+    pub topic: String,
+}
+
+#[cfg(feature = "kafka")]
+impl std::fmt::Debug for KafkaBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KafkaBackend")
+            // TODO:: Debug output for FutureProducer
+            .field("topic", &self.topic)
+            .finish()
+    }
+}
+
+#[cfg(feature = "kafka")]
+#[async_trait]
+impl CloudEventBackend for KafkaBackend {
+    async fn publish(&self, event: Event) -> anyhow::Result<()> {
+        let message_record = MessageRecord::from_event(event)?;
+        let delivery_status = self
+            .producer
+            .send(
+                FutureRecord::to(&self.topic)
+                    .message_record(&message_record)
+                    // TODO: key is optional, however it probably makes sense to use one
+                    // should it be user defined? warehouse-id? just "TIP"?
+                    .key("TIP"),
+                Duration::from_secs(10),
+            )
+            .await;
+
+        // TODO: there _has_ to be a more elegant solution...
+        match delivery_status {
+            Ok(_) => Ok(()),
+            Err((e, _)) => Err(anyhow::anyhow!(e)),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "kafka-publisher"
     }
 }
 
