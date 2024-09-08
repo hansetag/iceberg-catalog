@@ -23,8 +23,8 @@ use std::default::Default;
 use uuid::Uuid;
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
-use crate::service::ListFlags;
 pub(crate) use crate::service::ViewMetadataWithLocation;
+use crate::service::{DropFlags, ListFlags};
 pub(crate) use load::load_view;
 
 pub(crate) async fn view_ident_to_id<'e, 'c: 'e, E>(
@@ -91,12 +91,9 @@ pub(crate) async fn create_view(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Error creating view".to_string())
-            .r#type("InternalDatabaseError".to_string())
-            .build(),
-
+        sqlx::Error::RowNotFound => {
+            ErrorModel::internal("Error creating view", "InternalDatabaseError", None)
+        }
         _ => e.into_error_model("Error creating view".to_string()),
     })?;
 
@@ -148,10 +145,10 @@ pub(crate) async fn create_view(
 
 pub(crate) async fn drop_view<'a>(
     view_id: TableIdentUuid,
-    hard_delete: bool,
+    drop_flags: DropFlags,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<()> {
-    if hard_delete {
+    if drop_flags.hard_delete {
         let _ = sqlx::query!(
             r#"
          DELETE FROM view
@@ -177,7 +174,7 @@ pub(crate) async fn drop_view<'a>(
         })?;
     }
 
-    drop_tabular(TabularIdentUuid::View(*view_id), hard_delete, transaction).await?;
+    drop_tabular(TabularIdentUuid::View(*view_id), drop_flags, transaction).await?;
     Ok(())
 }
 
@@ -440,7 +437,7 @@ pub(crate) async fn list_views(
 ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
     let page = list_tabulars(
         warehouse_id,
-        namespace,
+        Some(namespace),
         ListFlags {
             include_deleted,
             include_staged: false,
@@ -454,7 +451,7 @@ pub(crate) async fn list_views(
     let views = page
         .tabulars
         .into_iter()
-        .map(|(k, v)| match k {
+        .map(|(k, (v, _))| match k {
             TabularIdentUuid::Table(_) => Err(ErrorModel::builder()
                 .code(StatusCode::INTERNAL_SERVER_ERROR.into())
                 .message("DB returned a table when filtering for tables.".to_string())
@@ -534,7 +531,7 @@ pub(crate) mod tests {
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use crate::implementations::postgres::CatalogState;
 
-    use crate::service::TableIdentUuid;
+    use crate::service::{DropFlags, TableIdentUuid};
 
     use iceberg::spec::{ViewMetadata, ViewMetadataBuilder};
     use iceberg::{NamespaceIdent, TableIdent};
@@ -665,18 +662,24 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
+        tx.commit().await.unwrap();
 
+        let mut tx = pool.begin().await.unwrap();
         // recreate with same uuid should fail
         let created_view = super::create_view(
             namespace_id,
             "s3://my_bucket/my_table/metadata/bar",
             &mut tx,
-            "myview",
+            "myview2",
             request.clone(),
         )
         .await
         .expect_err("recreation should fail");
-        assert_eq!(created_view.error.code, 409);
+        // this is not a conflict error since uuids are not externally controlled
+        assert_eq!(created_view.error.code, 500, "{}", created_view.error);
+        tx.commit().await.unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
 
         // recreate with other uuid should fail
         let created_view = super::create_view(
@@ -691,7 +694,7 @@ pub(crate) mod tests {
         )
         .await
         .expect_err("recreation should fail");
-        assert_eq!(created_view.error.code, 409);
+        assert_eq!(created_view.error.code, 409, "{}", created_view.error);
 
         tx.commit().await.unwrap();
 
@@ -718,9 +721,13 @@ pub(crate) mod tests {
     async fn drop_view(pool: sqlx::PgPool) {
         let (state, created_meta, _, _, _) = prepare_view(pool).await;
         let mut tx = state.write_pool().begin().await.unwrap();
-        super::drop_view(created_meta.view_uuid.into(), true, &mut tx)
-            .await
-            .unwrap();
+        super::drop_view(
+            created_meta.view_uuid.into(),
+            DropFlags::default().hard_delete(),
+            &mut tx,
+        )
+        .await
+        .unwrap();
         tx.commit().await.unwrap();
         load_view(
             created_meta.view_uuid.into(),
@@ -735,7 +742,7 @@ pub(crate) mod tests {
     async fn soft_drop_view(pool: sqlx::PgPool) {
         let (state, created_meta, _, _, _) = prepare_view(pool).await;
         let mut tx = state.write_pool().begin().await.unwrap();
-        super::drop_view(created_meta.view_uuid.into(), false, &mut tx)
+        super::drop_view(created_meta.view_uuid.into(), DropFlags::default(), &mut tx)
             .await
             .unwrap();
         tx.commit().await.unwrap();
@@ -748,9 +755,13 @@ pub(crate) mod tests {
         .expect("soft-dropped view should loadable");
         let mut tx = state.write_pool().begin().await.unwrap();
 
-        super::drop_view(created_meta.view_uuid.into(), true, &mut tx)
-            .await
-            .unwrap();
+        super::drop_view(
+            created_meta.view_uuid.into(),
+            DropFlags::default().hard_delete(),
+            &mut tx,
+        )
+        .await
+        .unwrap();
         tx.commit().await.unwrap();
 
         load_view(
@@ -803,9 +814,13 @@ pub(crate) mod tests {
     async fn drop_view_not_existing(pool: sqlx::PgPool) {
         let (state, _, _, _, _) = prepare_view(pool).await;
         let mut tx = state.write_pool().begin().await.unwrap();
-        let e = super::drop_view(Uuid::now_v7().into(), true, &mut tx)
-            .await
-            .expect_err("dropping random uuid should not succeed");
+        let e = super::drop_view(
+            Uuid::now_v7().into(),
+            DropFlags::default().hard_delete(),
+            &mut tx,
+        )
+        .await
+        .expect_err("dropping random uuid should not succeed");
         tx.commit().await.unwrap();
         assert_eq!(e.error.code, 404);
     }

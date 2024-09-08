@@ -427,9 +427,9 @@ dependencies = [
 
 [[package]]
 name = "async-nats"
-version = "0.35.1"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab8df97cb8fc4a884af29ab383e9292ea0939cfcdd7d2a17179086dc6c427e7f"
+checksum = "f71e5a1bab60f46b0b005f4808b8ee83ef6d577608923de938403393c9a30cf8"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -453,6 +453,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-rustls 0.26.0",
+ "tokio-util",
  "tracing",
  "tryhard",
  "url",
@@ -2840,6 +2841,7 @@ dependencies = [
  "reqwest 0.12.7",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sqlx",
  "strum",
  "strum_macros",
@@ -6082,6 +6084,7 @@ dependencies = [
  "quote",
  "regex",
  "syn 2.0.74",
+ "url",
  "uuid",
 ]
 

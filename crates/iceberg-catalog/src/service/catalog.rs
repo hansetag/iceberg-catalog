@@ -14,7 +14,7 @@ pub use crate::api::iceberg::v1::{
     UpdateNamespacePropertiesResponse,
 };
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
-
+use crate::api::management::v1::ListDeletedTabularsResponse;
 use crate::service::health::HealthExt;
 
 #[async_trait::async_trait]
@@ -239,7 +239,7 @@ where
     /// Consider in your implementation to implement an UNDROP feature.
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
-        hard_delete: bool,
+        drop_flags: DropFlags,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
@@ -355,6 +355,7 @@ where
 
     async fn drop_view<'a>(
         view_id: TableIdentUuid,
+        drop_flags: DropFlags,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
@@ -365,12 +366,38 @@ where
         destination: &TableIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()>;
+
+    async fn list_soft_deleted_tabulars(
+        warehouse_id: WarehouseIdent,
+        catalog_state: Self::State,
+        pagination_query: PaginationQuery,
+    ) -> Result<ListDeletedTabularsResponse>;
 }
 
 #[derive(Debug, Clone, Default, Copy, PartialEq)]
 pub struct ListFlags {
     pub include_staged: bool,
     pub include_deleted: bool,
+}
+
+#[derive(Clone, Default, Debug, Copy, PartialEq, Eq)]
+pub struct DropFlags {
+    pub hard_delete: bool,
+    pub purge: bool,
+}
+
+impl DropFlags {
+    #[must_use]
+    pub fn purge(mut self) -> Self {
+        self.purge = true;
+        self
+    }
+
+    #[must_use]
+    pub fn hard_delete(mut self) -> Self {
+        self.hard_delete = true;
+        self
+    }
 }
 
 #[derive(Debug, Clone)]

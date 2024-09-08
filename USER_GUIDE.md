@@ -7,12 +7,15 @@ If you just want a quick glimpse, use the self-contained Quickstart describe in 
 There are multiple ways to deploy the catalog. It ships as a single standalone binary that can be deployed anywhere you like. For high availability, we recommend to [Deploy on Kubernetes](#deployment-on-kubernetes).
 
 ## Deployment on Kubernetes
+
 We recommend deploying the catalog on Kubernetes using our [Helm Chart](https://github.com/hansetag/tip-catalog-charts/tree/main/charts/tip-catalog). Please check the Helm Chart's documentation for possible values.
 
 ## Deployment Standalone
+
 For single node deployments, you can also download the Binary from [Github Releases](https://github.com/hansetag/iceberg-catalog/releases).
 
 A basic configuration via environment variables would look something like this:
+
 ```sh
 export ICEBERG_REST__BASE_URI=http://localhost:8080
 # For single-tenant deployments, otherwise skip:
@@ -29,7 +32,9 @@ Finally, we can run the server:
 `iceberg-catalog serve`
 
 # Creating a Warehouse
+
 Now that the catalog is up-and-running, two endpoints are available:
+
 1. `<ICEBERG_REST__BASE_URI>/catalog` is the Iceberg REST API
 2. `<ICEBERG_REST__BASE_URI>/management` contains the management API
 
@@ -62,14 +67,22 @@ We now create a new Warehouse by POSTing the request to the management API:
 ```sh
 curl -X POST http://localhost:8080/management/v1/warehouse -H "Content-Type: application/json" -d @create-warehouse-request.json
 ```
+
+If you want to use a different storage backend, see the [STORAGE.MD](STORAGE.MD) for example configurations.
+
 That's it - we can now use the catalog:
 
 ```python
 import pandas as pd
 import pyspark
 
+SPARK_VERSION = pyspark.__version__
+SPARK_MINOR_VERSION = '.'.join(SPARK_VERSION.split('.')[:2])
+ICEBERG_VERSION = "1.6.1"
+
+# if you use adls as storage backend, you need iceberg-azure instead of iceberg-aws-bundle
 configuration = {
-    "spark.jars.packages": "org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.0,org.apache.iceberg:iceberg-aws-bundle:1.5.0",
+    "spark.jars.packages": f"org.apache.iceberg:iceberg-spark-runtime-{SPARK_MINOR_VERSION}_2.12:{ICEBERG_VERSION},org.apache.iceberg:iceberg-aws-bundle:{ICEBERG_VERSION}",
     "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
     "spark.sql.defaultCatalog": "demo",
     "spark.sql.catalog.demo": "org.apache.iceberg.spark.SparkCatalog",
@@ -83,7 +96,6 @@ for k, v in configuration.items():
     spark_conf = spark_conf.set(k, v)
 
 spark = pyspark.sql.SparkSession.builder.config(conf=spark_conf).getOrCreate()
-
 
 spark.sql("USE demo")
 
@@ -105,4 +117,6 @@ spark.sql(
 sdf.writeTo("demo.my_namespace.my_table").append()
 spark.table("demo.my_namespace.my_table").show()
 ```
+
 For more examples also check the [/examples/notebooks](examples/notebooks) as well as our [integration tests](tests/python/tests/).
+

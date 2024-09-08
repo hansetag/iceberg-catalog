@@ -5,9 +5,9 @@ info:
     Implementation of the Iceberg REST Catalog server.
   license:
     name: Apache-2.0
-  version: 0.2.1
+  version: 0.3.0
 paths:
-  management/v1/project:
+  /management/v1/project:
     get:
       tags:
       - management
@@ -22,7 +22,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ListProjectsResponse'
-  management/v1/warehouse:
+  /management/v1/warehouse:
     get:
       tags:
       - management
@@ -87,7 +87,7 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/CreateWarehouseResponse'
-  management/v1/warehouse/{warehouse_id}:
+  /management/v1/warehouse/{warehouse_id}:
     get:
       tags:
       - management
@@ -124,7 +124,7 @@ paths:
       responses:
         '200':
           description: Warehouse deleted successfully
-  management/v1/warehouse/{warehouse_id}/activate:
+  /management/v1/warehouse/{warehouse_id}/activate:
     post:
       tags:
       - management
@@ -140,7 +140,7 @@ paths:
       responses:
         '200':
           description: Warehouse activated successfully
-  management/v1/warehouse/{warehouse_id}/deactivate:
+  /management/v1/warehouse/{warehouse_id}/deactivate:
     post:
       tags:
       - management
@@ -156,7 +156,30 @@ paths:
       responses:
         '200':
           description: Warehouse deactivated successfully
-  management/v1/warehouse/{warehouse_id}/rename:
+  /management/v1/warehouse/{warehouse_id}/deleted_tabulars:
+    get:
+      tags:
+      - management
+      summary: List soft-deleted tabulars
+      description: List all soft-deleted tabulars in the warehouse that are visible to you.
+      operationId: list_deleted_tabulars
+      parameters:
+      - name: warehouse_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: List of soft-deleted tabulars
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ListDeletedTabularsResponse'
+  /management/v1/warehouse/{warehouse_id}/rename:
     post:
       tags:
       - management
@@ -178,7 +201,7 @@ paths:
       responses:
         '200':
           description: Warehouse renamed successfully
-  management/v1/warehouse/{warehouse_id}/storage:
+  /management/v1/warehouse/{warehouse_id}/storage:
     post:
       tags:
       - management
@@ -200,7 +223,7 @@ paths:
       responses:
         '200':
           description: Storage profile updated successfully
-  management/v1/warehouse/{warehouse_id}/storage-credential:
+  /management/v1/warehouse/{warehouse_id}/storage-credential:
     post:
       tags:
       - management
@@ -255,16 +278,17 @@ components:
           type: string
           description: Name of the azure storage account.
         authority-host:
-          allOf:
-          - $ref: '#/components/schemas/Url'
-          nullable: true
-        endpoint-suffix:
           type: string
-          description: 'The endpoint suffix to use for the storage account. Default: `dfs.core.windows.net`.'
+          format: uri
+          description: 'The authority host to use for authentication. Default: `https://login.microsoftonline.com`.'
           nullable: true
         filesystem:
           type: string
           description: Name of the azdls filesystem, in blobstorage also known as container.
+        host:
+          type: string
+          description: 'The host to use for the storage account. Default: `dfs.core.windows.net`.'
+          nullable: true
         key-prefix:
           type: string
           description: |-
@@ -308,6 +332,51 @@ components:
           type: string
           format: uuid
           description: ID of the created warehouse.
+    DeleteKind:
+      type: string
+      enum:
+      - Default
+      - Purge
+    DeletedTabularResponse:
+      type: object
+      required:
+      - id
+      - name
+      - namespace
+      - typ
+      - warehouse_id
+      - created_at
+      - deleted_at
+      - deleted_kind
+      properties:
+        created_at:
+          type: string
+          format: date-time
+          description: Date when the tabular was created
+        deleted_at:
+          type: string
+          format: date-time
+          description: Date when the tabular was deleted
+        deleted_kind:
+          $ref: '#/components/schemas/DeleteKind'
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the tabular
+        name:
+          type: string
+          description: Name of the tabular
+        namespace:
+          type: array
+          items:
+            type: string
+          description: List of namespace parts the tabular belongs to
+        typ:
+          $ref: '#/components/schemas/TabularType'
+        warehouse_id:
+          type: string
+          format: uuid
+          description: Warehouse ID where the tabular is stored
     GetWarehouseResponse:
       type: object
       required:
@@ -332,6 +401,20 @@ components:
           $ref: '#/components/schemas/WarehouseStatus'
         storage-profile:
           $ref: '#/components/schemas/StorageProfile'
+    ListDeletedTabularsResponse:
+      type: object
+      required:
+      - tabulars
+      properties:
+        next_page_token:
+          type: string
+          description: Token to fetch the next page
+          nullable: true
+        tabulars:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeletedTabularResponse'
+          description: List of tabulars
     ListProjectsResponse:
       type: object
       required:
@@ -406,11 +489,17 @@ components:
             - access-key
       discriminator:
         propertyName: credential-type
+    S3Flavor:
+      type: string
+      enum:
+      - aws
+      - minio
     S3Profile:
       type: object
       required:
       - bucket
       - region
+      - sts-enabled
       properties:
         assume-role-arn:
           type: string
@@ -421,11 +510,15 @@ components:
           description: Name of the S3 bucket
         endpoint:
           type: string
+          format: uri
           description: |-
             Optional endpoint to use for S3 requests, if not provided
             the region will be used to determine the endpoint.
             If both region and endpoint are provided, the endpoint will be used.
+            Example: `http://s3-de.my-domain.com:9000`
           nullable: true
+        flavor:
+          $ref: '#/components/schemas/S3Flavor'
         key-prefix:
           type: string
           description: |-
@@ -434,11 +527,19 @@ components:
           nullable: true
         path-style-access:
           type: boolean
-          description: Path style access for S3 requests.
+          description: |-
+            Path style access for S3 requests.
+            If the underlying S3 supports both, we recommend to not set `path_style_access`.
           nullable: true
         region:
           type: string
           description: Region to use for S3 requests.
+        sts-enabled:
+          type: boolean
+        sts-role-arn:
+          type: string
+          description: Optional role ARN to assume for sts vended-credentials
+          nullable: true
     StorageCredential:
       oneOf:
       - allOf:
@@ -489,6 +590,12 @@ components:
       description: Storage profile for a warehouse.
       discriminator:
         propertyName: type
+    TabularType:
+      type: string
+      description: Type of tabular
+      enum:
+      - table
+      - view
     UpdateWarehouseCredentialRequest:
       type: object
       properties:

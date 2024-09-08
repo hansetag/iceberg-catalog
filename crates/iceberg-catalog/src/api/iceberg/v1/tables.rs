@@ -1,4 +1,4 @@
-use crate::api::iceberg::types::Prefix;
+use crate::api::iceberg::types::{DropParams, Prefix};
 use crate::api::iceberg::v1::namespace::{NamespaceIdentUrl, NamespaceParameters, PaginationQuery};
 use crate::api::{
     ApiContext, CommitTableRequest, CommitTableResponse, CommitTransactionRequest,
@@ -62,6 +62,7 @@ where
     /// Drop a table from the catalog
     async fn drop_table(
         parameters: TableParameters,
+        drop_params: DropParams,
         state: ApiContext<S>,
         request_metadata: RequestMetadata,
     ) -> Result<()>;
@@ -200,6 +201,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
             // Drop a table from the catalog
             .delete(
                 |Path((prefix, namespace, table)): Path<(Prefix, NamespaceIdentUrl, String)>,
+                 Query(drop_params): Query<DropParams>,
                  State(api_context): State<ApiContext<S>>,
                  Extension(metadata): Extension<RequestMetadata>| async {
                     I::drop_table(
@@ -210,6 +212,7 @@ pub fn router<I: Service<S>, S: crate::api::ThreadSafe>() -> Router<ApiContext<S
                                 name: table,
                             },
                         },
+                        drop_params,
                         api_context,
                         metadata,
                     )
