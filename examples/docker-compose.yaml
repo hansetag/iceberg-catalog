@@ -119,10 +119,5 @@ services:
       - "9000:9000"
       - "9001:9001"
 
-  starrocks:
-    image: starrocks/allin1-ubuntu:3.3.2
-    networks:
-      iceberg_net:
-
 networks:
   iceberg_net:
