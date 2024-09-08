@@ -117,6 +117,8 @@ def storage_config(request) -> dict:
                 "tenant-id": AZURE_TENANT_ID,
             },
         }
+    else:
+        raise ValueError(f"Unknown storage type: {request.param['type']}")
 
 
 @dataclasses.dataclass
@@ -347,7 +349,7 @@ def trino(warehouse: Warehouse, storage_config):
 
 
 @pytest.fixture(scope="session")
-def starrocks(warehouse: Warehouse):
+def starrocks(warehouse: Warehouse, storage_config):
     if STARROCKS_URI is None:
         pytest.skip("ICEBERG_REST_TEST_STARROCKS_URI is not set")
 
@@ -356,21 +358,48 @@ def starrocks(warehouse: Warehouse):
     engine = create_engine(STARROCKS_URI)
     connection = engine.connect()
     connection.execute("DROP CATALOG IF EXISTS rest_catalog")
-    connection.execute(
-        f"""
-        CREATE EXTERNAL CATALOG rest_catalog
-        PROPERTIES
-        (
-            "type" = "iceberg",
-            "iceberg.catalog.type" = "rest",
-            "iceberg.catalog.uri" = "{warehouse.server.catalog_url}",
-            "iceberg.catalog.warehouse" = "{warehouse.project_id}/{warehouse.warehouse_name}",
-            "header.x-iceberg-access-delegation" = "vended-credentials",
-            "iceberg.catalog.oauth2-server-uri" = "{OPENID_PROVIDER_URI.rstrip('/')}/protocol/openid-connect/token",
-            "iceberg.catalog.credential" = "{OPENID_CLIENT_ID}:{OPENID_CLIENT_SECRET}"
+
+    storage_type = storage_config["storage-profile"]["type"]
+
+    if storage_type == "s3":
+        # Use the following when https://github.com/StarRocks/starrocks/issues/50585#issue-2501162084
+        # is fixed:
+        # connection.execute(
+        #     f"""
+        #     CREATE EXTERNAL CATALOG rest_catalog
+        #     PROPERTIES
+        #     (
+        #         "type" = "iceberg",
+        #         "iceberg.catalog.type" = "rest",
+        #         "iceberg.catalog.uri" = "{warehouse.server.catalog_url}",
+        #         "iceberg.catalog.warehouse" = "{warehouse.project_id}/{warehouse.warehouse_name}",
+        #         "header.x-iceberg-access-delegation" = "vended-credentials",
+        #         "iceberg.catalog.oauth2-server-uri" = "{OPENID_PROVIDER_URI.rstrip('/')}/protocol/openid-connect/token",
+        #         "iceberg.catalog.credential" = "{OPENID_CLIENT_ID}:{OPENID_CLIENT_SECRET}"
+        #     )
+        #     """
+        # )
+        connection.execute(
+            f"""
+            CREATE EXTERNAL CATALOG rest_catalog
+            PROPERTIES
+            (
+                "type" = "iceberg",
+                "iceberg.catalog.type" = "rest",
+                "iceberg.catalog.uri" = "{warehouse.server.catalog_url}",
+                "iceberg.catalog.warehouse" = "{warehouse.project_id}/{warehouse.warehouse_name}",
+                "iceberg.catalog.oauth2-server-uri" = "{OPENID_PROVIDER_URI.rstrip('/')}/protocol/openid-connect/token",
+                "iceberg.catalog.credential" = "{OPENID_CLIENT_ID}:{OPENID_CLIENT_SECRET}",
+                "aws.s3.region" = "local",
+                "aws.s3.enable_path_style_access" = "true",
+                "aws.s3.endpoint" = "{S3_ENDPOINT}",
+                "aws.s3.access_key" = "{S3_ACCESS_KEY}",
+                "aws.s3.secret_key" = "{S3_SECRET_KEY}"
+            )
+            """
         )
-        """
-    )
+    else:
+        raise ValueError(f"Unknown storage type for starrocks: {storage_type}")
     connection.execute("SET CATALOG rest_catalog")
 
     yield connection
