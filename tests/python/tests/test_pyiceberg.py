@@ -2,6 +2,8 @@ import conftest
 import pandas as pd
 import pyarrow as pa
 import pytest
+import time
+import pyiceberg.io as io
 
 
 def test_create_namespace(warehouse: conftest.Warehouse):
@@ -82,6 +84,44 @@ def test_drop_table(namespace: conftest.Namespace):
     catalog.create_table((*namespace.name, table_name), schema=schema)
     assert catalog.load_table((*namespace.name, table_name))
     catalog.drop_table((*namespace.name, table_name))
+    with pytest.raises(Exception) as e:
+        catalog.load_table((*namespace.name, table_name))
+        assert "NoSuchTableError" in str(e)
+
+
+def test_drop_purge_table(namespace: conftest.Namespace):
+    catalog = namespace.pyiceberg_catalog
+    table_name = "my_table"
+    schema = pa.schema(
+        [
+            pa.field("my_ints", pa.int64()),
+            pa.field("my_floats", pa.float64()),
+            pa.field("strings", pa.string()),
+        ]
+    )
+    catalog.create_table((*namespace.name, table_name), schema=schema)
+    tab = catalog.load_table((*namespace.name, table_name))
+    properties = tab.properties
+    properties["s3.access-key-id"] = conftest.ICEBERG_REST_TEST_S3_ACCESS_KEY
+    properties["s3.secret-access-key"] = conftest.ICEBERG_REST_TEST_S3_SECRET_KEY
+    properties["s3.endpoint"] = conftest.ICEBERG_REST_TEST_S3_ENDPOINT
+
+    file_io = io._infer_file_io_from_scheme(tab.location(), properties)
+
+    catalog.drop_table((*namespace.name, table_name), purge_requested=True)
+
+    with pytest.raises(Exception) as e:
+        catalog.load_table((*namespace.name, table_name))
+        assert "NoSuchTableError" in str(e)
+
+    inp = file_io.new_input(tab.location())
+    assert not inp.exists(), f"Table location {tab.location()} still exists"
+    # sleep to give time for the table to be gone
+    time.sleep(5)
+
+    inp = file_io.new_input(tab.location())
+    assert not inp.exists(), f"Table location {tab.location()} still exists"
+
     with pytest.raises(Exception) as e:
         catalog.load_table((*namespace.name, table_name))
         assert "NoSuchTableError" in str(e)

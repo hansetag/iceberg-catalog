@@ -231,7 +231,7 @@ def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse):
 
     file_io = io._infer_file_io_from_scheme(table_0.location(), properties)
     import time
-    # sleep to give time for the t
+    # sleep to give time for the table to be gone
     time.sleep(5)
 
     inp = file_io.new_input(table_0.location())
