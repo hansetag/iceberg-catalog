@@ -314,12 +314,12 @@ pub mod v1 {
         pub created_at: chrono::DateTime<chrono::Utc>,
         /// Date when the tabular was deleted
         pub deleted_at: chrono::DateTime<chrono::Utc>,
-        /// Kind of deletion, default or purge
-        pub deleted_kind: DeleteKind,
+        /// Date when the tabular will not be recoverable anymore
+        pub expiration_date: chrono::DateTime<chrono::Utc>,
     }
 
     /// Type of tabular
-    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    #[derive(Debug, Serialize, Clone, Copy, utoipa::ToSchema, strum::Display, PartialEq, Eq)]
     #[serde(rename_all = "kebab-case")]
     pub enum TabularType {
         Table,
@@ -335,7 +335,8 @@ pub mod v1 {
         }
     }
 
-    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    #[derive(Debug, Serialize, utoipa::ToSchema, Clone, Copy, PartialEq, Eq)]
+    #[serde(rename_all = "kebab-case")]
     pub enum DeleteKind {
         Default,
         Purge,

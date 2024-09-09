@@ -1,9 +1,3 @@
-use crate::SecretIdent;
-use iceberg::spec::{TableMetadata, ViewMetadata};
-pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
-use iceberg_ext::configs::Location;
-use std::collections::{HashMap, HashSet};
-
 use super::{
     storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent,
     WarehouseStatus,
@@ -14,8 +8,14 @@ pub use crate::api::iceberg::v1::{
     UpdateNamespacePropertiesResponse,
 };
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
-use crate::api::management::v1::ListDeletedTabularsResponse;
 use crate::service::health::HealthExt;
+use crate::SecretIdent;
+
+use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
+use iceberg::spec::{TableMetadata, ViewMetadata};
+pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
+use iceberg_ext::configs::Location;
+use std::collections::{HashMap, HashSet};
 
 #[async_trait::async_trait]
 pub trait Transaction<D>
@@ -237,10 +237,16 @@ where
     /// Should drop staged and non-staged tables.
     ///
     /// Consider in your implementation to implement an UNDROP feature.
+    ///
+    /// Returns the table location
     async fn drop_table<'a>(
         table_id: TableIdentUuid,
-        drop_flags: DropFlags,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<String>;
+
+    async fn mark_tabular_as_deleted(
+        table_id: TabularIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()>;
 
     /// Commit changes to a table.
@@ -355,9 +361,8 @@ where
 
     async fn drop_view<'a>(
         view_id: TableIdentUuid,
-        drop_flags: DropFlags,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<()>;
+    ) -> Result<String>;
 
     async fn rename_view(
         warehouse_id: WarehouseIdent,
@@ -367,17 +372,49 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()>;
 
-    async fn list_soft_deleted_tabulars(
+    async fn list_tabulars(
         warehouse_id: WarehouseIdent,
+        list_flags: ListFlags,
         catalog_state: Self::State,
         pagination_query: PaginationQuery,
-    ) -> Result<ListDeletedTabularsResponse>;
+    ) -> Result<PaginatedTabulars<TabularIdentUuid, (TabularIdentOwned, Option<DeletionDetails>)>>;
 }
 
-#[derive(Debug, Clone, Default, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ListFlags {
+    pub include_active: bool,
     pub include_staged: bool,
     pub include_deleted: bool,
+}
+
+impl Default for ListFlags {
+    fn default() -> Self {
+        Self {
+            include_active: true,
+            include_staged: false,
+            include_deleted: false,
+        }
+    }
+}
+
+impl ListFlags {
+    #[must_use]
+    pub fn all() -> Self {
+        Self {
+            include_staged: true,
+            include_deleted: true,
+            include_active: true,
+        }
+    }
+
+    #[must_use]
+    pub fn only_deleted() -> Self {
+        Self {
+            include_staged: false,
+            include_deleted: true,
+            include_active: false,
+        }
+    }
 }
 
 #[derive(Clone, Default, Debug, Copy, PartialEq, Eq)]
@@ -404,4 +441,12 @@ impl DropFlags {
 pub struct ViewMetadataWithLocation {
     pub metadata_location: String,
     pub metadata: ViewMetadata,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DeletionDetails {
+    pub expiration_task_id: uuid::Uuid,
+    pub expiration_date: chrono::DateTime<chrono::Utc>,
+    pub deleted_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }

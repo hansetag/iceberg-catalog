@@ -6,6 +6,7 @@ use crate::api::management::v1::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
 use crate::service::contract_verification::ContractVerifiers;
 use crate::service::health::ServiceHealthProvider;
+use crate::service::task_queue::TaskQueues;
 use crate::service::token_verification::Verifier;
 use crate::service::{
     auth::{AuthConfigHandler, AuthZHandler},
@@ -34,6 +35,7 @@ pub fn new_full_router<
     auth_state: A::State,
     catalog_state: C::State,
     secrets_state: S,
+    queues: TaskQueues,
     publisher: CloudEventsPublisher,
     table_change_checkers: ContractVerifiers,
     token_verifier: Option<Verifier>,
@@ -92,6 +94,7 @@ pub fn new_full_router<
             secrets: secrets_state,
             publisher,
             contract_verifiers: table_change_checkers,
+            queues,
         },
     });
 

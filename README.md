@@ -134,6 +134,11 @@ the project you want to use. For single project deployments we recommend using t
 00000000-0000-0000-0000-000000000000") as project-id. Users then just specify `warehouse` as `<warehouse-name>` when
 connecting.
 
+# Undrop Tables
+
+When a table or view is dropped, it is not immediately deleted from the catalog. Instead, it is marked as dropped and a job for its cleanup is scheduled. The table, including its data if `purgeRequested=True`, is then deleted after the configured `ICEBERG_TABULAR_EXPIRATION_DELAY_SECONDS` (default: 7 days) have passed. This will allow for a recovery of tables that have been dropped by accident.
+
+
 # Configuration
 
 The basic setup of the Catalog is configured via environment variables. As this catalog supports a multi-tenant setup, each catalog ("warehouse") also comes with its own configuration options including its Storage Configuration. The documentation of the Management-API for warehouses is hosted at the unprotected `/swagger-ui` endpoint.
@@ -143,13 +148,26 @@ Following options are global and apply to all warehouses:
 ### General
 
 | Variable                            | Example                                | Description                                                                                                                                                                                                                    |
-| ----------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ----------------------------------- | -------------------------------------- |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `ICEBERG_REST__BASE_URI`            | `https://example.com:8080`            | Base URL where the catalog is externally reachable. Default: `https://localhost:8080`                                                                                                                                          |
 | `ICEBERG_REST__DEFAULT_PROJECT_ID`  | `00000000-0000-0000-0000-000000000000` | The default project ID to use if the user does not specify a project when connecting. We recommend setting the Project-ID only in single Project setups. Each Project can still contain multiple Warehouses. Default: Not set. |
 | `ICEBERG_REST__RESERVED_NAMESPACES` | `system,examples`                      | Reserved Namespaces that cannot be created via the REST interface                                                                                                                                                              |
 | `ICEBERG_REST__METRICS_PORT`        | `9000`                                 | Port where the metrics endpoint is reachable. Default: `9000`                                                                                                                                                                  |
 | `ICEBERG_REST__LISTEN_PORT`         | `8080`                                 | Port the server listens on. Default: `8080`                                                                                                                                                                                    |
 | `ICEBERG_REST__SECRET_BACKEND`      | `postgres`                             | The secret backend to use. If `kv2` is chosen, you need to provide additional parameters found under []() Default: `postgres`, one-of: [`postgres`, `kv2`]                                                                     |
+| `ICEBERG_TABULAR_EXPIRATION_DELAY_SECONDS` | `86400`                          | Time after which a tabular, i.e. View or Table which has been dropped is going to be deleted. Default: `86400`                                                                                                                 |
+
+### Task queues
+
+Currently, the catalog uses two task queues, one to ultimately delete soft-deleted tabulars and another to purge tabulars which have been deleted with the `purgeRequested=True` query parameter. The task queues are configured as follows:
+
+| Variable                                    | Example | Description                                                                                                 |
+|---------------------------------------------|---------|-------------------------------------------------------------------------------------------------------------|
+| `ICEBERG_REST__QUEUE_CONFIG__MAX_RETRIES`   | 5       | Number of retries before a task is considered failed  Default: 5                                            |
+| `ICEBERG_REST__QUEUE_CONFIG__MAX_AGE`       | 3600    | Amount of seconds before a task is considered stale and could be picked up by another worker. Default: 3600 |
+| `ICEBERG_REST__QUEUE_CONFIG__POLL_INTERVAL` | 10      | Amount of seconds between polling for new tasks. Default: 10                                                |
+
+The queues are currently implemented using the `sqlx` Postgres backend. If you want to use a different backend, you need to implement the `TaskQueue` trait.
 
 ### Postgres
 

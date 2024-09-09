@@ -9,11 +9,11 @@ use http::StatusCode;
 
 use super::dbutils::DBErrorHandler as _;
 
-use super::{Catalog, CatalogState};
+use super::{CatalogState, PostgresCatalog};
 use sqlx::types::Json;
 
 #[async_trait::async_trait]
-impl ConfigProvider<Catalog> for super::Catalog {
+impl ConfigProvider<PostgresCatalog> for super::PostgresCatalog {
     async fn get_warehouse_by_name(
         warehouse_name: &str,
         project_id: ProjectIdent,
@@ -456,6 +456,7 @@ pub(crate) mod test {
         state: CatalogState,
         storage_profile: Option<StorageProfile>,
         project_id: Option<&ProjectIdent>,
+        secret_id: Option<SecretIdent>,
     ) -> crate::WarehouseIdent {
         let project_id = project_id.map_or(
             ProjectIdent::from(uuid::Uuid::nil()),
@@ -477,11 +478,11 @@ pub(crate) mod test {
             flavor: S3Flavor::Minio,
         }));
 
-        let warehouse_id = Catalog::create_warehouse(
+        let warehouse_id = PostgresCatalog::create_warehouse(
             "test_warehouse".to_string(),
             project_id,
             storage_profile,
-            None,
+            secret_id,
             transaction.transaction(),
         )
         .await
@@ -494,9 +495,9 @@ pub(crate) mod test {
     #[sqlx::test]
     async fn test_get_warehouse_by_name(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
 
-        let fetched_warehouse_id = Catalog::get_warehouse_by_name(
+        let fetched_warehouse_id = PostgresCatalog::get_warehouse_by_name(
             "test_warehouse",
             ProjectIdent::from(uuid::Uuid::nil()),
             state.clone(),
@@ -511,16 +512,16 @@ pub(crate) mod test {
     async fn test_list_projects(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id_1 = ProjectIdent::from(uuid::Uuid::new_v4());
-        initialize_warehouse(state.clone(), None, Some(&project_id_1)).await;
+        initialize_warehouse(state.clone(), None, Some(&project_id_1), None).await;
 
-        let projects = Catalog::list_projects(state.clone()).await.unwrap();
+        let projects = PostgresCatalog::list_projects(state.clone()).await.unwrap();
         assert_eq!(projects.len(), 1);
         assert!(projects.contains(&project_id_1));
 
         let project_id_2 = ProjectIdent::from(uuid::Uuid::new_v4());
-        initialize_warehouse(state.clone(), None, Some(&project_id_2)).await;
+        initialize_warehouse(state.clone(), None, Some(&project_id_2), None).await;
 
-        let projects = Catalog::list_projects(state.clone()).await.unwrap();
+        let projects = PostgresCatalog::list_projects(state.clone()).await.unwrap();
         assert_eq!(projects.len(), 2);
         assert!(projects.contains(&project_id_1));
         assert!(projects.contains(&project_id_2));
@@ -530,9 +531,10 @@ pub(crate) mod test {
     async fn test_list_warehouses(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
-        let warehouse_id_1 = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
+        let warehouse_id_1 =
+            initialize_warehouse(state.clone(), None, Some(&project_id), None).await;
 
-        let warehouses = Catalog::list_warehouses(project_id, None, None, state.clone())
+        let warehouses = PostgresCatalog::list_warehouses(project_id, None, None, state.clone())
             .await
             .unwrap();
         assert_eq!(warehouses.len(), 1);
@@ -544,16 +546,17 @@ pub(crate) mod test {
     async fn test_list_warehouses_active_filter(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
-        let warehouse_id_1 = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
+        let warehouse_id_1 =
+            initialize_warehouse(state.clone(), None, Some(&project_id), None).await;
 
         // Rename warehouse 1
         let mut transaction = PostgresTransaction::begin_write(state.clone())
             .await
             .unwrap();
-        Catalog::rename_warehouse(warehouse_id_1, "new_name", transaction.transaction())
+        PostgresCatalog::rename_warehouse(warehouse_id_1, "new_name", transaction.transaction())
             .await
             .unwrap();
-        Catalog::set_warehouse_status(
+        PostgresCatalog::set_warehouse_status(
             warehouse_id_1,
             WarehouseStatus::Inactive,
             transaction.transaction(),
@@ -563,10 +566,11 @@ pub(crate) mod test {
         transaction.commit().await.unwrap();
 
         // Create warehouse 2
-        let warehouse_id_2 = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
+        let warehouse_id_2 =
+            initialize_warehouse(state.clone(), None, Some(&project_id), None).await;
 
         // Assert active whs
-        let warehouses = Catalog::list_warehouses(
+        let warehouses = PostgresCatalog::list_warehouses(
             project_id,
             Some(vec![WarehouseStatus::Active, WarehouseStatus::Inactive]),
             None,
@@ -579,7 +583,7 @@ pub(crate) mod test {
         assert!(warehouses.iter().any(|w| w.id == warehouse_id_2));
 
         // Assert only active whs
-        let warehouses = Catalog::list_warehouses(project_id, None, None, state.clone())
+        let warehouses = PostgresCatalog::list_warehouses(project_id, None, None, state.clone())
             .await
             .unwrap();
         assert_eq!(warehouses.len(), 1);
@@ -590,12 +594,12 @@ pub(crate) mod test {
     async fn test_rename_warehouse(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
         let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
-        let warehouse_id = initialize_warehouse(state.clone(), None, Some(&project_id)).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, Some(&project_id), None).await;
 
         let mut transaction = PostgresTransaction::begin_write(state.clone())
             .await
             .unwrap();
-        Catalog::rename_warehouse(warehouse_id, "new_name", transaction.transaction())
+        PostgresCatalog::rename_warehouse(warehouse_id, "new_name", transaction.transaction())
             .await
             .unwrap();
         transaction.commit().await.unwrap();
@@ -603,9 +607,10 @@ pub(crate) mod test {
         let mut read_transaction = PostgresTransaction::begin_read(state.clone())
             .await
             .unwrap();
-        let warehouse = Catalog::get_warehouse(warehouse_id, read_transaction.transaction())
-            .await
-            .unwrap();
+        let warehouse =
+            PostgresCatalog::get_warehouse(warehouse_id, read_transaction.transaction())
+                .await
+                .unwrap();
         assert_eq!(warehouse.name, "new_name");
     }
 }

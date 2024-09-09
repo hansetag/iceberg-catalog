@@ -1,15 +1,16 @@
-import uuid
-
 import conftest
 import pandas as pd
 import pytest
+import requests
+import pyiceberg.io as io
+import time
 
 
 def test_create_namespace(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_namespace_spark")
     assert (
-        "test_create_namespace_spark",
-    ) in warehouse.pyiceberg_catalog.list_namespaces()
+               "test_create_namespace_spark",
+           ) in warehouse.pyiceberg_catalog.list_namespaces()
 
 
 def test_list_namespaces(spark, warehouse: conftest.Warehouse):
@@ -178,6 +179,70 @@ def test_drop_table(spark, warehouse: conftest.Warehouse):
     with pytest.raises(Exception) as e:
         warehouse.pyiceberg_catalog.load_table(("test_drop_table", "my_table"))
         assert "NoSuchTableError" in str(e)
+
+
+@pytest.mark.xfail(reason="Spark purge tries to sign a request which we don't support")
+def test_drop_table_purge_spark(spark, warehouse: conftest.Warehouse):
+    spark.sql("CREATE NAMESPACE test_drop_table_purge_spark")
+    spark.sql(
+        "CREATE TABLE test_drop_table.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
+    )
+    assert warehouse.pyiceberg_catalog.load_table(("test_drop_table_purge_spark", "my_table"))
+    spark.sql("DROP TABLE test_drop_table.my_table PURGE;")
+    with pytest.raises(Exception) as e:
+        warehouse.pyiceberg_catalog.load_table(("test_drop_table_purge_spark", "my_table"))
+        assert "NoSuchTableError" in str(e)
+
+
+def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse, storage_config):
+    namespace = "test_drop_table_purge_http"
+    spark.sql(f"CREATE NAMESPACE {namespace}")
+    dfs = []
+    for n in range(5):
+        data = pd.DataFrame([[1 + n, 'a-string', 2.2 + n]], columns=['id', 'strings', 'floats'])
+        dfs.append(data)
+        sdf = spark.createDataFrame(data)
+        sdf.writeTo(f"{namespace}.my_table_{n}").create()
+
+    for n, df in enumerate(dfs):
+        table = warehouse.pyiceberg_catalog.load_table((namespace, f"my_table_{n}"))
+        assert table
+        assert table.scan().to_pandas().equals(df)
+
+    table_0 = warehouse.pyiceberg_catalog.load_table((namespace, "my_table_0"))
+
+    purge_uri = warehouse.server.catalog_url.strip("/") + "/" + "/".join(
+        ["v1", str(warehouse.warehouse_id), "namespaces",
+         namespace,
+         "tables",
+         "my_table_0?purgeRequested=True"])
+    requests.delete(purge_uri,
+                    headers={"Authorization": f"Bearer {warehouse.access_token}"}).raise_for_status()
+
+    with pytest.raises(Exception) as e:
+        warehouse.pyiceberg_catalog.load_table((namespace, "my_table_0"))
+        assert "NoSuchTableError" in str(e)
+
+    properties = table_0.properties
+    if storage_config['storage-profile']['type'] == 's3':
+        properties["s3.access-key-id"] = storage_config['storage-credential']['aws-access-key-id']
+        properties["s3.secret-access-key"] = storage_config['storage-credential']['aws-secret-access-key']
+        properties["s3.endpoint"] = storage_config['storage-profile']['endpoint']
+
+    file_io = io._infer_file_io_from_scheme(table_0.location(), properties)
+
+    # sleep to give time for the table to be gone
+    time.sleep(5)
+
+    inp = file_io.new_input(table_0.location())
+    assert not inp.exists(), f"Table location {table_0.location()} still exists"
+
+    tables = warehouse.pyiceberg_catalog.list_tables(namespace)
+    assert len(tables) == 4
+    for n, ((_, table), df) in enumerate(zip(sorted(tables), dfs[1:]), 1):
+        assert table == f"my_table_{n}"
+        table = warehouse.pyiceberg_catalog.load_table((namespace, table))
+        assert table.scan().to_pandas().equals(df)
 
 
 def test_query_empty_table(spark, warehouse: conftest.Warehouse):

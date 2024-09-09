@@ -384,7 +384,7 @@ pub(crate) mod tests {
     use crate::service::{Catalog as _, Transaction as _};
 
     use super::super::warehouse::test::initialize_warehouse;
-    use super::super::Catalog;
+    use super::super::PostgresCatalog;
     use super::*;
     use crate::implementations::postgres::tabular::table::tests::initialize_table;
 
@@ -400,7 +400,7 @@ pub(crate) mod tests {
 
         let namespace_id = NamespaceIdentUuid::default();
 
-        let response = Catalog::create_namespace(
+        let response = PostgresCatalog::create_namespace(
             warehouse_id,
             namespace_id,
             CreateNamespaceRequest {
@@ -421,7 +421,7 @@ pub(crate) mod tests {
     async fn test_namespace_lifecycle(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
 
         let namespace = NamespaceIdent::from_vec(vec!["test".to_string()]).unwrap();
         let properties = Some(HashMap::from_iter(vec![
@@ -439,23 +439,25 @@ pub(crate) mod tests {
         assert_eq!(response.namespace, namespace);
         assert_eq!(response.properties, properties);
 
-        let response = Catalog::get_namespace(warehouse_id, &namespace, transaction.transaction())
-            .await
-            .unwrap();
+        let response =
+            PostgresCatalog::get_namespace(warehouse_id, &namespace, transaction.transaction())
+                .await
+                .unwrap();
 
         drop(transaction);
 
         assert_eq!(response.namespace, namespace);
         assert_eq!(response.properties, properties);
 
-        let response = Catalog::namespace_ident_to_id(warehouse_id, &namespace, state.clone())
-            .await
-            .unwrap()
-            .is_some();
+        let response =
+            PostgresCatalog::namespace_ident_to_id(warehouse_id, &namespace, state.clone())
+                .await
+                .unwrap()
+                .is_some();
 
         assert!(response);
 
-        let response = Catalog::list_namespaces(
+        let response = PostgresCatalog::list_namespaces(
             warehouse_id,
             &ListNamespacesQuery {
                 page_token: crate::api::iceberg::v1::PageToken::NotSpecified,
@@ -477,7 +479,7 @@ pub(crate) mod tests {
             ("key2".to_string(), "updated_value".to_string()),
             ("new_key".to_string(), "new_value".to_string()),
         ]);
-        Catalog::update_namespace_properties(
+        PostgresCatalog::update_namespace_properties(
             warehouse_id,
             &namespace,
             new_props.clone(),
@@ -491,7 +493,7 @@ pub(crate) mod tests {
         let mut t = PostgresTransaction::begin_read(state.clone())
             .await
             .unwrap();
-        let response = Catalog::get_namespace(warehouse_id, &namespace, t.transaction())
+        let response = PostgresCatalog::get_namespace(warehouse_id, &namespace, t.transaction())
             .await
             .unwrap();
         drop(t);
@@ -501,7 +503,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        Catalog::drop_namespace(warehouse_id, &namespace, transaction.transaction())
+        PostgresCatalog::drop_namespace(warehouse_id, &namespace, transaction.transaction())
             .await
             .expect("Error dropping namespace");
     }
@@ -510,7 +512,7 @@ pub(crate) mod tests {
     async fn test_pagination(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["test".to_string()]).unwrap();
         let properties = Some(HashMap::from_iter(vec![
             ("key1".to_string(), "value1".to_string()),
@@ -538,7 +540,7 @@ pub(crate) mod tests {
         let ListNamespacesResponse {
             namespaces,
             next_page_token,
-        } = Catalog::list_namespaces(
+        } = PostgresCatalog::list_namespaces(
             warehouse_id,
             &ListNamespacesQuery {
                 page_token: crate::api::iceberg::v1::PageToken::NotSpecified,
@@ -556,7 +558,7 @@ pub(crate) mod tests {
         let ListNamespacesResponse {
             namespaces,
             next_page_token,
-        } = Catalog::list_namespaces(
+        } = PostgresCatalog::list_namespaces(
             warehouse_id,
             &ListNamespacesQuery {
                 page_token: next_page_token.map_or(
@@ -582,7 +584,7 @@ pub(crate) mod tests {
         let ListNamespacesResponse {
             namespaces,
             next_page_token,
-        } = Catalog::list_namespaces(
+        } = PostgresCatalog::list_namespaces(
             warehouse_id,
             &ListNamespacesQuery {
                 page_token: next_page_token.map_or(
@@ -605,7 +607,7 @@ pub(crate) mod tests {
     async fn test_cannot_drop_nonempty_namespace(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let staged = false;
         let table = initialize_table(warehouse_id, state.clone(), staged, None, None).await;
 
@@ -623,7 +625,7 @@ pub(crate) mod tests {
     async fn test_case_insensitive_but_preserve_case(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let namespace_1 = NamespaceIdent::from_vec(vec!["Test".to_string()]).unwrap();
         let namespace_2 = NamespaceIdent::from_vec(vec!["test".to_string()]).unwrap();
 
@@ -631,7 +633,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let response = Catalog::create_namespace(
+        let response = PostgresCatalog::create_namespace(
             warehouse_id,
             NamespaceIdentUuid::default(),
             CreateNamespaceRequest {
@@ -651,7 +653,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        let response = Catalog::create_namespace(
+        let response = PostgresCatalog::create_namespace(
             warehouse_id,
             NamespaceIdentUuid::default(),
             CreateNamespaceRequest {

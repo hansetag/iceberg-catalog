@@ -14,17 +14,21 @@ use crate::api::iceberg::v1::{
     NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
     TableIdent, TableParameters,
 };
+use crate::api::management::v1::TabularType;
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
+use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
+use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, DropFlags, ListFlags,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
+use crate::CONFIG;
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
 use iceberg_ext::configs::namespace::NamespaceProperties;
@@ -59,12 +63,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- BUSINESS LOGIC -------------------
         let include_staged = false;
+        let include_deleted = false;
+        let include_active = true;
+
         let tables = C::list_tables(
             warehouse_id,
             &namespace,
             ListFlags {
+                include_active,
                 include_staged,
-                include_deleted: false,
+                include_deleted,
             },
             state.v1_state.catalog,
             pagination_query,
@@ -254,12 +262,15 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         // ------------------- AUTHZ -------------------
-        let include_deleted = false;
         let include_staged = false;
+        let include_deleted = false;
+        let include_active = true;
+
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
             ListFlags {
+                include_active,
                 include_staged,
                 include_deleted,
             },
@@ -361,11 +372,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_staged = true;
         let include_deleted = false;
+        let include_active = true;
 
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table_ident,
             ListFlags {
+                include_active,
                 include_staged,
                 include_deleted,
             },
@@ -482,6 +495,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Drop a table from the catalog
     async fn drop_table(
         parameters: TableParameters,
@@ -497,11 +511,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_staged = true;
         let include_deleted = false;
+        let include_active = true;
 
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
             ListFlags {
+                include_active,
                 include_staged,
                 include_deleted,
             },
@@ -521,6 +537,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
+        let hard_delete = false;
+        let purge = purge_requested.unwrap_or(false);
+
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
 
         let table_id = table_id.ok_or_else(|| {
@@ -530,17 +549,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 None,
             )
         })?;
-        C::drop_table(
-            table_id,
-            DropFlags {
-                purge: purge_requested.unwrap_or_default(),
-                hard_delete: false,
-            },
-            transaction.transaction(),
-        )
-        .await?;
 
-        // ToDo: Delete metadata files
         state
             .v1_state
             .contract_verifiers
@@ -548,7 +557,46 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .await?
             .into_result()?;
 
-        transaction.commit().await?;
+        if hard_delete {
+            let location = C::drop_table(table_id, transaction.transaction()).await?;
+            // committing here means maybe dangling data if queue_tabular_purge fails
+            // commiting after queuing means we may end up with a table pointing nowhere
+            // I feel that some undeleted files are less bad than a table that's there but can't be loaded
+            transaction.commit().await?;
+
+            state
+                .v1_state
+                .queues
+                .queue_tabular_purge(TabularPurgeInput {
+                    tabular_id: *table_id,
+                    tabular_location: location,
+                    warehouse_ident: warehouse_id,
+                    tabular_type: TabularType::Table,
+                    parent_id: None,
+                })
+                .await?;
+            tracing::debug!("Queued purge task for dropped table '{table_id}'.");
+        } else {
+            C::mark_tabular_as_deleted(
+                TabularIdentUuid::Table(*table_id),
+                transaction.transaction(),
+            )
+            .await?;
+            transaction.commit().await?;
+
+            state
+                .v1_state
+                .queues
+                .queue_tabular_expiration(TabularExpirationInput {
+                    tabular_id: table_id.into(),
+                    warehouse_ident: warehouse_id,
+                    tabular_type: TabularType::Table,
+                    purge,
+                    expire_at: chrono::Utc::now() + CONFIG.tabular_expiration_delay(),
+                })
+                .await?;
+            tracing::debug!("Queued expiration task for dropped table '{table_id}'.");
+        }
 
         emit_change_event(
             EventMetadata {
@@ -585,12 +633,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- AUTHZ -------------------
         let include_staged = false;
+        let include_deleted = false;
+        let include_active = true;
+
         let table_id = C::table_ident_to_id(
             warehouse_id,
             &table,
             ListFlags {
+                include_active,
                 include_staged,
-                include_deleted: false,
+                include_deleted,
             },
             state.v1_state.catalog.clone(),
         )
@@ -638,12 +690,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // ------------------- AUTHZ -------------------
         let include_staged = false;
+        let include_deleted = false;
+        let include_active = true;
+
         let source_id = C::table_ident_to_id(
             warehouse_id,
             &source,
             ListFlags {
+                include_active,
                 include_staged,
-                include_deleted: false,
+                include_deleted,
             },
             state.v1_state.catalog.clone(),
         )
@@ -758,6 +814,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let include_staged = true;
         let include_deleted = false;
+        let include_active = true;
 
         let identifiers = request
             .table_changes
@@ -769,6 +826,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             warehouse_id,
             identifiers,
             ListFlags {
+                include_active,
                 include_staged,
                 include_deleted,
             },
@@ -1067,7 +1125,11 @@ fn require_table_ids(
                 Ok((table_ident, table_id))
             } else {
                 Err(ErrorModel::not_found(
-                    format!("Table {table_ident:#?} does not exist."),
+                    format!(
+                        "Table '{}.{}' does not exist.",
+                        table_ident.namespace.to_url_string(),
+                        table_ident.name
+                    ),
                     "TableNotFound",
                     None,
                 )
@@ -1083,7 +1145,11 @@ fn require_table_id(
 ) -> Result<TableIdentUuid> {
     table_id.ok_or_else(|| {
         ErrorModel::not_found(
-            format!("Table {table_ident:#?} does not exist."),
+            format!(
+                "Table '{}.{}' does not exist.",
+                table_ident.namespace.to_url_string(),
+                table_ident.name
+            ),
             "TableNotFound",
             None,
         )
@@ -1113,7 +1179,11 @@ fn remove_table<T>(
         .remove(table_id)
         .ok_or_else(|| {
             ErrorModel::not_found(
-                format!("Table {table_ident:#?} does not exist."),
+                format!(
+                    "Table '{}.{}' does not exist.",
+                    table_ident.namespace.to_url_string(),
+                    table_ident.name
+                ),
                 "TableNotFound",
                 None,
             )

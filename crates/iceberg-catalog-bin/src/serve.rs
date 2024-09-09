@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Error};
 use iceberg_catalog::api::router::{new_full_router, serve as service_serve};
-use iceberg_catalog::implementations::postgres::{Catalog, CatalogState};
+use iceberg_catalog::implementations::postgres::{CatalogState, PostgresCatalog, ReadWrite};
 use iceberg_catalog::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
@@ -13,6 +13,10 @@ use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
 
+use iceberg_catalog::implementations::postgres::task_queues::{
+    TabularExpirationQueue, TabularPurgeQueue,
+};
+use iceberg_catalog::service::task_queue::TaskQueues;
 use std::sync::Arc;
 
 pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -33,7 +37,8 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         .into(),
         SecretBackend::Postgres => {
             iceberg_catalog::implementations::postgres::SecretsState::from_pools(
-                read_pool, write_pool,
+                read_pool.clone(),
+                write_pool.clone(),
             )
             .into()
         }
@@ -50,6 +55,17 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         CONFIG.health_check_jitter_millis,
     );
     health_provider.spawn_health_checks().await;
+
+    let queues = TaskQueues::new(
+        Arc::new(TabularExpirationQueue::from_config(
+            ReadWrite::from_pools(read_pool.clone(), write_pool.clone()),
+            CONFIG.queue_config.clone(),
+        )?),
+        Arc::new(TabularPurgeQueue::from_config(
+            ReadWrite::from_pools(read_pool.clone(), write_pool.clone()),
+            CONFIG.queue_config.clone(),
+        )?),
+    );
 
     let mut cloud_event_sinks = vec![];
 
@@ -72,21 +88,27 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     let metrics_layer =
         iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?;
 
-    let router =
-        new_full_router::<Catalog, Catalog, AllowAllAuthZHandler, AllowAllAuthZHandler, Secrets>(
-            auth_state,
-            catalog_state,
-            secrets_state,
-            CloudEventsPublisher::new(tx.clone()),
-            ContractVerifiers::new(vec![]),
-            if let Some(uri) = CONFIG.openid_provider_uri.clone() {
-                Some(Verifier::new(uri).await?)
-            } else {
-                None
-            },
-            health_provider,
-            Some(metrics_layer),
-        );
+    let router = new_full_router::<
+        PostgresCatalog,
+        PostgresCatalog,
+        AllowAllAuthZHandler,
+        AllowAllAuthZHandler,
+        Secrets,
+    >(
+        auth_state,
+        catalog_state.clone(),
+        secrets_state.clone(),
+        queues.clone(),
+        CloudEventsPublisher::new(tx.clone()),
+        ContractVerifiers::new(vec![]),
+        if let Some(uri) = CONFIG.openid_provider_uri.clone() {
+            Some(Verifier::new(uri).await?)
+        } else {
+            None
+        },
+        health_provider,
+        Some(metrics_layer),
+    );
 
     let publisher_handle = tokio::task::spawn(async move {
         match x.publish().await {
@@ -95,7 +117,10 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         };
     });
 
-    service_serve(listener, router).await?;
+    tokio::select!(
+        _ = queues.spawn_queues::<PostgresCatalog, _>(catalog_state, secrets_state) => tracing::error!("Tabular queue task failed"),
+        err = service_serve(listener, router) => tracing::error!("Service failed: {err:?}"),
+    );
 
     tracing::debug!("Sending shutdown signal to event publisher.");
     tx.send(Message::Shutdown).await?;

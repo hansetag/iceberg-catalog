@@ -127,7 +127,7 @@ pub(crate) mod test {
 
     use crate::implementations::postgres::secrets::SecretsState;
 
-    use crate::implementations::postgres::Catalog;
+    use crate::implementations::postgres::PostgresCatalog;
     use crate::implementations::AllowAllAuthZHandler;
 
     use crate::service::State;
@@ -141,11 +141,11 @@ pub(crate) mod test {
     use crate::catalog::views::test::setup;
 
     pub(crate) async fn load_view(
-        api_context: ApiContext<State<AllowAllAuthZHandler, Catalog, SecretsState>>,
+        api_context: ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>>,
         params: ViewParameters,
     ) -> crate::api::Result<LoadViewResult> {
-        <CatalogServer<Catalog, AllowAllAuthZHandler, SecretsState> as views::Service<
-            State<AllowAllAuthZHandler, Catalog, SecretsState>,
+        <CatalogServer<PostgresCatalog, AllowAllAuthZHandler, SecretsState> as views::Service<
+            State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>,
         >>::load_view(
             params,
             api_context,

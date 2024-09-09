@@ -119,63 +119,76 @@ fn validate_view_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
 #[cfg(test)]
 mod test {
     use crate::api::ApiContext;
-
-    use crate::implementations::postgres::namespace::tests::initialize_namespace;
+    use std::sync::Arc;
 
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
-    use crate::implementations::postgres::{Catalog, CatalogState, SecretsState};
+    use crate::implementations::postgres::{
+        CatalogState, PostgresCatalog, ReadWrite, SecretsState,
+    };
     use crate::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
     use crate::service::contract_verification::ContractVerifiers;
     use crate::service::event_publisher::CloudEventsPublisher;
     use crate::service::storage::{StorageProfile, TestProfile};
     use crate::service::State;
-    use crate::WarehouseIdent;
+    use crate::{WarehouseIdent, CONFIG};
 
     use iceberg::NamespaceIdent;
 
+    use crate::implementations::postgres::namespace::tests::initialize_namespace;
+    use crate::service::task_queue::TaskQueues;
     use sqlx::PgPool;
+    use uuid::Uuid;
 
     pub(crate) async fn setup(
         pool: PgPool,
         namespace_name: Option<Vec<String>>,
     ) -> (
-        ApiContext<State<AllowAllAuthZHandler, Catalog, SecretsState>>,
+        ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>>,
         NamespaceIdent,
         WarehouseIdent,
     ) {
         let api_context = get_api_context(pool);
         let state = api_context.v1_state.catalog.clone();
-        let warehouse_id =
-            initialize_warehouse(state.clone(), Some(StorageProfile::Test(TestProfile)), None)
-                .await;
-        let namespace = new_namespace(state, warehouse_id, namespace_name).await;
-        (api_context, namespace, warehouse_id)
-    }
+        let warehouse_id = initialize_warehouse(
+            state.clone(),
+            Some(StorageProfile::Test(TestProfile)),
+            None,
+            None,
+        )
+        .await;
 
-    pub(crate) async fn new_namespace(
-        state: CatalogState,
-        warehouse_id: WarehouseIdent,
-        namespace: Option<Vec<String>>,
-    ) -> NamespaceIdent {
-        let namespace =
-            NamespaceIdent::from_vec(namespace.unwrap_or(vec!["my_namespace".to_string()]))
-                .unwrap();
-        initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
-        namespace
+        let namespace = initialize_namespace(
+            state,
+            warehouse_id,
+            &NamespaceIdent::from_vec(namespace_name.unwrap_or(vec![Uuid::now_v7().to_string()]))
+                .unwrap(),
+            None,
+        )
+        .await
+        .namespace;
+        (api_context, namespace, warehouse_id)
     }
 
     pub(crate) fn get_api_context(
         pool: PgPool,
-    ) -> ApiContext<State<AllowAllAuthZHandler, Catalog, SecretsState>> {
+    ) -> ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>> {
         let (tx, _) = tokio::sync::mpsc::channel(1000);
 
         ApiContext {
             v1_state: State {
                 auth: AllowAllAuthState,
                 catalog: CatalogState::from_pools(pool.clone(), pool.clone()),
-                secrets: SecretsState::from_pools(pool.clone(), pool),
+                secrets: SecretsState::from_pools(pool.clone(), pool.clone()),
                 publisher: CloudEventsPublisher::new(tx.clone()),
                 contract_verifiers: ContractVerifiers::new(vec![]),
+                queues: TaskQueues::new(
+                    Arc::new(
+                        crate::implementations::postgres::task_queues::TabularExpirationQueue::from_config(ReadWrite::from_pools(pool.clone(), pool.clone()), CONFIG.queue_config.clone()).unwrap(),
+                    ),
+                    Arc::new(
+                        crate::implementations::postgres::task_queues::TabularPurgeQueue::from_config(ReadWrite::from_pools(pool.clone(), pool), CONFIG.queue_config.clone()).unwrap()
+                    )
+                )
             },
         }
     }

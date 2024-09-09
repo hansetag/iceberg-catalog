@@ -1,5 +1,5 @@
 use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogState};
-use crate::service::{DropFlags, TableCommit};
+use crate::service::TableCommit;
 use crate::{
     service::{
         storage::StorageProfile, CreateTableRequest, CreateTableResponse, ErrorModel,
@@ -246,7 +246,7 @@ pub(crate) async fn list_tables(
         warehouse_id,
         Some(namespace),
         list_flags,
-        catalog_state,
+        &catalog_state.read_pool(),
         Some(TabularType::Table),
         pagination_query,
     )
@@ -431,29 +431,36 @@ pub(crate) async fn rename_table(
 
 pub(crate) async fn drop_table<'a>(
     table_id: TableIdentUuid,
-    drop_flags: DropFlags,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<()> {
-    if drop_flags.hard_delete {
-        let _ = sqlx::query!(
-            r#"
+) -> Result<String> {
+    let _ = sqlx::query!(
+        r#"
         DELETE FROM "table"
         WHERE table_id = $1 AND EXISTS (
             SELECT 1
             FROM active_tables
             WHERE active_tables.table_id = $1
         )
+        RETURNING table_id
         "#,
-            *table_id,
-        )
-        .execute(&mut **transaction)
-        .await
-        .map_err(|e| {
-            tracing::warn!(?table_id, ?drop_flags, "Error dropping tabular: {}", e);
-            e.into_error_model("Error dropping table".to_string())
-        })?;
-    }
-    drop_tabular(TabularIdentUuid::Table(*table_id), drop_flags, transaction).await
+        *table_id,
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::RowNotFound = e {
+            ErrorModel::not_found(
+                "Table not found",
+                "NoSuchTabularError".to_string(),
+                Some(Box::new(e)),
+            )
+        } else {
+            tracing::warn!("Error dropping table: {}", e);
+            e.into_error_model("Error dropping table".into())
+        }
+    })?;
+
+    drop_tabular(TabularIdentUuid::Table(*table_id), transaction).await
 }
 
 pub(crate) async fn commit_table_transaction<'a>(
@@ -573,6 +580,7 @@ pub(crate) mod tests {
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use crate::service::ListFlags;
 
+    use crate::implementations::postgres::tabular::mark_tabular_as_deleted;
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
     use iceberg_ext::configs::Location;
@@ -704,7 +712,7 @@ pub(crate) mod tests {
     async fn test_final_create(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let namespace_id = get_namespace_id(state.clone(), warehouse_id, &namespace).await;
@@ -764,7 +772,7 @@ pub(crate) mod tests {
     async fn test_stage_create(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let namespace_id = get_namespace_id(state.clone(), warehouse_id, &namespace).await;
@@ -856,7 +864,7 @@ pub(crate) mod tests {
     async fn test_to_id(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
 
@@ -907,7 +915,7 @@ pub(crate) mod tests {
     async fn test_to_ids(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
 
@@ -1004,7 +1012,7 @@ pub(crate) mod tests {
     async fn test_rename_without_namespace(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let new_table_ident = TableIdent {
@@ -1050,7 +1058,7 @@ pub(crate) mod tests {
     async fn test_rename_with_namespace(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let new_namespace = NamespaceIdent::from_vec(vec!["new_namespace".to_string()]).unwrap();
@@ -1098,7 +1106,7 @@ pub(crate) mod tests {
     async fn test_list_tables(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let tables = list_tables(
@@ -1157,7 +1165,7 @@ pub(crate) mod tests {
     async fn test_list_tables_pagination(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let tables = list_tables(
@@ -1257,7 +1265,7 @@ pub(crate) mod tests {
     async fn test_commit_transaction(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let table1 = initialize_table(warehouse_id, state.clone(), true, None, None).await;
         let table2 = initialize_table(warehouse_id, state.clone(), false, None, None).await;
         let _ = initialize_table(warehouse_id, state.clone(), false, None, None).await;
@@ -1343,7 +1351,7 @@ pub(crate) mod tests {
     async fn test_get_metadata_by_location(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let metadata = get_table_metadata_by_id(
@@ -1393,7 +1401,7 @@ pub(crate) mod tests {
     async fn test_cannot_get_table_of_inactive_warehouse(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
         let mut transaction = pool.begin().await.unwrap();
         set_warehouse_status(warehouse_id, WarehouseStatus::Inactive, &mut transaction)
@@ -1416,11 +1424,11 @@ pub(crate) mod tests {
     async fn test_drop_table_works(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
 
         let mut transaction = pool.begin().await.unwrap();
-        drop_table(table.table_id, DropFlags::default(), &mut transaction)
+        mark_tabular_as_deleted(TabularIdentUuid::Table(*table.table_id), &mut transaction)
             .await
             .unwrap();
         transaction.commit().await.unwrap();
@@ -1450,16 +1458,7 @@ pub(crate) mod tests {
 
         let mut transaction = pool.begin().await.unwrap();
 
-        drop_table(
-            table.table_id,
-            DropFlags {
-                hard_delete: true,
-                ..DropFlags::default()
-            },
-            &mut transaction,
-        )
-        .await
-        .unwrap();
+        drop_table(table.table_id, &mut transaction).await.unwrap();
         transaction.commit().await.unwrap();
 
         let err = get_table_metadata_by_id(
