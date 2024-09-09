@@ -143,10 +143,7 @@ services:
       - "31103:9000"
       - "31104:9001"
     networks:
-      iceberg_rest_tests:
-        aliases:
-          - minio
-          - examples.minio
+      - iceberg_rest_tests
 
   nats:
     image: bitnami/nats:latest

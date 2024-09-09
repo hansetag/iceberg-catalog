@@ -23,6 +23,8 @@ services:
       timeout: 5s
       retries: 2
       start_period: 20s
+    networks:
+      - iceberg_rest_tests
   inithvault:
     image: hashicorp/vault:latest
     depends_on:
@@ -32,3 +34,5 @@ services:
     entrypoint: [ "sh", "/init_vault.sh" ]
     volumes:
       - ./init_vault.sh:/init_vault.sh
+    networks:
+      - iceberg_rest_tests
