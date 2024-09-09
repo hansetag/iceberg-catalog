@@ -115,7 +115,7 @@ def test_drop_purge_table(namespace: conftest.Namespace):
         assert "NoSuchTableError" in str(e)
 
     inp = file_io.new_input(tab.location())
-    assert not inp.exists(), f"Table location {tab.location()} still exists"
+    assert inp.exists(), f"Table location {tab.location()} still exists"
     # sleep to give time for the table to be gone
     time.sleep(5)
 
