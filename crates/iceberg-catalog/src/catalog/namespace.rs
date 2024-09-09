@@ -172,7 +172,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } else {
             Err(ErrorModel::builder()
                 .code(StatusCode::NOT_FOUND.into())
-                .message(format!("Namespace {:#?} not found.", parameters.namespace))
+                .message(format!(
+                    "Namespace '{}' not found.",
+                    parameters.namespace.to_url_string()
+                ))
                 .r#type("NoSuchNamespaceException".to_string())
                 .build()
                 .into())
