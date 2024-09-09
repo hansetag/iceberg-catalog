@@ -7,11 +7,12 @@ pub mod health;
 pub mod secrets;
 pub mod storage;
 pub mod tabular_idents;
+pub mod task_queue;
 pub mod token_verification;
 
 pub use catalog::{
     Catalog, CommitTableResponse, CreateNamespaceRequest, CreateNamespaceResponse,
-    CreateTableRequest, CreateTableResponse, DropFlags, GetNamespaceResponse,
+    CreateTableRequest, CreateTableResponse, DeletionDetails, DropFlags, GetNamespaceResponse,
     GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse, ListFlags,
     ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
     TableCommit, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
@@ -19,17 +20,16 @@ pub use catalog::{
 };
 use std::ops::Deref;
 
+use self::auth::AuthZHandler;
 use crate::api::iceberg::v1::Prefix;
 use crate::api::ThreadSafe as ServiceState;
 pub use crate::api::{ErrorModel, IcebergErrorResponse};
-use http::StatusCode;
-use std::str::FromStr;
-
 use crate::service::contract_verification::ContractVerifiers;
 use crate::service::event_publisher::CloudEventsPublisher;
+use crate::service::task_queue::TaskQueues;
+use http::StatusCode;
 pub use secrets::{SecretIdent, SecretStore};
-
-use self::auth::AuthZHandler;
+use std::str::FromStr;
 
 #[async_trait::async_trait]
 pub trait NamespaceIdentExt
@@ -68,6 +68,7 @@ pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
     pub secrets: S,
     pub publisher: CloudEventsPublisher,
     pub contract_verifiers: ContractVerifiers,
+    pub queues: TaskQueues,
 }
 
 impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}
@@ -236,7 +237,7 @@ pub enum WarehouseStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
-pub struct WarehouseIdent(uuid::Uuid);
+pub struct WarehouseIdent(pub(crate) uuid::Uuid);
 
 impl WarehouseIdent {
     #[must_use]

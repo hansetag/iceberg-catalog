@@ -1,13 +1,16 @@
-use crate::api::management::v1::{ApiServer, ListDeletedTabularsResponse};
+use crate::api::management::v1::{ApiServer, DeletedTabularResponse, ListDeletedTabularsResponse};
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
 pub use crate::service::storage::{
     AzCredential, AzdlsProfile, S3Credential, S3Profile, StorageCredential, StorageProfile,
 };
 
-use crate::api::iceberg::v1::PaginationQuery;
+use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
+
 pub use crate::service::WarehouseStatus;
-use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
+use crate::service::{
+    auth::AuthZHandler, secrets::SecretStore, Catalog, ListFlags, State, Transaction,
+};
 use crate::{ProjectIdent, WarehouseIdent};
 use iceberg_ext::catalog::rest::ErrorModel;
 use serde::Deserialize;
@@ -478,8 +481,42 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             .await?;
 
         // ------------------- Business Logic -------------------
-        C::list_soft_deleted_tabulars(warehouse_id, context.v1_state.catalog, pagination_query)
-            .await
+        let PaginatedTabulars {
+            tabulars,
+            next_page_token,
+        } = C::list_tabulars(
+            warehouse_id,
+            ListFlags::only_deleted(),
+            context.v1_state.catalog,
+            pagination_query,
+        )
+        .await?;
+
+        Ok(ListDeletedTabularsResponse {
+            tabulars: tabulars
+                .into_iter()
+                .map(|(k, (ident, delete_opts))| {
+                    let i = ident.into_inner();
+                    let deleted = delete_opts.ok_or(ErrorModel::internal(
+                        "Expected delete options to be Some, but found None",
+                        "InternalDatabaseError",
+                        None,
+                    ))?;
+
+                    Ok(DeletedTabularResponse {
+                        id: *k,
+                        name: i.name,
+                        namespace: i.namespace.inner(),
+                        typ: k.into(),
+                        warehouse_id: *warehouse_id,
+                        created_at: deleted.created_at,
+                        deleted_at: deleted.deleted_at,
+                        expiration_date: deleted.expiration_date,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?,
+            next_page_token,
+        })
     }
 }
 

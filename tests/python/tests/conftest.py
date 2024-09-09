@@ -85,7 +85,7 @@ class Server:
     access_token: str
 
     def create_warehouse(
-        self, name: str, project_id: uuid.UUID, sts_enabled: bool
+            self, name: str, project_id: uuid.UUID, sts_enabled: bool
     ) -> uuid.UUID:
         """Create a warehouse in this server"""
         storage_config = get_storage_config(sts_enabled=sts_enabled)

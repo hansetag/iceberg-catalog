@@ -117,8 +117,9 @@ mod test {
     use crate::api::iceberg::v1::ViewParameters;
     use crate::catalog::views::create::test::create_view;
     use crate::catalog::views::load::test::load_view;
-    use crate::catalog::views::test::{new_namespace, setup};
-    use iceberg::TableIdent;
+    use crate::catalog::views::test::setup;
+    use crate::implementations::postgres::namespace::tests::initialize_namespace;
+    use iceberg::{NamespaceIdent, TableIdent};
     use iceberg_ext::catalog::rest::CreateViewRequest;
     use sqlx::PgPool;
 
@@ -185,13 +186,12 @@ mod test {
 
     #[sqlx::test]
     async fn test_rename_view_with_namespace(pool: PgPool) {
-        let (api_context, namespace, whi) = setup(pool, None).await;
-        let new_ns = new_namespace(
-            api_context.v1_state.catalog.clone(),
-            whi,
-            Some(vec!["Someother-ns".to_string()]),
-        )
-        .await;
+        let (api_context, _, whi) = setup(pool, None).await;
+        let namespace = NamespaceIdent::from_vec(vec!["Someother-ns".to_string()]).unwrap();
+        let new_ns =
+            initialize_namespace(api_context.v1_state.catalog.clone(), whi, &namespace, None)
+                .await
+                .namespace;
 
         let view_name = "my-view";
         let rq: CreateViewRequest =

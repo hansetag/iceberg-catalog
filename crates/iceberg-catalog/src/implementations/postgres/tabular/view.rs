@@ -23,8 +23,8 @@ use std::default::Default;
 use uuid::Uuid;
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
+use crate::service::ListFlags;
 pub(crate) use crate::service::ViewMetadataWithLocation;
-use crate::service::{DropFlags, ListFlags};
 pub(crate) use load::load_view;
 
 pub(crate) async fn view_ident_to_id<'e, 'c: 'e, E>(
@@ -42,6 +42,7 @@ where
         ListFlags {
             include_deleted,
             include_staged: false,
+            include_active: true,
         },
         catalog_state,
     )
@@ -145,37 +146,33 @@ pub(crate) async fn create_view(
 
 pub(crate) async fn drop_view<'a>(
     view_id: TableIdentUuid,
-    drop_flags: DropFlags,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> Result<()> {
-    if drop_flags.hard_delete {
-        let _ = sqlx::query!(
-            r#"
-         DELETE FROM view
-         WHERE view_id = $1
-         AND view_id IN (select view_id from active_views)
-         RETURNING "view_id"
-         "#,
-            *view_id,
-        )
-        .fetch_one(&mut **transaction)
-        .await
-        .map_err(|e| {
-            if let sqlx::Error::RowNotFound = e {
-                ErrorModel::builder()
-                    .code(StatusCode::NOT_FOUND.into())
-                    .message("View not found".to_string())
-                    .r#type("NoSuchViewError".to_string())
-                    .build()
-            } else {
-                tracing::warn!("Error dropping view: {}", e);
-                e.into_error_model("Error dropping view".to_string())
-            }
-        })?;
-    }
+) -> Result<String> {
+    let _ = sqlx::query!(
+        r#"
+     DELETE FROM view
+     WHERE view_id = $1
+     AND view_id IN (select view_id from active_views)
+     RETURNING view_id
+     "#,
+        *view_id,
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::RowNotFound = e {
+            ErrorModel::builder()
+                .code(StatusCode::NOT_FOUND.into())
+                .message("View not found".to_string())
+                .r#type("NoSuchViewError".to_string())
+                .build()
+        } else {
+            tracing::warn!("Error dropping view: {}", e);
+            e.into_error_model("Error dropping view".to_string())
+        }
+    })?;
 
-    drop_tabular(TabularIdentUuid::View(*view_id), drop_flags, transaction).await?;
-    Ok(())
+    drop_tabular(TabularIdentUuid::View(*view_id), transaction).await
 }
 
 /// Rename a table. Tables may be moved across namespaces.
@@ -441,8 +438,9 @@ pub(crate) async fn list_views(
         ListFlags {
             include_deleted,
             include_staged: false,
+            include_active: true,
         },
-        catalog_state,
+        &catalog_state.read_pool(),
         Some(TabularType::View),
         paginate_query,
     )
@@ -531,12 +529,14 @@ pub(crate) mod tests {
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use crate::implementations::postgres::CatalogState;
 
-    use crate::service::{DropFlags, TableIdentUuid};
+    use crate::service::TableIdentUuid;
 
     use iceberg::spec::{ViewMetadata, ViewMetadataBuilder};
     use iceberg::{NamespaceIdent, TableIdent};
 
     use crate::api::iceberg::v1::PaginationQuery;
+    use crate::implementations::postgres::tabular::mark_tabular_as_deleted;
+    use crate::service::tabular_idents::TabularIdentUuid;
     use crate::WarehouseIdent;
     use serde_json::json;
     use sqlx::PgPool;
@@ -639,7 +639,7 @@ pub(crate) mod tests {
     #[sqlx::test]
     async fn create_view(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let namespace_id =
@@ -721,13 +721,9 @@ pub(crate) mod tests {
     async fn drop_view(pool: sqlx::PgPool) {
         let (state, created_meta, _, _, _) = prepare_view(pool).await;
         let mut tx = state.write_pool().begin().await.unwrap();
-        super::drop_view(
-            created_meta.view_uuid.into(),
-            DropFlags::default().hard_delete(),
-            &mut tx,
-        )
-        .await
-        .unwrap();
+        super::drop_view(created_meta.view_uuid.into(), &mut tx)
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
         load_view(
             created_meta.view_uuid.into(),
@@ -742,7 +738,7 @@ pub(crate) mod tests {
     async fn soft_drop_view(pool: sqlx::PgPool) {
         let (state, created_meta, _, _, _) = prepare_view(pool).await;
         let mut tx = state.write_pool().begin().await.unwrap();
-        super::drop_view(created_meta.view_uuid.into(), DropFlags::default(), &mut tx)
+        mark_tabular_as_deleted(TabularIdentUuid::View(created_meta.view_uuid), &mut tx)
             .await
             .unwrap();
         tx.commit().await.unwrap();
@@ -755,13 +751,9 @@ pub(crate) mod tests {
         .expect("soft-dropped view should loadable");
         let mut tx = state.write_pool().begin().await.unwrap();
 
-        super::drop_view(
-            created_meta.view_uuid.into(),
-            DropFlags::default().hard_delete(),
-            &mut tx,
-        )
-        .await
-        .unwrap();
+        super::drop_view(created_meta.view_uuid.into(), &mut tx)
+            .await
+            .unwrap();
         tx.commit().await.unwrap();
 
         load_view(
@@ -814,13 +806,9 @@ pub(crate) mod tests {
     async fn drop_view_not_existing(pool: sqlx::PgPool) {
         let (state, _, _, _, _) = prepare_view(pool).await;
         let mut tx = state.write_pool().begin().await.unwrap();
-        let e = super::drop_view(
-            Uuid::now_v7().into(),
-            DropFlags::default().hard_delete(),
-            &mut tx,
-        )
-        .await
-        .expect_err("dropping random uuid should not succeed");
+        let e = super::drop_view(Uuid::now_v7().into(), &mut tx)
+            .await
+            .expect_err("dropping random uuid should not succeed");
         tx.commit().await.unwrap();
         assert_eq!(e.error.code, 404);
     }
@@ -835,7 +823,7 @@ pub(crate) mod tests {
         String,
     ) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
-        let warehouse_id = initialize_warehouse(state.clone(), None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let namespace_id =
