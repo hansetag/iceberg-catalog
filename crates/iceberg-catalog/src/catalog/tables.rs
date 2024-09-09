@@ -559,9 +559,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         if hard_delete {
             let location = C::drop_table(table_id, transaction.transaction()).await?;
-            // TODO: committing here means maybe dangling data if queue_tabular_purge fails
-            //       commiting after queuing means we may end up with a table pointing nowhere
-            //       I feel that some undeleted files are less bad than a table that's there but can't be loaded
+            // committing here means maybe dangling data if queue_tabular_purge fails
+            // commiting after queuing means we may end up with a table pointing nowhere
+            // I feel that some undeleted files are less bad than a table that's there but can't be loaded
             transaction.commit().await?;
 
             state

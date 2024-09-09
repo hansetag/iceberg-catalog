@@ -325,12 +325,16 @@ where
             t.tabular_id,
             t.name as "tabular_name",
             namespace_name,
-            typ as "typ: TabularType",
+            t.typ as "typ: TabularType",
             t.created_at,
-            t.deleted_at
+            t.deleted_at,
+            tt.suspend_until as "cleanup_at?",
+            tt.task_id as "cleanup_task_id?"
         FROM tabular t
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+        LEFT JOIN tabular_expirations te ON t.tabular_id = te.tabular_id
+        INNER JOIN task tt ON te.task_id = tt.task_id
         WHERE n.warehouse_id = $1
             AND (namespace_name = $2 OR $2 IS NULL)
             AND w.status = 'active'
@@ -372,6 +376,16 @@ where
 
         let deletion_details = if let Some(deleted_at) = table.deleted_at {
             Some(DeletionDetails {
+                expiration_date: table.cleanup_at.ok_or(ErrorModel::internal(
+                    "Cleanup date missing for deleted tabular",
+                    "InternalDatabaseError",
+                    None,
+                ))?,
+                expiration_task_id: table.cleanup_task_id.ok_or(ErrorModel::internal(
+                    "Cleanup task ID missing for deleted tabular",
+                    "InternalDatabaseError",
+                    None,
+                ))?,
                 deleted_at,
                 created_at: table.created_at,
             })

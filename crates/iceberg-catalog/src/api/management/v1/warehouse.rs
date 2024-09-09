@@ -499,7 +499,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
                     let i = ident.into_inner();
                     let deleted = delete_opts.ok_or(ErrorModel::internal(
                         "Expected delete options to be Some, but found None",
-                        "InternalDBError",
+                        "InternalDatabaseError",
                         None,
                     ))?;
 
@@ -511,6 +511,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
                         warehouse_id: *warehouse_id,
                         created_at: deleted.created_at,
                         deleted_at: deleted.deleted_at,
+                        expiration_date: deleted.expiration_date,
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,

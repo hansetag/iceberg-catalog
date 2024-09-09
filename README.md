@@ -135,7 +135,7 @@ connecting.
 
 # Undrop Tables
 
-When a table or view is dropped, it is not immediately deleted from the catalog. Instead, it is marked as dropped and a job for its cleanup is scheduled. The table is then deleted after the configured `ICEBERG_TABULAR_EXPIRATION_DELAY_SECONDS` (default: 7 days) have passed. This will allow for a recovery of tables that have been dropped by accident. 
+When a table or view is dropped, it is not immediately deleted from the catalog. Instead, it is marked as dropped and a job for its cleanup is scheduled. The table, including its data if `purgeRequested=True`, is then deleted after the configured `ICEBERG_TABULAR_EXPIRATION_DELAY_SECONDS` (default: 7 days) have passed. This will allow for a recovery of tables that have been dropped by accident.
 
 
 # Configuration

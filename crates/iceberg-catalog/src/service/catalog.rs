@@ -445,6 +445,8 @@ pub struct ViewMetadataWithLocation {
 
 #[derive(Debug, Clone, Copy)]
 pub struct DeletionDetails {
+    pub expiration_task_id: uuid::Uuid,
+    pub expiration_date: chrono::DateTime<chrono::Utc>,
     pub deleted_at: chrono::DateTime<chrono::Utc>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }

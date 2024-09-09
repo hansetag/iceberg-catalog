@@ -314,6 +314,8 @@ pub mod v1 {
         pub created_at: chrono::DateTime<chrono::Utc>,
         /// Date when the tabular was deleted
         pub deleted_at: chrono::DateTime<chrono::Utc>,
+        /// Date when the tabular will not be recoverable anymore
+        pub expiration_date: chrono::DateTime<chrono::Utc>,
     }
 
     /// Type of tabular

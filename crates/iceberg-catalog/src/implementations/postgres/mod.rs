@@ -267,25 +267,6 @@ impl DynAppConfig {
                 self.pg_connection_max_lifetime
                     .map(core::time::Duration::from_secs),
             )
-            .after_connect(|_conn, _meta| {
-                Box::pin(async move {
-                    // TODO: add verbose cli?
-                    // tracing::debug!(metadata = ?meta, "pg pool established a new connection");
-                    Ok(())
-                })
-            })
-            .before_acquire(|_conn, _meta| {
-                Box::pin(async move {
-                    // tracing::trace!(metadata = ?meta, "acquiring connection from pg pool");
-                    Ok(true)
-                })
-            })
-            .after_release(|_conn, _meta| {
-                Box::pin(async move {
-                    // tracing::trace!(metadata = ?meta, "connection was released back to pg pool");
-                    Ok(true)
-                })
-            })
     }
 }
 
