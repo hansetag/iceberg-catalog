@@ -334,7 +334,7 @@ where
         INNER JOIN namespace n ON t.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         LEFT JOIN tabular_expirations te ON t.tabular_id = te.tabular_id
-        INNER JOIN task tt ON te.task_id = tt.task_id
+        LEFT JOIN task tt ON te.task_id = tt.task_id
         WHERE n.warehouse_id = $1
             AND (namespace_name = $2 OR $2 IS NULL)
             AND w.status = 'active'
