@@ -11,6 +11,7 @@ use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::service::health::HealthExt;
 use crate::SecretIdent;
 
+use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use iceberg::spec::{TableMetadata, ViewMetadata};
 pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
@@ -92,6 +93,8 @@ pub struct GetWarehouseResponse {
     pub storage_secret_id: Option<SecretIdent>,
     /// Whether the warehouse is active.
     pub status: WarehouseStatus,
+    /// Tabular delete profile used for the warehouse.
+    pub tabular_delete_profile: TabularDeleteProfile,
 }
 
 #[derive(Debug, Clone)]
@@ -264,6 +267,7 @@ where
         warehouse_name: String,
         project_id: ProjectIdent,
         storage_profile: StorageProfile,
+        tabular_delete_profile: TabularDeleteProfile,
         storage_secret_id: Option<SecretIdent>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<WarehouseIdent>;

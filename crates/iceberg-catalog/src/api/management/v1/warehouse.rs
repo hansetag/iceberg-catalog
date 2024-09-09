@@ -11,7 +11,7 @@ pub use crate::service::WarehouseStatus;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, ListFlags, State, Transaction,
 };
-use crate::{ProjectIdent, WarehouseIdent};
+use crate::{ProjectIdent, WarehouseIdent, CONFIG};
 use iceberg_ext::catalog::rest::ErrorModel;
 use serde::Deserialize;
 use utoipa::ToSchema;
@@ -28,6 +28,41 @@ pub struct CreateWarehouseRequest {
     pub storage_profile: StorageProfile,
     /// Optional storage credential to use for the warehouse.
     pub storage_credential: Option<StorageCredential>,
+    /// Profile to determine behavior upon dropping of tabulars, defaults to soft-deletion with
+    /// 7 days expiration.
+    #[serde(default)]
+    pub delete_profile: TabularDeleteProfile,
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case", tag = "type")]
+pub enum TabularDeleteProfile {
+    Hard {},
+
+    Soft {
+        #[serde(
+            deserialize_with = "crate::config::seconds_to_duration",
+            serialize_with = "crate::config::duration_to_seconds"
+        )]
+        expiration_seconds: chrono::Duration,
+    },
+}
+
+impl TabularDeleteProfile {
+    pub(crate) fn expiration_seconds(&self) -> Option<chrono::Duration> {
+        match self {
+            Self::Soft { expiration_seconds } => Some(*expiration_seconds),
+            Self::Hard {} => None,
+        }
+    }
+}
+
+impl Default for TabularDeleteProfile {
+    fn default() -> Self {
+        Self::Soft {
+            expiration_seconds: CONFIG.tabular_expiration_delay_seconds,
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -136,6 +171,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             project_id,
             mut storage_profile,
             storage_credential,
+            delete_profile,
         } = request;
         let project_ident = ProjectIdent::from(project_id);
 
@@ -165,6 +201,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             warehouse_name,
             project_id.into(),
             storage_profile,
+            delete_profile,
             secret_id,
             transaction.transaction(),
         )

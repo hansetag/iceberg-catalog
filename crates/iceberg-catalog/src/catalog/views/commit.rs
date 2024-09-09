@@ -157,6 +157,7 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         storage_profile,
         storage_secret_id,
         status,
+        tabular_delete_profile: _,
     } = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
     require_active_warehouse(status)?;
 
