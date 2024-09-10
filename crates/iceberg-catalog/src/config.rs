@@ -123,7 +123,7 @@ pub struct DynAppConfig {
         deserialize_with = "seconds_to_duration",
         serialize_with = "duration_to_seconds"
     )]
-    pub tabular_expiration_delay_seconds: chrono::Duration,
+    pub default_tabular_expiration_delay_seconds: chrono::Duration,
 }
 
 pub(crate) fn seconds_to_duration<'de, D>(deserializer: D) -> Result<chrono::Duration, D::Error>
@@ -204,7 +204,7 @@ impl Default for DynAppConfig {
             kv2: None,
             secret_backend: SecretBackend::Postgres,
             queue_config: TaskQueueConfig::default(),
-            tabular_expiration_delay_seconds: chrono::Duration::days(7),
+            default_tabular_expiration_delay_seconds: chrono::Duration::days(7),
         }
     }
 }
@@ -230,7 +230,7 @@ impl DynAppConfig {
     }
 
     pub fn tabular_expiration_delay(&self) -> chrono::Duration {
-        self.tabular_expiration_delay_seconds
+        self.default_tabular_expiration_delay_seconds
     }
 }
 
