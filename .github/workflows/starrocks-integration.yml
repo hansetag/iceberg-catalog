@@ -1,4 +1,4 @@
-name: Spark Integration
+name: Starrocks Integration
 
 on:
   push:
@@ -39,7 +39,7 @@ jobs:
           name: iceberg-catalog-image
           path: /tmp/*.tar
 
-  test-pyspark:
+  test-starrocks:
     needs: docker
     runs-on: ubuntu-latest
     steps:
@@ -58,19 +58,14 @@ jobs:
         run: |
           docker load -i artifacts/iceberg-catalog-amd64.tar
 
-      - name: Test Pyspark
+      - name: Test Starrocks
         run: |
           cd tests &&
-          docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_spark.sh"
+          docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_starrocks.sh"
 
         env:
           ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
           ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
-          AZURE_STORAGE_FILESYSTEM: ${{ secrets.AZURE_STORAGE_FILESYSTEM }}
       - name: Dump docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2

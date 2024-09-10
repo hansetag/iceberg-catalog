@@ -83,8 +83,8 @@ impl TableMetadataAggregate {
     const PARTITION_DATA_ID_START: i32 = 1000;
     const LAST_ADDED_I32: i32 = -1;
     const LAST_ADDED_I64: i64 = -1;
-    const RESERVED_PROPERTIES: [&'static str; 9] = [
-        "format-version",
+    const RESERVED_PROPERTIES: [&'static str; 8] = [
+        // "format-version",
         "uuid",
         "snapshot-count",
         "current-snapshot-summary",

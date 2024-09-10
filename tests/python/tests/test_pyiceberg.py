@@ -89,7 +89,7 @@ def test_drop_table(namespace: conftest.Namespace):
         assert "NoSuchTableError" in str(e)
 
 
-def test_drop_purge_table(namespace: conftest.Namespace):
+def test_drop_purge_table(namespace: conftest.Namespace, storage_config):
     catalog = namespace.pyiceberg_catalog
     table_name = "my_table"
     schema = pa.schema(
@@ -101,11 +101,13 @@ def test_drop_purge_table(namespace: conftest.Namespace):
     )
     catalog.create_table((*namespace.name, table_name), schema=schema)
     tab = catalog.load_table((*namespace.name, table_name))
-    properties = tab.properties
-    properties["s3.access-key-id"] = conftest.ICEBERG_REST_TEST_S3_ACCESS_KEY
-    properties["s3.secret-access-key"] = conftest.ICEBERG_REST_TEST_S3_SECRET_KEY
-    properties["s3.endpoint"] = conftest.ICEBERG_REST_TEST_S3_ENDPOINT
 
+    properties = tab.properties
+    if storage_config['storage-profile']['type'] == 's3':
+        properties["s3.access-key-id"] = storage_config['storage-credential']['aws-access-key-id']
+        properties["s3.secret-access-key"] = storage_config['storage-credential']['aws-secret-access-key']
+        properties["s3.endpoint"] = storage_config['storage-profile']['endpoint']
+        
     file_io = io._infer_file_io_from_scheme(tab.location(), properties)
 
     catalog.drop_table((*namespace.name, table_name), purge_requested=True)

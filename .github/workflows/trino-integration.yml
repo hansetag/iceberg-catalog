@@ -58,7 +58,7 @@ jobs:
         run: |
           docker load -i artifacts/iceberg-catalog-amd64.tar
 
-      - name: Test Pyspark
+      - name: Test Trino
         run: |
           cd tests &&
           docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_trino.sh"

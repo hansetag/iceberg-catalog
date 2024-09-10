@@ -1,9 +1,9 @@
-import sys
-
 import conftest
 import pandas as pd
 import pytest
 import requests
+import pyiceberg.io as io
+import time
 
 
 def test_create_namespace(spark, warehouse: conftest.Warehouse):
@@ -194,7 +194,12 @@ def test_drop_table_purge_spark(spark, warehouse: conftest.Warehouse):
         assert "NoSuchTableError" in str(e)
 
 
-def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse):
+def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse, storage_config):
+    if storage_config['storage-profile']['type'] == 'azdls':
+        # pyiceberg load_table doesn't contain any of the azdls properties so this test doesn't work until
+        # https://github.com/apache/iceberg-python/issues/1146 is resolved
+        pytest.skip("ADLS currently doesn't work with pyiceberg.")
+
     namespace = "test_drop_table_purge_http"
     spark.sql(f"CREATE NAMESPACE {namespace}")
     dfs = []
@@ -223,14 +228,14 @@ def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse):
         warehouse.pyiceberg_catalog.load_table((namespace, "my_table_0"))
         assert "NoSuchTableError" in str(e)
 
-    import pyiceberg.io as io
     properties = table_0.properties
-    properties["s3.access-key-id"] = conftest.ICEBERG_REST_TEST_S3_ACCESS_KEY
-    properties["s3.secret-access-key"] = conftest.ICEBERG_REST_TEST_S3_SECRET_KEY
-    properties["s3.endpoint"] = conftest.ICEBERG_REST_TEST_S3_ENDPOINT
+    if storage_config['storage-profile']['type'] == 's3':
+        properties["s3.access-key-id"] = storage_config['storage-credential']['aws-access-key-id']
+        properties["s3.secret-access-key"] = storage_config['storage-credential']['aws-secret-access-key']
+        properties["s3.endpoint"] = storage_config['storage-profile']['endpoint']
 
     file_io = io._infer_file_io_from_scheme(table_0.location(), properties)
-    import time
+
     # sleep to give time for the table to be gone
     time.sleep(5)
 
@@ -497,7 +502,7 @@ def test_table_maintenance_optimize(spark, namespace, warehouse: conftest.Wareho
     ).toPandas()
 
     rewrite_result = spark.sql(
-        f"CALL {warehouse.spark_catalog_name}.system.rewrite_data_files(table=>'{namespace.spark_name}.my_table', options=>map('rewrite-all', 'true'))"
+        f"CALL {warehouse.normalized_catalog_name}.system.rewrite_data_files(table=>'{namespace.spark_name}.my_table', options=>map('rewrite-all', 'true'))"
     ).toPandas()
     print(rewrite_result)
 
