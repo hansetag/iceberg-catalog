@@ -19,7 +19,7 @@ pub mod v1 {
         AzCredential, AzdlsProfile, CreateWarehouseRequest, CreateWarehouseResponse,
         GetWarehouseResponse, ListProjectsResponse, ListWarehousesRequest, ListWarehousesResponse,
         ProjectResponse, RenameWarehouseRequest, S3Credential, S3Profile, Service,
-        StorageCredential, StorageProfile, UpdateWarehouseCredentialRequest,
+        StorageCredential, StorageProfile, TabularDeleteProfile, UpdateWarehouseCredentialRequest,
         UpdateWarehouseStorageRequest, WarehouseStatus,
     };
 
@@ -64,6 +64,7 @@ pub mod v1 {
             DeletedTabularResponse,
             TabularType,
             DeleteKind,
+            TabularDeleteProfile,
         ))
     )]
     pub struct ManagementApiDoc;
