@@ -14,6 +14,8 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
+
+use crate::implementations::postgres::tabular::table::get_table_id_by_s3_location;
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
@@ -184,6 +186,28 @@ impl Catalog for super::PostgresCatalog {
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse> {
         get_table_metadata_by_s3_location(warehouse_id, location, list_flags, catalog_state).await
+    }
+
+    async fn get_table_id_by_s3_location(
+        warehouse_id: WarehouseIdent,
+        location: &str,
+        list_flags: ListFlags,
+        catalog_state: Self::State,
+    ) -> Result<TableIdentUuid> {
+        let cache = catalog_state.location_to_id_cache.clone();
+        {
+            let mut read = cache.lock().await;
+            if let Some(id) = read.get(location) {
+                return Ok(*id);
+            }
+            // locks need to be dropped before the next await.
+        }
+
+        let id =
+            get_table_id_by_s3_location(warehouse_id, location, list_flags, catalog_state).await?;
+        let mut lock = cache.lock().await;
+        lock.get_or_insert(location.to_string(), || id);
+        Ok(id)
     }
 
     async fn table_ident_to_id(

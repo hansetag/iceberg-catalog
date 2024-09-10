@@ -18,10 +18,12 @@ use sqlx::migrate::{Migrate, MigrateError};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{ConnectOptions, Error, Executor, PgPool};
 use std::collections::HashSet;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
+use crate::service::TableIdentUuid;
 pub use secrets::SecretsState;
 pub use tabular::DeletionKind;
 
@@ -227,6 +229,8 @@ impl ReadWrite {
 
 pub struct CatalogState {
     pub read_write: ReadWrite,
+    // Cannot use a RwLock here because LruCache takes &mut on reads to bump the value to the front.
+    location_to_id_cache: Arc<Mutex<lru::LruCache<String, TableIdentUuid>>>,
 }
 
 #[async_trait]
@@ -242,9 +246,14 @@ impl HealthExt for CatalogState {
 
 impl CatalogState {
     #[must_use]
+    #[expect(clippy::missing_panics_doc)] // we're unwrapping 1000 that we use to construct a nonzero usize.
     pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
         Self {
             read_write: ReadWrite::from_pools(read_pool, write_pool),
+            location_to_id_cache: Arc::new(Mutex::new(lru::LruCache::new(
+                // TODO: how to construct a non-zero in an infallible way without addition
+                NonZeroUsize::new(1000).unwrap(),
+            ))),
         }
     }
 

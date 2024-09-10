@@ -227,6 +227,13 @@ where
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse>;
 
+    async fn get_table_id_by_s3_location(
+        warehouse_id: WarehouseIdent,
+        location: &str,
+        list_flags: ListFlags,
+        catalog_state: Self::State,
+    ) -> Result<TableIdentUuid>;
+
     /// Rename a table. Tables may be moved across namespaces.
     async fn rename_table<'a>(
         warehouse_id: WarehouseIdent,

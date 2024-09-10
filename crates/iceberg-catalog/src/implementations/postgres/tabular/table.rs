@@ -334,6 +334,57 @@ pub(crate) async fn get_table_metadata_by_id(
     })
 }
 
+pub(crate) async fn get_table_id_by_s3_location(
+    warehouse_id: WarehouseIdent,
+    location: &str,
+    list_flags: crate::service::ListFlags,
+    catalog_state: CatalogState,
+) -> Result<TableIdentUuid> {
+    // Location might also be a subpath of the table location.
+    // We need to make sure that the location starts with the table location.
+    let table = sqlx::query!(
+        r#"
+        SELECT
+            ti.name as "table_name",
+            ti.tabular_id as "table_id",
+            ti.metadata_location
+        FROM tabular ti
+        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
+        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+        WHERE w.warehouse_id = $1
+            AND $2 like ti."location" || '%'
+            AND LENGTH(ti."location") <= $3
+            AND w.status = 'active'
+            AND (ti.deleted_at IS NULL OR $4)
+            AND ti.typ = 'table'
+        "#,
+        *warehouse_id,
+        location,
+        i32::try_from(location.len()).unwrap_or(i32::MAX),
+        list_flags.include_deleted
+    )
+    .fetch_one(&catalog_state.read_pool())
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => {
+            ErrorModel::not_found("Table not found", "NoSuchTableError", Some(Box::new(e)))
+                .append_details(&[location.to_string(), format!("Warehouse: {warehouse_id}")])
+        }
+        _ => e.into_error_model("Error fetching table".to_string()),
+    })?;
+
+    if !list_flags.include_staged && table.metadata_location.is_none() {
+        return Err(ErrorModel::not_found(
+            "Table is staged and not yet created",
+            "TableStaged",
+            None,
+        )
+        .into());
+    }
+
+    Ok(TableIdentUuid::from(table.table_id))
+}
+
 pub(crate) async fn get_table_metadata_by_s3_location(
     warehouse_id: WarehouseIdent,
     location: &str,

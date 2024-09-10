@@ -70,6 +70,7 @@ jwks_client_rs = { version = "0.5.1", default-features = false, features = [
     "rustls-tls",
 ] }
 lazy-regex = { version = "3.2.0", features = ["lite"] }
+lru = "0.12.4"
 strum = { version = "^0.26", features = ["derive"] }
 sqlx = { version = "^0.8.0", default-features = false, features = [
     "runtime-tokio",
