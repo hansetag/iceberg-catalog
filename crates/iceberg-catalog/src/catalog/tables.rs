@@ -14,6 +14,7 @@ use crate::api::iceberg::v1::{
     NamespaceParameters, PaginationQuery, Prefix, RegisterTableRequest, RenameTableRequest, Result,
     TableIdent, TableParameters,
 };
+use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::api::management::v1::TabularType;
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
@@ -28,7 +29,7 @@ use crate::service::{
     LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
-use crate::CONFIG;
+
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
 use iceberg_ext::configs::namespace::NamespaceProperties;
@@ -537,10 +538,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let hard_delete = false;
         let purge = purge_requested.unwrap_or(false);
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
 
         let table_id = table_id.ok_or_else(|| {
             ErrorModel::not_found(
@@ -557,45 +558,51 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .await?
             .into_result()?;
 
-        if hard_delete {
-            let location = C::drop_table(table_id, transaction.transaction()).await?;
-            // committing here means maybe dangling data if queue_tabular_purge fails
-            // commiting after queuing means we may end up with a table pointing nowhere
-            // I feel that some undeleted files are less bad than a table that's there but can't be loaded
-            transaction.commit().await?;
+        match warehouse.tabular_delete_profile {
+            TabularDeleteProfile::Hard {} => {
+                let location = C::drop_table(table_id, transaction.transaction()).await?;
+                // committing here means maybe dangling data if queue_tabular_purge fails
+                // commiting after queuing means we may end up with a table pointing nowhere
+                // I feel that some undeleted files are less bad than a table that's there but can't be loaded
+                transaction.commit().await?;
 
-            state
-                .v1_state
-                .queues
-                .queue_tabular_purge(TabularPurgeInput {
-                    tabular_id: *table_id,
-                    tabular_location: location,
-                    warehouse_ident: warehouse_id,
-                    tabular_type: TabularType::Table,
-                    parent_id: None,
-                })
-                .await?;
-            tracing::debug!("Queued purge task for dropped table '{table_id}'.");
-        } else {
-            C::mark_tabular_as_deleted(
-                TabularIdentUuid::Table(*table_id),
-                transaction.transaction(),
-            )
-            .await?;
-            transaction.commit().await?;
+                if purge {
+                    state
+                        .v1_state
+                        .queues
+                        .queue_tabular_purge(TabularPurgeInput {
+                            tabular_id: *table_id,
+                            tabular_location: location,
+                            warehouse_ident: warehouse_id,
+                            tabular_type: TabularType::Table,
+                            parent_id: None,
+                        })
+                        .await?;
+                }
 
-            state
-                .v1_state
-                .queues
-                .queue_tabular_expiration(TabularExpirationInput {
-                    tabular_id: table_id.into(),
-                    warehouse_ident: warehouse_id,
-                    tabular_type: TabularType::Table,
-                    purge,
-                    expire_at: chrono::Utc::now() + CONFIG.tabular_expiration_delay(),
-                })
+                tracing::debug!("Queued purge task for dropped table '{table_id}'.");
+            }
+            TabularDeleteProfile::Soft { expiration_seconds } => {
+                C::mark_tabular_as_deleted(
+                    TabularIdentUuid::Table(*table_id),
+                    transaction.transaction(),
+                )
                 .await?;
-            tracing::debug!("Queued expiration task for dropped table '{table_id}'.");
+                transaction.commit().await?;
+
+                state
+                    .v1_state
+                    .queues
+                    .queue_tabular_expiration(TabularExpirationInput {
+                        tabular_id: table_id.into(),
+                        warehouse_ident: warehouse_id,
+                        tabular_type: TabularType::Table,
+                        purge,
+                        expire_at: chrono::Utc::now() + expiration_seconds,
+                    })
+                    .await?;
+                tracing::debug!("Queued expiration task for dropped table '{table_id}'.");
+            }
         }
 
         emit_change_event(
