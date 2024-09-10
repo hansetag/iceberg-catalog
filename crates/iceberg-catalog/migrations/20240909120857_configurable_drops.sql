@@ -7,3 +7,6 @@ alter table warehouse
 alter table warehouse
     add check ( (tabular_expiration_seconds IS NOT NULL AND tabular_delete_mode = 'soft') OR
                 (tabular_expiration_seconds IS NULL AND tabular_delete_mode = 'hard') );
+
+alter table warehouse
+    alter column tabular_delete_mode drop default;
