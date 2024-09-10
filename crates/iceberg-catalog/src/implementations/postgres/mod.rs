@@ -264,7 +264,7 @@ impl HealthExt for CatalogState {
 
 impl CatalogState {
     #[must_use]
-    #[expect(clippy::missing_panics_doc)] // we're unwrapping 1000 that we use to construct a nonzero usize.
+    #[allow(clippy::missing_panics_doc)] // we're unwrapping 1000 that we use to construct a nonzero usize.
     pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
         Self {
             read_write: ReadWrite::from_pools(read_pool, write_pool),

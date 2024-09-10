@@ -15,8 +15,8 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 
-use crate::implementations::postgres::tabular::table::get_table_id_by_s3_location;
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
+use crate::implementations::postgres::tabular::table::get_table_id_by_s3_location;
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
