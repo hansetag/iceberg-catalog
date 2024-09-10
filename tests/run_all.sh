@@ -7,7 +7,7 @@ export HOME=/opt/spark/work-dir
 export PATH=$PATH:/opt/spark/bin:/opt/spark/work-dir/.local/bin
 
 echo "Installing tox ..."
-pip3 install -q tox
+pip3 install -q tox-uv
 
 echo "Modifying the PYTHONPATH ..."
 # Add pyspark to the PYTHONPATH
