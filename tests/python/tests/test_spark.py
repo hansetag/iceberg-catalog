@@ -195,6 +195,11 @@ def test_drop_table_purge_spark(spark, warehouse: conftest.Warehouse):
 
 
 def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse, storage_config):
+    if storage_config['storage-profile']['type'] == 'azdls':
+        # pyiceberg load_table doesn't contain any of the azdls properties so this test doesn't work until
+        # https://github.com/apache/iceberg-python/issues/1146 is resolved
+        pytest.skip("ADLS currently doesn't work with pyiceberg.")
+
     namespace = "test_drop_table_purge_http"
     spark.sql(f"CREATE NAMESPACE {namespace}")
     dfs = []
