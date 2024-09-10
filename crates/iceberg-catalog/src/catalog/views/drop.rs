@@ -133,10 +133,14 @@ pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use crate::api::iceberg::types::{DropParams, Prefix};
+    use crate::api::iceberg::v1::ViewParameters;
     use crate::catalog::views::create::test::create_view;
+    use crate::catalog::views::drop::drop_view;
     use crate::catalog::views::load::test::load_view;
     use crate::catalog::views::test::setup;
+    use crate::request_metadata::RequestMetadata;
+    use http::StatusCode;
     use iceberg::TableIdent;
     use iceberg_ext::catalog::rest::CreateViewRequest;
     use sqlx::PgPool;
