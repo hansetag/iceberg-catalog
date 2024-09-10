@@ -308,6 +308,8 @@ components:
       - project-id
       - storage-profile
       properties:
+        delete-profile:
+          $ref: '#/components/schemas/TabularDeleteProfile'
         project-id:
           type: string
           format: uuid
@@ -335,8 +337,8 @@ components:
     DeleteKind:
       type: string
       enum:
-      - Default
-      - Purge
+      - default
+      - purge
     DeletedTabularResponse:
       type: object
       required:
@@ -347,7 +349,7 @@ components:
       - warehouse_id
       - created_at
       - deleted_at
-      - deleted_kind
+      - expiration_date
       properties:
         created_at:
           type: string
@@ -357,8 +359,10 @@ components:
           type: string
           format: date-time
           description: Date when the tabular was deleted
-        deleted_kind:
-          $ref: '#/components/schemas/DeleteKind'
+        expiration_date:
+          type: string
+          format: date-time
+          description: Date when the tabular will not be recoverable anymore
         id:
           type: string
           format: uuid
@@ -588,6 +592,29 @@ components:
               enum:
               - s3
       description: Storage profile for a warehouse.
+      discriminator:
+        propertyName: type
+    TabularDeleteProfile:
+      oneOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - hard
+      - type: object
+        required:
+        - expiration_seconds
+        - type
+        properties:
+          expiration_seconds:
+            type: string
+          type:
+            type: string
+            enum:
+            - soft
       discriminator:
         propertyName: type
     TabularType:

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT \n                warehouse_id,\n                warehouse_name,\n                storage_profile as \"storage_profile: Json<StorageProfile>\",\n                storage_secret_id,\n                status AS \"status: WarehouseStatus\"\n            FROM warehouse\n            WHERE project_id = $1 AND warehouse_id = ANY($2)\n            AND status = ANY($3)\n            ",
+  "query": "\n            SELECT \n                warehouse_id,\n                warehouse_name,\n                storage_profile as \"storage_profile: Json<StorageProfile>\",\n                storage_secret_id,\n                status AS \"status: WarehouseStatus\",\n                tabular_delete_mode as \"tabular_delete_mode: DbTabularDeleteProfile\",\n                tabular_expiration_seconds\n            FROM warehouse\n            WHERE project_id = $1 AND warehouse_id = ANY($2)\n            AND status = ANY($3)\n            ",
   "describe": {
     "columns": [
       {
@@ -37,6 +37,26 @@
             }
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "tabular_delete_mode: DbTabularDeleteProfile",
+        "type_info": {
+          "Custom": {
+            "name": "tabular_delete_mode",
+            "kind": {
+              "Enum": [
+                "soft",
+                "hard"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "tabular_expiration_seconds",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -68,8 +88,10 @@
       false,
       false,
       true,
-      false
+      false,
+      false,
+      true
     ]
   },
-  "hash": "a21946e2a2d8a77c1c5d4d43d5fce903a337523052383f365017e2a21cb9935f"
+  "hash": "912d8790ca799aee4352541d7d952bc41f9c7370f807c06d519d65afd95de29d"
 }

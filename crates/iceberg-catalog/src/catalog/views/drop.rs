@@ -1,5 +1,6 @@
 use crate::api::iceberg::types::{DropParams, Prefix};
 use crate::api::iceberg::v1::ViewParameters;
+use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::api::management::v1::TabularType;
 use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
@@ -13,8 +14,6 @@ use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::Result;
 use crate::service::{Catalog, SecretStore, State, Transaction};
-use crate::CONFIG;
-use http::StatusCode;
 use iceberg_ext::catalog::rest::ErrorModel;
 use uuid::Uuid;
 
@@ -44,18 +43,20 @@ pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     .await?;
 
     // ------------------- BUSINESS LOGIC -------------------
-    let hard_delete = false;
     let purge_requested = purge_requested.unwrap_or(false);
 
-    let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
     let view_id = view_id.transpose()?.ok_or_else(|| {
-        tracing::debug!("View does not exist.");
-        ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message(format!("View does not exist in warehouse {warehouse_id}"))
-            .r#type("ViewNotFound".to_string())
-            .build()
+        tracing::debug!(?view, "View does not exist.");
+        ErrorModel::not_found(
+            format!("View does not exist in warehouse {warehouse_id}"),
+            "ViewNotFound",
+            None,
+        )
     })?;
+
+    let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
+
+    let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
 
     state
         .v1_state
@@ -66,45 +67,45 @@ pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     tracing::debug!("Proceeding to delete view");
 
-    if hard_delete {
-        let purge_input = if purge_requested {
-            let view = C::load_view(view_id, true, transaction.transaction()).await?;
-            Some(TabularPurgeInput {
-                tabular_location: view.metadata.location.clone(),
-                tabular_id: *view_id,
-                warehouse_ident: warehouse_id,
-                tabular_type: TabularType::View,
-                parent_id: None,
-            })
-        } else {
-            None
-        };
+    match warehouse.tabular_delete_profile {
+        TabularDeleteProfile::Hard {} => {
+            let location = C::drop_view(view_id, transaction.transaction()).await?;
+            // committing here means maybe dangling data if the queue fails
+            // OTOH committing after queuing means we may end up with a view pointing to deleted files
+            // I feel that some undeleted files are less bad than a view that cannot be loaded
+            transaction.commit().await?;
 
-        C::drop_view(view_id, transaction.transaction()).await?;
-        // committing here means maybe dangling data if the queue fails
-        // OTOH committing after queuing means we may end up with a view pointing to deleted files
-        // I feel that some undeleted files are less bad than a view that cannot be loaded
-        transaction.commit().await?;
-
-        if let Some(task) = purge_input {
-            state.v1_state.queues.queue_tabular_purge(task).await?;
+            if purge_requested {
+                state
+                    .v1_state
+                    .queues
+                    .queue_tabular_purge(TabularPurgeInput {
+                        tabular_location: location,
+                        tabular_id: *view_id,
+                        warehouse_ident: warehouse_id,
+                        tabular_type: TabularType::View,
+                        parent_id: None,
+                    })
+                    .await?;
+            }
         }
-    } else {
-        C::mark_tabular_as_deleted(TabularIdentUuid::View(*view_id), transaction.transaction())
-            .await?;
-        transaction.commit().await?;
+        TabularDeleteProfile::Soft { expiration_seconds } => {
+            C::mark_tabular_as_deleted(TabularIdentUuid::View(*view_id), transaction.transaction())
+                .await?;
+            transaction.commit().await?;
 
-        state
-            .v1_state
-            .queues
-            .queue_tabular_expiration(TabularExpirationInput {
-                tabular_id: *view_id,
-                warehouse_ident: warehouse_id,
-                tabular_type: TabularType::View,
-                purge: purge_requested,
-                expire_at: chrono::Utc::now() + CONFIG.tabular_expiration_delay(),
-            })
-            .await?;
+            state
+                .v1_state
+                .queues
+                .queue_tabular_expiration(TabularExpirationInput {
+                    tabular_id: *view_id,
+                    warehouse_ident: warehouse_id,
+                    tabular_type: TabularType::View,
+                    purge: purge_requested,
+                    expire_at: chrono::Utc::now() + expiration_seconds,
+                })
+                .await?;
+        }
     }
 
     let _ = state
@@ -132,10 +133,14 @@ pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use crate::api::iceberg::types::{DropParams, Prefix};
+    use crate::api::iceberg::v1::ViewParameters;
     use crate::catalog::views::create::test::create_view;
+    use crate::catalog::views::drop::drop_view;
     use crate::catalog::views::load::test::load_view;
     use crate::catalog::views::test::setup;
+    use crate::request_metadata::RequestMetadata;
+    use http::StatusCode;
     use iceberg::TableIdent;
     use iceberg_ext::catalog::rest::CreateViewRequest;
     use sqlx::PgPool;

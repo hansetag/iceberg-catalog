@@ -155,7 +155,7 @@ Following options are global and apply to all warehouses:
 | `ICEBERG_REST__METRICS_PORT`        | `9000`                                 | Port where the metrics endpoint is reachable. Default: `9000`                                                                                                                                                                  |
 | `ICEBERG_REST__LISTEN_PORT`         | `8080`                                 | Port the server listens on. Default: `8080`                                                                                                                                                                                    |
 | `ICEBERG_REST__SECRET_BACKEND`      | `postgres`                             | The secret backend to use. If `kv2` is chosen, you need to provide additional parameters found under []() Default: `postgres`, one-of: [`postgres`, `kv2`]                                                                     |
-| `ICEBERG_TABULAR_EXPIRATION_DELAY_SECONDS` | `86400`                          | Time after which a tabular, i.e. View or Table which has been dropped is going to be deleted. Default: `86400`                                                                                                                 |
+| `ICEBERG_DEFAULT_TABULAR_EXPIRATION_DELAY_SECONDS` | `86400`                          | Time after which a tabular, i.e. View or Table which has been dropped is going to be deleted. Default: `86400` \[7 days\]                                                                                                      |
 
 ### Task queues
 

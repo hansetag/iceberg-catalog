@@ -31,6 +31,7 @@ impl TaskQueues {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub(crate) async fn queue_tabular_expiration(
         &self,
         task: TabularExpirationInput,
@@ -38,6 +39,7 @@ impl TaskQueues {
         self.tabular_expiration.enqueue(task).await
     }
 
+    #[tracing::instrument(skip(self))]
     pub(crate) async fn queue_tabular_purge(
         &self,
         task: TabularPurgeInput,

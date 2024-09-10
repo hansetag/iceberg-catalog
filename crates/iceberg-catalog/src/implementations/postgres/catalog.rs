@@ -14,6 +14,7 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
+use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
@@ -48,6 +49,7 @@ impl Catalog for super::PostgresCatalog {
         warehouse_name: String,
         project_id: ProjectIdent,
         storage_profile: StorageProfile,
+        tabular_delete_profile: TabularDeleteProfile,
         storage_secret_id: Option<SecretIdent>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<WarehouseIdent> {
@@ -55,6 +57,7 @@ impl Catalog for super::PostgresCatalog {
             warehouse_name,
             project_id,
             storage_profile,
+            tabular_delete_profile,
             storage_secret_id,
             transaction,
         )
