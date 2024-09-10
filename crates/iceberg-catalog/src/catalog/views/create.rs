@@ -78,7 +78,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     let view_id: TabularIdentUuid = TabularIdentUuid::View(uuid::Uuid::now_v7());
 
-    let view_location =
+    let (view_location, view_id) =
         determine_tabular_location(&namespace, request.location.clone(), view_id, &warehouse)?;
 
     // Update the request for event

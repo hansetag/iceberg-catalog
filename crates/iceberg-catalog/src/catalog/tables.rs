@@ -125,7 +125,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let storage_profile = &warehouse.storage_profile;
         require_active_warehouse(warehouse.status)?;
 
-        let table_location = determine_tabular_location(
+        let (table_location, table_id) = determine_tabular_location(
             &namespace,
             request.location.clone(),
             TabularIdentUuid::Table(*table_id),
@@ -1078,7 +1078,7 @@ pub(super) fn determine_tabular_location(
     request_table_location: Option<String>,
     table_id: TabularIdentUuid,
     warehouse: &Warehouse,
-) -> Result<Location> {
+) -> Result<(Location, TabularIdentUuid)> {
     let request_table_location = request_table_location
         .map(|l| Location::from_str(&l))
         .transpose()
@@ -1091,16 +1091,11 @@ pub(super) fn determine_tabular_location(
         })?;
 
     if let Some(location) = request_table_location {
-        if !warehouse.is_allowed_location(&location) {
-            return Err(ErrorModel::bad_request(
-                format!("Specified table location is not allowed: {location}"),
-                "InvalidTableLocation",
-                None,
-            )
-            .into());
+        let id_from_location = warehouse.check_allowed_table_location(namespace, &location)?;
+        match table_id {
+            TabularIdentUuid::Table(_) => Ok((location, TabularIdentUuid::Table(id_from_location))),
+            TabularIdentUuid::View(_) => Ok((location, TabularIdentUuid::View(id_from_location))),
         }
-
-        Ok(location)
     } else {
         let namespace_props = NamespaceProperties::from_props_unchecked(
             namespace.properties.clone().unwrap_or_default(),
@@ -1120,9 +1115,12 @@ pub(super) fn determine_tabular_location(
                 })?,
         };
 
-        Ok(warehouse
-            .storage_profile
-            .default_tabular_location(&namespace_location, table_id))
+        Ok((
+            warehouse
+                .storage_profile
+                .default_tabular_location(&namespace_location, table_id),
+            table_id,
+        ))
     }
 }
 

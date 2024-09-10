@@ -87,6 +87,11 @@ impl Location {
 
         self.to_string().starts_with(other_folder.as_str())
     }
+
+    #[must_use]
+    pub fn lstrip(&self, prefix: &str) -> String {
+        self.to_string().trim_start_matches(prefix).to_string()
+    }
 }
 
 impl ConfigProperty for Location {

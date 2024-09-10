@@ -14,9 +14,11 @@ use crate::SecretIdent;
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use iceberg::spec::{TableMetadata, ViewMetadata};
+use iceberg_ext::catalog::rest::ErrorModel;
 pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
 use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
+use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait Transaction<D>
@@ -118,6 +120,41 @@ impl Warehouse {
         } else {
             false
         }
+    }
+
+    // allowed table location is: '{warehouse_location}/{namespace_id}/{table_id}'
+    pub(crate) fn check_allowed_table_location(
+        &self,
+        namespace: &GetNamespaceResponse,
+        other: &Location,
+    ) -> Result<Uuid> {
+        let mut base_location = self.base_location()?;
+        base_location.with_trailing_slash();
+
+        if !other.is_sublocation_of(&base_location) || other == &base_location {
+            return Err(ErrorModel::bad_request("Table location is not allowed. Table location cannot be the same as the warehouse location.", "InvalidTableLocation", None ).into());
+        }
+        let other = other.lstrip(base_location.as_str());
+        let without_base = other.trim_start_matches('/');
+        let parts = without_base.split('/').collect::<Vec<_>>();
+
+        if parts.len() != 2 {
+            return Err(ErrorModel::bad_request("Table location is not allowed. Table location has to be of format '{warehouse_location}/{namespace_id}/{table_id}'.", "InvalidTableLocation", None ).into());
+        }
+
+        let Ok(namespace_location) = parts[0].parse::<Uuid>() else {
+            return Err(ErrorModel::bad_request("Table location is not allowed. Table location has to be of format '{warehouse_location}/{namespace_id}/{table_id}'.", "InvalidTableLocation", None ).into());
+        };
+
+        if *namespace.namespace_id != namespace_location {
+            return Err(ErrorModel::bad_request("Table location is not allowed. Table location has to be of format '{warehouse_location}/{namespace_id}/{table_id}'.", "InvalidTableLocation", None ).into());
+        }
+
+        let Ok(table_id) = parts[1].parse::<Uuid>() else {
+            return Err(ErrorModel::bad_request("Table location is not allowed. Table location has to be of format '{warehouse_location}/{namespace_id}/{table_id}'.", "InvalidTableLocation", None ).into());
+        };
+
+        Ok(table_id)
     }
 }
 
@@ -481,6 +518,7 @@ pub struct DeletionDetails {
 
 #[cfg(test)]
 mod test {
+    use crate::api::management::v1::warehouse::TabularDeleteProfile;
     use crate::service::storage::{S3Flavor, S3Profile, StorageProfile};
     use crate::service::{Warehouse, WarehouseStatus};
     use iceberg_ext::configs::Location;
@@ -507,7 +545,7 @@ mod test {
             storage_profile: profile,
             storage_secret_id: None,
             status: WarehouseStatus::Active,
-            tabular_delete_profile: Default::default(),
+            tabular_delete_profile: TabularDeleteProfile::Hard {},
         };
 
         let cases = vec![

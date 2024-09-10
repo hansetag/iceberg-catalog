@@ -1,3 +1,5 @@
+import uuid
+
 import conftest
 import pandas as pd
 import pytest
@@ -523,8 +525,9 @@ def test_custom_location(spark, namespace, warehouse: conftest.Warehouse):
         (*namespace.name, "my_table")
     ).location()
 
-    # Replace element behind the last slash with "custom_location"
-    custom_location = default_location.rsplit("/", 1)[0] + "/custom_location"
+    # Replace element behind the last slash with a random uuid
+    table_id = str(uuid.uuid4())
+    custom_location = default_location.rsplit("/", 1)[0] + "/" + table_id
 
     # Create a table with a custom location
     spark.sql(
@@ -545,3 +548,4 @@ def test_custom_location(spark, namespace, warehouse: conftest.Warehouse):
     )
     assert loaded_table.location() == custom_location
     assert loaded_table.metadata_location.startswith(custom_location)
+    assert loaded_table.metadata.table_uuid == table_id
