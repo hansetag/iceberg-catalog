@@ -194,20 +194,7 @@ impl Catalog for super::PostgresCatalog {
         list_flags: ListFlags,
         catalog_state: Self::State,
     ) -> Result<TableIdentUuid> {
-        let cache = catalog_state.location_to_id_cache.clone();
-        {
-            let mut read = cache.lock().await;
-            if let Some(id) = read.get(location) {
-                return Ok(*id);
-            }
-            // locks need to be dropped before the next await.
-        }
-
-        let id =
-            get_table_id_by_s3_location(warehouse_id, location, list_flags, catalog_state).await?;
-        let mut lock = cache.lock().await;
-        lock.get_or_insert(location.to_string(), || id);
-        Ok(id)
+        get_table_id_by_s3_location(warehouse_id, location, list_flags, catalog_state).await
     }
 
     async fn table_ident_to_id(
