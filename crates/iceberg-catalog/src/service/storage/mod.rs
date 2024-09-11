@@ -396,6 +396,9 @@ pub trait StorageLocations {
     ) -> Location {
         let mut l = namespace_location.clone();
         l.without_trailing_slash().push(&table_id.to_string());
+        // TODO: @christian, we should probably add a trailing slash here to differentiate
+        //       between file and directory; according to test_default_s3_locations, this makes
+        //       pyiceberg throw up..
         l
     }
 
@@ -535,11 +538,11 @@ pub(crate) async fn ensure_location_content_matches(
         .await
         .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?
         .into_iter()
-        .flat_map(|s| s.split('/').rev().next().map(|s| s.to_string()))
+        .filter_map(|s| s.split('/').next_back().map(ToString::to_string))
         .collect::<HashSet<String>>();
     let expected = expected
         .iter()
-        .flat_map(|s| s.split('/').rev().next().map(|s| s.to_string()))
+        .filter_map(|s| s.split('/').next_back().map(ToString::to_string))
         .collect::<HashSet<String>>();
 
     let unexpected = entries.sub(&expected);

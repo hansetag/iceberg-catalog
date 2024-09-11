@@ -260,7 +260,7 @@ pub(crate) async fn create_tabular<'a>(
     // They can be overwritten in a new create statement as if they wouldn't exist yet.
     // Views do not require this distinction, as `metadata_location` is always set for them
     // (validated by constraint).
-    let location = format!("{}/", location.trim_end_matches('/').to_string());
+    let location = format!("{}/", location.trim_end_matches('/'));
     Ok(sqlx::query_scalar!(
         r#"
         INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location, location)
@@ -285,7 +285,7 @@ pub(crate) async fn create_tabular<'a>(
             if edb.is_unique_violation() && edb.message().contains("NEW.location cannot share a prefix with another location") {
                 return ErrorModel::bad_request(
                     "Table or view is created in a sublocation of another Table or View. Tables and views must not be created under existing tables or views.",
-                    format!("Invalid{}Location", typ),
+                    format!("Invalid{typ}Location"),
                     None,
                 );
             }

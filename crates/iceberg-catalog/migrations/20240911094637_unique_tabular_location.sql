@@ -37,7 +37,7 @@ END;
 $$;
 
 CREATE OR REPLACE TRIGGER tabular_location_uniqueness
-    BEFORE INSERT OR UPDATE
+    AFTER INSERT OR UPDATE
     ON tabular
     FOR EACH ROW
 EXECUTE FUNCTION check_tabular_location_uniqueness();

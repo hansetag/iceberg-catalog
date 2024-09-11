@@ -546,7 +546,7 @@ pub(crate) mod tests {
         serde_json::from_value(json!({
   "format-version": 1,
   "view-uuid": view_id.unwrap_or_else(Uuid::now_v7).to_string(),
-  "location": "s3://examples/initial-warehouse/86ebaeae-351e-11ef-92b0-f7afa1e3ea1a/01905db5-44b7-7582-80e0-e52cbccdfa0f/metadata/01905db5-4e2d-7691-af92-789507cca618.gz.metadata.json",
+  "location": "s3://examples/initial-warehouse/86ebaeae-351e-11ef-92b0-f7afa1e3ea1a/01905db5-44b7-7582-80e0-e52cbccdfa0f",
   "current-version-id": 2,
   "versions": [
     {

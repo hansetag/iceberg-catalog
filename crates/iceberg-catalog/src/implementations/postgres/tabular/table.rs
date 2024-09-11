@@ -584,6 +584,7 @@ pub(crate) mod tests {
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
     use iceberg_ext::configs::Location;
+    use uuid::Uuid;
 
     fn create_request(
         stage_create: Option<bool>,
@@ -593,16 +594,22 @@ pub(crate) mod tests {
             if stage_create {
                 None
             } else {
-                Some("s3://my_bucket/my_table/metadata/foo".to_string())
+                Some(format!(
+                    "s3://my_bucket/my_table/metadata/foo/{}",
+                    Uuid::now_v7()
+                ))
             }
         } else {
-            Some("s3://my_bucket/my_table/metadata/bar".to_string())
+            Some(format!(
+                "s3://my_bucket/my_table/metadata/foo/{}",
+                Uuid::now_v7()
+            ))
         };
 
         (
             CreateTableRequest {
                 name: table_name.unwrap_or("my_table".to_string()),
-                location: Some("s3://my_bucket/my_table".to_string()),
+                location: Some(format!("s3://my_bucket/my_table/{}", Uuid::now_v7())),
                 schema: Schema::builder()
                     .with_fields(vec![
                         NestedField::required(
@@ -739,6 +746,9 @@ pub(crate) mod tests {
 
         let mut transaction = pool.begin().await.unwrap();
         // Second create should fail
+        let mut request = request;
+        // exchange location else we fail on unique constraint there
+        request.location = Some(format!("s3://my_bucket/my_table/other/{}", Uuid::now_v7()));
         let create_err = create_table(
             namespace_id,
             &table_ident,
