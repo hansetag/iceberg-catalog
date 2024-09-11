@@ -222,23 +222,6 @@ jobs:
             --build-arg "BIN=bin-iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
           docker save -o /tmp/docker-iceberg-catalog-arm64.tar localhost/iceberg-catalog-local:arm64
 
-      - name: Test Docker (amd64)
-        run: |
-          cd tests
-          docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_all.sh"
-          docker compose rm --force
-        env:
-          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
-          ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
-          AZURE_STORAGE_FILESYSTEM: ${{ secrets.AZURE_STORAGE_FILESYSTEM }}
-
-      - name: Dump docker logs on failure  (amd64)
-        if: failure()
-        uses: jwalton/gh-docker-logs@v2
 
       - name: Test Docker (arm64)
         run: |
@@ -254,6 +237,24 @@ jobs:
           AZURE_STORAGE_FILESYSTEM: ${{ secrets.AZURE_STORAGE_FILESYSTEM }}
 
       - name: Dump docker logs on failure  (arm64)
+        if: failure()
+        uses: jwalton/gh-docker-logs@v2
+
+      - name: Test Docker (amd64)
+        run: |
+          cd tests
+          docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_all.sh"
+          docker compose rm --force
+        env:
+          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
+          ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
+          AZURE_STORAGE_FILESYSTEM: ${{ secrets.AZURE_STORAGE_FILESYSTEM }}
+
+      - name: Dump docker logs on failure  (amd64)
         if: failure()
         uses: jwalton/gh-docker-logs@v2
 
