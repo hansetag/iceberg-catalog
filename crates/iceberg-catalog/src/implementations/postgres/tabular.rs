@@ -283,7 +283,7 @@ pub(crate) async fn create_tabular<'a>(
         let edb = e.as_database_error();
         if let Some(edb) = edb {
             if edb.is_unique_violation() && edb.message().contains("NEW.location cannot share a prefix with another location") {
-                return ErrorModel::conflict(
+                return ErrorModel::bad_request(
                     "Table or view is created in a sublocation of another Table or View. Tables and views must not be created under existing tables or views.",
                     format!("Invalid{}Location", typ),
                     None,
