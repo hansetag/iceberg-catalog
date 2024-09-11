@@ -25,12 +25,13 @@ use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
-    LoadTableResponse as CatalogLoadTableResult, State, Transaction,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, GetWarehouseResponse,
+    ListFlags, LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 
 use http::StatusCode;
+use iceberg::io::FileIO;
 use iceberg::{NamespaceIdent, TableUpdate};
 use iceberg_ext::configs::namespace::NamespaceProperties;
 use iceberg_ext::configs::Location;
@@ -121,14 +122,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let namespace = C::get_namespace(warehouse_id, &namespace, t.transaction()).await?;
         let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
-        let storage_profile = warehouse.storage_profile;
+        let storage_profile = &warehouse.storage_profile;
         require_active_warehouse(warehouse.status)?;
 
         let table_location = determine_tabular_location(
             &namespace,
             request.location.clone(),
             TabularIdentUuid::Table(*table_id),
-            &storage_profile,
+            storage_profile,
         )?;
 
         // Update the request for event
@@ -170,14 +171,30 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             None
         };
 
+        let file_io = storage_profile.file_io(storage_secret.as_ref())?;
+
+        crate::service::storage::check_location_is_empty(
+            &file_io,
+            &table_location,
+            storage_profile,
+        )
+        .await?;
+
         if let Some(metadata_location) = &metadata_location {
-            let file_io = storage_profile.file_io(storage_secret.as_ref())?;
             let compression_codec = CompressionCodec::try_from_metadata(&table_metadata)?;
             write_metadata_file(
                 metadata_location,
                 &table_metadata,
                 compression_codec,
                 &file_io,
+            )
+            .await?;
+
+            check_content_and_potentially_cleanup(
+                &warehouse,
+                &table_location,
+                &file_io,
+                metadata_location,
             )
             .await?;
         };
@@ -458,8 +475,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let storage_secret =
             maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
 
-        // Write metadata file
         let file_io = warehouse.storage_profile.file_io(storage_secret.as_ref())?;
+
+        // Write metadata file
         write_metadata_file(
             &commit.new_metadata_location,
             &commit.new_metadata,
@@ -1016,6 +1034,37 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         Ok(())
     }
+}
+
+async fn check_content_and_potentially_cleanup(
+    warehouse: &GetWarehouseResponse,
+    table_location: &Location,
+    file_io: &FileIO,
+    metadata_location: &Location,
+) -> Result<()> {
+    let check = crate::service::storage::ensure_location_content_matches(
+        file_io,
+        table_location,
+        &[metadata_location.as_str()],
+        &warehouse.storage_profile,
+    )
+    .await;
+
+    if let Err(err) = check {
+        file_io
+            .delete(metadata_location.as_str())
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to cleanup metadata file after failing to create table due to location already being in use: '{:?}'", e);
+                ErrorModel::internal(
+                    "Failed to cleanup metadata file after failing to create table due to location already being in use.",
+                    "DeleteMetadataFile",
+                    Some(Box::new(e)),
+                )
+            })?;
+        return Err(err.into());
+    }
+    Ok(())
 }
 
 struct CommitContext {

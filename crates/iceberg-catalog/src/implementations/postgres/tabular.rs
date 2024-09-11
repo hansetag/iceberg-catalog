@@ -12,6 +12,7 @@ use iceberg_ext::NamespaceIdent;
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery, MAX_PAGE_SIZE};
 
 use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
+use crate::implementations::postgres::CatalogState;
 use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
 use crate::service::DeletionDetails;
 use sqlx::postgres::PgArguments;
@@ -260,6 +261,7 @@ pub(crate) async fn create_tabular<'a>(
     // They can be overwritten in a new create statement as if they wouldn't exist yet.
     // Views do not require this distinction, as `metadata_location` is always set for them
     // (validated by constraint).
+    let location = format!("{}/", location.trim_end_matches('/').to_string());
     Ok(sqlx::query_scalar!(
         r#"
         INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location, location)

@@ -7,17 +7,21 @@ mod s3;
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::catalog::compression_codec::CompressionCodec;
+use crate::catalog::io::IoError;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
 pub use az::{AzCredential, AzdlsLocation, AzdlsProfile};
 use error::{
     ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
 };
+use iceberg::io::FileIO;
 use iceberg_ext::configs::table::TableProperties;
 use iceberg_ext::configs::Location;
 pub use s3::S3Location;
 pub use s3::{S3Credential, S3Flavor, S3Profile};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::ops::Sub;
 
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
@@ -491,6 +495,92 @@ pub mod path_utils {
         };
         path.to_string()
     }
+}
+
+pub(crate) async fn check_location_is_empty(
+    file_io: &FileIO,
+    location: &Location,
+    storage_profile: &StorageProfile,
+) -> Result<(), ValidationError> {
+    let entries = list_location(file_io, location)
+        .await
+        .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?;
+    if entries.is_empty() {
+        Ok(())
+    } else {
+        tracing::info!("Unexpected files in location: {:?}", entries);
+        Err(ValidationError::InvalidLocation {
+            reason: "Unexpected files in location, tabular locations have to be empty".to_string(),
+            location: location.to_string(),
+            source: None,
+            storage_type: storage_profile.storage_type(),
+        })
+    }
+}
+
+pub(crate) async fn ensure_location_content_matches(
+    file_io: &FileIO,
+    location: &Location,
+    expected: &[&str],
+    storage_profile: &StorageProfile,
+) -> Result<(), ValidationError> {
+    let mut base_location = storage_profile.base_location()?;
+    base_location.with_trailing_slash();
+
+    // TODO: come up with a better way than just taking the filenames.
+    //       stripping location doesn't work since listing doesn't prepend the fs + root directory
+    //       and we can't just strip the base location since it might contain a key-prefix
+    //       we're mostly using metadata files here and they contain uuids so we're probably fine..
+    let entries = list_location(file_io, location)
+        .await
+        .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?
+        .into_iter()
+        .flat_map(|s| s.split('/').rev().next().map(|s| s.to_string()))
+        .collect::<HashSet<String>>();
+    let expected = expected
+        .iter()
+        .flat_map(|s| s.split('/').rev().next().map(|s| s.to_string()))
+        .collect::<HashSet<String>>();
+
+    let unexpected = entries.sub(&expected);
+    let missing = expected.sub(&entries);
+
+    tracing::debug!(
+        "Unexpected files in location: {:?}, missing: {:?}",
+        unexpected,
+        missing
+    );
+
+    if !unexpected.is_empty() {
+        return Err(ValidationError::InvalidLocation {
+            reason: "Unexpected files in location, tabular locations have to be empty, found more files than expected after writing.".to_string(),
+            location: location.to_string(),
+            source: None,
+            storage_type: storage_profile.storage_type(),
+        });
+    }
+
+    if !missing.is_empty() {
+        return Err(ValidationError::Internal {
+            reason: "Written files could not be listed, please check storage permissions."
+                .to_string(),
+            source: None,
+        });
+    }
+    Ok(())
+}
+
+async fn list_location(file_io: &FileIO, location: &Location) -> Result<Vec<String>, IoError> {
+    let mut location = location.clone();
+    let entries = file_io
+        .list_recursive(location.with_trailing_slash().as_str())
+        .await
+        .map_err(IoError::List)?
+        .into_iter()
+        .map(|it| it.path().to_string())
+        .collect();
+
+    Ok(entries)
 }
 
 #[cfg(test)]

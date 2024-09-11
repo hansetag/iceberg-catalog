@@ -113,6 +113,8 @@ pub enum IoError {
     FileDelete(#[source] iceberg::Error),
     #[error("Failed to remove all files in location. Please check the storage credentials.")]
     FileRemoveAll(#[source] iceberg::Error),
+    #[error("Failed to list files in location. Please check the storage credentials.")]
+    List(#[source] iceberg::Error),
 }
 
 impl IoError {
@@ -134,9 +136,8 @@ impl From<IoError> for IcebergErrorResponse {
             | IoError::FileClose(_)
             | IoError::FileWrite(_)
             | IoError::FileWriterCreation(_)
-            | IoError::FileCreation(_) => {
-                ErrorModel::failed_dependency(message, typ, Some(boxed)).into()
-            }
+            | IoError::FileCreation(_)
+            | IoError::List(_) => ErrorModel::failed_dependency(message, typ, Some(boxed)).into(),
 
             IoError::FileCompression(_) | IoError::Write(_) | IoError::Serialization(_) => {
                 ErrorModel::internal(message, typ, Some(boxed)).into()
