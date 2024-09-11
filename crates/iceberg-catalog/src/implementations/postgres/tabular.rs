@@ -12,7 +12,6 @@ use iceberg_ext::NamespaceIdent;
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery, MAX_PAGE_SIZE};
 
 use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
-use crate::implementations::postgres::CatalogState;
 use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
 use crate::service::DeletionDetails;
 use sqlx::postgres::PgArguments;
@@ -280,16 +279,28 @@ pub(crate) async fn create_tabular<'a>(
     )
     .fetch_one(conn)
     .await
-    .map_err(|e| match &e {
-        sqlx::Error::RowNotFound => {
-            tracing::debug!("conflicted out {id}, {namespace_id}, {typ}");
-            ErrorModel::conflict(
-                "Table or View with same name already exists in Namespace",
-                "TableOrViewAlreadyExists",
-                None,
-            )
+    .map_err(|e| {
+        let edb = e.as_database_error();
+        if let Some(edb) = edb {
+            if edb.is_unique_violation() && edb.message().contains("NEW.location cannot share a prefix with another location") {
+                return ErrorModel::conflict(
+                    "Table or view is created in a sublocation of another Table or View. Tables and views must not be created under existing tables or views.",
+                    format!("Invalid{}Location", typ),
+                    None,
+                );
+            }
         }
-        _ => e.into_error_model(format!("Error creating {typ}")),
+        match &e {
+            sqlx::Error::RowNotFound => {
+                tracing::debug!("conflicted out {id}, {namespace_id}, {typ}");
+                ErrorModel::conflict(
+                    "Table or View with same name already exists in Namespace",
+                    "TableOrViewAlreadyExists",
+                    None,
+                )
+            }
+            _ => e.into_error_model(format!("Error creating {typ}")),
+        }
     })?)
 }
 
