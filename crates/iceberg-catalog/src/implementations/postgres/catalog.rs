@@ -4,9 +4,8 @@ use super::{
         update_namespace_properties,
     },
     tabular::table::{
-        commit_table_transaction, create_table, drop_table, get_table_metadata_by_id,
-        get_table_metadata_by_s3_location, list_tables, load_tables, rename_table,
-        table_ident_to_id, table_idents_to_ids,
+        commit_table_transaction, create_table, drop_table, get_table_metadata_by_id, list_tables,
+        load_tables, rename_table, table_ident_to_id, table_idents_to_ids,
     },
     warehouse::{
         create_warehouse, delete_warehouse, get_warehouse, list_projects, list_warehouses,
@@ -177,15 +176,6 @@ impl Catalog for super::PostgresCatalog {
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse> {
         get_table_metadata_by_id(warehouse_id, table, list_flags, catalog_state).await
-    }
-
-    async fn get_table_metadata_by_s3_location(
-        warehouse_id: WarehouseIdent,
-        location: &str,
-        list_flags: crate::service::ListFlags,
-        catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResponse> {
-        get_table_metadata_by_s3_location(warehouse_id, location, list_flags, catalog_state).await
     }
 
     async fn get_table_id_by_s3_location(

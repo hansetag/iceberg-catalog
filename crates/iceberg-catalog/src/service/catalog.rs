@@ -220,14 +220,6 @@ where
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse>;
 
-    /// Get table metadata by location.
-    async fn get_table_metadata_by_s3_location(
-        warehouse_id: WarehouseIdent,
-        location: &str,
-        list_flags: ListFlags,
-        catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResponse>;
-
     async fn get_table_id_by_s3_location(
         warehouse_id: WarehouseIdent,
         location: &str,

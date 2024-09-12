@@ -353,24 +353,21 @@ pub(crate) async fn get_table_id_by_s3_location(
     let query_strings = without_prefix
         .split('/')
         .fold(vec![], |mut partial_locations, s| {
+            if s.is_empty() {
+                return partial_locations;
+            }
+
             let mut last = partial_locations
                 .last()
                 .cloned()
                 .unwrap_or(format!("{protocol}://"));
-            if !s.is_empty() {
-                last.push_str(s.trim_end_matches('/'));
-                last.push('/');
-                partial_locations.push(last);
-            }
-            partial_locations
-        })
-        .into_iter()
-        .flat_map(|s| {
-            let without_slash = s.trim_end_matches('/').to_string();
+            last.push_str(s.trim_end_matches('/'));
+            last.push('/');
+            partial_locations.push(last);
 
-            [s, without_slash].into_iter()
-        })
-        .collect::<Vec<String>>();
+            partial_locations
+        });
+
     eprintln!("query_strings: {:?}", query_strings);
     let locations = sqlx::query!(r#"SELECT ti.location from tabular ti"#)
         .fetch_all(&catalog_state.read_pool())
@@ -420,81 +417,6 @@ pub(crate) async fn get_table_id_by_s3_location(
     }
 
     Ok(TableIdentUuid::from(table.table_id))
-}
-
-pub(crate) async fn get_table_metadata_by_s3_location(
-    warehouse_id: WarehouseIdent,
-    location: &str,
-    list_flags: crate::service::ListFlags,
-    catalog_state: CatalogState,
-) -> Result<GetTableMetadataResponse> {
-    // Location might also be a subpath of the table location.
-    // We need to make sure that the location starts with the table location.
-    let table = sqlx::query!(
-        r#"
-        SELECT
-            t."table_id",
-            ti.name as "table_name",
-            ti.location as "table_location",
-            namespace_name,
-            t."metadata" as "metadata: Json<TableMetadata>",
-            ti."metadata_location",
-            w.storage_profile as "storage_profile: Json<StorageProfile>",
-            w."storage_secret_id"
-        FROM "table" t
-        INNER JOIN tabular ti ON t.table_id = ti.tabular_id
-        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
-        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE w.warehouse_id = $1
-            AND $2 like ti."location" || '%'
-            AND LENGTH(ti."location") <= $3
-            AND w.status = 'active'
-            AND (ti.deleted_at IS NULL OR $4)
-
-        "#,
-        *warehouse_id,
-        location,
-        i32::try_from(location.len()).unwrap_or(i32::MAX),
-        list_flags.include_deleted
-    )
-    .fetch_one(&catalog_state.read_pool())
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Table not found".to_string())
-            .r#type("NoSuchTableError".to_string())
-            .stack(vec![
-                location.to_string(),
-                format!("Warehouse: {}", warehouse_id),
-            ])
-            .build(),
-        _ => e.into_error_model("Error fetching table".to_string()),
-    })?;
-
-    if !list_flags.include_staged && table.metadata_location.is_none() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Table is staged and not yet created".to_string())
-            .r#type("TableStaged".to_string())
-            .build()
-            .into());
-    }
-
-    let namespace = try_parse_namespace_ident(table.namespace_name)?;
-
-    Ok(GetTableMetadataResponse {
-        table: TableIdent {
-            namespace,
-            name: table.table_name,
-        },
-        table_id: table.table_id.into(),
-        warehouse_id,
-        location: table.table_location,
-        metadata_location: table.metadata_location,
-        storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
-        storage_profile: table.storage_profile.deref().clone(),
-    })
 }
 
 /// Rename a table. Tables may be moved across namespaces.
@@ -1436,56 +1358,6 @@ pub(crate) mod tests {
     }
 
     #[sqlx::test]
-    async fn test_get_metadata_by_location(pool: sqlx::PgPool) {
-        let state = CatalogState::from_pools(pool.clone(), pool.clone());
-
-        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
-        let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
-
-        let metadata = get_table_metadata_by_id(
-            warehouse_id,
-            table.table_id,
-            ListFlags::default(),
-            state.clone(),
-        )
-        .await
-        .unwrap();
-
-        // Exact path works
-        let metadata = get_table_metadata_by_s3_location(
-            warehouse_id,
-            &metadata.location,
-            ListFlags::default(),
-            state.clone(),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(metadata.table, table.table_ident);
-        assert_eq!(metadata.table_id, table.table_id);
-
-        // Subpath works
-        let metadata = get_table_metadata_by_s3_location(
-            warehouse_id,
-            &format!("{}/data/foo.parquet", &metadata.location),
-            ListFlags::default(),
-            state.clone(),
-        )
-        .await
-        .unwrap();
-
-        // Shorter path does not work
-        get_table_metadata_by_s3_location(
-            warehouse_id,
-            &metadata.location[0..metadata.location.len() - 1],
-            ListFlags::default(),
-            state.clone(),
-        )
-        .await
-        .unwrap_err();
-    }
-
-    #[sqlx::test]
     async fn test_get_id_by_location(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
@@ -1525,10 +1397,31 @@ pub(crate) mod tests {
 
         assert_eq!(id, table.table_id);
 
+        // Path without trailing slash works
+        let without_trailing_slash = metadata.location.trim_end_matches('/');
+        get_table_id_by_s3_location(
+            warehouse_id,
+            &without_trailing_slash,
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        // Path with trailing slash works
+        get_table_id_by_s3_location(
+            warehouse_id,
+            &format!("{}/", without_trailing_slash),
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
         // Shorter path does not work
         get_table_id_by_s3_location(
             warehouse_id,
-            &metadata.location[0..metadata.location.len() - 1],
+            &without_trailing_slash[0..without_trailing_slash.len() - 1],
             ListFlags::default(),
             state.clone(),
         )
