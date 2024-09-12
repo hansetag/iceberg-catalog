@@ -264,6 +264,7 @@ pub(crate) async fn create_tabular<'a>(
         )
         .into());
     };
+
     let query_strings = without_prefix
         .split('/')
         .fold(vec![], |mut partial_locations, s| {
@@ -271,15 +272,13 @@ pub(crate) async fn create_tabular<'a>(
                 return partial_locations;
             }
 
-            let mut last = partial_locations
-                .last()
-                .cloned()
-                .unwrap_or(format!("{protocol}://"));
-            // TODO: we can either make sure all locations have a / none trailing slash or we have
-            //       x2 the locations we check
+            let mut last = partial_locations.last().cloned().unwrap_or(String::new());
+            if last.is_empty() {
+                last.push_str(&format!("{protocol}://"));
+            } else {
+                last.push('/');
+            }
             last.push_str(s);
-            partial_locations.push(last.clone());
-            last.push('/');
             partial_locations.push(last);
 
             partial_locations
@@ -303,7 +302,7 @@ pub(crate) async fn create_tabular<'a>(
         namespace_id,
         typ as _,
         metadata_location,
-        location,
+        location.trim_end_matches('/'),
     )
     .fetch_one(&mut **transaction)
     .await

@@ -114,13 +114,17 @@ pub(crate) async fn create_table(
         properties,
     } = request;
 
-    let location = location.ok_or_else(|| {
-        ErrorModel::builder()
-            .code(StatusCode::CONFLICT.into())
-            .message("Table location is required".to_string())
-            .r#type("CreateTableLocationRequired".to_string())
-            .build()
-    })?;
+    // Gotta trim here since we're doubling location in a) metadata and b) tabular.location
+    let location = location
+        .ok_or_else(|| {
+            ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message("Table location is required".to_string())
+                .r#type("CreateTableLocationRequired".to_string())
+                .build()
+        })?
+        .trim_end_matches('/')
+        .to_string();
 
     let mut builder = TableMetadataAggregate::new(location.clone(), schema);
     if let Some(partition_spec) = partition_spec {
