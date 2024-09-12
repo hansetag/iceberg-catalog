@@ -154,7 +154,7 @@ pub(crate) async fn create_table(
             metadata_location,
             location: location.as_str(),
         },
-        &mut *transaction,
+        transaction,
     )
     .await?;
 

@@ -15,7 +15,7 @@ use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToke
 use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
 use crate::service::DeletionDetails;
 use sqlx::postgres::PgArguments;
-use sqlx::{Arguments, Execute, FromRow, PgConnection, Postgres, QueryBuilder};
+use sqlx::{Arguments, Execute, FromRow, Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
 use std::default::Default;
 use std::fmt::Debug;
@@ -254,14 +254,35 @@ pub(crate) async fn create_tabular<'a>(
         metadata_location,
         location,
     }: CreateTabular<'a>,
-    conn: &mut PgConnection,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Uuid> {
     // Tables with `metadata_location is NULL` are staged and not yet committed.
     // They can be overwritten in a new create statement as if they wouldn't exist yet.
     // Views do not require this distinction, as `metadata_location` is always set for them
     // (validated by constraint).
     let location = format!("{}/", location.trim_end_matches('/'));
-    Ok(sqlx::query_scalar!(
+    let Some((protocol, without_prefix)) = location.split_once("://") else {
+        return Err(ErrorModel::bad_request(
+            "Location must have a protocol",
+            "LocationMissingProtocol",
+            None,
+        )
+        .into());
+    };
+    let query_strings = without_prefix.split('/').fold(
+        vec![format!("{protocol}://")],
+        |mut partial_locations, s| {
+            // coll is always non-empty so the unwrap_or("") doesn't make a difference
+            // we do it to avoid the panic lint...
+            let mut last = partial_locations.last().cloned().unwrap_or("".to_string());
+            last.push_str(s);
+            last.push('/');
+            partial_locations.push(last);
+            partial_locations
+        },
+    );
+
+    let tabular_id = sqlx::query_scalar!(
         r#"
         INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location, location)
         VALUES ($1, $2, $3, $4, $5, $6)
@@ -275,33 +296,44 @@ pub(crate) async fn create_tabular<'a>(
         namespace_id,
         typ as _,
         metadata_location,
-        location
+        location,
     )
-    .fetch_one(conn)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::RowNotFound => {
+            tracing::debug!("conflicted out {id}, {namespace_id}, {typ}");
+            ErrorModel::conflict(
+                "Table or View with same name already exists in Namespace",
+                "TableOrViewAlreadyExists",
+                None,
+            )
+        }
+        _ => e.into_error_model(format!("Error creating {typ}")),
+    })?;
+
+    let location_is_taken = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM tabular ta JOIN namespace n on ta.namespace_id = n.namespace_id JOIN warehouse w on w.warehouse_id = n.warehouse_id WHERE location = ANY($1) AND tabular_id != $2) AS "prefix_exists!""#,
+        &query_strings,
+        id
+    )
+    .fetch_one(&mut **transaction)
     .await
     .map_err(|e| {
-        let edb = e.as_database_error();
-        if let Some(edb) = edb {
-            if edb.is_unique_violation() && edb.message().contains("NEW.location cannot share a prefix with another location") {
-                return ErrorModel::bad_request(
-                    "Table or view is created in a sublocation of another Table or View. Tables and views must not be created under existing tables or views.",
-                    format!("Invalid{typ}Location"),
-                    None,
-                );
-            }
-        }
-        match &e {
-            sqlx::Error::RowNotFound => {
-                tracing::debug!("conflicted out {id}, {namespace_id}, {typ}");
-                ErrorModel::conflict(
-                    "Table or View with same name already exists in Namespace",
-                    "TableOrViewAlreadyExists",
-                    None,
-                )
-            }
-            _ => e.into_error_model(format!("Error creating {typ}")),
-        }
-    })?)
+        tracing::warn!("Error checking for conflicting locations: {}", e);
+        e.into_error_model("Error checking for conflicting locations".to_string())
+    })?;
+
+    if location_is_taken {
+        return Err(ErrorModel::bad_request(
+            "Location is already taken by another table or view",
+            "LocationAlreadyTaken",
+            None,
+        )
+        .into());
+    }
+
+    Ok(tabular_id)
 }
 
 #[allow(clippy::too_many_lines)]
