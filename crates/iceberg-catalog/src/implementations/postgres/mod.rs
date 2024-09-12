@@ -18,7 +18,6 @@ use sqlx::migrate::{Migrate, MigrateError};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{ConnectOptions, Error, Executor, PgPool};
 use std::collections::HashSet;
-use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
@@ -269,8 +268,7 @@ impl CatalogState {
         Self {
             read_write: ReadWrite::from_pools(read_pool, write_pool),
             location_to_id_cache: Arc::new(Mutex::new(lru::LruCache::new(
-                // TODO: how to construct a non-zero in an infallible way without addition
-                NonZeroUsize::new(1000).unwrap(),
+                CONFIG.location_cache_size,
             ))),
         }
     }
