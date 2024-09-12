@@ -340,7 +340,6 @@ pub(crate) async fn get_table_id_by_s3_location(
     list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
 ) -> Result<TableIdentUuid> {
-    let location = format!("{}/", location.trim_end_matches('/'));
     let Some((protocol, without_prefix)) = location.split_once("://") else {
         return Err(ErrorModel::bad_request(
             "Location must have a protocol",
@@ -349,7 +348,8 @@ pub(crate) async fn get_table_id_by_s3_location(
         )
         .into());
     };
-    eprintln!("location: {:?}", location);
+    let protocol = format!("{protocol}://");
+
     let query_strings = without_prefix
         .split('/')
         .fold(vec![], |mut partial_locations, s| {
@@ -360,20 +360,17 @@ pub(crate) async fn get_table_id_by_s3_location(
             let mut last = partial_locations
                 .last()
                 .cloned()
-                .unwrap_or(format!("{protocol}://"));
+                .unwrap_or(protocol.clone());
             last.push_str(s.trim_end_matches('/'));
+            partial_locations.push(last);
+
+            let mut last = s.trim_end_matches('/').to_string();
             last.push('/');
             partial_locations.push(last);
 
             partial_locations
         });
 
-    eprintln!("query_strings: {:?}", query_strings);
-    let locations = sqlx::query!(r#"SELECT ti.location from tabular ti"#)
-        .fetch_all(&catalog_state.read_pool())
-        .await
-        .unwrap();
-    eprintln!("locations: {:?}", locations);
     // Location might also be a subpath of the table location.
     // We need to make sure that the location starts with the table location.
     let table = sqlx::query!(
@@ -1401,7 +1398,7 @@ pub(crate) mod tests {
         let without_trailing_slash = metadata.location.trim_end_matches('/');
         get_table_id_by_s3_location(
             warehouse_id,
-            &without_trailing_slash,
+            without_trailing_slash,
             ListFlags::default(),
             state.clone(),
         )
@@ -1411,7 +1408,7 @@ pub(crate) mod tests {
         // Path with trailing slash works
         get_table_id_by_s3_location(
             warehouse_id,
-            &format!("{}/", without_trailing_slash),
+            &format!("{without_trailing_slash}/",),
             ListFlags::default(),
             state.clone(),
         )
