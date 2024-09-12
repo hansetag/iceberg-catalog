@@ -340,6 +340,28 @@ pub(crate) async fn get_table_id_by_s3_location(
     list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
 ) -> Result<TableIdentUuid> {
+    let location = format!("{}/", location.trim_end_matches('/'));
+    let Some((protocol, without_prefix)) = location.split_once("://") else {
+        return Err(ErrorModel::bad_request(
+            "Location must have a protocol",
+            "LocationMissingProtocol",
+            None,
+        )
+        .into());
+    };
+    let query_strings = without_prefix.split('/').fold(
+        vec![format!("{protocol}://")],
+        |mut partial_locations, s| {
+            // partial_locations is always non-empty so the unwrap_or("") doesn't make a difference
+            // we do it to avoid the panic lint...
+            let mut last = partial_locations.last().cloned().unwrap_or(String::new());
+            last.push_str(s);
+            last.push('/');
+            partial_locations.push(last);
+            partial_locations
+        },
+    );
+
     // Location might also be a subpath of the table location.
     // We need to make sure that the location starts with the table location.
     let table = sqlx::query!(
@@ -352,14 +374,14 @@ pub(crate) async fn get_table_id_by_s3_location(
         INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1
-            AND $2 like ti."location" || '%'
-            AND LENGTH(ti."location") <= $3
+            AND ti.location = ANY($2)
+            AND LENGTH(ti.location) <= $3
             AND w.status = 'active'
             AND (ti.deleted_at IS NULL OR $4)
             AND ti.typ = 'table'
         "#,
         *warehouse_id,
-        location,
+        &query_strings,
         i32::try_from(location.len()).unwrap_or(i32::MAX),
         list_flags.include_deleted
     )
