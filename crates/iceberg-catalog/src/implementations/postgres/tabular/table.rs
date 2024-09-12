@@ -349,19 +349,34 @@ pub(crate) async fn get_table_id_by_s3_location(
         )
         .into());
     };
-    let query_strings = without_prefix.split('/').fold(
-        vec![format!("{protocol}://")],
-        |mut partial_locations, s| {
-            // partial_locations is always non-empty so the unwrap_or("") doesn't make a difference
-            // we do it to avoid the panic lint...
-            let mut last = partial_locations.last().cloned().unwrap_or(String::new());
-            last.push_str(s);
-            last.push('/');
-            partial_locations.push(last);
+    eprintln!("location: {:?}", location);
+    let query_strings = without_prefix
+        .split('/')
+        .fold(vec![], |mut partial_locations, s| {
+            let mut last = partial_locations
+                .last()
+                .cloned()
+                .unwrap_or(format!("{protocol}://"));
+            if !s.is_empty() {
+                last.push_str(s.trim_end_matches('/'));
+                last.push('/');
+                partial_locations.push(last);
+            }
             partial_locations
-        },
-    );
+        })
+        .into_iter()
+        .flat_map(|s| {
+            let without_slash = s.trim_end_matches('/').to_string();
 
+            [s, without_slash].into_iter()
+        })
+        .collect::<Vec<String>>();
+    eprintln!("query_strings: {:?}", query_strings);
+    let locations = sqlx::query!(r#"SELECT ti.location from tabular ti"#)
+        .fetch_all(&catalog_state.read_pool())
+        .await
+        .unwrap();
+    eprintln!("locations: {:?}", locations);
     // Location might also be a subpath of the table location.
     // We need to make sure that the location starts with the table location.
     let table = sqlx::query!(
@@ -1461,6 +1476,57 @@ pub(crate) mod tests {
 
         // Shorter path does not work
         get_table_metadata_by_s3_location(
+            warehouse_id,
+            &metadata.location[0..metadata.location.len() - 1],
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap_err();
+    }
+
+    #[sqlx::test]
+    async fn test_get_id_by_location(pool: sqlx::PgPool) {
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
+
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
+        let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
+
+        let metadata = get_table_metadata_by_id(
+            warehouse_id,
+            table.table_id,
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        // Exact path works
+        let id = get_table_id_by_s3_location(
+            warehouse_id,
+            &metadata.location,
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(id, table.table_id);
+
+        // Subpath works
+        let id = get_table_id_by_s3_location(
+            warehouse_id,
+            &format!("{}/data/foo.parquet", &metadata.location),
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(id, table.table_id);
+
+        // Shorter path does not work
+        get_table_id_by_s3_location(
             warehouse_id,
             &metadata.location[0..metadata.location.len() - 1],
             ListFlags::default(),
