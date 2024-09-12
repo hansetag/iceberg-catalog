@@ -256,7 +256,6 @@ pub(crate) async fn create_tabular<'a>(
     }: CreateTabular<'a>,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Uuid> {
-    let location = format!("{}/", location.trim_end_matches('/'));
     let Some((protocol, without_prefix)) = location.split_once("://") else {
         return Err(ErrorModel::bad_request(
             "Location must have a protocol",
@@ -265,22 +264,26 @@ pub(crate) async fn create_tabular<'a>(
         )
         .into());
     };
-    let query_strings = without_prefix.split('/').fold(
-        vec![format!("{protocol}://")],
-        |mut partial_locations, s| {
-            // partial_locations is always non-empty so the unwrap_or("") doesn't make a difference
-            // we do it to avoid the panic lint...
+    let query_strings = without_prefix
+        .split('/')
+        .fold(vec![], |mut partial_locations, s| {
             if s.is_empty() {
                 return partial_locations;
             }
 
-            let mut last = partial_locations.last().cloned().unwrap_or("".to_string());
+            let mut last = partial_locations
+                .last()
+                .cloned()
+                .unwrap_or(format!("{protocol}://"));
+            // TODO: we can either make sure all locations have a / none trailing slash or we have
+            //       x2 the locations we check
             last.push_str(s);
+            partial_locations.push(last.clone());
             last.push('/');
             partial_locations.push(last);
+
             partial_locations
-        },
-    );
+        });
 
     // Tables with `metadata_location is NULL` are staged and not yet committed.
     // They can be overwritten in a new create statement as if they wouldn't exist yet.

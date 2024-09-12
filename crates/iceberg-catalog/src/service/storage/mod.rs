@@ -289,7 +289,16 @@ impl StorageProfile {
         crate::catalog::io::remove_all(&file_io, &test_location)
             .await
             .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(self.clone())))?;
+        let entries = list_location(&file_io, &test_location)
+            .await
+            .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(self.clone())))?;
 
+        if !entries.is_empty() {
+            return Err(ValidationError::Internal {
+                reason: "Delete failed.".to_string(),
+                source: None,
+            });
+        }
         Ok(())
     }
 
@@ -538,21 +547,36 @@ pub(crate) async fn ensure_location_content_matches(
         .await
         .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?
         .into_iter()
-        .filter_map(|s| s.split('/').next_back().map(ToString::to_string))
+        .filter_map(|s| {
+            // azdls has directories in lists, we only want files
+            let p = s.split('/').next_back().map(ToString::to_string);
+            if p.as_deref() == Some("") {
+                None
+            } else {
+                p
+            }
+        })
         .collect::<HashSet<String>>();
     let expected = expected
         .iter()
-        .filter_map(|s| s.split('/').next_back().map(ToString::to_string))
+        .filter_map(|s| {
+            let p = s.split('/').next_back().map(ToString::to_string);
+            if p.as_deref() == Some("") {
+                None
+            } else {
+                p
+            }
+        })
         .collect::<HashSet<String>>();
 
     let unexpected = entries.sub(&expected);
     let missing = expected.sub(&entries);
 
-    tracing::debug!(
-        "Unexpected files in location: {:?}, missing: {:?}",
-        unexpected,
-        missing
-    );
+    if !unexpected.is_empty() || !missing.is_empty() {
+        tracing::debug!(
+            "Issue at location! Unexpected {unexpected:?}, missing: {missing:?}, expected: {expected:?}, entries: {entries:?}, location: {location:?}",
+        );
+    }
 
     if !unexpected.is_empty() {
         return Err(ValidationError::InvalidLocation {
@@ -574,9 +598,10 @@ pub(crate) async fn ensure_location_content_matches(
 }
 
 async fn list_location(file_io: &FileIO, location: &Location) -> Result<Vec<String>, IoError> {
-    let mut location = location.clone();
+    let location = path_utils::reduce_scheme_string(location.as_str(), false);
+
     let entries = file_io
-        .list_recursive(location.with_trailing_slash().as_str())
+        .list_recursive(format!("{}/", location.trim_end_matches('/')).as_str())
         .await
         .map_err(IoError::List)?
         .into_iter()
