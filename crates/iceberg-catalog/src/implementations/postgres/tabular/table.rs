@@ -114,13 +114,16 @@ pub(crate) async fn create_table(
         properties,
     } = request;
 
-    let location = location.ok_or_else(|| {
-        ErrorModel::builder()
-            .code(StatusCode::CONFLICT.into())
-            .message("Table location is required".to_string())
-            .r#type("CreateTableLocationRequired".to_string())
-            .build()
-    })?;
+    let location = location
+        .ok_or_else(|| {
+            ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message("Table location is required".to_string())
+                .r#type("CreateTableLocationRequired".to_string())
+                .build()
+        })?
+        .trim_end_matches('/')
+        .to_string();
 
     let mut builder = TableMetadataAggregate::new(location.clone(), schema);
     if let Some(partition_spec) = partition_spec {
@@ -357,19 +360,13 @@ pub(crate) async fn get_table_id_by_s3_location(
                 return partial_locations;
             }
 
-            let mut last = partial_locations
-                .last()
-                .cloned()
-                .unwrap_or(protocol.clone());
-            // TODO: we can either make sure all locations have a / none trailing slash or we have
-            //       x2 the locations we check
-            //       @christian: this is only checking against directories, right, so we're probably
-            //                   fine with enforcing a trailing slash in create tabular & query here
-            //                   just for that?
-            last.push_str(s.trim_end_matches('/'));
-            partial_locations.push(last.clone());
-
-            last.push('/');
+            let mut last = partial_locations.last().cloned().unwrap_or(String::new());
+            if last.is_empty() {
+                last.push_str(&protocol);
+            } else {
+                last.push('/');
+            }
+            last.push_str(s);
             partial_locations.push(last);
 
             partial_locations
@@ -388,7 +385,7 @@ pub(crate) async fn get_table_id_by_s3_location(
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1
             AND ti.location = ANY($2)
-            AND LENGTH(ti.location) <= $3 + 1 -- account for potential trailing slash
+            AND LENGTH(ti.location) <= $3
             AND w.status = 'active'
             AND (ti.deleted_at IS NULL OR $4)
             AND ti.typ = 'table'

@@ -70,7 +70,7 @@ pub(crate) async fn load_view(
                 ViewFormatVersion::V1 => iceberg::spec::ViewFormatVersion::V1,
             },
             view_uuid: view_id,
-            location,
+            location: view_location,
             current_version_id,
             versions,
             version_log,
