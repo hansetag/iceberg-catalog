@@ -256,10 +256,6 @@ pub(crate) async fn create_tabular<'a>(
     }: CreateTabular<'a>,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Uuid> {
-    // Tables with `metadata_location is NULL` are staged and not yet committed.
-    // They can be overwritten in a new create statement as if they wouldn't exist yet.
-    // Views do not require this distinction, as `metadata_location` is always set for them
-    // (validated by constraint).
     let location = format!("{}/", location.trim_end_matches('/'));
     let Some((protocol, without_prefix)) = location.split_once("://") else {
         return Err(ErrorModel::bad_request(
@@ -272,8 +268,12 @@ pub(crate) async fn create_tabular<'a>(
     let query_strings = without_prefix.split('/').fold(
         vec![format!("{protocol}://")],
         |mut partial_locations, s| {
-            // coll is always non-empty so the unwrap_or("") doesn't make a difference
+            // partial_locations is always non-empty so the unwrap_or("") doesn't make a difference
             // we do it to avoid the panic lint...
+            if s.is_empty() {
+                return partial_locations;
+            }
+
             let mut last = partial_locations.last().cloned().unwrap_or("".to_string());
             last.push_str(s);
             last.push('/');
@@ -282,6 +282,10 @@ pub(crate) async fn create_tabular<'a>(
         },
     );
 
+    // Tables with `metadata_location is NULL` are staged and not yet committed.
+    // They can be overwritten in a new create statement as if they wouldn't exist yet.
+    // Views do not require this distinction, as `metadata_location` is always set for them
+    // (validated by constraint).
     let tabular_id = sqlx::query_scalar!(
         r#"
         INSERT INTO tabular (tabular_id, name, namespace_id, typ, metadata_location, location)
