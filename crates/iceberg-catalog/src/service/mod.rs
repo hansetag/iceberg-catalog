@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod caches;
 mod catalog;
 pub mod config;
 pub mod contract_verification;

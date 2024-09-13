@@ -274,7 +274,7 @@ pub(crate) async fn create_tabular<'a>(
         namespace_id,
         typ as _,
         metadata_location,
-        location
+        location.trim_end_matches('/')
     )
     .fetch_one(conn)
     .await

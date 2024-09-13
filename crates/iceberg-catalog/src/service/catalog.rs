@@ -12,6 +12,7 @@ use crate::service::health::HealthExt;
 use crate::SecretIdent;
 
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
+use crate::service::caches::LocationCache;
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use iceberg::spec::{TableMetadata, ViewMetadata};
 pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
@@ -109,7 +110,7 @@ where
     Self: Clone + Send + Sync + 'static,
 {
     type Transaction: Transaction<Self::State>;
-    type State: Clone + Send + Sync + 'static + HealthExt;
+    type State: Clone + Send + Sync + 'static + HealthExt + LocationCache;
 
     // Should only return namespaces if the warehouse is active.
     async fn list_namespaces(
@@ -219,13 +220,37 @@ where
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse>;
 
-    /// Get table metadata by location.
-    async fn get_table_metadata_by_s3_location(
+    async fn get_table_id_by_s3_location(
         warehouse_id: WarehouseIdent,
-        location: &str,
+        location: &Location,
         list_flags: ListFlags,
         catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResponse>;
+    ) -> Result<TableIdentUuid>;
+
+    async fn get_table_id_by_s3_location_cached(
+        warehouse_id: WarehouseIdent,
+        location: &Location,
+        list_flags: ListFlags,
+        mut catalog_state: Self::State,
+    ) -> Result<TableIdentUuid> {
+        let maybe = catalog_state.get_table_id(location.as_str()).await;
+
+        if let Some(id) = maybe {
+            return Ok(id);
+        }
+
+        let id = Self::get_table_id_by_s3_location(
+            warehouse_id,
+            location,
+            list_flags,
+            catalog_state.clone(),
+        )
+        .await?;
+
+        catalog_state.insert_location(location.as_str(), id).await;
+
+        Ok(id)
+    }
 
     /// Rename a table. Tables may be moved across namespaces.
     async fn rename_table<'a>(

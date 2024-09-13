@@ -20,6 +20,7 @@ use crate::implementations::postgres::tabular::{
     create_tabular, drop_tabular, list_tabulars, try_parse_namespace_ident, CreateTabular,
     TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid, TabularType,
 };
+use iceberg_ext::configs::Location;
 use sqlx::types::Json;
 use std::default::Default;
 use std::{
@@ -114,13 +115,16 @@ pub(crate) async fn create_table(
         properties,
     } = request;
 
-    let location = location.ok_or_else(|| {
-        ErrorModel::builder()
-            .code(StatusCode::CONFLICT.into())
-            .message("Table location is required".to_string())
-            .r#type("CreateTableLocationRequired".to_string())
-            .build()
-    })?;
+    let location = location
+        .ok_or_else(|| {
+            ErrorModel::builder()
+                .code(StatusCode::CONFLICT.into())
+                .message("Table location is required".to_string())
+                .r#type("CreateTableLocationRequired".to_string())
+                .build()
+        })?
+        .trim_end_matches('/')
+        .to_string();
 
     let mut builder = TableMetadataAggregate::new(location.clone(), schema);
     if let Some(partition_spec) = partition_spec {
@@ -334,79 +338,61 @@ pub(crate) async fn get_table_metadata_by_id(
     })
 }
 
-pub(crate) async fn get_table_metadata_by_s3_location(
+pub(crate) async fn get_table_id_by_s3_location(
     warehouse_id: WarehouseIdent,
-    location: &str,
+    location: &Location,
     list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
-) -> Result<GetTableMetadataResponse> {
+) -> Result<TableIdentUuid> {
+    let query_strings = location
+        .partial_locations()
+        .into_iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+
     // Location might also be a subpath of the table location.
     // We need to make sure that the location starts with the table location.
     let table = sqlx::query!(
         r#"
         SELECT
-            t."table_id",
             ti.name as "table_name",
-            ti.location as "table_location",
-            namespace_name,
-            t."metadata" as "metadata: Json<TableMetadata>",
-            ti."metadata_location",
-            w.storage_profile as "storage_profile: Json<StorageProfile>",
-            w."storage_secret_id"
-        FROM "table" t
-        INNER JOIN tabular ti ON t.table_id = ti.tabular_id
+            ti.tabular_id as "table_id",
+            ti.metadata_location
+        FROM tabular ti
         INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
         WHERE w.warehouse_id = $1
-            AND $2 like ti."location" || '%'
-            AND LENGTH(ti."location") <= $3
+            AND ti.location = ANY($2)
+            AND LENGTH(ti.location) <= $3
             AND w.status = 'active'
             AND (ti.deleted_at IS NULL OR $4)
-
+            AND ti.typ = 'table'
         "#,
         *warehouse_id,
-        location,
-        i32::try_from(location.len()).unwrap_or(i32::MAX),
+        query_strings.as_slice(),
+        i32::try_from(location.url().as_str().len()).unwrap_or(i32::MAX) + 1, // account for maybe trailing '/'
         list_flags.include_deleted
     )
     .fetch_one(&catalog_state.read_pool())
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Table not found".to_string())
-            .r#type("NoSuchTableError".to_string())
-            .stack(vec![
-                location.to_string(),
-                format!("Warehouse: {}", warehouse_id),
-            ])
-            .build(),
+        sqlx::Error::RowNotFound => {
+            ErrorModel::not_found("Table not found", "NoSuchTableError", Some(Box::new(e)))
+                .append_details(&[location.to_string(), format!("Warehouse: {warehouse_id}")])
+        }
         _ => e.into_error_model("Error fetching table".to_string()),
     })?;
 
     if !list_flags.include_staged && table.metadata_location.is_none() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Table is staged and not yet created".to_string())
-            .r#type("TableStaged".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::not_found(
+            "Table is staged and not yet created",
+            "TableStaged",
+            None,
+        )
+        .into());
     }
 
-    let namespace = try_parse_namespace_ident(table.namespace_name)?;
-
-    Ok(GetTableMetadataResponse {
-        table: TableIdent {
-            namespace,
-            name: table.table_name,
-        },
-        table_id: table.table_id.into(),
-        warehouse_id,
-        location: table.table_location,
-        metadata_location: table.metadata_location,
-        storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
-        storage_profile: table.storage_profile.deref().clone(),
-    })
+    Ok(TableIdentUuid::from(table.table_id))
 }
 
 /// Rename a table. Tables may be moved across namespaces.
@@ -1348,7 +1334,7 @@ pub(crate) mod tests {
     }
 
     #[sqlx::test]
-    async fn test_get_metadata_by_location(pool: sqlx::PgPool) {
+    async fn test_get_id_by_location(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
@@ -1362,39 +1348,64 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
-
+        let mut metadata_location = metadata.location.parse::<Location>().unwrap();
         // Exact path works
-        let metadata = get_table_metadata_by_s3_location(
+        let id = get_table_id_by_s3_location(
             warehouse_id,
-            &metadata.location,
+            &metadata_location,
             ListFlags::default(),
             state.clone(),
         )
         .await
         .unwrap();
 
-        assert_eq!(metadata.table, table.table_ident);
-        assert_eq!(metadata.table_id, table.table_id);
+        assert_eq!(id, table.table_id);
 
+        let mut subpath = metadata_location.clone();
+        subpath.push("data/foo.parquet");
         // Subpath works
-        let metadata = get_table_metadata_by_s3_location(
+        let id = get_table_id_by_s3_location(
             warehouse_id,
-            &format!("{}/data/foo.parquet", &metadata.location),
+            &subpath,
             ListFlags::default(),
             state.clone(),
         )
         .await
         .unwrap();
+
+        assert_eq!(id, table.table_id);
+
+        // Path without trailing slash works
+        metadata_location.without_trailing_slash();
+        get_table_id_by_s3_location(
+            warehouse_id,
+            &metadata_location,
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        metadata_location.with_trailing_slash();
+        // Path with trailing slash works
+        get_table_id_by_s3_location(
+            warehouse_id,
+            &metadata_location,
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        let shorter = metadata.location[0..metadata.location.len() - 2]
+            .to_string()
+            .parse()
+            .unwrap();
 
         // Shorter path does not work
-        get_table_metadata_by_s3_location(
-            warehouse_id,
-            &metadata.location[0..metadata.location.len() - 1],
-            ListFlags::default(),
-            state.clone(),
-        )
-        .await
-        .unwrap_err();
+        get_table_id_by_s3_location(warehouse_id, &shorter, ListFlags::default(), state.clone())
+            .await
+            .unwrap_err();
     }
 
     #[sqlx::test]

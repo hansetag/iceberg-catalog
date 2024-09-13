@@ -2835,6 +2835,7 @@ dependencies = [
  "jwks_client_rs",
  "lazy-regex",
  "lazy_static",
+ "lru",
  "maplit",
  "needs_env_var",
  "rand 0.8.5",

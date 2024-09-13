@@ -14,6 +14,7 @@ use super::super::CatalogServer;
 use super::error::SignError;
 use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
+use crate::service::caches::LocationCache;
 use crate::service::secrets::SecretStore;
 use crate::service::storage::{S3Location, S3Profile, StorageCredential};
 use crate::service::{auth::AuthZHandler, Catalog, ListFlags, State};
@@ -60,6 +61,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let include_staged = true;
 
         let parsed_url = s3_utils::parse_s3_url(&request_url)?;
+        let table_location = &parsed_url.location.to_string();
 
         // Unfortunately there is currently no way to pass information about warehouse_id & table_id
         // to this function from a get_table or create_table process without exchanging the token.
@@ -68,12 +70,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // We are looking for the path in the database, which allows us to also work with AuthN solutions
         // that do not support custom data in tokens. Perspectively, we should
         // try to get per-table signer.uri support in Spark.
-        let (table_id, table_metadata) = if let Ok(table_id) = require_table_id(table.clone()) {
-            (table_id, None)
+        let table_id = if let Ok(table_id) = require_table_id(table) {
+            table_id
         } else {
-            let table_metadata = C::get_table_metadata_by_s3_location(
+            C::get_table_id_by_s3_location_cached(
                 warehouse_id,
-                &parsed_url.location.to_string(),
+                parsed_url.location.location(),
                 ListFlags {
                     include_staged,
                     // spark iceberg drops the table and then checks for existence of metadata files
@@ -92,9 +94,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     .r#type("InvalidLocation".to_string())
                     .source(Some(Box::new(e.error)))
                     .build()
-            })?;
-
-            (table_metadata.table_id, Some(table_metadata))
+            })?
         };
 
         // First check - fail fast if requested table is not allowed.
@@ -117,21 +117,31 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             metadata_location: _,
             storage_secret_ident,
             storage_profile,
-        } = if let Some(table_metadata) = table_metadata {
-            table_metadata
-        } else {
-            C::get_table_metadata_by_id(
-                warehouse_id,
-                table_id,
-                ListFlags {
-                    include_staged,
-                    // we were able to resolve the table to id so we know the table is not deleted
-                    include_deleted: false,
-                    include_active: true,
-                },
-                state.v1_state.catalog,
-            )
-            .await?
+        } = match C::get_table_metadata_by_id(
+            warehouse_id,
+            table_id,
+            ListFlags {
+                include_staged,
+                include_deleted: true,
+                include_active: true,
+            },
+            state.v1_state.catalog.clone(),
+        )
+        .await
+        {
+            Ok(ok) => ok,
+            Err(err) => {
+                // If the table is not found, we can remove the location from the cache
+                if let 404 = err.error.code {
+                    state
+                        .v1_state
+                        .catalog
+                        .clone()
+                        .remove_location(table_location.as_str())
+                        .await;
+                }
+                return Err(err);
+            }
         };
 
         let extend_err = |mut e: IcebergErrorResponse| {
