@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO users (id, name, email, display_name, origin)\n        VALUES ($1, $2, $3, $4, $5)\n        ON CONFLICT (id) -- we assume to have a globally unique id\n        DO UPDATE SET name = $2, email = $3, display_name = $4, origin = $5\n        returning id, name as \"name?\", email, display_name, created_at, updated_at, origin as \"origin: DbUserOrigin\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "origin: DbUserOrigin",
+        "type_info": {
+          "Custom": {
+            "name": "user_origin",
+            "kind": {
+              "Enum": [
+                "explicit-via-register-call",
+                "implicit-via-config-call"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "user_origin",
+            "kind": {
+              "Enum": [
+                "explicit-via-register-call",
+                "implicit-via-config-call"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "0a3dcc7939143798ab9e957d549f1ec16866d7f89c273291a5b5c271f87adbc1"
+}

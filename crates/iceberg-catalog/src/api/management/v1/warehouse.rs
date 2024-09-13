@@ -1,4 +1,6 @@
-use crate::api::management::v1::{ApiServer, DeletedTabularResponse, ListDeletedTabularsResponse};
+use crate::api::management::v1::{
+    ApiServer, DeletedTabularResponse, ListDeletedTabularsResponse, User, UserOrigin,
+};
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
 use crate::service::authz::{
@@ -167,6 +169,33 @@ impl<C: Catalog, A: Authorizer, S: SecretStore> Service<C, A, S> for ApiServer<C
 #[async_trait::async_trait]
 
 pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
+    async fn register_user(
+        context: ApiContext<State<A, C, S>>,
+        request_metadata: RequestMetadata,
+    ) -> Result<User> {
+        let auth = request_metadata
+            .auth_details
+            .ok_or(ErrorModel::bad_request(
+                "Auth details found in request metadata",
+                "MissingUserId",
+                None,
+            ))?;
+
+        C::register_user(
+            auth.user_id(),
+            auth.display_name(),
+            auth.name().ok_or(ErrorModel::bad_request(
+                "Cannot register user without name",
+                "InvalidAccessTokenClaims",
+                None,
+            ))?,
+            auth.email(),
+            UserOrigin::ExplicitViaRegisterCall,
+            context.v1_state.catalog,
+        )
+        .await
+    }
+
     async fn create_warehouse(
         request: CreateWarehouseRequest,
         context: ApiContext<State<A, C, S>>,

@@ -1,13 +1,13 @@
 use crate::api::iceberg::v1::config::GetConfigQueryParams;
 use crate::api::iceberg::v1::{ApiContext, CatalogConfig, ErrorModel, Result};
+use crate::api::management::v1::UserOrigin;
 use crate::request_metadata::RequestMetadata;
 use crate::service::authz::{ProjectAction, WarehouseAction};
 use crate::service::token_verification::AuthDetails;
-use std::str::FromStr;
-
 use crate::service::SecretStore;
 use crate::service::{authz::Authorizer, Catalog, ProjectIdent, State};
 use crate::CONFIG;
+use std::str::FromStr;
 
 use super::CatalogServer;
 
@@ -29,6 +29,7 @@ impl<A: Authorizer, C: Catalog, S: SecretStore>
             .auth_details
             .as_ref()
             .and_then(AuthDetails::warehouse_id);
+        maybe_register_user::<C>(&request_metadata, api_context.v1_state.catalog.clone()).await?;
 
         // Arg takes precedence over auth
         let warehouse_id = if let Some(query_warehouse) = query.warehouse {
@@ -83,6 +84,34 @@ impl<A: Authorizer, C: Catalog, S: SecretStore>
 
         Ok(config)
     }
+}
+
+async fn maybe_register_user<D: Catalog>(
+    request_metadata: &RequestMetadata,
+    state: <D as Catalog>::State,
+) -> Result<()> {
+    if let Some(user_id) = request_metadata.user_id() {
+        // If the user is authenticated, create a user in the catalog
+        let user = D::register_user(
+            user_id,
+            request_metadata.user_display_name(),
+            request_metadata.user_name().ok_or(ErrorModel::bad_request(
+                "Cannot register user without name",
+                "InvalidAccessTokenClaims",
+                None,
+            ))?,
+            request_metadata.email(),
+            UserOrigin::ImplicitViaConfigCall,
+            state,
+        )
+        .await?;
+        if user.updated_at.is_none() {
+            tracing::info!("Registered new user with id: '{}'", user_id.inner());
+        }
+    } else {
+        tracing::debug!("Got no user_id from request_metadata, not trying to register.");
+    }
+    Ok(())
 }
 
 fn parse_warehouse_arg(arg: &str) -> (Option<ProjectIdent>, String) {

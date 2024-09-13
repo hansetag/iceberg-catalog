@@ -13,6 +13,7 @@ pub mod v1 {
     use crate::service::TabularIdentUuid;
     use crate::service::{storage::S3Flavor, Catalog, SecretStore, State};
     use axum::extract::{Path, Query, State as AxumState};
+    use axum::response::IntoResponse;
     use axum::routing::{get, post};
     use serde::Serialize;
     use warehouse::{
@@ -75,6 +76,45 @@ pub mod v1 {
         auth_handler: PhantomData<A>,
         config_server: PhantomData<C>,
         secret_store: PhantomData<S>,
+    }
+
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub enum UserOrigin {
+        ImplicitViaConfigCall,
+        ExplicitViaRegisterCall,
+    }
+
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub struct User {
+        pub name: Option<String>,
+        pub display_name: Option<String>,
+        pub user_origin: UserOrigin,
+        pub email: Option<String>,
+        pub id: String,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    }
+
+    impl IntoResponse for User {
+        fn into_response(self) -> axum::response::Response {
+            (http::StatusCode::CREATED, Json(self)).into_response()
+        }
+    }
+
+    /// Register a new user
+    #[utoipa::path(
+        post,
+        tag = "management",
+        path = "/management/v1/user",
+        responses(
+            (status = 201, description = "User successfully registered", body = [User]),
+        )
+    )]
+    async fn register_user<C: Catalog, A: Authorizer, S: SecretStore>(
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<User> {
+        ApiServer::<C, A, S>::register_user(api_context, metadata).await
     }
 
     /// Create a new warehouse.
@@ -392,6 +432,7 @@ pub mod v1 {
                     "/warehouse/:warehouse_id/deleted_tabulars",
                     get(list_deleted_tabulars),
                 )
+                .route("/user", post(register_user))
         }
     }
 }

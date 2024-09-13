@@ -12,7 +12,9 @@ use crate::service::health::HealthExt;
 use crate::SecretIdent;
 
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
+use crate::api::management::v1::{User, UserOrigin};
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
+use crate::service::token_verification::UserId;
 use iceberg::spec::{Schema, SortOrder, TableMetadata, UnboundPartitionSpec, ViewMetadata};
 use iceberg_ext::catalog::rest::CatalogConfig;
 pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
@@ -296,6 +298,15 @@ where
         commits: impl IntoIterator<Item = TableCommit> + Send,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
+
+    async fn register_user(
+        user_id: &UserId,
+        display_name: Option<&str>,
+        name: &str,
+        email: Option<&str>,
+        origin: UserOrigin,
+        catalog_state: Self::State,
+    ) -> Result<User>;
 
     // ---------------- Warehouse Management API ----------------
 

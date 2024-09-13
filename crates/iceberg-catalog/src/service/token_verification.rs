@@ -12,19 +12,113 @@ use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use jwks_client_rs::source::WebSource;
 use jwks_client_rs::{JsonWebKey, JwksClient};
 
+use crate::api::Result;
 use crate::request_metadata::RequestMetadata;
 use axum::Extension;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::fmt::Debug;
 use std::str::FromStr;
+use std::sync::Arc;
 use url::Url;
 
 use super::{ProjectIdent, WarehouseIdent};
 
 #[derive(Debug, Clone)]
-pub enum AuthDetails {
-    JWT(Claims),
+pub struct AuthDetails {
+    user_id: UserId,
+    name: Option<String>,
+    display_name: Option<String>,
+    // e.g. client_id in azure, should be there for technical users
+    application_id: Option<String>,
+    issuer: String,
+    email: Option<String>,
+}
+
+impl AuthDetails {
+    fn try_from_jwt_claims(claims: Claims) -> Result<Self> {
+        let name = claims.name.as_deref().map(String::from).or_else(|| {
+            match (claims.first_name.as_deref(), claims.last_name.as_deref()) {
+                (Some(first), Some(last)) => Some(format!("{first} {last}")),
+                (Some(first), None) => Some(first.to_string()),
+                (None, Some(last)) => Some(last.to_string()),
+                (None, None) => None,
+            }
+        });
+
+        Ok(Self {
+            user_id: UserId::try_from_claims(&claims)?,
+            display_name: claims.preferred_username.clone().or(name.clone()),
+            name,
+            issuer: claims.iss,
+            email: claims.email,
+            application_id: claims.azp,
+        })
+    }
+
+    #[must_use]
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    #[must_use]
+    pub fn app_id(&self) -> Option<&str> {
+        self.application_id.as_deref()
+    }
+
+    #[must_use]
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    #[must_use]
+    pub fn display_name(&self) -> Option<&str> {
+        self.display_name.as_deref()
+    }
+
+    #[must_use]
+    pub fn issuer(&self) -> &str {
+        self.issuer.as_str()
+    }
+
+    #[must_use]
+    pub fn email(&self) -> Option<&str> {
+        self.email.as_deref()
+    }
+}
+
+/// Unique identifier of a user in the system.
+///
+/// This is a combination of the issuer and the subject/oid claim in the jwt.
+/// The issuer is urlencoded and the subject/oid is appended to it with '/' as separator.
+#[derive(Debug, Clone)]
+pub struct UserId(String);
+
+impl UserId {
+    fn try_from_claims(claims: &Claims) -> Result<Self> {
+        let prefix = urlencoding::encode(claims.iss.as_str());
+        let suffix = if let Some(oid) = &claims.oid {
+            oid.as_str()
+        } else {
+            claims.sub.as_str()
+        };
+
+        if suffix.chars().any(|c| !(c.is_alphanumeric() || c == '-')) {
+            return Err(ErrorModel::bad_request(
+                "sub or oid claim contain illegal characters. Only alphanumeric + - are legal.",
+                "InvalidUserIdError",
+                None,
+            )
+            .into());
+        }
+
+        Ok(UserId(format!("{prefix}/{suffix}")))
+    }
+
+    #[must_use]
+    pub fn inner(&self) -> &str {
+        self.0.as_str()
+    }
 }
 
 impl AuthDetails {
@@ -64,6 +158,39 @@ pub struct Claims {
     pub aud: Aud,
     pub exp: usize,
     pub iat: usize,
+    // Azure Entra ID uses this as a globally unique identifier
+    pub oid: Option<String>,
+
+    // Identifier of the client using the token, e.g. the client id in azure
+    pub azp: Option<String>,
+
+    pub name: Option<String>,
+    #[serde(
+        alias = "given_name",
+        alias = "given-name",
+        alias = "givenName",
+        alias = "firstName",
+        alias = "first-name"
+    )]
+    pub first_name: Option<String>,
+    #[serde(
+        alias = "family_name",
+        alias = "family-name",
+        alias = "familyName",
+        alias = "lastName",
+        alias = "last-name"
+    )]
+    pub last_name: Option<String>,
+    // TODO: add aliases
+    pub preferred_username: Option<String>,
+    // TODO: what happens if things clash here?
+    #[serde(
+        alias = "email-address",
+        alias = "emailAddress",
+        alias = "email_address",
+        alias = "upn"
+    )]
+    pub email: Option<String>,
     #[serde(flatten)]
     pub other: serde_json::Value,
 }
@@ -79,19 +206,25 @@ pub(crate) async fn auth_middleware_fn(
     State(verifier): State<Verifier>,
     authorization: Option<TypedHeader<Authorization<Bearer>>>,
     Extension(mut metadata): Extension<RequestMetadata>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     if let Some(authorization) = authorization {
         match verifier.decode::<Claims>(authorization.token()).await {
             Ok(val) => {
-                metadata.auth_details = Some(AuthDetails::JWT(val));
+                match AuthDetails::try_from_jwt_claims(val) {
+                    Ok(details) => {
+                        metadata.auth_details = Some(details);
+                    }
+                    Err(err) => return err.into_response(),
+                }
+                request.extensions_mut().insert(metadata);
             }
             Err(err) => {
                 tracing::debug!("Failed to verify token: {:?}", err);
                 return IcebergErrorResponse::from(err).into_response();
             }
-        }
+        };
     } else {
         return IcebergErrorResponse::from(
             ErrorModel::builder()
@@ -114,7 +247,6 @@ pub struct Verifier {
 
 impl Verifier {
     const WELL_KNOWN_CONFIG: &'static str = ".well-known/openid-configuration";
-
     /// Create a new verifier with the given openid configuration url and audience.
     ///
     /// # Errors
@@ -126,17 +258,19 @@ impl Verifier {
         if !url.path().ends_with('/') {
             url.set_path(&format!("{}/", url.path()));
         }
-        let config = reqwest::get(url.join(Self::WELL_KNOWN_CONFIG)?)
-            .await
-            .context("Failed to fetch openid configuration")?
-            .json::<WellKnownConfig>()
-            .await
-            .context("Failed to parse openid configuration")?;
-        let source = WebSource::builder().build(config.jwks_uri)?;
+        let config = Arc::new(
+            reqwest::get(url.join(Self::WELL_KNOWN_CONFIG)?)
+                .await
+                .context("Failed to fetch openid configuration")?
+                .json::<WellKnownConfig>()
+                .await
+                .context("Failed to parse openid configuration")?,
+        );
+        let source = WebSource::builder().build(config.jwks_uri.clone())?;
         let client = JwksClient::builder().build(source);
         Ok(Self {
             client,
-            issuer: config.issuer,
+            issuer: config.issuer.clone(),
         })
     }
 
@@ -251,12 +385,14 @@ impl Debug for Verifier {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct WellKnownConfig {
     #[serde(flatten)]
     pub other: serde_json::Value,
     pub jwks_uri: Url,
     pub issuer: String,
+    pub userinfo_endpoint: Option<Url>,
+    pub token_endpoint: Url,
 }
 
 #[cfg(test)]

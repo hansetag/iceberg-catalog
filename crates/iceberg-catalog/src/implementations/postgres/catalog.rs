@@ -16,10 +16,13 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
+use crate::api::management::v1::{User, UserOrigin};
+use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
 use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_deleted};
+use crate::service::token_verification::UserId;
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, DeletionDetails, GetWarehouseResponse,
     ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result, TableCreation,
@@ -400,5 +403,29 @@ impl Catalog for super::PostgresCatalog {
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()> {
         mark_tabular_as_deleted(table_id, transaction).await
+    }
+
+    async fn register_user(
+        user_id: &UserId,
+        display_name: Option<&str>,
+        name: &str,
+        email: Option<&str>,
+        origin: UserOrigin,
+        catalog_state: Self::State,
+    ) -> Result<User> {
+        let mut connection = catalog_state
+            .write_pool()
+            .acquire()
+            .await
+            .map_err(|e| e.into_error_model("Failed to get connection".into()))?;
+        crate::implementations::postgres::user::insert_user(
+            user_id,
+            display_name,
+            name,
+            email,
+            origin,
+            &mut connection,
+        )
+        .await
     }
 }
