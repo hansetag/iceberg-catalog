@@ -163,6 +163,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         )
         .await?;
 
+        tracing::debug!("Inserted table");
+
         // We don't commit the transaction yet, first we need to write the metadata file.
         let storage_secret = if let Some(secret_id) = &warehouse.storage_secret_id {
             let secret_state = state.v1_state.secrets;
@@ -171,8 +173,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             None
         };
 
-        let file_io = storage_profile.file_io(storage_secret.as_ref())?;
+        tracing::debug!("Got storage_secret, is_some: {}", storage_secret.is_some());
 
+        let file_io = storage_profile.file_io(storage_secret.as_ref())?;
+        tracing::debug!("Got file io");
         crate::service::storage::check_location_is_empty(
             &file_io,
             &table_location,
@@ -208,6 +212,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // This requires the storage secret
         // because the table config might contain vended-credentials based
+        //
         // on the `data_access` parameter.
         let config = storage_profile
             .generate_table_config(

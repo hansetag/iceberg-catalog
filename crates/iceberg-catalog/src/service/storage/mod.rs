@@ -283,11 +283,13 @@ impl StorageProfile {
                 StorageProfile::Test(_) => {}
             }
         }
-
+        tracing::info!("Cleanup started");
         // Cleanup
         crate::catalog::io::remove_all(&file_io, &test_location)
             .await
             .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(self.clone())))?;
+
+        tracing::info!("Cleanup finished");
 
         check_location_is_empty(&file_io, &test_location, self, || {
             ValidationError::InvalidLocation {
@@ -298,7 +300,7 @@ impl StorageProfile {
             }
         })
         .await?;
-
+        tracing::info!("checked location is empty");
         Ok(())
     }
 
@@ -512,8 +514,12 @@ pub(crate) async fn check_location_is_empty(
     storage_profile: &StorageProfile,
     error_fn: impl FnOnce() -> ValidationError,
 ) -> Result<(), ValidationError> {
-    let mut entries = list_location(file_io, location, DEFAULT_LIST_LOCATION_PAGE_SIZE);
-    while let Some(entries) = entries.next().await {
+    tracing::info!("Checking location is empty: {location}",);
+    let mut entry_stream = list_location(file_io, location, DEFAULT_LIST_LOCATION_PAGE_SIZE)
+        .await
+        .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?;
+    while let Some(entries) = entry_stream.next().await {
+        tracing::debug!("Got page: {entries:?}");
         let entries = entries.map_err(|e| {
             ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone()))
         })?;
@@ -553,10 +559,11 @@ pub(crate) async fn ensure_location_content_matches(
     //       stripping location doesn't work since listing doesn't prepend the fs + root directory
     //       and we can't just strip the base location since it might contain a key-prefix
     //       we're mostly using metadata files here and they contain uuids so we're probably fine..
-    while let Some(item) = list_location(file_io, location, DEFAULT_LIST_LOCATION_PAGE_SIZE)
-        .next()
+    let mut entry_stream = list_location(file_io, location, DEFAULT_LIST_LOCATION_PAGE_SIZE)
         .await
-    {
+        .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?;
+    while let Some(item) = entry_stream.next().await {
+        tracing::info!("Got page: {item:?}",);
         let entries = item
             .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?
             .into_iter()

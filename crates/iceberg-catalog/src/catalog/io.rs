@@ -95,19 +95,21 @@ pub(crate) async fn remove_all(file_io: &FileIO, location: &Location) -> Result<
 
 pub(crate) const DEFAULT_LIST_LOCATION_PAGE_SIZE: usize = 1000;
 
-pub(crate) fn list_location<'a>(
+pub(crate) async fn list_location<'a>(
     file_io: &'a FileIO,
     location: &'a Location,
     page_size: usize,
-) -> BoxStream<'a, std::result::Result<Vec<String>, IoError>> {
+) -> Result<BoxStream<'a, std::result::Result<Vec<String>, IoError>>, IoError> {
     let location = path_utils::reduce_scheme_string(location.as_str(), false);
-
+    tracing::debug!("Listing location: {}", location);
     let entries = file_io
         .list_paginated(
             format!("{}/", location.trim_end_matches('/')).as_str(),
             true,
             page_size,
         )
+        .await
+        .map_err(IoError::List)?
         .map(|res| match res {
             Ok(entries) => Ok(entries
                 .into_iter()
@@ -115,7 +117,7 @@ pub(crate) fn list_location<'a>(
                 .collect()),
             Err(e) => Err(IoError::List(e)),
         });
-    entries.boxed()
+    Ok(entries.boxed())
 }
 
 #[derive(thiserror::Error, Debug, strum::IntoStaticStr)]
