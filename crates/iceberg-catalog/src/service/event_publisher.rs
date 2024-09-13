@@ -1,8 +1,8 @@
 use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
 use cloudevents::Event;
-use std::sync::Arc;
 use std::fmt::Debug;
+use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
 #[cfg(feature = "kafka")]
@@ -200,7 +200,7 @@ impl std::fmt::Debug for KafkaBackend {
         f.debug_struct("KafkaBackend")
             // TODO:: Debug output for FutureProducer
             .field("topic", &self.topic)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -214,16 +214,19 @@ impl CloudEventBackend for KafkaBackend {
             .send(
                 FutureRecord::to(&self.topic)
                     .message_record(&message_record)
-                    // TODO: key is optional, however it probably makes sense to use one
-                    // should it be user defined? warehouse-id? just "TIP"?
-                    .key("TIP"),
-                Duration::from_secs(10),
+                    // TODO: the key allows recieving messages in order.
+                    // this _might_ be a parameter that could be configured by the user or TIP
+                    // could provide sensible defaults, like using the warehouse-id (+namespace?)
+                    .key(""),
+                Duration::from_secs(1),
             )
             .await;
 
-        // TODO: there _has_ to be a more elegant solution...
         match delivery_status {
-            Ok(_) => Ok(()),
+            Ok((partition, offset)) => {
+                tracing::debug!("CloudEvents event send via kafka to topic: {} and partition: {} with offset: {}", &self.topic, partition, offset);
+                Ok(())
+            }
             Err((e, _)) => Err(anyhow::anyhow!(e)),
         }
     }

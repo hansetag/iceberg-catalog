@@ -8,5 +8,5 @@ mod kafka_producer_record;
 
 // keep this for now, maybe we need BaseRecord
 // pub use kafka_producer_record::BaseRecordExt;
-pub use kafka_producer_record::FutureRecordExt;
-pub use kafka_producer_record::MessageRecord;
+pub(crate) use kafka_producer_record::FutureRecordExt;
+pub(crate) use kafka_producer_record::MessageRecord;

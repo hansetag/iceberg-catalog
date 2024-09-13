@@ -10,8 +10,8 @@ pub(crate) mod rdkafka;
 
 #[cfg(feature = "kafka")]
 pub(crate) mod kafka {
-    pub static SPEC_VERSION_HEADER: &str = "ce_specversion";
-    pub fn header_prefix(name: &str) -> String {
+    pub(crate) static SPEC_VERSION_HEADER: &str = "ce_specversion";
+    pub(crate) fn header_prefix(name: &str) -> String {
         super::header_prefix("ce_", name)
     }
 }

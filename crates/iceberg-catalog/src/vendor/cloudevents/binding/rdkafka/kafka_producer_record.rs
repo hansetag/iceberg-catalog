@@ -10,20 +10,20 @@ use cloudevents::Event;
 use rdkafka::message::{Header, OwnedHeaders, ToBytes};
 use rdkafka::producer::{BaseRecord, FutureRecord};
 
-/// This struct contains a serialized CloudEvent message in the Kafka shape.
+/// This struct contains a serialized `CloudEvent` message in the Kafka shape.
 /// Implements [`StructuredSerializer`] & [`BinarySerializer`] traits.
 ///
 /// To instantiate a new `MessageRecord` from an [`Event`],
 /// look at [`Self::from_event`] or use [`StructuredDeserializer::deserialize_structured`](crate::message::StructuredDeserializer::deserialize_structured)
 /// or [`BinaryDeserializer::deserialize_binary`].
-pub struct MessageRecord {
+pub(crate) struct MessageRecord {
     pub(crate) headers: OwnedHeaders,
     pub(crate) payload: Option<Vec<u8>>,
 }
 
 impl MessageRecord {
     /// Create a new empty [`MessageRecord`]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         MessageRecord {
             headers: OwnedHeaders::new(),
             payload: None,
@@ -31,7 +31,7 @@ impl MessageRecord {
     }
 
     /// Create a new [`MessageRecord`], filled with `event` serialized in binary mode.
-    pub fn from_event(event: Event) -> Result<Self> {
+    pub(crate) fn from_event(event: Event) -> Result<Self> {
         BinaryDeserializer::deserialize_binary(event, MessageRecord::new())
     }
 }
@@ -94,7 +94,7 @@ impl StructuredSerializer<MessageRecord> for MessageRecord {
 /// Extension Trait for [`BaseRecord`] that fills the record with a [`MessageRecord`].
 ///
 /// This trait is sealed and cannot be implemented for types outside of this crate.
-pub trait BaseRecordExt<'a, K: ToBytes + ?Sized>: private::Sealed {
+pub(crate) trait BaseRecordExt<'a, K: ToBytes + ?Sized>: private::Sealed {
     /// Fill this [`BaseRecord`] with a [`MessageRecord`].
     fn message_record(
         self,
@@ -120,7 +120,7 @@ impl<'a, K: ToBytes + ?Sized> BaseRecordExt<'a, K> for BaseRecord<'a, K, Vec<u8>
 /// Extension Trait for [`FutureRecord`] that fills the record with a [`MessageRecord`].
 ///
 /// This trait is sealed and cannot be implemented for types outside of this crate.
-pub trait FutureRecordExt<'a, K: ToBytes + ?Sized>: private::Sealed {
+pub(crate) trait FutureRecordExt<'a, K: ToBytes + ?Sized>: private::Sealed {
     /// Fill this [`FutureRecord`] with a [`MessageRecord`].
     fn message_record(self, message_record: &'a MessageRecord) -> FutureRecord<'a, K, Vec<u8>>;
 }
@@ -139,7 +139,7 @@ impl<'a, K: ToBytes + ?Sized> FutureRecordExt<'a, K> for FutureRecord<'a, K, Vec
 
 mod private {
     // Sealing the FutureRecordExt and BaseRecordExt
-    pub trait Sealed {}
+    pub(crate) trait Sealed {}
     impl<K: rdkafka::message::ToBytes + ?Sized, V: rdkafka::message::ToBytes> Sealed
         for rdkafka::producer::FutureRecord<'_, K, V>
     {

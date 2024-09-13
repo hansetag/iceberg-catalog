@@ -12,7 +12,7 @@ Implementation of the Iceberg REST Catalog server.
 """
 
 [features]
-all = ["sqlx-postgres", "s3-signer", "router", "nats"]
+all = ["sqlx-postgres", "s3-signer", "router", "nats", "kafka"]
 sqlx-postgres = ["sqlx"]
 sqlx = ["dep:sqlx"]
 s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]

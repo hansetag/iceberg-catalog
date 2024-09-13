@@ -101,6 +101,10 @@ pub struct DynAppConfig {
     #[redact]
     pub nats_token: Option<String>,
 
+    // ------------- KAFKA CLOUDEVENTS -------------
+    pub kafka_brokers: Option<Vec<std::net::SocketAddr>>,
+    pub kafka_topic: Option<String>,
+
     // ------------- AUTHORIZATION -------------
     pub openid_provider_uri: Option<Url>,
 
@@ -197,6 +201,8 @@ impl Default for DynAppConfig {
             nats_user: None,
             nats_password: None,
             nats_token: None,
+            kafka_brokers: None,
+            kafka_topic: None,
             openid_provider_uri: None,
             listen_port: 8080,
             health_check_frequency_seconds: 10,
