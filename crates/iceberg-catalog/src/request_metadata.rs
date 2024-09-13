@@ -1,8 +1,9 @@
-use crate::service::token_verification::AuthDetails;
+use crate::service::token_verification::{AuthDetails, WellKnownConfig};
 use axum::middleware::Next;
 use axum::response::Response;
 use http::HeaderMap;
 use std::str::FromStr;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// A struct to hold metadata about a request.
@@ -13,6 +14,7 @@ use uuid::Uuid;
 pub struct RequestMetadata {
     pub request_id: Uuid,
     pub auth_details: Option<AuthDetails>,
+    pub openid_config: Option<Arc<WellKnownConfig>>,
 }
 
 impl RequestMetadata {
@@ -22,9 +24,11 @@ impl RequestMetadata {
         Self {
             request_id: Uuid::new_v4(),
             auth_details: None,
+            openid_config: None,
         }
     }
 }
+
 #[cfg(feature = "router")]
 pub(crate) async fn create_request_metadata_with_trace_id_fn(
     headers: HeaderMap,
@@ -45,6 +49,7 @@ pub(crate) async fn create_request_metadata_with_trace_id_fn(
     request.extensions_mut().insert(RequestMetadata {
         request_id,
         auth_details: None,
+        openid_config: None,
     });
     next.run(request).await
 }

@@ -1,4 +1,6 @@
-use crate::api::management::v1::{ApiServer, DeletedTabularResponse, ListDeletedTabularsResponse};
+use crate::api::management::v1::{
+    ApiServer, CreateUserResponse, DeletedTabularResponse, ListDeletedTabularsResponse,
+};
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
 pub use crate::service::storage::{
@@ -15,6 +17,7 @@ use crate::{ProjectIdent, WarehouseIdent, CONFIG};
 use iceberg_ext::catalog::rest::ErrorModel;
 use serde::Deserialize;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -159,8 +162,28 @@ impl axum::response::IntoResponse for CreateWarehouseResponse {
 impl<C: Catalog, A: AuthZHandler, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
 
 #[async_trait::async_trait]
-
 pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
+    async fn create_user(
+        context: ApiContext<State<A, C, S>>,
+        request_metadata: RequestMetadata,
+    ) -> Result<CreateUserResponse> {
+        let auth = request_metadata
+            .auth_details
+            .ok_or(ErrorModel::bad_request(
+                "Auth details found in request metadata",
+                "MissingUserId",
+                None,
+            ))?;
+        let user_id = auth.user_id().ok_or(ErrorModel::bad_request(
+            "User ID not found in auth details",
+            "MissingUserId",
+            None,
+        ))?;
+
+        let user_id = Uuid::new_v5(&user_id, auth.issuer().as_bytes());
+        C::create_user(user_id, "", "", context.v1_state.catalog).await
+    }
+
     async fn create_warehouse(
         request: CreateWarehouseRequest,
         context: ApiContext<State<A, C, S>>,

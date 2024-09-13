@@ -7,6 +7,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub struct Prefix(pub(crate) String);
 
 impl Prefix {
+    pub fn new(item: String) -> Self {
+        Self(item)
+    }
+
     #[inline]
     #[must_use]
     pub fn as_str(&self) -> &str {

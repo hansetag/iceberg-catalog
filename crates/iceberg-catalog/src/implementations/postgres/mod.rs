@@ -5,6 +5,7 @@ mod pagination;
 pub(crate) mod secrets;
 pub(crate) mod tabular;
 pub mod task_queues;
+pub(crate) mod user;
 pub(crate) mod warehouse;
 
 use self::dbutils::DBErrorHandler;

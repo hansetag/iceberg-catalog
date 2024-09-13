@@ -77,6 +77,29 @@ pub mod v1 {
         secret_store: PhantomData<S>,
     }
 
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub struct CreateUserResponse {
+        pub name: String,
+        pub id: uuid::Uuid,
+        pub email: String,
+    }
+
+    /// Create a new user
+    #[utoipa::path(
+        post,
+        tag = "management",
+        path = "/management/v1/user",
+        responses(
+            (status = 201, description = "User created successfully", body = [CreateUserResponse]),
+        )
+    )]
+    async fn create_user<C: Catalog, A: AuthZHandler, S: SecretStore>(
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<CreateUserResponse> {
+        ApiServer::<C, A, S>::create_user(api_context, metadata).await
+    }
+
     /// Create a new warehouse.
     ///
     /// Create a new warehouse in the given project. The project
@@ -386,6 +409,7 @@ pub mod v1 {
                     "/warehouse/:warehouse_id/deleted_tabulars",
                     get(list_deleted_tabulars),
                 )
+                .route("/user", post(create_user))
         }
     }
 }

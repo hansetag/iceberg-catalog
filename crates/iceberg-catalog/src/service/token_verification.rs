@@ -6,7 +6,7 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
-use http::StatusCode;
+use http::{HeaderMap, StatusCode};
 use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
 use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use jwks_client_rs::source::WebSource;
@@ -18,11 +18,29 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::fmt::Debug;
 use std::str::FromStr;
+use std::sync::Arc;
 use url::Url;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub enum AuthDetails {
     JWT(Claims),
+}
+
+impl AuthDetails {
+    pub fn user_id(&self) -> Option<Uuid> {
+        match self {
+            // TODO: sub is a string, we don't want to deal with that in our db, can we prescribe
+            //       uuid in the jwt?
+            Self::JWT(claims) => claims.sub.parse().ok(),
+        }
+    }
+
+    pub fn issuer(&self) -> &str {
+        match self {
+            Self::JWT(claims) => &claims.iss,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -46,6 +64,7 @@ pub enum Aud {
 pub(crate) async fn auth_middleware_fn(
     State(verifier): State<Verifier>,
     authorization: Option<TypedHeader<Authorization<Bearer>>>,
+    headers: HeaderMap,
     Extension(mut metadata): Extension<RequestMetadata>,
     request: Request,
     next: Next,
@@ -59,7 +78,8 @@ pub(crate) async fn auth_middleware_fn(
                 tracing::debug!("Failed to verify token: {:?}", err);
                 return IcebergErrorResponse::from(err).into_response();
             }
-        }
+        };
+        metadata.openid_config = Some(verifier.config.clone());
     } else {
         return IcebergErrorResponse::from(
             ErrorModel::builder()
@@ -78,11 +98,11 @@ pub(crate) async fn auth_middleware_fn(
 pub struct Verifier {
     client: JwksClient<WebSource>,
     issuer: String,
+    config: Arc::new(WellKnownConfig),
 }
 
 impl Verifier {
     const WELL_KNOWN_CONFIG: &'static str = ".well-known/openid-configuration";
-
     /// Create a new verifier with the given openid configuration url and audience.
     ///
     /// # Errors
@@ -94,17 +114,20 @@ impl Verifier {
         if !url.path().ends_with('/') {
             url.set_path(&format!("{}/", url.path()));
         }
-        let config = reqwest::get(url.join(Self::WELL_KNOWN_CONFIG)?)
-            .await
-            .context("Failed to fetch openid configuration")?
-            .json::<WellKnownConfig>()
-            .await
-            .context("Failed to parse openid configuration")?;
-        let source = WebSource::builder().build(config.jwks_uri)?;
+        let config = Arc::new(
+            reqwest::get(url.join(Self::WELL_KNOWN_CONFIG)?)
+                .await
+                .context("Failed to fetch openid configuration")?
+                .json::<WellKnownConfig>()
+                .await
+                .context("Failed to parse openid configuration")?,
+        );
+        let source = WebSource::builder().build(config.jwks_uri.clone())?;
         let client = JwksClient::builder().build(source);
         Ok(Self {
             client,
-            issuer: config.issuer,
+            issuer: config.issuer.clone(),
+            config,
         })
     }
 
@@ -219,12 +242,14 @@ impl Debug for Verifier {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct WellKnownConfig {
     #[serde(flatten)]
     pub other: serde_json::Value,
     pub jwks_uri: Url,
     pub issuer: String,
+    pub userinfo_endpoint: Option<Url>,
+    pub token_endpoint: Url,
 }
 
 #[cfg(test)]

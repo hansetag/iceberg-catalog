@@ -15,6 +15,8 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
+use crate::api::management::v1::CreateUserResponse;
+use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
@@ -40,6 +42,7 @@ use crate::{
 use iceberg::spec::ViewMetadata;
 use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
+use uuid::Uuid;
 
 #[async_trait::async_trait]
 impl Catalog for super::PostgresCatalog {
@@ -388,5 +391,20 @@ impl Catalog for super::PostgresCatalog {
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()> {
         mark_tabular_as_deleted(table_id, transaction).await
+    }
+
+    async fn create_user(
+        user_id: Uuid,
+        name: &str,
+        email: &str,
+        catalog_state: Self::State,
+    ) -> Result<CreateUserResponse> {
+        let mut connection = catalog_state
+            .write_pool()
+            .acquire()
+            .await
+            .map_err(|e| e.into_error_model("Failed to get connection".into()))?;
+        crate::implementations::postgres::user::insert_user(user_id, name, email, &mut connection)
+            .await
     }
 }
