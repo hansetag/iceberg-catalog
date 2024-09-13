@@ -70,12 +70,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // We are looking for the path in the database, which allows us to also work with AuthN solutions
         // that do not support custom data in tokens. Perspectively, we should
         // try to get per-table signer.uri support in Spark.
-        let table_id = if let Ok(table_id) = require_table_id(table.clone()) {
+        let table_id = if let Ok(table_id) = require_table_id(table) {
             table_id
         } else {
             C::get_table_id_by_s3_location_cached(
                 warehouse_id,
-                table_location,
+                parsed_url.location.location(),
                 ListFlags {
                     include_staged,
                     // spark iceberg drops the table and then checks for existence of metadata files

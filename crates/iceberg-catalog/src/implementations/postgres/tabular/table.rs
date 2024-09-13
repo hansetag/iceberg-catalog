@@ -20,6 +20,7 @@ use crate::implementations::postgres::tabular::{
     create_tabular, drop_tabular, list_tabulars, try_parse_namespace_ident, CreateTabular,
     TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid, TabularType,
 };
+use iceberg_ext::configs::Location;
 use sqlx::types::Json;
 use std::default::Default;
 use std::{
@@ -339,38 +340,15 @@ pub(crate) async fn get_table_metadata_by_id(
 
 pub(crate) async fn get_table_id_by_s3_location(
     warehouse_id: WarehouseIdent,
-    location: &str,
+    location: &Location,
     list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
 ) -> Result<TableIdentUuid> {
-    let Some((protocol, without_prefix)) = location.split_once("://") else {
-        return Err(ErrorModel::bad_request(
-            "Location must have a protocol",
-            "LocationMissingProtocol",
-            None,
-        )
-        .into());
-    };
-    let protocol = format!("{protocol}://");
-
-    let query_strings = without_prefix
-        .split('/')
-        .fold(vec![], |mut partial_locations, s| {
-            if s.is_empty() {
-                return partial_locations;
-            }
-
-            let mut last = partial_locations.last().cloned().unwrap_or(String::new());
-            if last.is_empty() {
-                last.push_str(&protocol);
-            } else {
-                last.push('/');
-            }
-            last.push_str(s);
-            partial_locations.push(last);
-
-            partial_locations
-        });
+    let query_strings = location
+        .partial_locations()
+        .into_iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
 
     // Location might also be a subpath of the table location.
     // We need to make sure that the location starts with the table location.
@@ -391,8 +369,8 @@ pub(crate) async fn get_table_id_by_s3_location(
             AND ti.typ = 'table'
         "#,
         *warehouse_id,
-        &query_strings,
-        i32::try_from(location.len()).unwrap_or(i32::MAX),
+        query_strings.as_slice(),
+        i32::try_from(location.url().as_str().len()).unwrap_or(i32::MAX) + 1, // account for maybe trailing '/'
         list_flags.include_deleted
     )
     .fetch_one(&catalog_state.read_pool())
@@ -1370,11 +1348,11 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
-
+        let mut metadata_location = metadata.location.parse::<Location>().unwrap();
         // Exact path works
         let id = get_table_id_by_s3_location(
             warehouse_id,
-            &metadata.location,
+            &metadata_location,
             ListFlags::default(),
             state.clone(),
         )
@@ -1383,10 +1361,12 @@ pub(crate) mod tests {
 
         assert_eq!(id, table.table_id);
 
+        let mut subpath = metadata_location.clone();
+        subpath.push("data/foo.parquet");
         // Subpath works
         let id = get_table_id_by_s3_location(
             warehouse_id,
-            &format!("{}/data/foo.parquet", &metadata.location),
+            &subpath,
             ListFlags::default(),
             state.clone(),
         )
@@ -1396,35 +1376,36 @@ pub(crate) mod tests {
         assert_eq!(id, table.table_id);
 
         // Path without trailing slash works
-        let without_trailing_slash = metadata.location.trim_end_matches('/');
+        metadata_location.without_trailing_slash();
         get_table_id_by_s3_location(
             warehouse_id,
-            without_trailing_slash,
+            &metadata_location,
             ListFlags::default(),
             state.clone(),
         )
         .await
         .unwrap();
 
+        metadata_location.with_trailing_slash();
         // Path with trailing slash works
         get_table_id_by_s3_location(
             warehouse_id,
-            &format!("{without_trailing_slash}/",),
+            &metadata_location,
             ListFlags::default(),
             state.clone(),
         )
         .await
         .unwrap();
 
+        let shorter = metadata.location[0..metadata.location.len() - 2]
+            .to_string()
+            .parse()
+            .unwrap();
+
         // Shorter path does not work
-        get_table_id_by_s3_location(
-            warehouse_id,
-            &without_trailing_slash[0..without_trailing_slash.len() - 1],
-            ListFlags::default(),
-            state.clone(),
-        )
-        .await
-        .unwrap_err();
+        get_table_id_by_s3_location(warehouse_id, &shorter, ListFlags::default(), state.clone())
+            .await
+            .unwrap_err();
     }
 
     #[sqlx::test]

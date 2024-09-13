@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::str::{FromStr, RMatchIndices};
 
 use crate::configs::{ConfigParseError, ConfigProperty, NotCustomProp, ParseError, ParseFromStr};
 
@@ -87,6 +87,45 @@ impl Location {
 
         self.to_string().starts_with(other_folder.as_str())
     }
+
+    #[must_use]
+    pub fn partial_locations<'a>(&'a self) -> impl IntoIterator<Item = &'a str> {
+        let scheme_index = self.url().scheme().len() + 3; // 3 for "://"
+        let url_string = self.url().as_str().trim_end_matches('/');
+        let pointer = url_string.rmatch_indices('/');
+
+        let iter: PartialLocationsIter<'a> = PartialLocationsIter {
+            pointer,
+            loc: url_string,
+            full_loc: Some(url_string),
+            scheme_index,
+        };
+        iter
+    }
+}
+
+struct PartialLocationsIter<'a> {
+    pointer: RMatchIndices<'a, char>,
+    loc: &'a str,
+    full_loc: Option<&'a str>,
+    scheme_index: usize,
+}
+
+impl<'a> Iterator for PartialLocationsIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(full_loc) = self.full_loc.take() {
+            return Some(full_loc);
+        }
+
+        let (idx, _) = self.pointer.next()?;
+
+        if idx < self.scheme_index {
+            return None;
+        }
+        Some(&self.loc[..idx])
+    }
 }
 
 impl ConfigProperty for Location {
@@ -174,6 +213,39 @@ mod tests {
                 result, expected,
                 "Parent: {parent}, Sublocation: {maybe_sublocation}, Expected: {expected}",
             );
+        }
+    }
+
+    #[test]
+    fn test_partial_locations() {
+        let cases = vec![
+            (
+                "s3://bucket/foo/bar/baz",
+                vec![
+                    "s3://bucket",
+                    "s3://bucket/foo",
+                    "s3://bucket/foo/bar",
+                    "s3://bucket/foo/bar/baz",
+                ],
+            ),
+            (
+                "s3://bucket/foo/bar/baz/",
+                vec![
+                    "s3://bucket",
+                    "s3://bucket/foo",
+                    "s3://bucket/foo/bar",
+                    "s3://bucket/foo/bar/baz",
+                ],
+            ),
+            ("s3://bucket", vec!["s3://bucket"]),
+            ("s3://bucket/", vec!["s3://bucket"]),
+        ];
+
+        for (location, expected) in cases {
+            let location = Location::from_str(location).unwrap();
+            let mut result: Vec<_> = location.partial_locations().into_iter().collect();
+            result.sort_unstable();
+            assert_eq!(result, expected);
         }
     }
 }

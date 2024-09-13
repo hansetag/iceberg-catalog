@@ -39,6 +39,7 @@ use crate::{
     SecretIdent,
 };
 use iceberg::spec::ViewMetadata;
+use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
 
 #[async_trait::async_trait]
@@ -180,7 +181,7 @@ impl Catalog for super::PostgresCatalog {
 
     async fn get_table_id_by_s3_location(
         warehouse_id: WarehouseIdent,
-        location: &str,
+        location: &Location,
         list_flags: ListFlags,
         catalog_state: Self::State,
     ) -> Result<TableIdentUuid> {

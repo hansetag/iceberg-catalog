@@ -222,18 +222,18 @@ where
 
     async fn get_table_id_by_s3_location(
         warehouse_id: WarehouseIdent,
-        location: &str,
+        location: &Location,
         list_flags: ListFlags,
         catalog_state: Self::State,
     ) -> Result<TableIdentUuid>;
 
     async fn get_table_id_by_s3_location_cached(
         warehouse_id: WarehouseIdent,
-        location: &str,
+        location: &Location,
         list_flags: ListFlags,
         mut catalog_state: Self::State,
     ) -> Result<TableIdentUuid> {
-        let maybe = catalog_state.get_table_id(location).await;
+        let maybe = catalog_state.get_table_id(location.as_str()).await;
 
         if let Some(id) = maybe {
             return Ok(id);
@@ -247,7 +247,7 @@ where
         )
         .await?;
 
-        catalog_state.insert_location(location, id).await;
+        catalog_state.insert_location(location.as_str(), id).await;
 
         Ok(id)
     }
