@@ -227,6 +227,7 @@ jobs:
         run: |
           cd tests
           docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_all.sh"
+          docker compose down
         env:
           ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:arm64
           ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
@@ -244,7 +245,6 @@ jobs:
         run: |
           cd tests
           docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_all.sh"
-          docker compose rm --force
         env:
           ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
           ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
