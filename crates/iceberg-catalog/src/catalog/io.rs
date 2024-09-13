@@ -1,5 +1,7 @@
 use crate::api::{ErrorModel, Result};
 use crate::service::storage::path_utils;
+use futures::stream::BoxStream;
+use futures::StreamExt;
 use iceberg::io::FileIO;
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use iceberg_ext::configs::Location;
@@ -89,6 +91,31 @@ pub(crate) async fn remove_all(file_io: &FileIO, location: &Location) -> Result<
         .map_err(IoError::FileRemoveAll)?;
 
     Ok(())
+}
+
+pub(crate) const DEFAULT_LIST_LOCATION_PAGE_SIZE: usize = 1000;
+
+pub(crate) fn list_location<'a>(
+    file_io: &'a FileIO,
+    location: &'a Location,
+    page_size: usize,
+) -> BoxStream<'a, std::result::Result<Vec<String>, IoError>> {
+    let location = path_utils::reduce_scheme_string(location.as_str(), false);
+
+    let entries = file_io
+        .list_paginated(
+            format!("{}/", location.trim_end_matches('/')).as_str(),
+            true,
+            page_size,
+        )
+        .map(|res| match res {
+            Ok(entries) => Ok(entries
+                .into_iter()
+                .map(|it| it.path().to_string())
+                .collect()),
+            Err(e) => Err(IoError::List(e)),
+        });
+    entries.boxed()
 }
 
 #[derive(thiserror::Error, Debug, strum::IntoStaticStr)]

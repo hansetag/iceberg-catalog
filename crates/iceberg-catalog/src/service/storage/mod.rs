@@ -7,13 +7,13 @@ mod s3;
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::catalog::compression_codec::CompressionCodec;
-use crate::catalog::io::IoError;
+use crate::catalog::io::{list_location, DEFAULT_LIST_LOCATION_PAGE_SIZE};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
 pub use az::{AzCredential, AzdlsLocation, AzdlsProfile};
-use error::{
-    ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
-};
+pub(crate) use error::ValidationError;
+use error::{ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError};
+use futures::StreamExt;
 use iceberg::io::FileIO;
 use iceberg_ext::configs::table::TableProperties;
 use iceberg_ext::configs::Location;
@@ -21,7 +21,6 @@ pub use s3::S3Location;
 pub use s3::{S3Credential, S3Flavor, S3Profile};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::ops::Sub;
 
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
@@ -289,16 +288,17 @@ impl StorageProfile {
         crate::catalog::io::remove_all(&file_io, &test_location)
             .await
             .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(self.clone())))?;
-        let entries = list_location(&file_io, &test_location)
-            .await
-            .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(self.clone())))?;
 
-        if !entries.is_empty() {
-            return Err(ValidationError::Internal {
-                reason: "Delete failed.".to_string(),
+        check_location_is_empty(&file_io, &test_location, self, || {
+            ValidationError::InvalidLocation {
+                reason: "Files are left after remove_all on test location".to_string(),
                 source: None,
-            });
-        }
+                location: test_location.to_string(),
+                storage_type: self.storage_type(),
+            }
+        })
+        .await?;
+
         Ok(())
     }
 
@@ -405,9 +405,6 @@ pub trait StorageLocations {
     ) -> Location {
         let mut l = namespace_location.clone();
         l.without_trailing_slash().push(&table_id.to_string());
-        // TODO: @christian, we should probably add a trailing slash here to differentiate
-        //       between file and directory; according to test_default_s3_locations, this makes
-        //       pyiceberg throw up..
         l
     }
 
@@ -513,21 +510,21 @@ pub(crate) async fn check_location_is_empty(
     file_io: &FileIO,
     location: &Location,
     storage_profile: &StorageProfile,
+    error_fn: impl FnOnce() -> ValidationError,
 ) -> Result<(), ValidationError> {
-    let entries = list_location(file_io, location)
-        .await
-        .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?;
-    if entries.is_empty() {
-        Ok(())
-    } else {
-        tracing::info!("Unexpected files in location: {:?}", entries);
-        Err(ValidationError::InvalidLocation {
-            reason: "Unexpected files in location, tabular locations have to be empty".to_string(),
-            location: location.to_string(),
-            source: None,
-            storage_type: storage_profile.storage_type(),
-        })
+    let mut entries = list_location(file_io, location, DEFAULT_LIST_LOCATION_PAGE_SIZE);
+    while let Some(entries) = entries.next().await {
+        let entries = entries.map_err(|e| {
+            ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone()))
+        })?;
+
+        if !entries.is_empty() {
+            tracing::debug!("Location is not empty: {location}, entries: {entries:?}",);
+            let er = error_fn();
+            return Err(er);
+        }
     }
+    Ok(())
 }
 
 pub(crate) async fn ensure_location_content_matches(
@@ -539,25 +536,7 @@ pub(crate) async fn ensure_location_content_matches(
     let mut base_location = storage_profile.base_location()?;
     base_location.with_trailing_slash();
 
-    // TODO: come up with a better way than just taking the filenames.
-    //       stripping location doesn't work since listing doesn't prepend the fs + root directory
-    //       and we can't just strip the base location since it might contain a key-prefix
-    //       we're mostly using metadata files here and they contain uuids so we're probably fine..
-    let entries = list_location(file_io, location)
-        .await
-        .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?
-        .into_iter()
-        .filter_map(|s| {
-            // azdls has directories in lists, we only want files
-            let p = s.split('/').next_back().map(ToString::to_string);
-            if p.as_deref() == Some("") {
-                None
-            } else {
-                p
-            }
-        })
-        .collect::<HashSet<String>>();
-    let expected = expected
+    let mut expected_set = expected
         .iter()
         .filter_map(|s| {
             let p = s.split('/').next_back().map(ToString::to_string);
@@ -568,13 +547,41 @@ pub(crate) async fn ensure_location_content_matches(
             }
         })
         .collect::<HashSet<String>>();
+    let mut unexpected = vec![];
 
-    let unexpected = entries.sub(&expected);
-    let missing = expected.sub(&entries);
+    // TODO: come up with a better way than just taking the filenames.
+    //       stripping location doesn't work since listing doesn't prepend the fs + root directory
+    //       and we can't just strip the base location since it might contain a key-prefix
+    //       we're mostly using metadata files here and they contain uuids so we're probably fine..
+    while let Some(item) = list_location(file_io, location, DEFAULT_LIST_LOCATION_PAGE_SIZE)
+        .next()
+        .await
+    {
+        let entries = item
+            .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?
+            .into_iter()
+            .filter_map(|s| {
+                // azdls has directories in lists, we only want files
+                let p = s.split('/').next_back().map(ToString::to_string);
+                if p.as_deref() == Some("") {
+                    None
+                } else {
+                    p
+                }
+            });
+
+        for entry in entries {
+            if !expected_set.remove(&entry) {
+                unexpected.push(entry);
+            }
+        }
+    }
+
+    let missing = expected_set;
 
     if !unexpected.is_empty() || !missing.is_empty() {
-        tracing::debug!(
-            "Issue at location! Unexpected {unexpected:?}, missing: {missing:?}, expected: {expected:?}, entries: {entries:?}, location: {location:?}",
+        tracing::warn!(
+            "Location '{}' is not usable: Unexpected {unexpected:?}, missing: {missing:?}, expected: {expected:?}", location
         );
     }
 
@@ -588,27 +595,16 @@ pub(crate) async fn ensure_location_content_matches(
     }
 
     if !missing.is_empty() {
-        return Err(ValidationError::Internal {
-            reason: "Written files could not be listed, please check storage permissions."
+        return Err(ValidationError::InvalidLocation {
+            reason: "Written files could not be found, please check storage permissions."
                 .to_string(),
+            location: location.to_string(),
             source: None,
+            storage_type: storage_profile.storage_type(),
         });
     }
+
     Ok(())
-}
-
-async fn list_location(file_io: &FileIO, location: &Location) -> Result<Vec<String>, IoError> {
-    let location = path_utils::reduce_scheme_string(location.as_str(), false);
-
-    let entries = file_io
-        .list_recursive(format!("{}/", location.trim_end_matches('/')).as_str())
-        .await
-        .map_err(IoError::List)?
-        .into_iter()
-        .map(|it| it.path().to_string())
-        .collect();
-
-    Ok(entries)
 }
 
 #[cfg(test)]

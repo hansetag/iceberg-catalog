@@ -177,6 +177,13 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             &file_io,
             &table_location,
             storage_profile,
+            || crate::service::storage::ValidationError::InvalidLocation {
+                reason: "Unexpected files in location, tabular locations have to be empty"
+                    .to_string(),
+                location: table_location.to_string(),
+                source: None,
+                storage_type: storage_profile.storage_type(),
+            },
         )
         .await?;
 
