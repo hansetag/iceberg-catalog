@@ -80,7 +80,7 @@ veil = { workspace = true }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
-needs_env_var = { git = "https://github.com/twuebi/needs_env_var.git", rev = "bf14242" }
+needs_env_var = { workspace = true }
 tower = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde_urlencoded = "0.7.1"
