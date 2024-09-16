@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            ti.name as \"table_name\",\n            ti.tabular_id as \"table_id\",\n            ti.metadata_location\n        FROM tabular ti\n        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id\n        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id\n        WHERE w.warehouse_id = $1\n            AND ti.location = ANY($2)\n            AND LENGTH(ti.location) <= $3\n            AND w.status = 'active'\n            AND (ti.deleted_at IS NULL OR $4)\n            AND ti.typ = 'table'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "table_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "metadata_location",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Int4",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "0cb7056aecbaaee03d9f305faed446c973acdbd43b81dd19bdd8f76eba12ca69"
+}

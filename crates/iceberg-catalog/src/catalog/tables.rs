@@ -1150,7 +1150,7 @@ pub(super) fn determine_tabular_location(
             )
         })?;
 
-    if let Some(location) = request_table_location {
+    let mut location = if let Some(location) = request_table_location {
         if !storage_profile.is_allowed_location(&location) {
             return Err(ErrorModel::bad_request(
                 format!("Specified table location is not allowed: {location}"),
@@ -1159,8 +1159,7 @@ pub(super) fn determine_tabular_location(
             )
             .into());
         }
-
-        Ok(location)
+        location
     } else {
         let namespace_props = NamespaceProperties::from_props_unchecked(
             namespace.properties.clone().unwrap_or_default(),
@@ -1179,8 +1178,11 @@ pub(super) fn determine_tabular_location(
                 })?,
         };
 
-        Ok(storage_profile.default_tabular_location(&namespace_location, table_id))
-    }
+        storage_profile.default_tabular_location(&namespace_location, table_id)
+    };
+    // all locations are without a trailing slash
+    location.without_trailing_slash();
+    Ok(location)
 }
 
 fn require_table_ids(

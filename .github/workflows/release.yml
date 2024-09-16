@@ -222,22 +222,41 @@ jobs:
             --build-arg "BIN=bin-iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
           docker save -o /tmp/docker-iceberg-catalog-arm64.tar localhost/iceberg-catalog-local:arm64
 
-      - name: Test Docker (amd64)
-        run: |
-          cd tests
-          docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_all.sh"
-          docker compose rm --force
-        env:
-          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
-          ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
 
       - name: Test Docker (arm64)
         run: |
           cd tests
           docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_all.sh"
+          docker compose down
         env:
           ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:arm64
           ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
+          AZURE_STORAGE_FILESYSTEM: ${{ secrets.AZURE_STORAGE_FILESYSTEM }}
+
+      - name: Dump docker logs on failure  (arm64)
+        if: failure()
+        uses: jwalton/gh-docker-logs@v2
+
+      - name: Test Docker (amd64)
+        run: |
+          cd tests
+          docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_all.sh"
+        env:
+          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
+          ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
+          AZURE_STORAGE_FILESYSTEM: ${{ secrets.AZURE_STORAGE_FILESYSTEM }}
+
+      - name: Dump docker logs on failure  (amd64)
+        if: failure()
+        uses: jwalton/gh-docker-logs@v2
 
       - name: Save Docker
         uses: actions/upload-artifact@v4
@@ -265,7 +284,7 @@ jobs:
 
       - name: List Artifacts
         run: ls -Rlh
-      
+
       - name: Inspect Docker
         run: |
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-amd64.tar
@@ -273,7 +292,7 @@ jobs:
           docker images
           docker inspect localhost/iceberg-catalog-local:amd64
           docker inspect localhost/iceberg-catalog-local:arm64
-      
+
       - name: Release Please
         run: echo ${{ needs.release_please.outputs.tag_name }}
 
@@ -301,7 +320,7 @@ jobs:
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-amd64.tar
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-arm64.tar
           docker images
-      
+
       - name: Push Full Tag to quay.io
         run: |
           COMMIT_SHA=${GITHUB_SHA::8}  # Get the first 8 characters of the commit SHA
@@ -360,14 +379,14 @@ jobs:
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-amd64.tar
           docker load -i docker-iceberg-catalog/docker-iceberg-catalog-arm64.tar
           docker images
-      
+
       - name: Push Images to quay.io
         run: |
           docker tag localhost/iceberg-catalog-local:amd64 quay.io/hansetag/tip-catalog:${{ needs.release_please.outputs.tag_name }}-amd64
           docker tag localhost/iceberg-catalog-local:arm64 quay.io/hansetag/tip-catalog:${{ needs.release_please.outputs.tag_name }}-arm64
           docker push quay.io/hansetag/tip-catalog:${{ needs.release_please.outputs.tag_name }}-amd64
           docker push quay.io/hansetag/tip-catalog:${{ needs.release_please.outputs.tag_name }}-arm64
-      
+
       - name: Check if Tag is vX.Y.Z
         id: check-tag
         run: |
