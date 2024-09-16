@@ -7,7 +7,7 @@ mod s3;
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::catalog::compression_codec::CompressionCodec;
-use crate::catalog::io::{list_location, DEFAULT_LIST_LOCATION_PAGE_SIZE};
+use crate::catalog::io::list_location;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
 pub use az::{AzCredential, AzdlsLocation, AzdlsProfile};
@@ -20,7 +20,6 @@ use iceberg_ext::configs::Location;
 pub use s3::S3Location;
 pub use s3::{S3Credential, S3Flavor, S3Profile};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
@@ -514,12 +513,12 @@ pub(crate) async fn check_location_is_empty(
     storage_profile: &StorageProfile,
     error_fn: impl FnOnce() -> ValidationError,
 ) -> Result<(), ValidationError> {
-    tracing::info!("Checking location is empty: {location}",);
-    let mut entry_stream = list_location(file_io, location, DEFAULT_LIST_LOCATION_PAGE_SIZE)
+    tracing::info!("Checking location is empty: {location}");
+
+    let mut entry_stream = list_location(file_io, location, Some(1))
         .await
         .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?;
     while let Some(entries) = entry_stream.next().await {
-        tracing::debug!("Got page: {entries:?}");
         let entries = entries.map_err(|e| {
             ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone()))
         })?;
@@ -530,87 +529,6 @@ pub(crate) async fn check_location_is_empty(
             return Err(er);
         }
     }
-    Ok(())
-}
-
-pub(crate) async fn ensure_location_content_matches(
-    file_io: &FileIO,
-    location: &Location,
-    expected: &[&str],
-    storage_profile: &StorageProfile,
-) -> Result<(), ValidationError> {
-    let mut base_location = storage_profile.base_location()?;
-    base_location.with_trailing_slash();
-
-    let mut expected_set = expected
-        .iter()
-        .filter_map(|s| {
-            let p = s.split('/').next_back().map(ToString::to_string);
-            if p.as_deref() == Some("") {
-                None
-            } else {
-                p
-            }
-        })
-        .collect::<HashSet<String>>();
-    let mut unexpected = vec![];
-
-    // TODO: come up with a better way than just taking the filenames.
-    //       stripping location doesn't work since listing doesn't prepend the fs + root directory
-    //       and we can't just strip the base location since it might contain a key-prefix
-    //       we're mostly using metadata files here and they contain uuids so we're probably fine..
-    let mut entry_stream = list_location(file_io, location, DEFAULT_LIST_LOCATION_PAGE_SIZE)
-        .await
-        .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?;
-    while let Some(item) = entry_stream.next().await {
-        tracing::info!("Got page: {item:?}",);
-        let entries = item
-            .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?
-            .into_iter()
-            .filter_map(|s| {
-                // azdls has directories in lists, we only want files
-                let p = s.split('/').next_back().map(ToString::to_string);
-                if p.as_deref() == Some("") {
-                    None
-                } else {
-                    p
-                }
-            });
-
-        for entry in entries {
-            if !expected_set.remove(&entry) {
-                unexpected.push(entry);
-            }
-        }
-    }
-
-    let missing = expected_set;
-
-    if !unexpected.is_empty() || !missing.is_empty() {
-        tracing::warn!(
-            "Location '{}' is not usable: Unexpected {unexpected:?}, missing: {missing:?}, expected: {expected:?}", location
-        );
-    }
-
-    if !unexpected.is_empty() {
-        return Err(ValidationError::InvalidLocation {
-            reason: "Unexpected files in location, tabular locations have to be empty, found more files than expected after writing.".to_string(),
-            location: location.to_string(),
-            source: None,
-            storage_type: storage_profile.storage_type(),
-        });
-    }
-
-    if !missing.is_empty() {
-        return Err(ValidationError::InvalidLocation {
-            reason: "Written files could not be found, please check storage permissions."
-                .to_string(),
-            location: location.to_string(),
-            source: None,
-            storage_type: storage_profile.storage_type(),
-        });
-    }
-
     Ok(())
 }
 

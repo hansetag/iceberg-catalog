@@ -25,13 +25,12 @@ use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, GetWarehouseResponse,
-    ListFlags, LoadTableResponse as CatalogLoadTableResult, State, TableCreation, Transaction,
+    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
+    LoadTableResponse as CatalogLoadTableResult, State, TableCreation, Transaction,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 
 use http::StatusCode;
-use iceberg::io::FileIO;
 use iceberg::{NamespaceIdent, TableUpdate};
 use iceberg_ext::configs::namespace::NamespaceProperties;
 use iceberg_ext::configs::Location;
@@ -167,8 +166,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         )
         .await?;
 
-        tracing::debug!("Inserted table");
-
         // We don't commit the transaction yet, first we need to write the metadata file.
         let storage_secret = if let Some(secret_id) = &warehouse.storage_secret_id {
             let secret_state = state.v1_state.secrets;
@@ -177,10 +174,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             None
         };
 
-        tracing::debug!("Got storage_secret, is_some: {}", storage_secret.is_some());
-
         let file_io = storage_profile.file_io(storage_secret.as_ref())?;
-        tracing::debug!("Got file io");
+
         crate::service::storage::check_location_is_empty(
             &file_io,
             &table_location,
@@ -202,14 +197,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 &table_metadata,
                 compression_codec,
                 &file_io,
-            )
-            .await?;
-
-            check_content_and_potentially_cleanup(
-                &warehouse,
-                &table_location,
-                &file_io,
-                metadata_location,
             )
             .await?;
         };
@@ -262,12 +249,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         _state: ApiContext<State<A, C, S>>,
         _request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
-        Err(ErrorModel::builder()
-            .code(StatusCode::NOT_IMPLEMENTED.into())
-            .message("Registering tables is not supported".to_string())
-            .r#type("RegisterTableNotSupported".to_string())
-            .build()
-            .into())
+        Err(ErrorModel::not_implemented(
+            "Registering tables is not supported",
+            "RegisterTableNotSupported",
+            None,
+        )
+        .into())
     }
 
     /// Load a table from the catalog
@@ -1050,37 +1037,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         Ok(())
     }
-}
-
-async fn check_content_and_potentially_cleanup(
-    warehouse: &GetWarehouseResponse,
-    table_location: &Location,
-    file_io: &FileIO,
-    metadata_location: &Location,
-) -> Result<()> {
-    let check = crate::service::storage::ensure_location_content_matches(
-        file_io,
-        table_location,
-        &[metadata_location.as_str()],
-        &warehouse.storage_profile,
-    )
-    .await;
-
-    if let Err(err) = check {
-        file_io
-            .delete(metadata_location.as_str())
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to cleanup metadata file after failing to create table due to location already being in use: '{:?}'", e);
-                ErrorModel::internal(
-                    "Failed to cleanup metadata file after failing to create table due to location already being in use.",
-                    "DeleteMetadataFile",
-                    Some(Box::new(e)),
-                )
-            })?;
-        return Err(err.into());
-    }
-    Ok(())
 }
 
 struct CommitContext {

@@ -98,7 +98,7 @@ pub(crate) const DEFAULT_LIST_LOCATION_PAGE_SIZE: usize = 1000;
 pub(crate) async fn list_location<'a>(
     file_io: &'a FileIO,
     location: &'a Location,
-    page_size: usize,
+    page_size: Option<usize>,
 ) -> Result<BoxStream<'a, std::result::Result<Vec<String>, IoError>>, IoError> {
     let location = path_utils::reduce_scheme_string(location.as_str(), false);
     tracing::debug!("Listing location: {}", location);
@@ -106,7 +106,7 @@ pub(crate) async fn list_location<'a>(
         .list_paginated(
             format!("{}/", location.trim_end_matches('/')).as_str(),
             true,
-            page_size,
+            page_size.unwrap_or(DEFAULT_LIST_LOCATION_PAGE_SIZE),
         )
         .await
         .map_err(IoError::List)?

@@ -21,9 +21,9 @@ use crate::implementations::postgres::tabular::view::{
 use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_deleted};
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use crate::service::{
-    CreateNamespaceRequest, CreateNamespaceResponse, DeletionDetails,
-    GetWarehouseResponse, ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent,
-    Result, TableCreation, TableIdent, WarehouseStatus,
+    CreateNamespaceRequest, CreateNamespaceResponse, DeletionDetails, GetWarehouseResponse,
+    ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result, TableCreation,
+    TableIdent, WarehouseStatus,
 };
 use crate::{
     api::iceberg::v1::{PaginatedTabulars, PaginationQuery},
