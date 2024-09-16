@@ -12,7 +12,7 @@ use crate::service::{ErrorModel, Result};
 /// Apply the commits to table metadata.
 pub(super) fn apply_commit(
     metadata: TableMetadata,
-    metadata_location: &Option<String>,
+    metadata_location: &Option<Location>,
     requirements: &[TableRequirement],
     updates: Vec<TableUpdate>,
 ) -> Result<TableMetadata> {

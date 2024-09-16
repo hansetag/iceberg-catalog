@@ -26,7 +26,7 @@ use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, GetWarehouseResponse,
-    ListFlags, LoadTableResponse as CatalogLoadTableResult, State, Transaction,
+    ListFlags, LoadTableResponse as CatalogLoadTableResult, State, TableCreation, Transaction,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 
@@ -152,13 +152,17 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let body = maybe_body_to_json(&request);
 
         let CreateTableResponse { table_metadata } = C::create_table(
-            namespace.namespace_id,
-            &table,
-            TableIdentUuid::from(*table_id),
-            request,
-            metadata_location
-                .as_ref()
-                .map(iceberg_ext::configs::Location::as_str),
+            TableCreation {
+                namespace_id: namespace.namespace_id,
+                table_ident: &table,
+                table_id: (*table_id).into(),
+                table_location: &table_location,
+                table_schema: request.schema,
+                table_partition_spec: request.partition_spec,
+                table_write_order: request.write_order,
+                table_properties: request.properties,
+                metadata_location: metadata_location.as_ref(),
+            },
             t.transaction(),
         )
         .await?;
@@ -362,7 +366,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             )
         })?;
         let load_table_result = LoadTableResult {
-            metadata_location,
+            metadata_location: metadata_location.as_ref().map(ToString::to_string),
             metadata: table_metadata,
             config: Some(
                 storage_profile
@@ -1227,7 +1231,7 @@ fn require_table_id(
     })
 }
 
-fn require_not_staged(metadata_location: &Option<String>) -> Result<()> {
+fn require_not_staged<T>(metadata_location: &Option<T>) -> Result<()> {
     if metadata_location.is_none() {
         return Err(ErrorModel::not_found(
             "Table not found or staged.",

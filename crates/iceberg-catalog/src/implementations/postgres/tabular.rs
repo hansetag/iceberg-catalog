@@ -14,6 +14,7 @@ use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery, MAX_PAGE_SIZE}
 use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
 use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
 use crate::service::DeletionDetails;
+use iceberg_ext::configs::Location;
 use sqlx::postgres::PgArguments;
 use sqlx::{Arguments, Execute, FromRow, Postgres, QueryBuilder};
 use std::collections::{HashMap, HashSet};
@@ -241,8 +242,8 @@ pub(crate) struct CreateTabular<'a> {
     pub(crate) name: &'a str,
     pub(crate) namespace_id: Uuid,
     pub(crate) typ: TabularType,
-    pub(crate) metadata_location: Option<&'a str>,
-    pub(crate) location: &'a str,
+    pub(crate) metadata_location: Option<&'a Location>,
+    pub(crate) location: &'a Location,
 }
 
 pub(crate) async fn create_tabular<'a>(
@@ -256,33 +257,11 @@ pub(crate) async fn create_tabular<'a>(
     }: CreateTabular<'a>,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Uuid> {
-    let Some((protocol, without_prefix)) = location.split_once("://") else {
-        return Err(ErrorModel::bad_request(
-            "Location must have a protocol",
-            "LocationMissingProtocol",
-            None,
-        )
-        .into());
-    };
-
-    let query_strings = without_prefix
-        .split('/')
-        .fold(vec![], |mut partial_locations, s| {
-            if s.is_empty() {
-                return partial_locations;
-            }
-
-            let mut last = partial_locations.last().cloned().unwrap_or(String::new());
-            if last.is_empty() {
-                last.push_str(&format!("{protocol}://"));
-            } else {
-                last.push('/');
-            }
-            last.push_str(s);
-            partial_locations.push(last);
-
-            partial_locations
-        });
+    let query_strings = location
+        .partial_locations()
+        .into_iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
 
     // Tables with `metadata_location is NULL` are staged and not yet committed.
     // They can be overwritten in a new create statement as if they wouldn't exist yet.
@@ -301,8 +280,8 @@ pub(crate) async fn create_tabular<'a>(
         name,
         namespace_id,
         typ as _,
-        metadata_location,
-        location.trim_end_matches('/'),
+        metadata_location.map(iceberg_ext::configs::Location::as_str),
+        location.as_str(),
     )
     .fetch_one(&mut **transaction)
     .await
@@ -319,7 +298,15 @@ pub(crate) async fn create_tabular<'a>(
     })?;
 
     let location_is_taken = sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM tabular ta JOIN namespace n on ta.namespace_id = n.namespace_id JOIN warehouse w on w.warehouse_id = n.warehouse_id WHERE location = ANY($1) AND tabular_id != $2) AS "prefix_exists!""#,
+        r#"
+    SELECT EXISTS (
+        SELECT 1
+        FROM tabular ta
+        JOIN namespace n ON ta.namespace_id = n.namespace_id
+        JOIN warehouse w ON w.warehouse_id = n.warehouse_id
+        WHERE location = ANY($1) AND tabular_id != $2
+    ) AS "prefix_exists!"
+    "#,
         &query_strings,
         id
     )
