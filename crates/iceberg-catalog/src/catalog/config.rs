@@ -2,11 +2,8 @@ use crate::api::iceberg::v1::config::GetConfigQueryParams;
 use crate::api::iceberg::v1::{
     ApiContext, CatalogConfig, ErrorModel, IcebergErrorResponse, Result,
 };
+use crate::api::management::v1::UserOrigin;
 use crate::request_metadata::RequestMetadata;
-use http::StatusCode;
-use std::marker::PhantomData;
-use std::str::FromStr;
-
 use crate::service::SecretStore;
 use crate::service::{
     auth::{AuthConfigHandler, AuthZHandler, UserWarehouse},
@@ -14,6 +11,9 @@ use crate::service::{
     Catalog, ProjectIdent, State,
 };
 use crate::CONFIG;
+use http::StatusCode;
+use std::marker::PhantomData;
+use std::str::FromStr;
 
 #[derive(Clone, Debug)]
 pub struct Server<C: ConfigProvider<D>, D: Catalog, T: AuthConfigHandler<A>, A: AuthZHandler> {
@@ -42,6 +42,24 @@ impl<
             &request_metadata,
         )
         .await?;
+        tracing::info!("Auth info: {:?}", request_metadata);
+        if let Some(user_id) = request_metadata.user_id() {
+            // If the user is authenticated, create a user in the catalog
+            let user = D::create_user(
+                user_id,
+                request_metadata.user_display_name(),
+                request_metadata.user_name(),
+                request_metadata.email(),
+                UserOrigin::ImplicitRegistration("config".to_string()),
+                api_context.v1_state.catalog.clone(),
+            )
+            .await?;
+            if user.updated_at.is_none() {
+                tracing::info!("Created new user");
+            }
+        } else {
+            tracing::info!("Got no user_id from request_metadata, not trying to register.");
+        }
 
         let UserWarehouse {
             project_id: project_from_auth,

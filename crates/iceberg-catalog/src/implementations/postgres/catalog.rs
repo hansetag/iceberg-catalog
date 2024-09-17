@@ -15,7 +15,7 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
-use crate::api::management::v1::CreateUserResponse;
+use crate::api::management::v1::{User, UserOrigin};
 use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
@@ -395,16 +395,25 @@ impl Catalog for super::PostgresCatalog {
 
     async fn create_user(
         user_id: Uuid,
-        name: &str,
-        email: &str,
+        display_name: Option<&str>,
+        name: Option<&str>,
+        email: Option<&str>,
+        origin: UserOrigin,
         catalog_state: Self::State,
-    ) -> Result<CreateUserResponse> {
+    ) -> Result<User> {
         let mut connection = catalog_state
             .write_pool()
             .acquire()
             .await
             .map_err(|e| e.into_error_model("Failed to get connection".into()))?;
-        crate::implementations::postgres::user::insert_user(user_id, name, email, &mut connection)
-            .await
+        crate::implementations::postgres::user::insert_user(
+            user_id,
+            display_name,
+            name,
+            email,
+            origin,
+            &mut connection,
+        )
+        .await
     }
 }

@@ -1,5 +1,5 @@
 use crate::api::management::v1::{
-    ApiServer, CreateUserResponse, DeletedTabularResponse, ListDeletedTabularsResponse,
+    ApiServer, DeletedTabularResponse, ListDeletedTabularsResponse, User, UserOrigin,
 };
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
@@ -166,7 +166,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
     async fn create_user(
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
-    ) -> Result<CreateUserResponse> {
+    ) -> Result<User> {
         let auth = request_metadata
             .auth_details
             .ok_or(ErrorModel::bad_request(
@@ -181,7 +181,15 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         ))?;
 
         let user_id = Uuid::new_v5(&user_id, auth.issuer().as_bytes());
-        C::create_user(user_id, "", "", context.v1_state.catalog).await
+        C::create_user(
+            user_id,
+            auth.display_name(),
+            auth.name(),
+            auth.email(),
+            UserOrigin::ExplicitRegistration,
+            context.v1_state.catalog,
+        )
+        .await
     }
 
     async fn create_warehouse(

@@ -6,7 +6,7 @@ use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     TypedHeader,
 };
-use http::{HeaderMap, StatusCode};
+use http::StatusCode;
 use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
 use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use jwks_client_rs::source::WebSource;
@@ -28,6 +28,7 @@ pub enum AuthDetails {
 }
 
 impl AuthDetails {
+    #[must_use]
     pub fn user_id(&self) -> Option<Uuid> {
         match self {
             // TODO: sub is a string, we don't want to deal with that in our db, can we prescribe
@@ -35,10 +36,31 @@ impl AuthDetails {
             Self::JWT(claims) => claims.sub.parse().ok(),
         }
     }
+    #[must_use]
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Self::JWT(claims) => claims.name.as_deref(),
+        }
+    }
 
+    #[must_use]
+    pub fn display_name(&self) -> Option<&str> {
+        match self {
+            Self::JWT(claims) => claims.preferred_username.as_deref(),
+        }
+    }
+
+    #[must_use]
     pub fn issuer(&self) -> &str {
         match self {
             Self::JWT(claims) => &claims.iss,
+        }
+    }
+
+    #[must_use]
+    pub fn email(&self) -> Option<&str> {
+        match self {
+            Self::JWT(claims) => claims.other.get("email").and_then(|v| v.as_str()),
         }
     }
 }
@@ -50,6 +72,8 @@ pub struct Claims {
     pub aud: Aud,
     pub exp: usize,
     pub iat: usize,
+    pub name: Option<String>,
+    pub preferred_username: Option<String>,
     #[serde(flatten)]
     pub other: serde_json::Value,
 }
@@ -64,22 +88,23 @@ pub enum Aud {
 pub(crate) async fn auth_middleware_fn(
     State(verifier): State<Verifier>,
     authorization: Option<TypedHeader<Authorization<Bearer>>>,
-    headers: HeaderMap,
     Extension(mut metadata): Extension<RequestMetadata>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
+    tracing::debug!("Auth middleware");
     if let Some(authorization) = authorization {
         match verifier.decode::<Claims>(authorization.token()).await {
             Ok(val) => {
+                tracing::debug!("Token verified: {:?}", val);
                 metadata.auth_details = Some(AuthDetails::JWT(val));
+                request.extensions_mut().insert(metadata);
             }
             Err(err) => {
                 tracing::debug!("Failed to verify token: {:?}", err);
                 return IcebergErrorResponse::from(err).into_response();
             }
         };
-        metadata.openid_config = Some(verifier.config.clone());
     } else {
         return IcebergErrorResponse::from(
             ErrorModel::builder()
@@ -98,7 +123,6 @@ pub(crate) async fn auth_middleware_fn(
 pub struct Verifier {
     client: JwksClient<WebSource>,
     issuer: String,
-    config: Arc::new(WellKnownConfig),
 }
 
 impl Verifier {
@@ -127,7 +151,6 @@ impl Verifier {
         Ok(Self {
             client,
             issuer: config.issuer.clone(),
-            config,
         })
     }
 
