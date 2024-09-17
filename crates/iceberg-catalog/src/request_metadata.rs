@@ -31,7 +31,7 @@ impl RequestMetadata {
     }
 
     #[must_use]
-    pub fn user_name(&self) -> Option<&str> {
+    pub fn user_name(&self) -> Option<String> {
         self.auth_details.as_ref().and_then(AuthDetails::name)
     }
 

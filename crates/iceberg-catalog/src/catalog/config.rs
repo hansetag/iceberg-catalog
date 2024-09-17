@@ -142,7 +142,7 @@ async fn maybe_add_user<D: Catalog>(
         let user = D::create_user(
             user_id,
             request_metadata.user_display_name(),
-            request_metadata.user_name(),
+            request_metadata.user_name().as_deref(),
             request_metadata.email(),
             UserOrigin::ImplicitRegistration("config".to_string()),
             state,

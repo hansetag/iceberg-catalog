@@ -33,13 +33,18 @@ impl AuthDetails {
         match self {
             // TODO: sub is a string, we don't want to deal with that in our db, can we prescribe
             //       uuid in the jwt?
+            // should we use oid / id? Airflow is doing that:
+            //  - google:   "username": "google_" + data.get("id", ""),
+            //  - azure:    "username": me["oid"],
+            //  - keycloak: "username": data.get("preferred_username", ""),
+            // this seems to conflate the username with the user id though
             Self::JWT(claims) => claims.sub.parse().ok(),
         }
     }
     #[must_use]
-    pub fn name(&self) -> Option<&str> {
+    pub fn name(&self) -> Option<String> {
         match self {
-            Self::JWT(claims) => claims.name.as_deref(),
+            Self::JWT(claims) => claims.name(),
         }
     }
 
@@ -72,13 +77,46 @@ pub struct Claims {
     pub aud: Aud,
     pub exp: usize,
     pub iat: usize,
-    // TODO: add aliases
-    pub name: Option<String>,
+    #[serde(
+        alias = "given_name",
+        alias = "given-name",
+        alias = "givenName",
+        alias = "firstName",
+        alias = "first-name"
+    )]
+    pub first_name: Option<String>,
+    #[serde(
+        alias = "family_name",
+        alias = "family-name",
+        alias = "familyName",
+        alias = "lastName",
+        alias = "last-name"
+    )]
+    pub last_name: Option<String>,
     // TODO: add aliases
     pub preferred_username: Option<String>,
+    // TODO: what happens if things clash here?
+    #[serde(
+        alias = "email-address",
+        alias = "emailAddress",
+        alias = "email_address",
+        alias = "upn"
+    )]
     pub email: Option<String>,
     #[serde(flatten)]
     pub other: serde_json::Value,
+}
+
+impl Claims {
+    #[must_use]
+    pub fn name(&self) -> Option<String> {
+        match (self.first_name.as_deref(), self.last_name.as_deref()) {
+            (Some(first), Some(last)) => Some(format!("{first} {last}")),
+            (Some(first), None) => Some(first.to_string()),
+            (None, Some(last)) => Some(last.to_string()),
+            (None, None) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -184,7 +184,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         C::create_user(
             user_id,
             auth.display_name(),
-            auth.name(),
+            auth.name().as_deref(),
             auth.email(),
             UserOrigin::ExplicitRegistration,
             context.v1_state.catalog,
