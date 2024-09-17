@@ -26,6 +26,11 @@ pub enum ValidationError {
         source: Option<Box<dyn std::error::Error + 'static + Send + Sync>>,
         storage_type: StorageType,
     },
+    #[error("{reason}")]
+    Internal {
+        reason: String,
+        source: Option<Box<dyn std::error::Error + 'static + Send + Sync>>,
+    },
 }
 
 impl From<TableConfigError> for ValidationError {
@@ -84,6 +89,10 @@ impl From<ValidationError> for IcebergErrorResponse {
             )
             .append_detail(location)
             .into(),
+            e @ ValidationError::Internal { .. } => {
+                ErrorModel::internal(e.to_string(), "ValidationFailedError", Some(Box::new(e)))
+                    .into()
+            }
         }
     }
 }

@@ -12,9 +12,8 @@ use crate::service::health::HealthExt;
 use crate::SecretIdent;
 
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
-use crate::service::caches::LocationCache;
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
-use iceberg::spec::{TableMetadata, ViewMetadata};
+use iceberg::spec::{Schema, SortOrder, TableMetadata, UnboundPartitionSpec, ViewMetadata};
 pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
 use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
@@ -58,7 +57,7 @@ pub struct LoadTableResponse {
     pub table_id: TableIdentUuid,
     pub namespace_id: NamespaceIdentUuid,
     pub table_metadata: TableMetadata,
-    pub metadata_location: Option<String>,
+    pub metadata_location: Option<Location>,
     pub storage_secret_ident: Option<SecretIdent>,
     pub storage_profile: StorageProfile,
 }
@@ -104,13 +103,26 @@ pub struct TableCommit {
     pub new_metadata_location: Location,
 }
 
+#[derive(Debug, Clone)]
+pub struct TableCreation<'c> {
+    pub(crate) namespace_id: NamespaceIdentUuid,
+    pub(crate) table_ident: &'c TableIdent,
+    pub(crate) table_id: TableIdentUuid,
+    pub(crate) table_location: &'c Location,
+    pub(crate) table_schema: Schema,
+    pub(crate) table_partition_spec: Option<UnboundPartitionSpec>,
+    pub(crate) table_write_order: Option<SortOrder>,
+    pub(crate) table_properties: Option<HashMap<String, String>>,
+    pub(crate) metadata_location: Option<&'c Location>,
+}
+
 #[async_trait::async_trait]
 pub trait Catalog
 where
     Self: Clone + Send + Sync + 'static,
 {
     type Transaction: Transaction<Self::State>;
-    type State: Clone + Send + Sync + 'static + HealthExt + LocationCache;
+    type State: Clone + Send + Sync + 'static + HealthExt;
 
     // Should only return namespaces if the warehouse is active.
     async fn list_namespaces(
@@ -162,12 +174,7 @@ where
     ) -> Result<()>;
 
     async fn create_table<'a>(
-        namespace_id: NamespaceIdentUuid,
-        table: &TableIdent,
-        table_id: TableIdentUuid,
-        request: CreateTableRequest,
-        // Metadata location may be none if stage-create is true
-        metadata_location: Option<&str>,
+        table_creation: TableCreation<'_>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateTableResponse>;
 
@@ -220,37 +227,13 @@ where
         catalog_state: Self::State,
     ) -> Result<GetTableMetadataResponse>;
 
-    async fn get_table_id_by_s3_location(
+    /// Get table metadata by location.
+    async fn get_table_metadata_by_s3_location(
         warehouse_id: WarehouseIdent,
         location: &Location,
         list_flags: ListFlags,
         catalog_state: Self::State,
-    ) -> Result<TableIdentUuid>;
-
-    async fn get_table_id_by_s3_location_cached(
-        warehouse_id: WarehouseIdent,
-        location: &Location,
-        list_flags: ListFlags,
-        mut catalog_state: Self::State,
-    ) -> Result<TableIdentUuid> {
-        let maybe = catalog_state.get_table_id(location.as_str()).await;
-
-        if let Some(id) = maybe {
-            return Ok(id);
-        }
-
-        let id = Self::get_table_id_by_s3_location(
-            warehouse_id,
-            location,
-            list_flags,
-            catalog_state.clone(),
-        )
-        .await?;
-
-        catalog_state.insert_location(location.as_str(), id).await;
-
-        Ok(id)
-    }
+    ) -> Result<GetTableMetadataResponse>;
 
     /// Rename a table. Tables may be moved across namespaces.
     async fn rename_table<'a>(
@@ -361,7 +344,8 @@ where
         namespace_id: NamespaceIdentUuid,
         view: &TableIdent,
         request: ViewMetadata,
-        metadata_location: &str,
+        metadata_location: &Location,
+        location: &Location,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
@@ -383,8 +367,9 @@ where
         namespace_id: NamespaceIdentUuid,
         view_id: TableIdentUuid,
         view: &TableIdent,
-        metadata_location: &str,
+        metadata_location: &Location,
         metadata: ViewMetadata,
+        location: &Location,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()>;
 

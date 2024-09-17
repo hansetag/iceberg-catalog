@@ -123,7 +123,8 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         namespace_id,
         &view,
         metadata.clone(),
-        &metadata_location.to_string(),
+        &metadata_location,
+        &view_location,
         t.transaction(),
     )
     .await?;

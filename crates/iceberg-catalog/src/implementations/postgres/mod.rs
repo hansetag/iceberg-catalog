@@ -20,10 +20,8 @@ use sqlx::{ConnectOptions, Error, Executor, PgPool};
 use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
-use crate::service::caches::LocationCache;
-use crate::service::TableIdentUuid;
 pub use secrets::SecretsState;
 pub use tabular::DeletionKind;
 
@@ -229,25 +227,6 @@ impl ReadWrite {
 
 pub struct CatalogState {
     pub read_write: ReadWrite,
-    // Cannot use a RwLock here because LruCache takes &mut on reads to bump the value to the front.
-    location_to_id_cache: Arc<Mutex<lru::LruCache<String, TableIdentUuid>>>,
-}
-
-#[async_trait]
-impl LocationCache for CatalogState {
-    async fn insert_location(&mut self, location: &str, table_id: TableIdentUuid) {
-        self.location_to_id_cache
-            .insert_location(location, table_id)
-            .await;
-    }
-
-    async fn get_table_id(&mut self, location: &str) -> Option<TableIdentUuid> {
-        self.location_to_id_cache.get_table_id(location).await
-    }
-
-    async fn remove_location(&mut self, location: &str) -> Option<TableIdentUuid> {
-        self.location_to_id_cache.remove_location(location).await
-    }
 }
 
 #[async_trait]
@@ -266,9 +245,6 @@ impl CatalogState {
     pub fn from_pools(read_pool: PgPool, write_pool: PgPool) -> Self {
         Self {
             read_write: ReadWrite::from_pools(read_pool, write_pool),
-            location_to_id_cache: Arc::new(Mutex::new(lru::LruCache::new(
-                CONFIG.location_cache_size,
-            ))),
         }
     }
 

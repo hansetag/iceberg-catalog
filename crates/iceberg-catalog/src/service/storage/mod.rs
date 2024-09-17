@@ -7,12 +7,14 @@ mod s3;
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::catalog::compression_codec::CompressionCodec;
+use crate::catalog::io::list_location;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
 pub use az::{AzCredential, AzdlsLocation, AzdlsProfile};
-use error::{
-    ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError, ValidationError,
-};
+pub(crate) use error::ValidationError;
+use error::{ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError};
+use futures::StreamExt;
+use iceberg::io::FileIO;
 use iceberg_ext::configs::table::TableProperties;
 use iceberg_ext::configs::Location;
 pub use s3::S3Location;
@@ -280,12 +282,24 @@ impl StorageProfile {
                 StorageProfile::Test(_) => {}
             }
         }
-
+        tracing::info!("Cleanup started");
         // Cleanup
         crate::catalog::io::remove_all(&file_io, &test_location)
             .await
             .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(self.clone())))?;
 
+        tracing::info!("Cleanup finished");
+
+        check_location_is_empty(&file_io, &test_location, self, || {
+            ValidationError::InvalidLocation {
+                reason: "Files are left after remove_all on test location".to_string(),
+                source: None,
+                location: test_location.to_string(),
+                storage_type: self.storage_type(),
+            }
+        })
+        .await?;
+        tracing::info!("checked location is empty");
         Ok(())
     }
 
@@ -491,6 +505,31 @@ pub mod path_utils {
         };
         path.to_string()
     }
+}
+
+pub(crate) async fn check_location_is_empty(
+    file_io: &FileIO,
+    location: &Location,
+    storage_profile: &StorageProfile,
+    error_fn: impl FnOnce() -> ValidationError,
+) -> Result<(), ValidationError> {
+    tracing::info!("Checking location is empty: {location}");
+
+    let mut entry_stream = list_location(file_io, location, Some(1))
+        .await
+        .map_err(|e| ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone())))?;
+    while let Some(entries) = entry_stream.next().await {
+        let entries = entries.map_err(|e| {
+            ValidationError::IoOperationFailed(e, Box::new(storage_profile.clone()))
+        })?;
+
+        if !entries.is_empty() {
+            tracing::debug!("Location is not empty: {location}, entries: {entries:?}",);
+            let er = error_fn();
+            return Err(er);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

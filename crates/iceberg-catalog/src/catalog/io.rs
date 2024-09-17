@@ -1,5 +1,7 @@
 use crate::api::{ErrorModel, Result};
 use crate::service::storage::path_utils;
+use futures::stream::BoxStream;
+use futures::StreamExt;
 use iceberg::io::FileIO;
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
 use iceberg_ext::configs::Location;
@@ -91,6 +93,33 @@ pub(crate) async fn remove_all(file_io: &FileIO, location: &Location) -> Result<
     Ok(())
 }
 
+pub(crate) const DEFAULT_LIST_LOCATION_PAGE_SIZE: usize = 1000;
+
+pub(crate) async fn list_location<'a>(
+    file_io: &'a FileIO,
+    location: &'a Location,
+    page_size: Option<usize>,
+) -> Result<BoxStream<'a, std::result::Result<Vec<String>, IoError>>, IoError> {
+    let location = path_utils::reduce_scheme_string(location.as_str(), false);
+    tracing::debug!("Listing location: {}", location);
+    let entries = file_io
+        .list_paginated(
+            format!("{}/", location.trim_end_matches('/')).as_str(),
+            true,
+            page_size.unwrap_or(DEFAULT_LIST_LOCATION_PAGE_SIZE),
+        )
+        .await
+        .map_err(IoError::List)?
+        .map(|res| match res {
+            Ok(entries) => Ok(entries
+                .into_iter()
+                .map(|it| it.path().to_string())
+                .collect()),
+            Err(e) => Err(IoError::List(e)),
+        });
+    Ok(entries.boxed())
+}
+
 #[derive(thiserror::Error, Debug, strum::IntoStaticStr)]
 pub enum IoError {
     #[error("Failed to create file. Please check the storage credentials.")]
@@ -113,6 +142,8 @@ pub enum IoError {
     FileDelete(#[source] iceberg::Error),
     #[error("Failed to remove all files in location. Please check the storage credentials.")]
     FileRemoveAll(#[source] iceberg::Error),
+    #[error("Failed to list files in location. Please check the storage credentials.")]
+    List(#[source] iceberg::Error),
 }
 
 impl IoError {
@@ -134,9 +165,8 @@ impl From<IoError> for IcebergErrorResponse {
             | IoError::FileClose(_)
             | IoError::FileWrite(_)
             | IoError::FileWriterCreation(_)
-            | IoError::FileCreation(_) => {
-                ErrorModel::failed_dependency(message, typ, Some(boxed)).into()
-            }
+            | IoError::FileCreation(_)
+            | IoError::List(_) => ErrorModel::failed_dependency(message, typ, Some(boxed)).into(),
 
             IoError::FileCompression(_) | IoError::Write(_) | IoError::Serialization(_) => {
                 ErrorModel::internal(message, typ, Some(boxed)).into()

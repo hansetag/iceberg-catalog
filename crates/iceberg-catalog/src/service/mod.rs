@@ -1,5 +1,4 @@
 pub mod auth;
-pub mod caches;
 mod catalog;
 pub mod config;
 pub mod contract_verification;
@@ -16,7 +15,7 @@ pub use catalog::{
     CreateTableRequest, CreateTableResponse, DeletionDetails, DropFlags, GetNamespaceResponse,
     GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse, ListFlags,
     ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
-    TableCommit, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
+    TableCommit, TableCreation, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
     UpdateNamespacePropertiesResponse, ViewMetadataWithLocation,
 };
 use std::ops::Deref;

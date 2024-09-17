@@ -1,10 +1,9 @@
 use crate::implementations::postgres::{dbutils::DBErrorHandler as _, CatalogState};
-use crate::service::TableCommit;
+use crate::service::{TableCommit, TableCreation};
 use crate::{
     service::{
-        storage::StorageProfile, CreateTableRequest, CreateTableResponse, ErrorModel,
-        GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid, Result, TableIdent,
-        TableIdentUuid,
+        storage::StorageProfile, CreateTableResponse, ErrorModel, GetTableMetadataResponse,
+        LoadTableResponse, Result, TableIdent, TableIdentUuid,
     },
     SecretIdent, WarehouseIdent,
 };
@@ -23,6 +22,7 @@ use crate::implementations::postgres::tabular::{
 use iceberg_ext::configs::Location;
 use sqlx::types::Json;
 use std::default::Default;
+use std::str::FromStr;
 use std::{
     collections::{HashMap, HashSet},
     ops::Deref,
@@ -93,60 +93,41 @@ where
 }
 
 pub(crate) async fn create_table(
-    namespace_id: NamespaceIdentUuid,
-    table: &TableIdent,
-    table_id: TableIdentUuid,
-    request: CreateTableRequest,
-    // Metadata location may be none if stage-create is true
-    metadata_location: Option<&str>,
+    TableCreation {
+        namespace_id,
+        table_ident,
+        table_id,
+        table_location,
+        table_schema,
+        table_partition_spec,
+        table_write_order,
+        table_properties,
+        metadata_location,
+    }: TableCreation<'_>,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<CreateTableResponse> {
-    let TableIdent { namespace: _, name } = table;
-    let CreateTableRequest {
-        name: _,
-        location,
-        schema,
-        partition_spec,
-        write_order,
-        // Stage-create is already handled in the catalog service.
-        // If stage-create is true, the metadata_location is None,
-        // otherwise, it is the location of the metadata file.
-        stage_create: _,
-        properties,
-    } = request;
+    let TableIdent { namespace: _, name } = table_ident;
 
-    let location = location
-        .ok_or_else(|| {
-            ErrorModel::builder()
-                .code(StatusCode::CONFLICT.into())
-                .message("Table location is required".to_string())
-                .r#type("CreateTableLocationRequired".to_string())
-                .build()
-        })?
-        .trim_end_matches('/')
-        .to_string();
-
-    let mut builder = TableMetadataAggregate::new(location.clone(), schema);
-    if let Some(partition_spec) = partition_spec {
+    let mut builder = TableMetadataAggregate::new(table_location.to_string(), table_schema);
+    if let Some(partition_spec) = table_partition_spec {
         builder.add_partition_spec(partition_spec)?;
         builder.set_default_partition_spec(-1)?;
     }
-    if let Some(write_order) = write_order {
+    if let Some(write_order) = table_write_order {
         builder.add_sort_order(write_order)?;
         builder.set_default_sort_order(-1)?;
     }
-    builder.set_properties(properties.unwrap_or_default())?;
+    builder.set_properties(table_properties.unwrap_or_default())?;
     builder.assign_uuid(*table_id)?;
 
     let table_metadata = builder.build()?;
 
     let table_metadata_ser = serde_json::to_value(table_metadata.clone()).map_err(|e| {
-        ErrorModel::builder()
-            .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-            .message("Error serializing table metadata".to_string())
-            .r#type("TableMetadataSerializationError".to_string())
-            .source(Some(Box::new(e)))
-            .build()
+        ErrorModel::internal(
+            "Error serializing table metadata",
+            "TableMetadataSerializationError",
+            Some(Box::new(e)),
+        )
     })?;
 
     let tabular_id = create_tabular(
@@ -156,9 +137,9 @@ pub(crate) async fn create_table(
             namespace_id: *namespace_id,
             typ: TabularType::Table,
             metadata_location,
-            location: location.as_str(),
+            location: table_location,
         },
-        &mut *transaction,
+        transaction,
     )
     .await?;
 
@@ -220,23 +201,35 @@ pub(crate) async fn load_tables(
     .await
     .map_err(|e| e.into_error_model("Error fetching table".to_string()))?;
 
-    Ok(tables
+    tables
         .into_iter()
         .map(|table| {
             let table_id = table.table_id.into();
-            (
+            let metadata_location = table
+                .metadata_location
+                .as_deref()
+                .map(FromStr::from_str)
+                .transpose()
+                .map_err(|e| {
+                    ErrorModel::internal(
+                        "Error parsing metadata location",
+                        "InternalMetadataLocationParseError",
+                        Some(Box::new(e)),
+                    )
+                })?;
+            Ok((
                 table_id,
                 LoadTableResponse {
                     table_id,
                     namespace_id: table.namespace_id.into(),
                     table_metadata: table.metadata.deref().clone(),
-                    metadata_location: table.metadata_location,
+                    metadata_location,
                     storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
                     storage_profile: table.storage_profile.deref().clone(),
                 },
-            )
+            ))
         })
-        .collect())
+        .collect::<Result<HashMap<_, _>>>()
 }
 
 pub(crate) async fn list_tables(
@@ -338,12 +331,12 @@ pub(crate) async fn get_table_metadata_by_id(
     })
 }
 
-pub(crate) async fn get_table_id_by_s3_location(
+pub(crate) async fn get_table_metadata_by_s3_location(
     warehouse_id: WarehouseIdent,
     location: &Location,
     list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
-) -> Result<TableIdentUuid> {
+) -> Result<GetTableMetadataResponse> {
     let query_strings = location
         .partial_locations()
         .into_iter()
@@ -354,45 +347,68 @@ pub(crate) async fn get_table_id_by_s3_location(
     // We need to make sure that the location starts with the table location.
     let table = sqlx::query!(
         r#"
-        SELECT
-            ti.name as "table_name",
-            ti.tabular_id as "table_id",
-            ti.metadata_location
-        FROM tabular ti
-        INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
-        INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
-        WHERE w.warehouse_id = $1
-            AND ti.location = ANY($2)
-            AND LENGTH(ti.location) <= $3
-            AND w.status = 'active'
-            AND (ti.deleted_at IS NULL OR $4)
-            AND ti.typ = 'table'
-        "#,
+         SELECT
+             t."table_id",
+             ti.name as "table_name",
+             ti.location as "table_location",
+             namespace_name,
+             t."metadata" as "metadata: Json<TableMetadata>",
+             ti."metadata_location",
+             w.storage_profile as "storage_profile: Json<StorageProfile>",
+             w."storage_secret_id"
+         FROM "table" t
+         INNER JOIN tabular ti ON t.table_id = ti.tabular_id
+         INNER JOIN namespace n ON ti.namespace_id = n.namespace_id
+         INNER JOIN warehouse w ON n.warehouse_id = w.warehouse_id
+         WHERE w.warehouse_id = $1
+             AND ti.location = ANY($2)
+             AND LENGTH(ti.location) <= $3
+             AND w.status = 'active'
+             AND (ti.deleted_at IS NULL OR $4)
+         "#,
         *warehouse_id,
         query_strings.as_slice(),
-        i32::try_from(location.url().as_str().len()).unwrap_or(i32::MAX) + 1, // account for maybe trailing '/'
+        i32::try_from(location.url().as_str().len()).unwrap_or(i32::MAX) + 1, // account for maybe trailing
         list_flags.include_deleted
     )
     .fetch_one(&catalog_state.read_pool())
     .await
     .map_err(|e| match e {
-        sqlx::Error::RowNotFound => {
-            ErrorModel::not_found("Table not found", "NoSuchTableError", Some(Box::new(e)))
-                .append_details(&[location.to_string(), format!("Warehouse: {warehouse_id}")])
-        }
+        sqlx::Error::RowNotFound => ErrorModel::builder()
+            .code(StatusCode::NOT_FOUND.into())
+            .message("Table not found".to_string())
+            .r#type("NoSuchTableError".to_string())
+            .stack(vec![
+                location.to_string(),
+                format!("Warehouse: {}", warehouse_id),
+            ])
+            .build(),
         _ => e.into_error_model("Error fetching table".to_string()),
     })?;
 
     if !list_flags.include_staged && table.metadata_location.is_none() {
-        return Err(ErrorModel::not_found(
-            "Table is staged and not yet created",
-            "TableStaged",
-            None,
-        )
-        .into());
+        return Err(ErrorModel::builder()
+            .code(StatusCode::NOT_FOUND.into())
+            .message("Table is staged and not yet created".to_string())
+            .r#type("TableStaged".to_string())
+            .build()
+            .into());
     }
 
-    Ok(TableIdentUuid::from(table.table_id))
+    let namespace = try_parse_namespace_ident(table.namespace_name)?;
+
+    Ok(GetTableMetadataResponse {
+        table: TableIdent {
+            namespace,
+            name: table.table_name,
+        },
+        table_id: table.table_id.into(),
+        warehouse_id,
+        location: table.table_location,
+        metadata_location: table.metadata_location,
+        storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
+        storage_profile: table.storage_profile.deref().clone(),
+    })
 }
 
 /// Rename a table. Tables may be moved across namespaces.
@@ -555,8 +571,6 @@ pub(crate) mod tests {
     // - Stage-Create => Next stage-create works & overwrites
     // - Stage-Create => Next regular create works & overwrites
 
-    use std::str::FromStr as _;
-
     use super::*;
 
     use crate::api::iceberg::types::PageToken;
@@ -564,31 +578,41 @@ pub(crate) mod tests {
     use crate::implementations::postgres::namespace::tests::initialize_namespace;
     use crate::implementations::postgres::warehouse::set_warehouse_status;
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
-    use crate::service::ListFlags;
+    use crate::service::{ListFlags, NamespaceIdentUuid};
 
     use crate::implementations::postgres::tabular::mark_tabular_as_deleted;
     use iceberg::spec::{NestedField, PrimitiveType, Schema, UnboundPartitionSpec};
     use iceberg::NamespaceIdent;
+    use iceberg_ext::catalog::rest::CreateTableRequest;
     use iceberg_ext::configs::Location;
+    use uuid::Uuid;
 
     fn create_request(
         stage_create: Option<bool>,
         table_name: Option<String>,
-    ) -> (CreateTableRequest, Option<String>) {
+    ) -> (CreateTableRequest, Option<Location>) {
         let metadata_location = if let Some(stage_create) = stage_create {
             if stage_create {
                 None
             } else {
-                Some("s3://my_bucket/my_table/metadata/foo".to_string())
+                Some(
+                    format!("s3://my_bucket/my_table/metadata/foo/{}", Uuid::now_v7())
+                        .parse()
+                        .unwrap(),
+                )
             }
         } else {
-            Some("s3://my_bucket/my_table/metadata/bar".to_string())
+            Some(
+                format!("s3://my_bucket/my_table/metadata/foo/{}", Uuid::now_v7())
+                    .parse()
+                    .unwrap(),
+            )
         };
 
         (
             CreateTableRequest {
                 name: table_name.unwrap_or("my_table".to_string()),
-                location: Some("s3://my_bucket/my_table".to_string()),
+                location: Some(format!("s3://my_bucket/my_table/{}", Uuid::now_v7())),
                 schema: Schema::builder()
                     .with_fields(vec![
                         NestedField::required(
@@ -658,8 +682,7 @@ pub(crate) mod tests {
             namespace
         } else {
             let namespace =
-                NamespaceIdent::from_vec(vec![format!("my_namespace_{}", uuid::Uuid::now_v7())])
-                    .unwrap();
+                NamespaceIdent::from_vec(vec![format!("my_namespace_{}", Uuid::now_v7())]).unwrap();
             initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
             namespace
         };
@@ -670,19 +693,27 @@ pub(crate) mod tests {
             namespace: namespace.clone(),
             name: request.name.clone(),
         };
-
-        let mut transaction = state.write_pool().begin().await.unwrap();
-        let table_id = uuid::Uuid::now_v7().into();
-        let _create_result = create_table(
+        let table_id = Uuid::now_v7().into();
+        let table_location = request
+            .location
+            .as_deref()
+            .map(FromStr::from_str)
+            .transpose()
+            .unwrap()
+            .unwrap();
+        let create = TableCreation {
             namespace_id,
-            &table_ident,
+            table_ident: &table_ident,
             table_id,
-            request.clone(),
-            metadata_location.as_deref(),
-            &mut transaction,
-        )
-        .await
-        .unwrap();
+            table_location: &table_location,
+            table_schema: request.schema,
+            table_partition_spec: request.partition_spec,
+            table_write_order: request.write_order,
+            table_properties: request.properties,
+            metadata_location: metadata_location.as_ref(),
+        };
+        let mut transaction = state.write_pool().begin().await.unwrap();
+        let _create_result = create_table(create, &mut transaction).await.unwrap();
 
         transaction.commit().await.unwrap();
 
@@ -711,30 +742,42 @@ pub(crate) mod tests {
 
         let mut transaction = pool.begin().await.unwrap();
         let table_id = uuid::Uuid::now_v7().into();
-        let create_result = create_table(
+        let table_location = request
+            .location
+            .as_deref()
+            .map(FromStr::from_str)
+            .transpose()
+            .unwrap()
+            .unwrap();
+
+        let request = TableCreation {
             namespace_id,
-            &table_ident,
+            table_ident: &table_ident,
             table_id,
-            request.clone(),
-            metadata_location.as_deref(),
-            &mut transaction,
-        )
-        .await
-        .unwrap();
+            table_location: &table_location,
+            table_schema: request.schema,
+            table_partition_spec: request.partition_spec,
+            table_write_order: request.write_order,
+            table_properties: request.properties,
+            metadata_location: metadata_location.as_ref(),
+        };
+
+        let create_result = create_table(request.clone(), &mut transaction)
+            .await
+            .unwrap();
         transaction.commit().await.unwrap();
 
         let mut transaction = pool.begin().await.unwrap();
         // Second create should fail
-        let create_err = create_table(
-            namespace_id,
-            &table_ident,
-            uuid::Uuid::now_v7().into(),
-            request,
-            metadata_location.as_deref(),
-            &mut transaction,
-        )
-        .await
-        .unwrap_err();
+        let mut request = request;
+        // exchange location else we fail on unique constraint there
+        let location = format!("s3://my_bucket/my_table/other/{}", Uuid::now_v7())
+            .as_str()
+            .parse::<Location>()
+            .unwrap();
+        request.table_location = &location;
+        request.table_id = Uuid::now_v7().into();
+        let create_err = create_table(request, &mut transaction).await.unwrap_err();
 
         assert_eq!(
             create_err.error.code,
@@ -771,16 +814,29 @@ pub(crate) mod tests {
 
         let mut transaction = pool.begin().await.unwrap();
         let table_id = uuid::Uuid::now_v7().into();
-        let _create_result = create_table(
+        let table_location = request
+            .location
+            .as_deref()
+            .map(FromStr::from_str)
+            .transpose()
+            .unwrap()
+            .unwrap();
+
+        let request = TableCreation {
             namespace_id,
-            &table_ident,
+            table_ident: &table_ident,
             table_id,
-            request.clone(),
-            metadata_location.as_deref(),
-            &mut transaction,
-        )
-        .await
-        .unwrap();
+            table_location: &table_location,
+            table_schema: request.schema,
+            table_partition_spec: request.partition_spec,
+            table_write_order: request.write_order,
+            table_properties: request.properties,
+            metadata_location: metadata_location.as_ref(),
+        };
+
+        let _create_result = create_table(request.clone(), &mut transaction)
+            .await
+            .unwrap();
         transaction.commit().await.unwrap();
 
         // Its staged - should not have metadata_location
@@ -797,34 +853,36 @@ pub(crate) mod tests {
 
         // Second create should succeed, even with different id
         let mut transaction = pool.begin().await.unwrap();
-        let table_id = uuid::Uuid::now_v7().into();
-        let create_result = create_table(
-            namespace_id,
-            &table_ident,
-            table_id,
-            request,
-            metadata_location.as_deref(),
-            &mut transaction,
-        )
-        .await
-        .unwrap();
+        let mut request = request;
+        request.table_id = Uuid::now_v7().into();
+        let create_result = create_table(request, &mut transaction).await.unwrap();
         transaction.commit().await.unwrap();
 
         assert_eq!(create_result.table_metadata, create_result.table_metadata);
 
         // We can overwrite the table with a regular create
         let (request, metadata_location) = create_request(Some(false), None);
-        let mut transaction = pool.begin().await.unwrap();
-        let create_result = create_table(
+        let table_location = request
+            .location
+            .as_deref()
+            .map(FromStr::from_str)
+            .transpose()
+            .unwrap()
+            .unwrap();
+
+        let request = TableCreation {
             namespace_id,
-            &table_ident,
+            table_ident: &table_ident,
             table_id,
-            request,
-            metadata_location.as_deref(),
-            &mut transaction,
-        )
-        .await
-        .unwrap();
+            table_location: &table_location,
+            table_schema: request.schema,
+            table_partition_spec: request.partition_spec,
+            table_write_order: request.write_order,
+            table_properties: request.properties,
+            metadata_location: metadata_location.as_ref(),
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        let create_result = create_table(request, &mut transaction).await.unwrap();
         transaction.commit().await.unwrap();
 
         let load_result = load_tables(
@@ -1350,34 +1408,36 @@ pub(crate) mod tests {
         .unwrap();
         let mut metadata_location = metadata.location.parse::<Location>().unwrap();
         // Exact path works
-        let id = get_table_id_by_s3_location(
+        let id = get_table_metadata_by_s3_location(
             warehouse_id,
             &metadata_location,
             ListFlags::default(),
             state.clone(),
         )
         .await
-        .unwrap();
+        .unwrap()
+        .table_id;
 
         assert_eq!(id, table.table_id);
 
         let mut subpath = metadata_location.clone();
         subpath.push("data/foo.parquet");
         // Subpath works
-        let id = get_table_id_by_s3_location(
+        let id = get_table_metadata_by_s3_location(
             warehouse_id,
             &subpath,
             ListFlags::default(),
             state.clone(),
         )
         .await
-        .unwrap();
+        .unwrap()
+        .table_id;
 
         assert_eq!(id, table.table_id);
 
         // Path without trailing slash works
         metadata_location.without_trailing_slash();
-        get_table_id_by_s3_location(
+        get_table_metadata_by_s3_location(
             warehouse_id,
             &metadata_location,
             ListFlags::default(),
@@ -1388,7 +1448,7 @@ pub(crate) mod tests {
 
         metadata_location.with_trailing_slash();
         // Path with trailing slash works
-        get_table_id_by_s3_location(
+        get_table_metadata_by_s3_location(
             warehouse_id,
             &metadata_location,
             ListFlags::default(),
@@ -1403,9 +1463,14 @@ pub(crate) mod tests {
             .unwrap();
 
         // Shorter path does not work
-        get_table_id_by_s3_location(warehouse_id, &shorter, ListFlags::default(), state.clone())
-            .await
-            .unwrap_err();
+        get_table_metadata_by_s3_location(
+            warehouse_id,
+            &shorter,
+            ListFlags::default(),
+            state.clone(),
+        )
+        .await
+        .unwrap_err();
     }
 
     #[sqlx::test]
