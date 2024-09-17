@@ -1,7 +1,5 @@
 use crate::api::iceberg::v1::config::GetConfigQueryParams;
-use crate::api::iceberg::v1::{
-    ApiContext, CatalogConfig, ErrorModel, IcebergErrorResponse, Result,
-};
+use crate::api::iceberg::v1::{ApiContext, CatalogConfig, ErrorModel, Result};
 use crate::api::management::v1::UserOrigin;
 use crate::request_metadata::RequestMetadata;
 use crate::service::SecretStore;
@@ -11,7 +9,6 @@ use crate::service::{
     Catalog, ProjectIdent, State,
 };
 use crate::CONFIG;
-use http::StatusCode;
 use std::marker::PhantomData;
 use std::str::FromStr;
 
@@ -42,24 +39,8 @@ impl<
             &request_metadata,
         )
         .await?;
-        tracing::info!("Auth info: {:?}", request_metadata);
-        if let Some(user_id) = request_metadata.user_id() {
-            // If the user is authenticated, create a user in the catalog
-            let user = D::create_user(
-                user_id,
-                request_metadata.user_display_name(),
-                request_metadata.user_name(),
-                request_metadata.email(),
-                UserOrigin::ImplicitRegistration("config".to_string()),
-                api_context.v1_state.catalog.clone(),
-            )
-            .await?;
-            if user.updated_at.is_none() {
-                tracing::info!("Created new user");
-            }
-        } else {
-            tracing::info!("Got no user_id from request_metadata, not trying to register.");
-        }
+
+        maybe_add_user::<D>(&request_metadata, api_context.v1_state.catalog.clone()).await?;
 
         let UserWarehouse {
             project_id: project_from_auth,
@@ -67,13 +48,13 @@ impl<
         } = auth_info;
 
         if query.warehouse.is_none() && warehouse_from_auth.is_none() {
-            let e: IcebergErrorResponse = ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("No warehouse specified. Please specify the 'warehouse' parameter in the GET /config request.".to_string())
-                .r#type("GetConfigNoWarehouseProvided".to_string())
-                .build()
-                .into();
-            return Err(e);
+            return Err(
+                ErrorModel::bad_request(
+                    "No warehouse specified. Please specify the 'warehouse' parameter in the GET /config request.",
+                    "GetConfigNoWarehouseProvided",
+                    None,
+                ).into(),
+            );
         }
 
         let (project_from_arg, warehouse_from_arg) = query
@@ -94,13 +75,7 @@ impl<
             .or(project_from_auth)
             .or(CONFIG.default_project_id.map(std::convert::Into::into))
             .ok_or_else(|| {
-                let e: IcebergErrorResponse = ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message("No project provided".to_string())
-                    .r#type("GetConfigNoProjectProvided".to_string())
-                    .build()
-                    .into();
-                e
+                ErrorModel::bad_request("No project provided", "GetConfigNoProjectProvided", None)
             })?;
 
         let warehouse_id = if let Some(warehouse_from_arg) = warehouse_from_arg {
@@ -112,13 +87,11 @@ impl<
             .await?
         } else {
             warehouse_from_auth.ok_or_else(|| {
-                let e: IcebergErrorResponse = ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message("No warehouse provided".to_string())
-                    .r#type("GetConfigNoWarehouseProvided".to_string())
-                    .build()
-                    .into();
-                e
+                ErrorModel::bad_request(
+                    "No warehouse provided",
+                    "GetConfigNoWarehouseProvided",
+                    None,
+                )
             })?
         };
 
@@ -158,6 +131,30 @@ impl<
 
         Ok(config)
     }
+}
+
+async fn maybe_add_user<D: Catalog>(
+    request_metadata: &RequestMetadata,
+    state: <D as Catalog>::State,
+) -> Result<()> {
+    if let Some(user_id) = request_metadata.user_id() {
+        // If the user is authenticated, create a user in the catalog
+        let user = D::create_user(
+            user_id,
+            request_metadata.user_display_name(),
+            request_metadata.user_name(),
+            request_metadata.email(),
+            UserOrigin::ImplicitRegistration("config".to_string()),
+            state,
+        )
+        .await?;
+        if user.updated_at.is_none() {
+            tracing::info!("Registered new user with id: '{}'", user_id);
+        }
+    } else {
+        tracing::debug!("Got no user_id from request_metadata, not trying to register.");
+    }
+    Ok(())
 }
 
 fn parse_warehouse_arg(arg: &str) -> (Option<ProjectIdent>, Option<String>) {

@@ -116,7 +116,7 @@ fn maybe_add_auth<C: Catalog, A: AuthZHandler, S: SecretStore>(
             crate::service::token_verification::auth_middleware_fn,
         ))
     } else {
-        tracing::info!("Running without auth middleware");
+        tracing::warn!("Running without auth middleware");
         router
     }
 }

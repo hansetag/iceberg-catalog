@@ -60,7 +60,7 @@ impl AuthDetails {
     #[must_use]
     pub fn email(&self) -> Option<&str> {
         match self {
-            Self::JWT(claims) => claims.other.get("email").and_then(|v| v.as_str()),
+            Self::JWT(claims) => claims.email.as_deref(),
         }
     }
 }
@@ -72,8 +72,11 @@ pub struct Claims {
     pub aud: Aud,
     pub exp: usize,
     pub iat: usize,
+    // TODO: add aliases
     pub name: Option<String>,
+    // TODO: add aliases
     pub preferred_username: Option<String>,
+    pub email: Option<String>,
     #[serde(flatten)]
     pub other: serde_json::Value,
 }
@@ -92,11 +95,9 @@ pub(crate) async fn auth_middleware_fn(
     mut request: Request,
     next: Next,
 ) -> Response {
-    tracing::debug!("Auth middleware");
     if let Some(authorization) = authorization {
         match verifier.decode::<Claims>(authorization.token()).await {
             Ok(val) => {
-                tracing::debug!("Token verified: {:?}", val);
                 metadata.auth_details = Some(AuthDetails::JWT(val));
                 request.extensions_mut().insert(metadata);
             }
