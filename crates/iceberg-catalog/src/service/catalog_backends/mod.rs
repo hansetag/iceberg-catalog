@@ -18,6 +18,8 @@ pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
 use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
 
+pub mod implementations;
+
 #[async_trait::async_trait]
 pub trait Transaction<D>
 where
@@ -117,7 +119,7 @@ pub struct TableCreation<'c> {
 }
 
 #[async_trait::async_trait]
-pub trait Catalog
+pub trait CatalogBackend
 where
     Self: Clone + Send + Sync + 'static,
 {

@@ -2,7 +2,7 @@ use crate::api::management::v1::TabularType;
 use crate::api::Result;
 use crate::catalog::maybe_get_secret;
 use crate::service::task_queue::{Task, TaskQueue};
-use crate::service::{Catalog, SecretStore, Transaction};
+use crate::service::{CatalogBackend, SecretStore, Transaction};
 use crate::WarehouseIdent;
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ pub type TabularPurgeQueue =
     Arc<dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput> + Send + Sync + 'static>;
 
 // TODO: concurrent workers
-pub async fn purge_task<C: Catalog, S: SecretStore>(
+pub async fn purge_task<C: CatalogBackend, S: SecretStore>(
     fetcher: TabularPurgeQueue,
     catalog_state: C::State,
     secret_state: S,
@@ -60,7 +60,7 @@ pub async fn purge_task<C: Catalog, S: SecretStore>(
     }
 }
 
-async fn instrumented_purge<S: SecretStore, C: Catalog>(
+async fn instrumented_purge<S: SecretStore, C: CatalogBackend>(
     fetcher: Arc<dyn TaskQueue<Task = TabularPurgeTask, Input = TabularPurgeInput> + Send + Sync>,
     catalog_state: C::State,
     secret_state: &S,
@@ -92,7 +92,7 @@ async fn purge<C, S>(
     catalog_state: C::State,
 ) -> Result<()>
 where
-    C: Catalog,
+    C: CatalogBackend,
     S: SecretStore,
 {
     let mut trx = C::Transaction::begin_write(catalog_state)

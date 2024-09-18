@@ -29,8 +29,8 @@ where
 
 #[derive(Debug, Clone)]
 pub enum Secrets {
-    Postgres(crate::implementations::postgres::SecretsState),
-    KV2(crate::implementations::kv2::SecretsState),
+    Postgres(crate::service::catalog_backends::implementations::postgres::SecretsState),
+    KV2(crate::service::catalog_backends::implementations::kv2::SecretsState),
 }
 
 #[async_trait]
@@ -80,14 +80,16 @@ impl HealthExt for Secrets {
     }
 }
 
-impl From<crate::implementations::postgres::SecretsState> for Secrets {
-    fn from(state: crate::implementations::postgres::SecretsState) -> Self {
+impl From<crate::service::catalog_backends::implementations::postgres::SecretsState> for Secrets {
+    fn from(
+        state: crate::service::catalog_backends::implementations::postgres::SecretsState,
+    ) -> Self {
         Self::Postgres(state)
     }
 }
 
-impl From<crate::implementations::kv2::SecretsState> for Secrets {
-    fn from(state: crate::implementations::kv2::SecretsState) -> Self {
+impl From<crate::service::catalog_backends::implementations::kv2::SecretsState> for Secrets {
+    fn from(state: crate::service::catalog_backends::implementations::kv2::SecretsState) -> Self {
         Self::KV2(state)
     }
 }

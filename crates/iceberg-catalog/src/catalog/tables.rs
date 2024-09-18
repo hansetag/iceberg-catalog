@@ -25,7 +25,7 @@ use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
+    auth::AuthZHandler, secrets::SecretStore, CatalogBackend, CreateTableResponse, ListFlags,
     LoadTableResponse as CatalogLoadTableResult, State, TableCreation, Transaction,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
@@ -38,7 +38,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+impl<C: CatalogBackend, A: AuthZHandler, S: SecretStore>
     crate::api::iceberg::v1::tables::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     /// List all table identifiers underneath a given namespace

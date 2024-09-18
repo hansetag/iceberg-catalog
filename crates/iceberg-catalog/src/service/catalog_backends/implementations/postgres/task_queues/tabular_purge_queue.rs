@@ -2,9 +2,9 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::api::management::v1::TabularType;
-use crate::implementations::postgres::dbutils::DBErrorHandler;
-use crate::implementations::postgres::tabular::TabularType as DbTabularType;
-use crate::implementations::postgres::task_queues::{
+use crate::service::catalog_backends::implementations::postgres::dbutils::DBErrorHandler;
+use crate::service::catalog_backends::implementations::postgres::tabular::TabularType as DbTabularType;
+use crate::service::catalog_backends::implementations::postgres::task_queues::{
     pick_task, queue_task, record_failure, record_success,
 };
 use crate::service::task_queue::tabular_purge_queue::{TabularPurgeInput, TabularPurgeTask};

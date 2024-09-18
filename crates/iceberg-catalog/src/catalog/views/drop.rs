@@ -13,11 +13,11 @@ use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::Result;
-use crate::service::{Catalog, SecretStore, State, Transaction};
+use crate::service::{CatalogBackend, SecretStore, State, Transaction};
 use iceberg_ext::catalog::rest::ErrorModel;
 use uuid::Uuid;
 
-pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
+pub(crate) async fn drop_view<C: CatalogBackend, A: AuthZHandler, S: SecretStore>(
     parameters: ViewParameters,
     DropParams { purge_requested }: DropParams,
     state: ApiContext<State<A, C, S>>,

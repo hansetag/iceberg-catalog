@@ -11,7 +11,9 @@ use iceberg_ext::NamespaceIdent;
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery, MAX_PAGE_SIZE};
 
-use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
+use crate::service::catalog_backends::implementations::postgres::pagination::{
+    PaginateToken, V1PaginateToken,
+};
 use crate::service::tabular_idents::{TabularIdentBorrowed, TabularIdentOwned, TabularIdentUuid};
 use crate::service::DeletionDetails;
 use iceberg_ext::configs::Location;

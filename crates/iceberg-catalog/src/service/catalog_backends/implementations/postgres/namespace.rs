@@ -1,6 +1,8 @@
 use super::{dbutils::DBErrorHandler, CatalogState};
 use crate::api::iceberg::v1::MAX_PAGE_SIZE;
-use crate::implementations::postgres::pagination::{PaginateToken, V1PaginateToken};
+use crate::service::catalog_backends::implementations::postgres::pagination::{
+    PaginateToken, V1PaginateToken,
+};
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, ErrorModel, GetNamespaceResponse,
     ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result,
@@ -380,13 +382,13 @@ pub(crate) async fn update_namespace_properties(
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use crate::implementations::postgres::PostgresTransaction;
-    use crate::service::{Catalog as _, Transaction as _};
+    use crate::service::catalog_backends::implementations::postgres::PostgresTransaction;
+    use crate::service::{CatalogBackend as _, Transaction as _};
 
     use super::super::warehouse::test::initialize_warehouse;
     use super::super::PostgresCatalog;
     use super::*;
-    use crate::implementations::postgres::tabular::table::tests::initialize_table;
+    use crate::service::catalog_backends::implementations::postgres::tabular::table::tests::initialize_table;
 
     pub(crate) async fn initialize_namespace(
         state: CatalogState,

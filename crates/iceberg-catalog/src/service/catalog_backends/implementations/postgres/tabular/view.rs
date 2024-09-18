@@ -1,6 +1,6 @@
 mod load;
 
-use crate::implementations::postgres::dbutils::DBErrorHandler as _;
+use crate::service::catalog_backends::implementations::postgres::dbutils::DBErrorHandler as _;
 use crate::{
     service::{ErrorModel, NamespaceIdentUuid, Result, TableIdent, TableIdentUuid},
     WarehouseIdent,
@@ -9,13 +9,14 @@ use crate::{
 use http::StatusCode;
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
-use crate::implementations::postgres::tabular::{
+use crate::service::catalog_backends::implementations::postgres::tabular::{
     create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed,
     TabularIdentUuid, TabularType,
 };
-use crate::implementations::postgres::{tabular, CatalogState};
+use crate::service::catalog_backends::implementations::postgres::{tabular, CatalogState};
 use crate::service::ListFlags;
 pub(crate) use crate::service::ViewMetadataWithLocation;
+
 use chrono::{DateTime, Utc};
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersionId, ViewVersionRef};
 use iceberg::NamespaceIdent;
@@ -537,11 +538,11 @@ impl From<iceberg::spec::ViewFormatVersion> for ViewFormatVersion {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::implementations::postgres::namespace::tests::initialize_namespace;
+    use crate::service::catalog_backends::implementations::postgres::namespace::tests::initialize_namespace;
 
-    use crate::implementations::postgres::tabular::view::load_view;
-    use crate::implementations::postgres::warehouse::test::initialize_warehouse;
-    use crate::implementations::postgres::CatalogState;
+    use crate::service::catalog_backends::implementations::postgres::tabular::view::load_view;
+    use crate::service::catalog_backends::implementations::postgres::warehouse::test::initialize_warehouse;
+    use crate::service::catalog_backends::implementations::postgres::CatalogState;
 
     use crate::service::TableIdentUuid;
 
@@ -549,7 +550,7 @@ pub(crate) mod tests {
     use iceberg::{NamespaceIdent, TableIdent};
 
     use crate::api::iceberg::v1::PaginationQuery;
-    use crate::implementations::postgres::tabular::mark_tabular_as_deleted;
+    use crate::service::catalog_backends::implementations::postgres::tabular::mark_tabular_as_deleted;
     use crate::service::tabular_idents::TabularIdentUuid;
     use crate::WarehouseIdent;
     use iceberg_ext::configs::Location;
@@ -658,7 +659,7 @@ pub(crate) mod tests {
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let namespace_id =
-            crate::implementations::postgres::tabular::table::tests::get_namespace_id(
+            crate::service::catalog_backends::implementations::postgres::tabular::table::tests::get_namespace_id(
                 state.clone(),
                 warehouse_id,
                 &namespace,
@@ -862,7 +863,7 @@ pub(crate) mod tests {
         let namespace = NamespaceIdent::from_vec(vec!["my_namespace".to_string()]).unwrap();
         initialize_namespace(state.clone(), warehouse_id, &namespace, None).await;
         let namespace_id =
-            crate::implementations::postgres::tabular::table::tests::get_namespace_id(
+            crate::service::catalog_backends::implementations::postgres::tabular::table::tests::get_namespace_id(
                 state.clone(),
                 warehouse_id,
                 &namespace,

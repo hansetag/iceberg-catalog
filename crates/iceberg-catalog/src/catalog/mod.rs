@@ -17,7 +17,7 @@ pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
 use crate::api::{iceberg::v1::Prefix, ErrorModel, Result};
 use crate::service::storage::StorageCredential;
 use crate::{
-    service::{auth::AuthZHandler, secrets::SecretStore, Catalog},
+    service::{auth::AuthZHandler, secrets::SecretStore, CatalogBackend},
     WarehouseIdent,
 };
 use std::collections::HashMap;
@@ -41,7 +41,7 @@ impl CommonMetadata for ViewMetadata {
 
 #[derive(Clone, Debug)]
 
-pub struct CatalogServer<C: Catalog, A: AuthZHandler, S: SecretStore> {
+pub struct CatalogServer<C: CatalogBackend, A: AuthZHandler, S: SecretStore> {
     auth_handler: PhantomData<A>,
     config_server: PhantomData<C>,
     secret_store: PhantomData<S>,

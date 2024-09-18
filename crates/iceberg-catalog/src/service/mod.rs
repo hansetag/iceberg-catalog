@@ -1,5 +1,5 @@
 pub mod auth;
-mod catalog;
+pub mod catalog_backends;
 pub mod config;
 pub mod contract_verification;
 pub mod event_publisher;
@@ -10,8 +10,8 @@ pub mod tabular_idents;
 pub mod task_queue;
 pub mod token_verification;
 
-pub use catalog::{
-    Catalog, CommitTableResponse, CreateNamespaceRequest, CreateNamespaceResponse,
+pub use catalog_backends::{
+    CatalogBackend, CommitTableResponse, CreateNamespaceRequest, CreateNamespaceResponse,
     CreateTableRequest, CreateTableResponse, DeletionDetails, DropFlags, GetNamespaceResponse,
     GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse, ListFlags,
     ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
@@ -62,7 +62,7 @@ impl NamespaceIdentExt for NamespaceIdent {
 // ---------------- State ----------------
 
 #[derive(Clone, Debug)]
-pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
+pub struct State<A: AuthZHandler, C: CatalogBackend, S: SecretStore> {
     pub auth: A::State,
     pub catalog: C::State,
     pub secrets: S,
@@ -71,7 +71,7 @@ pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
     pub queues: TaskQueues,
 }
 
-impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}
+impl<A: AuthZHandler, C: CatalogBackend, S: SecretStore> ServiceState for State<A, C, S> {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 pub struct NamespaceIdentUuid(uuid::Uuid);

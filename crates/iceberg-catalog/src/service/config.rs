@@ -1,9 +1,9 @@
-use super::{Catalog, ProjectIdent, WarehouseIdent};
+use super::{CatalogBackend, ProjectIdent, WarehouseIdent};
 use crate::api::{CatalogConfig, Result};
 
 #[async_trait::async_trait]
 
-pub trait ConfigProvider<C: Catalog>
+pub trait ConfigProvider<C: CatalogBackend>
 where
     Self: Clone + Send + Sync + 'static,
 {

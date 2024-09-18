@@ -16,8 +16,6 @@ pub use service::{ProjectIdent, SecretIdent, WarehouseIdent};
 
 pub use config::{SecretBackend, CONFIG};
 
-pub mod implementations;
-
 mod request_metadata;
 
 #[cfg(feature = "router")]

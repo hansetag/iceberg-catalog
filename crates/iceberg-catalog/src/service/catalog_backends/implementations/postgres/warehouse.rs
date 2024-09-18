@@ -440,8 +440,8 @@ pub(crate) mod test {
     use super::*;
     use crate::service::storage::S3Flavor;
     use crate::{
-        implementations::postgres::PostgresTransaction,
-        service::{storage::S3Profile, Catalog as _, Transaction as _},
+        service::catalog_backends::implementations::postgres::PostgresTransaction,
+        service::{storage::S3Profile, CatalogBackend as _, Transaction as _},
     };
 
     pub(crate) async fn initialize_warehouse(

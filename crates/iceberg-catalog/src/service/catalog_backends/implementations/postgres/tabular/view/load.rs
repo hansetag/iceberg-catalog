@@ -1,6 +1,8 @@
 use crate::api::Result;
-use crate::implementations::postgres::dbutils::DBErrorHandler;
-use crate::implementations::postgres::tabular::view::{ViewFormatVersion, ViewRepresentationType};
+use crate::service::catalog_backends::implementations::postgres::dbutils::DBErrorHandler;
+use crate::service::catalog_backends::implementations::postgres::tabular::view::{
+    ViewFormatVersion, ViewRepresentationType,
+};
 use crate::service::{TableIdentUuid, ViewMetadataWithLocation};
 use chrono::{DateTime, Utc};
 use iceberg::spec::{

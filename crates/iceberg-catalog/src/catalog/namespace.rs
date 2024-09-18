@@ -6,7 +6,8 @@ use crate::api::iceberg::v1::{
 };
 use crate::request_metadata::RequestMetadata;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, NamespaceIdentExt, State, Transaction as _,
+    auth::AuthZHandler, secrets::SecretStore, CatalogBackend, NamespaceIdentExt, State,
+    Transaction as _,
 };
 use crate::service::{GetWarehouseResponse, NamespaceIdentUuid};
 use crate::CONFIG;
@@ -23,7 +24,7 @@ pub const UNSUPPORTED_NAMESPACE_PROPERTIES: &[&str] = &[];
 pub const MAX_NAMESPACE_DEPTH: i32 = 1;
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+impl<C: CatalogBackend, A: AuthZHandler, S: SecretStore>
     crate::api::iceberg::v1::namespace::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     async fn list_namespaces(

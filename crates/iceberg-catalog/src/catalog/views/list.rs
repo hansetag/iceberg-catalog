@@ -5,10 +5,10 @@ use crate::catalog::namespace::validate_namespace_ident;
 use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
-use crate::service::{Catalog, SecretStore, State};
+use crate::service::{CatalogBackend, SecretStore, State};
 use iceberg_ext::catalog::rest::ListTablesResponse;
 
-pub(crate) async fn list_views<C: Catalog, A: AuthZHandler, S: SecretStore>(
+pub(crate) async fn list_views<C: CatalogBackend, A: AuthZHandler, S: SecretStore>(
     parameters: NamespaceParameters,
     pagination_query: PaginationQuery,
     state: ApiContext<State<A, C, S>>,

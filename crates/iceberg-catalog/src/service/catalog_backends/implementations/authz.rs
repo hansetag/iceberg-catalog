@@ -2,7 +2,7 @@ use crate::api::{iceberg::v1::NamespaceIdent, Result};
 use crate::request_metadata::RequestMetadata;
 use crate::service::health::HealthExt;
 use crate::{
-    implementations::DEFAULT_PROJECT_ID,
+    service::catalog_backends::implementations::DEFAULT_PROJECT_ID,
     service::{
         auth::{AuthConfigHandler, AuthZHandler, UserWarehouse},
         TableIdentUuid,

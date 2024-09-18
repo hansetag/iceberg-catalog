@@ -16,7 +16,7 @@ use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
 use crate::service::secrets::SecretStore;
 use crate::service::storage::{S3Location, S3Profile, StorageCredential};
-use crate::service::{auth::AuthZHandler, Catalog, ListFlags, State};
+use crate::service::{auth::AuthZHandler, CatalogBackend, ListFlags, State};
 use crate::service::{GetTableMetadataResponse, TableIdentUuid};
 use crate::WarehouseIdent;
 
@@ -34,7 +34,7 @@ const HEADERS_TO_SIGN: [&str; 7] = [
 ];
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+impl<C: CatalogBackend, A: AuthZHandler, S: SecretStore>
     crate::api::iceberg::v1::s3_signer::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     #[allow(clippy::too_many_lines)]

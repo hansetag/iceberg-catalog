@@ -1,10 +1,10 @@
 use crate::api::management::v1::TabularType;
-use crate::implementations::postgres::dbutils::DBErrorHandler;
-use crate::implementations::postgres::tabular::TabularType as DbTabularType;
-use crate::implementations::postgres::task_queues::{
+use crate::service::catalog_backends::implementations::postgres::dbutils::DBErrorHandler;
+use crate::service::catalog_backends::implementations::postgres::tabular::TabularType as DbTabularType;
+use crate::service::catalog_backends::implementations::postgres::task_queues::{
     pick_task, queue_task, record_failure, record_success,
 };
-use crate::implementations::postgres::DeletionKind;
+use crate::service::catalog_backends::implementations::postgres::DeletionKind;
 use crate::service::task_queue::tabular_expiration_queue::{
     TabularExpirationInput, TabularExpirationTask,
 };
@@ -193,7 +193,8 @@ mod test {
         assert_eq!(task.tabular_type, input.tabular_type);
         assert_eq!(
             task.deletion_kind,
-            crate::implementations::postgres::DeletionKind::Default.into()
+            crate::service::catalog_backends::implementations::postgres::DeletionKind::Default
+                .into()
         );
 
         let task = queue.pick_new_task().await.unwrap();

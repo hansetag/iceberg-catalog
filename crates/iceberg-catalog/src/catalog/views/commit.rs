@@ -17,8 +17,8 @@ use crate::service::event_publisher::EventMetadata;
 use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, GetWarehouseResponse, State, Transaction,
-    ViewMetadataWithLocation,
+    auth::AuthZHandler, secrets::SecretStore, CatalogBackend, GetWarehouseResponse, State,
+    Transaction, ViewMetadataWithLocation,
 };
 use http::StatusCode;
 use iceberg::spec::{AppendViewVersion, ViewMetadataBuilder};
@@ -31,7 +31,7 @@ use uuid::Uuid;
 /// Commit updates to a view
 // TODO: break up into smaller fns
 #[allow(clippy::too_many_lines)]
-pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
+pub(crate) async fn commit_view<C: CatalogBackend, A: AuthZHandler, S: SecretStore>(
     parameters: ViewParameters,
     mut request: CommitViewRequest,
     state: ApiContext<State<A, C, S>>,

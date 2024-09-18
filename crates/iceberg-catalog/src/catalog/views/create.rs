@@ -15,7 +15,7 @@ use crate::service::event_publisher::EventMetadata;
 use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::Result;
-use crate::service::{Catalog, SecretStore, State, Transaction};
+use crate::service::{CatalogBackend, SecretStore, State, Transaction};
 use http::StatusCode;
 use iceberg::spec::ViewMetadataBuilder;
 use iceberg::{TableIdent, ViewCreation};
@@ -25,7 +25,7 @@ use uuid::Uuid;
 // TODO: split up into smaller functions
 #[allow(clippy::too_many_lines)]
 /// Create a view in the given namespace
-pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
+pub(crate) async fn create_view<C: CatalogBackend, A: AuthZHandler, S: SecretStore>(
     parameters: NamespaceParameters,
     request: CreateViewRequest,
     state: ApiContext<State<A, C, S>>,
@@ -189,9 +189,10 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 pub(crate) mod test {
     use super::*;
 
-    use crate::implementations::postgres::namespace::tests::initialize_namespace;
-    use crate::implementations::postgres::secrets::SecretsState;
-    use crate::implementations::AllowAllAuthZHandler;
+    use crate::service::catalog_backends::implementations::postgres::namespace::tests::initialize_namespace;
+    use crate::service::catalog_backends::implementations::postgres::secrets::SecretsState;
+    use crate::service::catalog_backends::implementations::AllowAllAuthZHandler;
+
     use iceberg::NamespaceIdent;
     use serde_json::json;
     use sqlx::PgPool;
@@ -200,7 +201,7 @@ pub(crate) mod test {
         api_context: ApiContext<
             State<
                 AllowAllAuthZHandler,
-                crate::implementations::postgres::PostgresCatalog,
+                crate::service::catalog_backends::implementations::postgres::PostgresCatalog,
                 SecretsState,
             >,
         >,

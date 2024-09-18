@@ -9,7 +9,7 @@ use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 
 pub use crate::service::WarehouseStatus;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, ListFlags, State, Transaction,
+    auth::AuthZHandler, secrets::SecretStore, CatalogBackend, ListFlags, State, Transaction,
 };
 use crate::{ProjectIdent, WarehouseIdent, CONFIG};
 use iceberg_ext::catalog::rest::ErrorModel;
@@ -156,11 +156,11 @@ impl axum::response::IntoResponse for CreateWarehouseResponse {
     }
 }
 
-impl<C: Catalog, A: AuthZHandler, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
+impl<C: CatalogBackend, A: AuthZHandler, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
 
 #[async_trait::async_trait]
 
-pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
+pub trait Service<C: CatalogBackend, A: AuthZHandler, S: SecretStore> {
     async fn create_warehouse(
         request: CreateWarehouseRequest,
         context: ApiContext<State<A, C, S>>,

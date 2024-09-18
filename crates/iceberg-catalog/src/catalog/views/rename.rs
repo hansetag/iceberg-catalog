@@ -8,12 +8,12 @@ use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::Result;
-use crate::service::{Catalog, SecretStore, State, Transaction};
+use crate::service::{CatalogBackend, SecretStore, State, Transaction};
 use http::StatusCode;
 use iceberg_ext::catalog::rest::{ErrorModel, RenameTableRequest};
 use uuid::Uuid;
 
-pub(crate) async fn rename_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
+pub(crate) async fn rename_view<C: CatalogBackend, A: AuthZHandler, S: SecretStore>(
     prefix: Option<Prefix>,
     request: RenameTableRequest,
     state: ApiContext<State<A, C, S>>,
@@ -118,7 +118,7 @@ mod test {
     use crate::catalog::views::create::test::create_view;
     use crate::catalog::views::load::test::load_view;
     use crate::catalog::views::test::setup;
-    use crate::implementations::postgres::namespace::tests::initialize_namespace;
+    use crate::service::catalog_backends::implementations::postgres::namespace::tests::initialize_namespace;
     use iceberg::{NamespaceIdent, TableIdent};
     use iceberg_ext::catalog::rest::CreateViewRequest;
     use sqlx::PgPool;

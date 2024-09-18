@@ -15,10 +15,12 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
-use crate::implementations::postgres::tabular::view::{
+use crate::service::catalog_backends::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
-use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_deleted};
+use crate::service::catalog_backends::implementations::postgres::tabular::{
+    list_tabulars, mark_tabular_as_deleted,
+};
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, DeletionDetails, GetWarehouseResponse,
@@ -31,7 +33,7 @@ use crate::{
 };
 use crate::{
     service::{
-        storage::StorageProfile, Catalog, CreateTableResponse, GetNamespaceResponse,
+        storage::StorageProfile, CatalogBackend, CreateTableResponse, GetNamespaceResponse,
         GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid, ProjectIdent,
         TableIdentUuid, Transaction, WarehouseIdent,
     },
@@ -42,7 +44,7 @@ use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
 
 #[async_trait::async_trait]
-impl Catalog for super::PostgresCatalog {
+impl CatalogBackend for super::PostgresCatalog {
     type Transaction = PostgresTransaction;
     type State = CatalogState;
 
@@ -306,7 +308,7 @@ impl Catalog for super::PostgresCatalog {
         view_id: TableIdentUuid,
         include_deleted: bool,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<crate::implementations::postgres::tabular::view::ViewMetadataWithLocation> {
+    ) -> Result<crate::service::catalog_backends::implementations::postgres::tabular::view::ViewMetadataWithLocation>{
         load_view(view_id, include_deleted, &mut *transaction).await
     }
 

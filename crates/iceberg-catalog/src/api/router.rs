@@ -11,7 +11,7 @@ use crate::service::token_verification::Verifier;
 use crate::service::{
     auth::{AuthConfigHandler, AuthZHandler},
     config::ConfigProvider,
-    Catalog, SecretStore, State,
+    CatalogBackend, SecretStore, State,
 };
 use axum::response::IntoResponse;
 use axum::{routing::get, Json, Router};
@@ -27,7 +27,7 @@ use utoipa::OpenApi;
 #[allow(clippy::module_name_repetitions, clippy::too_many_arguments)]
 pub fn new_full_router<
     CP: ConfigProvider<C>,
-    C: Catalog,
+    C: CatalogBackend,
     AH: AuthConfigHandler<A>,
     A: AuthZHandler,
     S: SecretStore,
@@ -105,7 +105,7 @@ pub fn new_full_router<
     }
 }
 
-fn maybe_add_auth<C: Catalog, A: AuthZHandler, S: SecretStore>(
+fn maybe_add_auth<C: CatalogBackend, A: AuthZHandler, S: SecretStore>(
     token_verifier: Option<Verifier>,
     router: Router<ApiContext<State<A, C, S>>>,
 ) -> Router<ApiContext<State<A, C, S>>> {

@@ -11,12 +11,13 @@ use crate::service::SecretStore;
 use crate::service::{
     auth::{AuthConfigHandler, AuthZHandler, UserWarehouse},
     config::ConfigProvider,
-    Catalog, ProjectIdent, State,
+    CatalogBackend, ProjectIdent, State,
 };
 use crate::CONFIG;
 
 #[derive(Clone, Debug)]
-pub struct Server<C: ConfigProvider<D>, D: Catalog, T: AuthConfigHandler<A>, A: AuthZHandler> {
+pub struct Server<C: ConfigProvider<D>, D: CatalogBackend, T: AuthConfigHandler<A>, A: AuthZHandler>
+{
     auth_handler: PhantomData<T>,
     auth_state: PhantomData<A::State>,
     config_server: PhantomData<C>,
@@ -27,7 +28,7 @@ pub struct Server<C: ConfigProvider<D>, D: Catalog, T: AuthConfigHandler<A>, A: 
 impl<
         C: ConfigProvider<D>,
         A: AuthZHandler,
-        D: Catalog,
+        D: CatalogBackend,
         S: SecretStore,
         T: AuthConfigHandler<A>,
     > crate::api::iceberg::v1::config::Service<State<A, D, S>> for Server<C, D, T, A>

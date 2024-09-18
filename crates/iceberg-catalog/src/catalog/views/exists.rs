@@ -5,11 +5,11 @@ use crate::catalog::tables::validate_table_or_view_ident;
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
 use crate::service::Result;
-use crate::service::{Catalog, SecretStore, State};
+use crate::service::{CatalogBackend, SecretStore, State};
 use http::StatusCode;
 use iceberg_ext::catalog::rest::ErrorModel;
 
-pub(crate) async fn view_exists<C: Catalog, A: AuthZHandler, S: SecretStore>(
+pub(crate) async fn view_exists<C: CatalogBackend, A: AuthZHandler, S: SecretStore>(
     parameters: ViewParameters,
     state: ApiContext<State<A, C, S>>,
     request_metadata: RequestMetadata,
