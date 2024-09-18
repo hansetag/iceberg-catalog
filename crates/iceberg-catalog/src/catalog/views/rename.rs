@@ -115,9 +115,7 @@ pub(crate) async fn rename_view<C: CatalogBackend, A: AuthZHandler, S: SecretSto
 mod test {
     use super::*;
     use crate::api::iceberg::v1::ViewParameters;
-    use crate::catalog::views::create::test::create_view;
-    use crate::catalog::views::load::test::load_view;
-    use crate::catalog::views::test::setup;
+    use crate::catalog::test::{create_view, load_view, setup};
     use crate::service_modules::catalog_backends::implementations::postgres::namespace::tests::initialize_namespace;
     use iceberg::{NamespaceIdent, TableIdent};
     use iceberg_ext::catalog::rest::CreateViewRequest;
@@ -125,7 +123,8 @@ mod test {
 
     #[sqlx::test]
     async fn test_rename_view_without_namespace(pool: PgPool) {
-        let (api_context, namespace, whi) = setup(pool, None).await;
+        let (api_context, namespace, whi) = setup(pool, None, None, None).await;
+        let whi = whi.warehouse_id;
 
         let view_name = "my-view";
         let rq: CreateViewRequest =
@@ -134,18 +133,18 @@ mod test {
         let prefix = Prefix(whi.to_string());
         let created_view = create_view(
             api_context.clone(),
-            namespace.clone(),
+            namespace.namespace.clone(),
             rq,
             Some(prefix.clone().into_string()),
         )
         .await
         .unwrap();
         let destination = TableIdent {
-            namespace: namespace.clone(),
+            namespace: namespace.namespace.clone(),
             name: "my-renamed-view".to_string(),
         };
         let source = TableIdent {
-            namespace: namespace.clone(),
+            namespace: namespace.namespace.clone(),
             name: view_name.to_string(),
         };
         rename_view(
@@ -186,12 +185,18 @@ mod test {
 
     #[sqlx::test]
     async fn test_rename_view_with_namespace(pool: PgPool) {
-        let (api_context, _, whi) = setup(pool, None).await;
+        let (api_context, _, whi) = setup(pool, None, None, None).await;
+        let whi = whi.warehouse_id;
+
         let namespace = NamespaceIdent::from_vec(vec!["Someother-ns".to_string()]).unwrap();
-        let new_ns =
-            initialize_namespace(api_context.v1_state.catalog.clone(), whi, &namespace, None)
-                .await
-                .namespace;
+        let new_ns = initialize_namespace(
+            api_context.v1_state.catalog.clone(),
+            whi.into(),
+            &namespace,
+            None,
+        )
+        .await
+        .namespace;
 
         let view_name = "my-view";
         let rq: CreateViewRequest =

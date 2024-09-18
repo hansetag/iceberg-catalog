@@ -372,18 +372,18 @@ mod test {
     use serde_json::json;
     use sqlx::PgPool;
 
-    use crate::catalog::views::create::test::{create_view, create_view_request};
-    use crate::catalog::views::test::setup;
+    use crate::catalog::test::{create_view, setup};
+    use crate::catalog::views::create::test::create_view_request;
     use uuid::Uuid;
 
     #[sqlx::test]
     async fn test_commit_view(pool: PgPool) {
-        let (api_context, namespace, whi) = setup(pool, None).await;
-        let prefix = whi.to_string();
+        let (api_context, namespace, whi) = setup(pool, None, None, None).await;
+        let prefix = whi.warehouse_id.to_string();
         let view_name = "myview";
         let view = create_view(
             api_context.clone(),
-            namespace.clone(),
+            namespace.namespace.clone(),
             create_view_request(Some(view_name), None),
             Some(prefix.clone()),
         )
@@ -396,7 +396,11 @@ mod test {
             views::ViewParameters {
                 prefix: Some(Prefix(prefix.clone())),
                 view: TableIdent::from_strs(
-                    namespace.inner().into_iter().chain([view_name.into()]),
+                    namespace
+                        .namespace
+                        .inner()
+                        .into_iter()
+                        .chain([view_name.into()]),
                 )
                 .unwrap(),
             },
@@ -431,12 +435,12 @@ mod test {
 
     #[sqlx::test]
     async fn test_commit_view_fails_with_wrong_assertion(pool: PgPool) {
-        let (api_context, namespace, whi) = setup(pool, None).await;
-        let prefix = whi.to_string();
+        let (api_context, namespace, whi) = setup(pool, None, None, None).await;
+        let prefix = whi.warehouse_id.to_string();
         let view_name = "myview";
         let _ = create_view(
             api_context.clone(),
-            namespace.clone(),
+            namespace.namespace.clone(),
             create_view_request(Some(view_name), None),
             Some(prefix.clone()),
         )
@@ -449,7 +453,11 @@ mod test {
             ViewParameters {
                 prefix: Some(Prefix(prefix.clone())),
                 view: TableIdent::from_strs(
-                    namespace.inner().into_iter().chain([view_name.into()]),
+                    namespace
+                        .namespace
+                        .inner()
+                        .into_iter()
+                        .chain([view_name.into()]),
                 )
                 .unwrap(),
             },

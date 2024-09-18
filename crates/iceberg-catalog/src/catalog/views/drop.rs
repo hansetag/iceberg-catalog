@@ -135,10 +135,9 @@ pub(crate) async fn drop_view<C: CatalogBackend, A: AuthZHandler, S: SecretStore
 mod test {
     use crate::api::iceberg::types::{DropParams, Prefix};
     use crate::api::iceberg::v1::ViewParameters;
-    use crate::catalog::views::create::test::create_view;
+
+    use crate::catalog::test::{create_view, load_view, setup};
     use crate::catalog::views::drop::drop_view;
-    use crate::catalog::views::load::test::load_view;
-    use crate::catalog::views::test::setup;
     use crate::request_metadata::RequestMetadata;
     use http::StatusCode;
     use iceberg::TableIdent;
@@ -147,7 +146,8 @@ mod test {
 
     #[sqlx::test]
     async fn test_load_view(pool: PgPool) {
-        let (api_context, namespace, whi) = setup(pool, None).await;
+        let (api_context, namespace, whi) = setup(pool, None, None, None).await;
+        let whi = whi.warehouse_id;
 
         let view_name = "my-view";
         let rq: CreateViewRequest =
@@ -156,13 +156,13 @@ mod test {
         let prefix = &whi.to_string();
         let created_view = create_view(
             api_context.clone(),
-            namespace.clone(),
+            namespace.namespace.clone(),
             rq,
             Some(prefix.into()),
         )
         .await
         .unwrap();
-        let mut table_ident = namespace.clone().inner();
+        let mut table_ident = namespace.namespace.clone().inner();
         table_ident.push(view_name.into());
 
         let loaded_view = load_view(

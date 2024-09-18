@@ -124,46 +124,18 @@ pub(crate) async fn load_view<C: CatalogBackend, A: AuthZHandler, S: SecretStore
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::api::iceberg::v1::{views, DataAccess, Prefix, ViewParameters};
-    use crate::api::ApiContext;
-    use crate::catalog::CatalogServer;
-
-    use crate::service_modules::catalog_backends::implementations::postgres::secrets::SecretsState;
-
-    use crate::service_modules::catalog_backends::implementations::postgres::PostgresCatalog;
-    use crate::service_modules::catalog_backends::implementations::AllowAllAuthZHandler;
-
-    use crate::service_modules::State;
+    use crate::api::iceberg::v1::{Prefix, ViewParameters};
 
     use iceberg::TableIdent;
-    use iceberg_ext::catalog::rest::{CreateViewRequest, LoadViewResult};
+    use iceberg_ext::catalog::rest::CreateViewRequest;
 
+    use crate::catalog::test::{create_view, load_view, setup};
     use sqlx::PgPool;
-
-    use crate::catalog::views::create::test::create_view;
-    use crate::catalog::views::test::setup;
-
-    pub(crate) async fn load_view(
-        api_context: ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>>,
-        params: ViewParameters,
-    ) -> crate::api::Result<LoadViewResult> {
-        <CatalogServer<PostgresCatalog, AllowAllAuthZHandler, SecretsState> as views::Service<
-            State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>,
-        >>::load_view(
-            params,
-            api_context,
-            DataAccess {
-                vended_credentials: true,
-                remote_signing: false,
-            },
-            crate::request_metadata::RequestMetadata::new_random(),
-        )
-        .await
-    }
 
     #[sqlx::test]
     async fn test_load_view(pool: PgPool) {
-        let (api_context, namespace, whi) = setup(pool, None).await;
+        let (api_context, namespace, whi) = setup(pool, None, None, None).await;
+        let whi = whi.warehouse_id;
 
         let view_name = "my-view";
         let rq: CreateViewRequest =
@@ -172,13 +144,13 @@ pub(crate) mod test {
         let prefix = &whi.to_string();
         let created_view = create_view(
             api_context.clone(),
-            namespace.clone(),
+            namespace.namespace.clone(),
             rq,
             Some(prefix.into()),
         )
         .await
         .unwrap();
-        let mut table_ident = namespace.clone().inner();
+        let mut table_ident = namespace.namespace.clone().inner();
         table_ident.push(view_name.into());
 
         let loaded_view = load_view(

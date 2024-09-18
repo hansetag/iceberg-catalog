@@ -50,24 +50,23 @@ mod test {
     use super::*;
     use crate::api::iceberg::types::Prefix;
     use crate::api::iceberg::v1::ViewParameters;
-    use crate::catalog::views::create::test::create_view;
-    use crate::catalog::views::test::setup;
+    use crate::catalog::test::{create_view, setup};
     use iceberg::TableIdent;
     use iceberg_ext::catalog::rest::CreateViewRequest;
     use sqlx::PgPool;
 
     #[sqlx::test]
     async fn test_view_exists(pool: PgPool) {
-        let (api_context, namespace, whi) = setup(pool, None).await;
+        let (api_context, namespace, whi) = setup(pool, None, None, None).await;
 
         let view_name = "my-view";
         let rq: CreateViewRequest =
             super::super::create::test::create_view_request(Some(view_name), None);
 
-        let prefix = Prefix(whi.to_string());
+        let prefix = Prefix(whi.warehouse_id.to_string());
         let _ = create_view(
             api_context.clone(),
-            namespace.clone(),
+            namespace.namespace.clone(),
             rq,
             Some(prefix.clone().into_string()),
         )
@@ -77,7 +76,7 @@ mod test {
             ViewParameters {
                 prefix: Some(prefix.clone()),
                 view: TableIdent {
-                    namespace: namespace.clone(),
+                    namespace: namespace.namespace.clone(),
                     name: view_name.to_string(),
                 },
             },
@@ -91,7 +90,7 @@ mod test {
             ViewParameters {
                 prefix: Some(prefix.clone()),
                 view: TableIdent {
-                    namespace: namespace.clone(),
+                    namespace: namespace.namespace.clone(),
                     name: "123".to_string(),
                 },
             },

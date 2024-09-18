@@ -187,55 +187,25 @@ pub(crate) async fn create_view<C: CatalogBackend, A: AuthZHandler, S: SecretSto
 
 #[cfg(test)]
 pub(crate) mod test {
-    use super::*;
-
     use crate::service_modules::catalog_backends::implementations::postgres::namespace::tests::initialize_namespace;
-    use crate::service_modules::catalog_backends::implementations::postgres::secrets::SecretsState;
-    use crate::service_modules::catalog_backends::implementations::AllowAllAuthZHandler;
 
+    use crate::catalog::test::{create_view, setup};
     use iceberg::NamespaceIdent;
+    use iceberg_ext::catalog::rest::CreateViewRequest;
     use serde_json::json;
     use sqlx::PgPool;
-
-    pub(crate) async fn create_view(
-        api_context: ApiContext<
-            State<
-                AllowAllAuthZHandler,
-                crate::service_modules::catalog_backends::implementations::postgres::PostgresCatalog,
-                SecretsState,
-            >,
-        >,
-        namespace: NamespaceIdent,
-        rq: CreateViewRequest,
-        prefix: Option<String>,
-    ) -> Result<LoadViewResult> {
-        super::create_view(
-            NamespaceParameters {
-                namespace: namespace.clone(),
-                prefix: Some(Prefix(
-                    prefix.unwrap_or("b8683712-3484-11ef-a305-1bc8771ed40c".to_string()),
-                )),
-            },
-            rq,
-            api_context,
-            DataAccess {
-                vended_credentials: true,
-                remote_signing: false,
-            },
-            RequestMetadata::new_random(),
-        )
-        .await
-    }
+    use uuid::Uuid;
 
     #[sqlx::test]
     async fn test_create_view(pool: PgPool) {
-        let (api_context, namespace, whi) = crate::catalog::views::test::setup(pool, None).await;
+        let (api_context, namespace, whi) = setup(pool, None, None, None).await;
+        let whi = whi.warehouse_id;
 
         let mut rq = create_view_request(None, None);
 
         let _view = create_view(
             api_context.clone(),
-            namespace.clone(),
+            namespace.namespace.clone(),
             rq.clone(),
             Some(whi.to_string()),
         )
@@ -243,7 +213,7 @@ pub(crate) mod test {
         .unwrap();
         let view = create_view(
             api_context.clone(),
-            namespace.clone(),
+            namespace.namespace.clone(),
             rq.clone(),
             Some(whi.to_string()),
         )
@@ -255,7 +225,7 @@ pub(crate) mod test {
 
         let _view = create_view(
             api_context.clone(),
-            namespace,
+            namespace.namespace,
             rq.clone(),
             Some(whi.to_string()),
         )
@@ -264,10 +234,14 @@ pub(crate) mod test {
 
         rq.name = old_name;
         let namespace = NamespaceIdent::from_vec(vec![Uuid::now_v7().to_string()]).unwrap();
-        let new_ns =
-            initialize_namespace(api_context.v1_state.catalog.clone(), whi, &namespace, None)
-                .await
-                .namespace;
+        let new_ns = initialize_namespace(
+            api_context.v1_state.catalog.clone(),
+            whi.into(),
+            &namespace,
+            None,
+        )
+        .await
+        .namespace;
 
         let _view = create_view(api_context, new_ns, rq, Some(whi.to_string()))
             .await

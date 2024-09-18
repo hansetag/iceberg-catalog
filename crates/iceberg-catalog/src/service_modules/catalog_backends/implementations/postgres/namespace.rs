@@ -383,14 +383,13 @@ pub(crate) async fn update_namespace_properties(
 
 #[cfg(test)]
 pub(crate) mod tests {
-
+    use crate::catalog::test::{initialize_table, setup};
     use crate::service_modules::catalog_backends::implementations::postgres::PostgresTransaction;
     use crate::service_modules::{CatalogBackend as _, Transaction as _};
 
     use super::super::warehouse::test::initialize_warehouse;
     use super::super::PostgresCatalog;
     use super::*;
-    use crate::service_modules::catalog_backends::implementations::postgres::tabular::table::tests::initialize_table;
 
     pub(crate) async fn initialize_namespace(
         state: CatalogState,
@@ -609,18 +608,21 @@ pub(crate) mod tests {
 
     #[sqlx::test]
     async fn test_cannot_drop_nonempty_namespace(pool: sqlx::PgPool) {
-        let state = CatalogState::from_pools(pool.clone(), pool.clone());
+        let (state, _, whi) = setup(pool.clone(), None, None, None).await;
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
-        let staged = false;
-        let table = initialize_table(warehouse_id, state.clone(), staged, None, None).await;
+        let table =
+            initialize_table(whi.warehouse_id.into(), state.clone(), false, None, None).await;
 
-        let mut transaction = PostgresTransaction::begin_write(state.clone())
+        let mut transaction = PostgresTransaction::begin_write(state.v1_state.catalog.clone())
             .await
             .unwrap();
-        let result = drop_namespace(warehouse_id, &table.namespace, transaction.transaction())
-            .await
-            .unwrap_err();
+        let result = drop_namespace(
+            whi.warehouse_id.into(),
+            &table.namespace,
+            transaction.transaction(),
+        )
+        .await
+        .unwrap_err();
 
         assert_eq!(result.error.code, StatusCode::CONFLICT);
     }
