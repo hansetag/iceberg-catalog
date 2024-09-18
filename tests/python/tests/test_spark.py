@@ -545,3 +545,83 @@ def test_custom_location(spark, namespace, warehouse: conftest.Warehouse):
     )
     assert loaded_table.location() == custom_location
     assert loaded_table.metadata_location.startswith(custom_location)
+
+
+def test_cannot_create_table_at_same_location(spark, namespace, warehouse: conftest.Warehouse):
+    # Create a table without a custom location to get the default location
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT) USING iceberg"
+    )
+    default_location = warehouse.pyiceberg_catalog.load_table(
+        (*namespace.name, "my_table")
+    ).location()
+
+    # Replace element behind the last slash with "custom_location"
+    custom_location = default_location.rsplit("/", 1)[0] + "/custom_location"
+
+    # Create a table with a custom location
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table_custom_location (my_ints INT) USING iceberg LOCATION '{custom_location}'"
+    )
+
+    with pytest.raises(Exception) as e:
+        spark.sql(
+            f"CREATE TABLE {namespace.spark_name}.my_table_custom_location (my_ints INT) USING iceberg LOCATION '{custom_location}'"
+        )
+        assert "Unexpected files in location, tabular locations have to be empty" in str(e)
+
+    # Write / read data
+    spark.sql(
+        f"INSERT INTO {namespace.spark_name}.my_table_custom_location VALUES (1), (2)"
+    )
+    pdf = spark.sql(
+        f"SELECT * FROM {namespace.spark_name}.my_table_custom_location"
+    ).toPandas()
+    assert len(pdf) == 2
+
+    # Check if the custom location is set correctly
+    loaded_table = warehouse.pyiceberg_catalog.load_table(
+        (*namespace.name, "my_table_custom_location")
+    )
+    assert loaded_table.location() == custom_location
+    assert loaded_table.metadata_location.startswith(custom_location)
+
+
+def test_cannot_create_table_at_sub_location(spark, namespace, warehouse: conftest.Warehouse):
+    # Create a table without a custom location to get the default location
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table (my_ints INT) USING iceberg"
+    )
+    default_location = warehouse.pyiceberg_catalog.load_table(
+        (*namespace.name, "my_table")
+    ).location()
+
+    # Replace element behind the last slash with "custom_location"
+    custom_location = default_location.rsplit("/", 1)[0] + "/custom_location"
+
+    # Create a table with a custom location
+    spark.sql(
+        f"CREATE TABLE {namespace.spark_name}.my_table_custom_location (my_ints INT) USING iceberg LOCATION '{custom_location}'"
+    )
+
+    with pytest.raises(Exception) as e:
+        spark.sql(
+            f"CREATE TABLE {namespace.spark_name}.my_table_custom_location (my_ints INT) USING iceberg LOCATION '{custom_location}/sub_location'"
+        )
+        assert "Unexpected files in location, tabular locations have to be empty" in str(e)
+
+    # Write / read data
+    spark.sql(
+        f"INSERT INTO {namespace.spark_name}.my_table_custom_location VALUES (1), (2)"
+    )
+    pdf = spark.sql(
+        f"SELECT * FROM {namespace.spark_name}.my_table_custom_location"
+    ).toPandas()
+    assert len(pdf) == 2
+
+    # Check if the custom location is set correctly
+    loaded_table = warehouse.pyiceberg_catalog.load_table(
+        (*namespace.name, "my_table_custom_location")
+    )
+    assert loaded_table.location() == custom_location
+    assert loaded_table.metadata_location.startswith(custom_location)

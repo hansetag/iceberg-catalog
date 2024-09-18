@@ -2,7 +2,6 @@
 use anyhow::anyhow;
 use std::collections::HashSet;
 use std::convert::Infallible;
-use std::num::NonZeroUsize;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -125,7 +124,6 @@ pub struct DynAppConfig {
         serialize_with = "duration_to_seconds"
     )]
     pub default_tabular_expiration_delay_seconds: chrono::Duration,
-    pub location_cache_size: NonZeroUsize,
 }
 
 pub(crate) fn seconds_to_duration<'de, D>(deserializer: D) -> Result<chrono::Duration, D::Error>
@@ -207,19 +205,11 @@ impl Default for DynAppConfig {
             secret_backend: SecretBackend::Postgres,
             queue_config: TaskQueueConfig::default(),
             default_tabular_expiration_delay_seconds: chrono::Duration::days(7),
-            location_cache_size: Self::default_cache_size(),
         }
     }
 }
 
 impl DynAppConfig {
-    pub const fn default_cache_size() -> NonZeroUsize {
-        let Some(i) = NonZeroUsize::new(5000) else {
-            panic!("NonZeroUsize::new(1000) failed")
-        };
-        i
-    }
-
     pub fn s3_signer_uri_for_warehouse(&self, warehouse_id: WarehouseIdent) -> url::Url {
         self.base_uri
             .join(&format!("catalog/v1/{warehouse_id}"))

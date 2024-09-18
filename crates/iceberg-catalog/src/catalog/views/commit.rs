@@ -129,8 +129,9 @@ pub(crate) async fn commit_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         namespace_id,
         view_id,
         &identifier,
-        metadata_location.as_str(),
+        &metadata_location,
         requested_update_metadata.clone(),
+        &view_location,
         transaction.transaction(),
     )
     .await?;

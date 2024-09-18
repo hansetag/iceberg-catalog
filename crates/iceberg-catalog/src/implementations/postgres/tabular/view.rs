@@ -8,24 +8,24 @@ use crate::{
 
 use http::StatusCode;
 
+use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::implementations::postgres::tabular::{
     create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed,
     TabularIdentUuid, TabularType,
 };
 use crate::implementations::postgres::{tabular, CatalogState};
+use crate::service::ListFlags;
+pub(crate) use crate::service::ViewMetadataWithLocation;
 use chrono::{DateTime, Utc};
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersionId, ViewVersionRef};
 use iceberg::NamespaceIdent;
+use iceberg_ext::configs::Location;
+pub(crate) use load::load_view;
 use serde::Deserialize;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
 use std::default::Default;
 use uuid::Uuid;
-
-use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
-use crate::service::ListFlags;
-pub(crate) use crate::service::ViewMetadataWithLocation;
-pub(crate) use load::load_view;
 
 pub(crate) async fn view_ident_to_id<'e, 'c: 'e, E>(
     warehouse_id: WarehouseIdent,
@@ -61,12 +61,26 @@ where
 
 pub(crate) async fn create_view(
     namespace_id: NamespaceIdentUuid,
-    metadata_location: &str,
+    metadata_location: &Location,
     transaction: &mut Transaction<'_, Postgres>,
     name: &str,
     metadata: ViewMetadata,
+    location: &Location,
 ) -> Result<()> {
-    let location = metadata.location.as_str();
+    if location.as_str() != metadata.location.as_str() {
+        tracing::error!(
+            "Location in ViewMetadata ('{}') does not match location ('{}') passed into create_view function, this is a bug.",
+            metadata.location.as_str(),
+            location.as_str()
+        );
+        return Err(ErrorModel::internal(
+            "Location in ViewMetadata does not match location passed into create_view function.",
+            "InternalServerError",
+            None,
+        )
+        .append_details(&[location.to_string(), metadata.location.to_string()])
+        .into());
+    }
     let tabular_id = create_tabular(
         CreateTabular {
             id: metadata.view_uuid,
@@ -538,15 +552,16 @@ pub(crate) mod tests {
     use crate::implementations::postgres::tabular::mark_tabular_as_deleted;
     use crate::service::tabular_idents::TabularIdentUuid;
     use crate::WarehouseIdent;
+    use iceberg_ext::configs::Location;
     use serde_json::json;
     use sqlx::PgPool;
     use uuid::Uuid;
 
-    fn view_request(view_id: Option<Uuid>) -> ViewMetadata {
+    fn view_request(view_id: Option<Uuid>, location: &Location) -> ViewMetadata {
         serde_json::from_value(json!({
   "format-version": 1,
   "view-uuid": view_id.unwrap_or_else(Uuid::now_v7).to_string(),
-  "location": "s3://examples/initial-warehouse/86ebaeae-351e-11ef-92b0-f7afa1e3ea1a/01905db5-44b7-7582-80e0-e52cbccdfa0f/metadata/01905db5-4e2d-7691-af92-789507cca618.gz.metadata.json",
+  "location": location.as_str(),
   "current-version-id": 2,
   "versions": [
     {
@@ -650,15 +665,23 @@ pub(crate) mod tests {
             )
             .await;
         let view_uuid = TableIdentUuid::from(Uuid::now_v7());
-
-        let request = view_request(Some(*view_uuid));
+        let location = "s3://my_bucket/my_table/metadata/bar"
+            .parse::<Location>()
+            .unwrap();
+        let request = view_request(Some(*view_uuid), &location);
         let mut tx = pool.begin().await.unwrap();
         super::create_view(
             namespace_id,
-            "s3://my_bucket/my_table/metadata/bar",
+            &format!(
+                "s3://my_bucket/my_table/metadata/bar/metadata-{}.gz.json",
+                Uuid::now_v7()
+            )
+            .parse()
+            .unwrap(),
             &mut tx,
             "myview",
             request.clone(),
+            &location,
         )
         .await
         .unwrap();
@@ -668,10 +691,16 @@ pub(crate) mod tests {
         // recreate with same uuid should fail
         let created_view = super::create_view(
             namespace_id,
-            "s3://my_bucket/my_table/metadata/bar",
+            &format!(
+                "s3://my_bucket/my_table/metadata/barz/metadata-{}.gz.json",
+                Uuid::now_v7()
+            )
+            .parse()
+            .unwrap(),
             &mut tx,
             "myview2",
             request.clone(),
+            &"s3://my_bucket/my_table/metadata/barz".parse().unwrap(),
         )
         .await
         .expect_err("recreation should fail");
@@ -684,17 +713,23 @@ pub(crate) mod tests {
         // recreate with other uuid should fail
         let created_view = super::create_view(
             namespace_id,
-            "s3://my_bucket/my_table/metadata/bar",
+            &format!(
+                "s3://my_bucket/my_table/metadata/bar/metadata-{}.gz.json",
+                Uuid::now_v7()
+            )
+            .parse()
+            .unwrap(),
             &mut tx,
             "myview",
             ViewMetadataBuilder::new(request.clone())
                 .assign_uuid(Uuid::now_v7())
                 .build()
                 .unwrap(),
+            &"s3://my_bucket/my_table/metadata/bar".parse().unwrap(),
         )
         .await
         .expect_err("recreation should fail");
-        assert_eq!(created_view.error.code, 409, "{}", created_view.error);
+        assert_eq!(created_view.error.code, 409, "{:?}", created_view.error);
 
         tx.commit().await.unwrap();
 
@@ -833,16 +868,23 @@ pub(crate) mod tests {
                 &namespace,
             )
             .await;
-
-        let request = view_request(None);
-
+        let location = "s3://my_bucket/my_table/metadata/bar"
+            .parse::<Location>()
+            .unwrap();
+        let request = view_request(None, &location);
         let mut tx = pool.begin().await.unwrap();
         super::create_view(
             namespace_id,
-            "s3://my_bucket/my_table/metadata/bar",
+            &format!(
+                "s3://my_bucket/my_table/metadata/bar/metadata-{}.gz.json",
+                Uuid::now_v7()
+            )
+            .parse()
+            .unwrap(),
             &mut tx,
             "myview",
             request.clone(),
+            &location,
         )
         .await
         .unwrap();

@@ -26,7 +26,7 @@ use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
-    LoadTableResponse as CatalogLoadTableResult, State, Transaction,
+    LoadTableResponse as CatalogLoadTableResult, State, TableCreation, Transaction,
 };
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 
@@ -121,14 +121,14 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let namespace = C::get_namespace(warehouse_id, &namespace, t.transaction()).await?;
         let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
-        let storage_profile = warehouse.storage_profile;
+        let storage_profile = &warehouse.storage_profile;
         require_active_warehouse(warehouse.status)?;
 
         let table_location = determine_tabular_location(
             &namespace,
             request.location.clone(),
             TabularIdentUuid::Table(*table_id),
-            &storage_profile,
+            storage_profile,
         )?;
 
         // Update the request for event
@@ -151,13 +151,17 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let body = maybe_body_to_json(&request);
 
         let CreateTableResponse { table_metadata } = C::create_table(
-            namespace.namespace_id,
-            &table,
-            TableIdentUuid::from(*table_id),
-            request,
-            metadata_location
-                .as_ref()
-                .map(iceberg_ext::configs::Location::as_str),
+            TableCreation {
+                namespace_id: namespace.namespace_id,
+                table_ident: &table,
+                table_id: (*table_id).into(),
+                table_location: &table_location,
+                table_schema: request.schema,
+                table_partition_spec: request.partition_spec,
+                table_write_order: request.write_order,
+                table_properties: request.properties,
+                metadata_location: metadata_location.as_ref(),
+            },
             t.transaction(),
         )
         .await?;
@@ -170,8 +174,23 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             None
         };
 
+        let file_io = storage_profile.file_io(storage_secret.as_ref())?;
+
+        crate::service::storage::check_location_is_empty(
+            &file_io,
+            &table_location,
+            storage_profile,
+            || crate::service::storage::ValidationError::InvalidLocation {
+                reason: "Unexpected files in location, tabular locations have to be empty"
+                    .to_string(),
+                location: table_location.to_string(),
+                source: None,
+                storage_type: storage_profile.storage_type(),
+            },
+        )
+        .await?;
+
         if let Some(metadata_location) = &metadata_location {
-            let file_io = storage_profile.file_io(storage_secret.as_ref())?;
             let compression_codec = CompressionCodec::try_from_metadata(&table_metadata)?;
             write_metadata_file(
                 metadata_location,
@@ -184,6 +203,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         // This requires the storage secret
         // because the table config might contain vended-credentials based
+        //
         // on the `data_access` parameter.
         let config = storage_profile
             .generate_table_config(
@@ -229,12 +249,12 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         _state: ApiContext<State<A, C, S>>,
         _request_metadata: RequestMetadata,
     ) -> Result<LoadTableResult> {
-        Err(ErrorModel::builder()
-            .code(StatusCode::NOT_IMPLEMENTED.into())
-            .message("Registering tables is not supported".to_string())
-            .r#type("RegisterTableNotSupported".to_string())
-            .build()
-            .into())
+        Err(ErrorModel::not_implemented(
+            "Registering tables is not supported",
+            "RegisterTableNotSupported",
+            None,
+        )
+        .into())
     }
 
     /// Load a table from the catalog
@@ -333,7 +353,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             )
         })?;
         let load_table_result = LoadTableResult {
-            metadata_location,
+            metadata_location: metadata_location.as_ref().map(ToString::to_string),
             metadata: table_metadata,
             config: Some(
                 storage_profile
@@ -458,8 +478,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let storage_secret =
             maybe_get_secret(warehouse.storage_secret_id, &state.v1_state.secrets).await?;
 
-        // Write metadata file
         let file_io = warehouse.storage_profile.file_io(storage_secret.as_ref())?;
+
+        // Write metadata file
         write_metadata_file(
             &commit.new_metadata_location,
             &commit.new_metadata,
@@ -1166,7 +1187,7 @@ fn require_table_id(
     })
 }
 
-fn require_not_staged(metadata_location: &Option<String>) -> Result<()> {
+fn require_not_staged<T>(metadata_location: &Option<T>) -> Result<()> {
     if metadata_location.is_none() {
         return Err(ErrorModel::not_found(
             "Table not found or staged.",

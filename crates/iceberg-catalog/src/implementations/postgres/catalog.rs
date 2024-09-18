@@ -4,8 +4,9 @@ use super::{
         update_namespace_properties,
     },
     tabular::table::{
-        commit_table_transaction, create_table, drop_table, get_table_metadata_by_id, list_tables,
-        load_tables, rename_table, table_ident_to_id, table_idents_to_ids,
+        commit_table_transaction, create_table, drop_table, get_table_metadata_by_id,
+        get_table_metadata_by_s3_location, list_tables, load_tables, rename_table,
+        table_ident_to_id, table_idents_to_ids,
     },
     warehouse::{
         create_warehouse, delete_warehouse, get_warehouse, list_projects, list_warehouses,
@@ -13,18 +14,16 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
-
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
-use crate::implementations::postgres::tabular::table::get_table_id_by_s3_location;
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
 use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_deleted};
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use crate::service::{
-    CreateNamespaceRequest, CreateNamespaceResponse, CreateTableRequest, DeletionDetails,
-    GetWarehouseResponse, ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent,
-    Result, TableIdent, WarehouseStatus,
+    CreateNamespaceRequest, CreateNamespaceResponse, DeletionDetails, GetWarehouseResponse,
+    ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result, TableCreation,
+    TableIdent, WarehouseStatus,
 };
 use crate::{
     api::iceberg::v1::{PaginatedTabulars, PaginationQuery},
@@ -124,23 +123,10 @@ impl Catalog for super::PostgresCatalog {
     }
 
     async fn create_table<'a>(
-        namespace_id: NamespaceIdentUuid,
-        table: &TableIdent,
-        table_id: TableIdentUuid,
-        request: CreateTableRequest,
-        // Metadata location may be none if stage-create is true
-        metadata_location: Option<&str>,
+        table_creation: TableCreation<'_>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<CreateTableResponse> {
-        create_table(
-            namespace_id,
-            table,
-            table_id,
-            request,
-            metadata_location,
-            transaction,
-        )
-        .await
+        create_table(table_creation, transaction).await
     }
 
     async fn list_tables(
@@ -179,13 +165,13 @@ impl Catalog for super::PostgresCatalog {
         get_table_metadata_by_id(warehouse_id, table, list_flags, catalog_state).await
     }
 
-    async fn get_table_id_by_s3_location(
+    async fn get_table_metadata_by_s3_location(
         warehouse_id: WarehouseIdent,
         location: &Location,
-        list_flags: ListFlags,
+        list_flags: crate::service::ListFlags,
         catalog_state: Self::State,
-    ) -> Result<TableIdentUuid> {
-        get_table_id_by_s3_location(warehouse_id, location, list_flags, catalog_state).await
+    ) -> Result<GetTableMetadataResponse> {
+        get_table_metadata_by_s3_location(warehouse_id, location, list_flags, catalog_state).await
     }
 
     async fn table_ident_to_id(
@@ -293,7 +279,8 @@ impl Catalog for super::PostgresCatalog {
         namespace_id: NamespaceIdentUuid,
         view: &TableIdent,
         request: ViewMetadata,
-        metadata_location: &str,
+        metadata_location: &'_ Location,
+        location: &'_ Location,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()> {
         create_view(
@@ -302,6 +289,7 @@ impl Catalog for super::PostgresCatalog {
             transaction,
             view.name.as_str(),
             request,
+            location,
         )
         .await
     }
@@ -343,8 +331,9 @@ impl Catalog for super::PostgresCatalog {
         namespace_id: NamespaceIdentUuid,
         view_id: TableIdentUuid,
         view: &TableIdent,
-        metadata_location: &str,
+        metadata_location: &Location,
         metadata: ViewMetadata,
+        location: &Location,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()> {
         drop_view(view_id, transaction).await?;
@@ -354,6 +343,7 @@ impl Catalog for super::PostgresCatalog {
             transaction,
             &view.name,
             metadata,
+            location,
         )
         .await
     }
