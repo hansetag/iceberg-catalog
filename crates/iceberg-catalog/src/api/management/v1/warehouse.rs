@@ -1,14 +1,14 @@
 use crate::api::management::v1::{ApiServer, DeletedTabularResponse, ListDeletedTabularsResponse};
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
-pub use crate::service::object_stores::{
+pub use crate::service_modules::object_stores::{
     AzCredential, AzdlsProfile, S3Credential, S3Profile, StorageCredential, StorageProfile,
 };
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 
-pub use crate::service::WarehouseStatus;
-use crate::service::{
+pub use crate::service_modules::WarehouseStatus;
+use crate::service_modules::{
     auth::AuthZHandler, secrets::SecretStore, CatalogBackend, ListFlags, State, Transaction,
 };
 use crate::{ProjectIdent, WarehouseIdent, CONFIG};
@@ -575,8 +575,8 @@ impl axum::response::IntoResponse for GetWarehouseResponse {
     }
 }
 
-impl From<crate::service::GetWarehouseResponse> for GetWarehouseResponse {
-    fn from(warehouse: crate::service::GetWarehouseResponse) -> Self {
+impl From<crate::service_modules::GetWarehouseResponse> for GetWarehouseResponse {
+    fn from(warehouse: crate::service_modules::GetWarehouseResponse) -> Self {
         Self {
             id: warehouse.id.to_uuid(),
             name: warehouse.name,

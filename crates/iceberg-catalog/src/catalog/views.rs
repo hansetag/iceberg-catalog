@@ -15,7 +15,7 @@ use crate::api::iceberg::v1::{
     ViewParameters,
 };
 use crate::request_metadata::RequestMetadata;
-use crate::service::{auth::AuthZHandler, secrets::SecretStore, CatalogBackend, State};
+use crate::service_modules::{auth::AuthZHandler, secrets::SecretStore, CatalogBackend, State};
 use iceberg_ext::catalog::rest::ViewUpdate;
 
 #[async_trait::async_trait]
@@ -121,23 +121,23 @@ mod test {
     use crate::api::ApiContext;
     use std::sync::Arc;
 
-    use crate::service::catalog_backends::implementations::postgres::warehouse::test::initialize_warehouse;
-    use crate::service::catalog_backends::implementations::postgres::{
+    use crate::service_modules::catalog_backends::implementations::postgres::warehouse::test::initialize_warehouse;
+    use crate::service_modules::catalog_backends::implementations::postgres::{
         CatalogState, PostgresCatalog, ReadWrite, SecretsState,
     };
-    use crate::service::catalog_backends::implementations::{
+    use crate::service_modules::catalog_backends::implementations::{
         AllowAllAuthState, AllowAllAuthZHandler,
     };
-    use crate::service::contract_verification::ContractVerifiers;
-    use crate::service::event_publisher::CloudEventsPublisher;
-    use crate::service::object_stores::{StorageProfile, TestProfile};
-    use crate::service::State;
+    use crate::service_modules::contract_verification::ContractVerifiers;
+    use crate::service_modules::event_publisher::CloudEventsPublisher;
+    use crate::service_modules::object_stores::{StorageProfile, TestProfile};
+    use crate::service_modules::State;
     use crate::{WarehouseIdent, CONFIG};
 
     use iceberg::NamespaceIdent;
 
-    use crate::service::catalog_backends::implementations::postgres::namespace::tests::initialize_namespace;
-    use crate::service::task_queue::TaskQueues;
+    use crate::service_modules::catalog_backends::implementations::postgres::namespace::tests::initialize_namespace;
+    use crate::service_modules::task_queue::TaskQueues;
     use sqlx::PgPool;
     use uuid::Uuid;
 
@@ -185,10 +185,10 @@ mod test {
                 contract_verifiers: ContractVerifiers::new(vec![]),
                 queues: TaskQueues::new(
                     Arc::new(
-                        crate::service::catalog_backends::implementations::postgres::task_queues::TabularExpirationQueue::from_config(ReadWrite::from_pools(pool.clone(), pool.clone()), CONFIG.queue_config.clone()).unwrap(),
+                        crate::service_modules::catalog_backends::implementations::postgres::task_queues::TabularExpirationQueue::from_config(ReadWrite::from_pools(pool.clone(), pool.clone()), CONFIG.queue_config.clone()).unwrap(),
                     ),
                     Arc::new(
-                        crate::service::catalog_backends::implementations::postgres::task_queues::TabularPurgeQueue::from_config(ReadWrite::from_pools(pool.clone(), pool), CONFIG.queue_config.clone()).unwrap()
+                        crate::service_modules::catalog_backends::implementations::postgres::task_queues::TabularPurgeQueue::from_config(ReadWrite::from_pools(pool.clone(), pool), CONFIG.queue_config.clone()).unwrap()
                     )
                 )
             },

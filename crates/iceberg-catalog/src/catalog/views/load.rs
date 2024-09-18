@@ -5,10 +5,12 @@ use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{require_active_warehouse, validate_table_or_view_ident};
 use crate::request_metadata::RequestMetadata;
-use crate::service::auth::AuthZHandler;
-use crate::service::object_stores::{StorageCredential, StoragePermissions};
-use crate::service::{CatalogBackend, SecretStore, State, Transaction, ViewMetadataWithLocation};
-use crate::service::{GetWarehouseResponse, Result};
+use crate::service_modules::auth::AuthZHandler;
+use crate::service_modules::object_stores::{StorageCredential, StoragePermissions};
+use crate::service_modules::{
+    CatalogBackend, SecretStore, State, Transaction, ViewMetadataWithLocation,
+};
+use crate::service_modules::{GetWarehouseResponse, Result};
 use http::StatusCode;
 use iceberg_ext::catalog::rest::{ErrorModel, LoadViewResult};
 use iceberg_ext::configs::Location;
@@ -126,12 +128,12 @@ pub(crate) mod test {
     use crate::api::ApiContext;
     use crate::catalog::CatalogServer;
 
-    use crate::service::catalog_backends::implementations::postgres::secrets::SecretsState;
+    use crate::service_modules::catalog_backends::implementations::postgres::secrets::SecretsState;
 
-    use crate::service::catalog_backends::implementations::postgres::PostgresCatalog;
-    use crate::service::catalog_backends::implementations::AllowAllAuthZHandler;
+    use crate::service_modules::catalog_backends::implementations::postgres::PostgresCatalog;
+    use crate::service_modules::catalog_backends::implementations::AllowAllAuthZHandler;
 
-    use crate::service::State;
+    use crate::service_modules::State;
 
     use iceberg::TableIdent;
     use iceberg_ext::catalog::rest::{CreateViewRequest, LoadViewResult};

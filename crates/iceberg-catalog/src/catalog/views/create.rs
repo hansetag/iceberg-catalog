@@ -10,12 +10,12 @@ use crate::catalog::tables::{
 use crate::catalog::views::validate_view_properties;
 use crate::catalog::{maybe_get_secret, require_warehouse_id};
 use crate::request_metadata::RequestMetadata;
-use crate::service::auth::AuthZHandler;
-use crate::service::event_publisher::EventMetadata;
-use crate::service::object_stores::{StorageLocations as _, StoragePermissions};
-use crate::service::tabular_idents::TabularIdentUuid;
-use crate::service::Result;
-use crate::service::{CatalogBackend, SecretStore, State, Transaction};
+use crate::service_modules::auth::AuthZHandler;
+use crate::service_modules::event_publisher::EventMetadata;
+use crate::service_modules::object_stores::{StorageLocations as _, StoragePermissions};
+use crate::service_modules::tabular_idents::TabularIdentUuid;
+use crate::service_modules::Result;
+use crate::service_modules::{CatalogBackend, SecretStore, State, Transaction};
 use http::StatusCode;
 use iceberg::spec::ViewMetadataBuilder;
 use iceberg::{TableIdent, ViewCreation};
@@ -189,9 +189,9 @@ pub(crate) async fn create_view<C: CatalogBackend, A: AuthZHandler, S: SecretSto
 pub(crate) mod test {
     use super::*;
 
-    use crate::service::catalog_backends::implementations::postgres::namespace::tests::initialize_namespace;
-    use crate::service::catalog_backends::implementations::postgres::secrets::SecretsState;
-    use crate::service::catalog_backends::implementations::AllowAllAuthZHandler;
+    use crate::service_modules::catalog_backends::implementations::postgres::namespace::tests::initialize_namespace;
+    use crate::service_modules::catalog_backends::implementations::postgres::secrets::SecretsState;
+    use crate::service_modules::catalog_backends::implementations::AllowAllAuthZHandler;
 
     use iceberg::NamespaceIdent;
     use serde_json::json;
@@ -201,7 +201,7 @@ pub(crate) mod test {
         api_context: ApiContext<
             State<
                 AllowAllAuthZHandler,
-                crate::service::catalog_backends::implementations::postgres::PostgresCatalog,
+                crate::service_modules::catalog_backends::implementations::postgres::PostgresCatalog,
                 SecretsState,
             >,
         >,

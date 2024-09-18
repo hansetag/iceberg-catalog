@@ -1,14 +1,14 @@
-use crate::service::event_publisher::CloudEventsPublisher;
+use crate::service_modules::event_publisher::CloudEventsPublisher;
 use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
 
 use super::management::v1::ManagementApiDoc;
 use crate::api::management::v1::ApiServer;
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
-use crate::service::contract_verification::ContractVerifiers;
-use crate::service::health::ServiceHealthProvider;
-use crate::service::task_queue::TaskQueues;
-use crate::service::token_verification::Verifier;
-use crate::service::{
+use crate::service_modules::contract_verification::ContractVerifiers;
+use crate::service_modules::health::ServiceHealthProvider;
+use crate::service_modules::task_queue::TaskQueues;
+use crate::service_modules::token_verification::Verifier;
+use crate::service_modules::{
     auth::{AuthConfigHandler, AuthZHandler},
     config::ConfigProvider,
     CatalogBackend, SecretStore, State,
@@ -112,7 +112,7 @@ fn maybe_add_auth<C: CatalogBackend, A: AuthZHandler, S: SecretStore>(
     if let Some(token_verifier) = token_verifier {
         router.layer(axum::middleware::from_fn_with_state(
             token_verifier,
-            crate::service::token_verification::auth_middleware_fn,
+            crate::service_modules::token_verification::auth_middleware_fn,
         ))
     } else {
         router

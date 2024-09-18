@@ -7,7 +7,7 @@ use iceberg_ext::{
     spec::TableMetadataAggregate,
 };
 
-use crate::service::{ErrorModel, Result};
+use crate::service_modules::{ErrorModel, Result};
 
 /// Apply the commits to table metadata.
 pub(super) fn apply_commit(

@@ -12,11 +12,11 @@ use crate::catalog::tables::{
 };
 use crate::catalog::views::validate_view_updates;
 use crate::request_metadata::RequestMetadata;
-use crate::service::contract_verification::ContractVerification;
-use crate::service::event_publisher::EventMetadata;
-use crate::service::object_stores::{StorageLocations as _, StoragePermissions};
-use crate::service::tabular_idents::TabularIdentUuid;
-use crate::service::{
+use crate::service_modules::contract_verification::ContractVerification;
+use crate::service_modules::event_publisher::EventMetadata;
+use crate::service_modules::object_stores::{StorageLocations as _, StoragePermissions};
+use crate::service_modules::tabular_idents::TabularIdentUuid;
+use crate::service_modules::{
     auth::AuthZHandler, secrets::SecretStore, CatalogBackend, GetWarehouseResponse, State,
     Transaction, ViewMetadataWithLocation,
 };

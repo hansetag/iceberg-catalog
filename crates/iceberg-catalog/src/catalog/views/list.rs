@@ -4,8 +4,8 @@ use crate::api::Result;
 use crate::catalog::namespace::validate_namespace_ident;
 use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
-use crate::service::auth::AuthZHandler;
-use crate::service::{CatalogBackend, SecretStore, State};
+use crate::service_modules::auth::AuthZHandler;
+use crate::service_modules::{CatalogBackend, SecretStore, State};
 use iceberg_ext::catalog::rest::ListTablesResponse;
 
 pub(crate) async fn list_views<C: CatalogBackend, A: AuthZHandler, S: SecretStore>(

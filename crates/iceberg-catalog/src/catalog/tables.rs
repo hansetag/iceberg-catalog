@@ -18,17 +18,21 @@ use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::api::management::v1::TabularType;
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
-use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
-use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::object_stores::{StorageLocations as _, StoragePermissions, StorageProfile};
-use crate::service::tabular_idents::TabularIdentUuid;
-use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
-use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
-use crate::service::{
+use crate::service_modules::contract_verification::{
+    ContractVerification, ContractVerificationOutcome,
+};
+use crate::service_modules::event_publisher::{CloudEventsPublisher, EventMetadata};
+use crate::service_modules::object_stores::{
+    StorageLocations as _, StoragePermissions, StorageProfile,
+};
+use crate::service_modules::tabular_idents::TabularIdentUuid;
+use crate::service_modules::task_queue::tabular_expiration_queue::TabularExpirationInput;
+use crate::service_modules::task_queue::tabular_purge_queue::TabularPurgeInput;
+use crate::service_modules::{
     auth::AuthZHandler, secrets::SecretStore, CatalogBackend, CreateTableResponse, ListFlags,
     LoadTableResponse as CatalogLoadTableResult, State, TableCreation, Transaction,
 };
-use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
+use crate::service_modules::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
@@ -176,11 +180,11 @@ impl<C: CatalogBackend, A: AuthZHandler, S: SecretStore>
 
         let file_io = storage_profile.file_io(storage_secret.as_ref())?;
 
-        crate::service::object_stores::check_location_is_empty(
+        crate::service_modules::object_stores::check_location_is_empty(
             &file_io,
             &table_location,
             storage_profile,
-            || crate::service::object_stores::ValidationError::InvalidLocation {
+            || crate::service_modules::object_stores::ValidationError::InvalidLocation {
                 reason: "Unexpected files in location, tabular locations have to be empty"
                     .to_string(),
                 location: table_location.to_string(),

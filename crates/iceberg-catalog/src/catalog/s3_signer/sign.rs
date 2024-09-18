@@ -14,10 +14,10 @@ use super::super::CatalogServer;
 use super::error::SignError;
 use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
-use crate::service::object_stores::{S3Location, S3Profile, StorageCredential};
-use crate::service::secrets::SecretStore;
-use crate::service::{auth::AuthZHandler, CatalogBackend, ListFlags, State};
-use crate::service::{GetTableMetadataResponse, TableIdentUuid};
+use crate::service_modules::object_stores::{S3Location, S3Profile, StorageCredential};
+use crate::service_modules::secrets::SecretStore;
+use crate::service_modules::{auth::AuthZHandler, CatalogBackend, ListFlags, State};
+use crate::service_modules::{GetTableMetadataResponse, TableIdentUuid};
 use crate::WarehouseIdent;
 
 const READ_METHODS: &[&str] = &["GET", "HEAD"];
@@ -388,7 +388,7 @@ fn validate_uri(
 
 pub(super) mod s3_utils {
     use super::{ErrorModel, Result};
-    use crate::service::object_stores::S3Location;
+    use crate::service_modules::object_stores::S3Location;
     use lazy_regex::regex;
 
     #[derive(Debug)]
@@ -469,7 +469,7 @@ pub(super) mod s3_utils {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::service::object_stores::S3Flavor;
+    use crate::service_modules::object_stores::S3Flavor;
 
     #[derive(Debug)]
     struct TC {

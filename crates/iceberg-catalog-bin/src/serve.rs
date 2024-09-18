@@ -1,43 +1,43 @@
 use anyhow::{anyhow, Error};
 use iceberg_catalog::api::router::{new_full_router, serve as service_serve};
-use iceberg_catalog::service::catalog_backends::implementations::postgres::{
+use iceberg_catalog::service_modules::catalog_backends::implementations::postgres::{
     CatalogState, PostgresCatalog, ReadWrite,
 };
-use iceberg_catalog::service::catalog_backends::implementations::{
+use iceberg_catalog::service_modules::catalog_backends::implementations::{
     AllowAllAuthState, AllowAllAuthZHandler,
 };
-use iceberg_catalog::service::contract_verification::ContractVerifiers;
-use iceberg_catalog::service::event_publisher::{
+use iceberg_catalog::service_modules::contract_verification::ContractVerifiers;
+use iceberg_catalog::service_modules::event_publisher::{
     CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
     NatsBackend,
 };
-use iceberg_catalog::service::health::ServiceHealthProvider;
-use iceberg_catalog::service::secrets::Secrets;
-use iceberg_catalog::service::token_verification::Verifier;
+use iceberg_catalog::service_modules::health::ServiceHealthProvider;
+use iceberg_catalog::service_modules::secrets::Secrets;
+use iceberg_catalog::service_modules::token_verification::Verifier;
 use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
 
-use iceberg_catalog::service::catalog_backends::implementations::postgres::task_queues::{
+use iceberg_catalog::service_modules::catalog_backends::implementations::postgres::task_queues::{
     TabularExpirationQueue, TabularPurgeQueue,
 };
-use iceberg_catalog::service::task_queue::TaskQueues;
+use iceberg_catalog::service_modules::task_queue::TaskQueues;
 use std::sync::Arc;
 
 pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
     let read_pool =
-        iceberg_catalog::service::catalog_backends::implementations::postgres::get_reader_pool(
+        iceberg_catalog::service_modules::catalog_backends::implementations::postgres::get_reader_pool(
             CONFIG.to_pool_opts(),
         )
         .await?;
     let write_pool =
-        iceberg_catalog::service::catalog_backends::implementations::postgres::get_writer_pool(
+        iceberg_catalog::service_modules::catalog_backends::implementations::postgres::get_writer_pool(
             CONFIG.to_pool_opts(),
         )
         .await?;
 
     let catalog_state = CatalogState::from_pools(read_pool.clone(), write_pool.clone());
     let secrets_state: Secrets = match CONFIG.secret_backend {
-        SecretBackend::KV2 => iceberg_catalog::service::catalog_backends::implementations::kv2::SecretsState::from_config(
+        SecretBackend::KV2 => iceberg_catalog::service_modules::catalog_backends::implementations::kv2::SecretsState::from_config(
             CONFIG
                 .kv2
                 .as_ref()
@@ -46,7 +46,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         .await?
         .into(),
         SecretBackend::Postgres => {
-            iceberg_catalog::service::catalog_backends::implementations::postgres::SecretsState::from_pools(
+            iceberg_catalog::service_modules::catalog_backends::implementations::postgres::SecretsState::from_pools(
                 read_pool.clone(),
                 write_pool.clone(),
             )

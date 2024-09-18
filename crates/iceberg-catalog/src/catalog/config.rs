@@ -7,8 +7,8 @@ use http::StatusCode;
 use std::marker::PhantomData;
 use std::str::FromStr;
 
-use crate::service::SecretStore;
-use crate::service::{
+use crate::service_modules::SecretStore;
+use crate::service_modules::{
     auth::{AuthConfigHandler, AuthZHandler, UserWarehouse},
     config::ConfigProvider,
     CatalogBackend, ProjectIdent, State,

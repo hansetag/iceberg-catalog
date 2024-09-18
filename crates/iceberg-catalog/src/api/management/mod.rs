@@ -5,13 +5,13 @@ pub mod v1 {
 
     use crate::api::{ApiContext, Result};
     use crate::request_metadata::RequestMetadata;
-    use crate::service::auth::AuthZHandler;
+    use crate::service_modules::auth::AuthZHandler;
     use std::marker::PhantomData;
 
     use crate::api::iceberg::v1::PaginationQuery;
 
-    use crate::service::tabular_idents::TabularIdentUuid;
-    use crate::service::{object_stores::S3Flavor, CatalogBackend, SecretStore, State};
+    use crate::service_modules::tabular_idents::TabularIdentUuid;
+    use crate::service_modules::{object_stores::S3Flavor, CatalogBackend, SecretStore, State};
     use axum::extract::{Path, Query, State as AxumState};
     use axum::routing::{get, post};
     use serde::Serialize;

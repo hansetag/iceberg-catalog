@@ -5,11 +5,11 @@ use crate::api::iceberg::v1::{
     UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 use crate::request_metadata::RequestMetadata;
-use crate::service::{
+use crate::service_modules::{
     auth::AuthZHandler, secrets::SecretStore, CatalogBackend, NamespaceIdentExt, State,
     Transaction as _,
 };
-use crate::service::{GetWarehouseResponse, NamespaceIdentUuid};
+use crate::service_modules::{GetWarehouseResponse, NamespaceIdentUuid};
 use crate::CONFIG;
 use http::StatusCode;
 use iceberg::NamespaceIdent;

@@ -11,8 +11,8 @@ pub mod api;
 
 pub mod catalog;
 mod config;
-pub mod service;
-pub use service::{ProjectIdent, SecretIdent, WarehouseIdent};
+pub mod service_modules;
+pub use service_modules::{ProjectIdent, SecretIdent, WarehouseIdent};
 
 pub use config::{SecretBackend, CONFIG};
 
