@@ -77,6 +77,8 @@ pub struct Claims {
     pub aud: Aud,
     pub exp: usize,
     pub iat: usize,
+
+    pub name: Option<String>,
     #[serde(
         alias = "given_name",
         alias = "given-name",
@@ -110,6 +112,13 @@ pub struct Claims {
 impl Claims {
     #[must_use]
     pub fn name(&self) -> Option<String> {
+        // TODO: keycloak sets name, first_name and last_name, we're using name here
+        //       if all are returned, this may not be the case for every idp, should
+        //       we make this depend on what idp is configured? That's the airflow way
+        if let Some(name) = self.name.as_deref() {
+            return Some(name.to_string());
+        }
+
         match (self.first_name.as_deref(), self.last_name.as_deref()) {
             (Some(first), Some(last)) => Some(format!("{first} {last}")),
             (Some(first), None) => Some(first.to_string()),
