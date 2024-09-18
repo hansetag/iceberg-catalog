@@ -230,7 +230,7 @@ mod test {
         use crate::service::catalog_backends::implementations::postgres::{
             CatalogState, PostgresCatalog,
         };
-        use crate::service::storage::{
+        use crate::service::object_stores::{
             S3Credential, S3Flavor, S3Profile, StorageCredential, StorageProfile,
         };
         use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;

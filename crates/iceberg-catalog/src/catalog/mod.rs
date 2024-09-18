@@ -15,7 +15,7 @@ use iceberg_ext::catalog::rest::IcebergErrorResponse;
 pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
 
 use crate::api::{iceberg::v1::Prefix, ErrorModel, Result};
-use crate::service::storage::StorageCredential;
+use crate::service::object_stores::StorageCredential;
 use crate::{
     service::{auth::AuthZHandler, secrets::SecretStore, CatalogBackend},
     WarehouseIdent,

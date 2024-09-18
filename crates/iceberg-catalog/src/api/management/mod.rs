@@ -11,7 +11,7 @@ pub mod v1 {
     use crate::api::iceberg::v1::PaginationQuery;
 
     use crate::service::tabular_idents::TabularIdentUuid;
-    use crate::service::{storage::S3Flavor, CatalogBackend, SecretStore, State};
+    use crate::service::{object_stores::S3Flavor, CatalogBackend, SecretStore, State};
     use axum::extract::{Path, Query, State as AxumState};
     use axum::routing::{get, post};
     use serde::Serialize;

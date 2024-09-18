@@ -33,7 +33,7 @@ use crate::{
 };
 use crate::{
     service::{
-        storage::StorageProfile, CatalogBackend, CreateTableResponse, GetNamespaceResponse,
+        object_stores::StorageProfile, CatalogBackend, CreateTableResponse, GetNamespaceResponse,
         GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid, ProjectIdent,
         TableIdentUuid, Transaction, WarehouseIdent,
     },

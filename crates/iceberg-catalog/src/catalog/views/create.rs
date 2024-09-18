@@ -12,7 +12,7 @@ use crate::catalog::{maybe_get_secret, require_warehouse_id};
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
 use crate::service::event_publisher::EventMetadata;
-use crate::service::storage::{StorageLocations as _, StoragePermissions};
+use crate::service::object_stores::{StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::Result;
 use crate::service::{CatalogBackend, SecretStore, State, Transaction};

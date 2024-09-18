@@ -14,8 +14,8 @@ use super::super::CatalogServer;
 use super::error::SignError;
 use crate::catalog::require_warehouse_id;
 use crate::request_metadata::RequestMetadata;
+use crate::service::object_stores::{S3Location, S3Profile, StorageCredential};
 use crate::service::secrets::SecretStore;
-use crate::service::storage::{S3Location, S3Profile, StorageCredential};
 use crate::service::{auth::AuthZHandler, CatalogBackend, ListFlags, State};
 use crate::service::{GetTableMetadataResponse, TableIdentUuid};
 use crate::WarehouseIdent;
@@ -388,7 +388,7 @@ fn validate_uri(
 
 pub(super) mod s3_utils {
     use super::{ErrorModel, Result};
-    use crate::service::storage::S3Location;
+    use crate::service::object_stores::S3Location;
     use lazy_regex::regex;
 
     #[derive(Debug)]
@@ -469,7 +469,7 @@ pub(super) mod s3_utils {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::service::storage::S3Flavor;
+    use crate::service::object_stores::S3Flavor;
 
     #[derive(Debug)]
     struct TC {

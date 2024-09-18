@@ -20,7 +20,7 @@ use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
-use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
+use crate::service::object_stores::{StorageLocations as _, StoragePermissions, StorageProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
@@ -176,11 +176,11 @@ impl<C: CatalogBackend, A: AuthZHandler, S: SecretStore>
 
         let file_io = storage_profile.file_io(storage_secret.as_ref())?;
 
-        crate::service::storage::check_location_is_empty(
+        crate::service::object_stores::check_location_is_empty(
             &file_io,
             &table_location,
             storage_profile,
-            || crate::service::storage::ValidationError::InvalidLocation {
+            || crate::service::object_stores::ValidationError::InvalidLocation {
                 reason: "Unexpected files in location, tabular locations have to be empty"
                     .to_string(),
                 location: table_location.to_string(),

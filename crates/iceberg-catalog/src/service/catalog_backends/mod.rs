@@ -1,6 +1,6 @@
 use super::{
-    storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent,
-    WarehouseStatus,
+    object_stores::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid,
+    WarehouseIdent, WarehouseStatus,
 };
 pub use crate::api::iceberg::v1::{
     CreateNamespaceRequest, CreateNamespaceResponse, ListNamespacesQuery, ListNamespacesResponse,

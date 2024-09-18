@@ -14,7 +14,7 @@ use crate::catalog::views::validate_view_updates;
 use crate::request_metadata::RequestMetadata;
 use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;
-use crate::service::storage::{StorageLocations as _, StoragePermissions};
+use crate::service::object_stores::{StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::{
     auth::AuthZHandler, secrets::SecretStore, CatalogBackend, GetWarehouseResponse, State,

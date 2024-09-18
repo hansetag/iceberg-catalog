@@ -4,7 +4,7 @@ use crate::service::catalog_backends::implementations::postgres::{
 use crate::service::{TableCommit, TableCreation};
 use crate::{
     service::{
-        storage::StorageProfile, CreateTableResponse, ErrorModel, GetTableMetadataResponse,
+        object_stores::StorageProfile, CreateTableResponse, ErrorModel, GetTableMetadataResponse,
         LoadTableResponse, Result, TableIdent, TableIdentUuid,
     },
     SecretIdent, WarehouseIdent,

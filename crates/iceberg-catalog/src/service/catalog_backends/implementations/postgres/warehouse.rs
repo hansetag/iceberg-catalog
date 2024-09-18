@@ -2,7 +2,7 @@ use super::dbutils::DBErrorHandler as _;
 use crate::api::{CatalogConfig, ErrorModel, Result};
 use crate::service::config::ConfigProvider;
 use crate::service::{GetWarehouseResponse, WarehouseStatus};
-use crate::{service::storage::StorageProfile, ProjectIdent, SecretIdent, WarehouseIdent};
+use crate::{service::object_stores::StorageProfile, ProjectIdent, SecretIdent, WarehouseIdent};
 use http::StatusCode;
 use sqlx::Error;
 use std::collections::HashSet;
@@ -438,10 +438,10 @@ impl From<TabularDeleteProfile> for DbTabularDeleteProfile {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::service::storage::S3Flavor;
+    use crate::service::object_stores::S3Flavor;
     use crate::{
         service::catalog_backends::implementations::postgres::PostgresTransaction,
-        service::{storage::S3Profile, CatalogBackend as _, Transaction as _},
+        service::{object_stores::S3Profile, CatalogBackend as _, Transaction as _},
     };
 
     pub(crate) async fn initialize_warehouse(

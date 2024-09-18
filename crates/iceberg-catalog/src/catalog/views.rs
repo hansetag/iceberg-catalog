@@ -130,7 +130,7 @@ mod test {
     };
     use crate::service::contract_verification::ContractVerifiers;
     use crate::service::event_publisher::CloudEventsPublisher;
-    use crate::service::storage::{StorageProfile, TestProfile};
+    use crate::service::object_stores::{StorageProfile, TestProfile};
     use crate::service::State;
     use crate::{WarehouseIdent, CONFIG};
 

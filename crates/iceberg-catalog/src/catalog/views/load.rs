@@ -6,7 +6,7 @@ use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{require_active_warehouse, validate_table_or_view_ident};
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
-use crate::service::storage::{StorageCredential, StoragePermissions};
+use crate::service::object_stores::{StorageCredential, StoragePermissions};
 use crate::service::{CatalogBackend, SecretStore, State, Transaction, ViewMetadataWithLocation};
 use crate::service::{GetWarehouseResponse, Result};
 use http::StatusCode;
