@@ -3,11 +3,11 @@ use crate::api::iceberg::v1::{DataAccess, NamespaceParameters};
 use crate::api::ApiContext;
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::catalog::io::write_metadata_file;
-use crate::catalog::tables::{
+use crate::catalog::tabulars::tables::{
     determine_tabular_location, maybe_body_to_json, require_active_warehouse,
     validate_table_or_view_ident,
 };
-use crate::catalog::views::validate_view_properties;
+use crate::catalog::tabulars::views::validate_view_properties;
 use crate::catalog::{maybe_get_secret, require_warehouse_id};
 use crate::request_metadata::RequestMetadata;
 use crate::service_modules::auth::AuthZHandler;

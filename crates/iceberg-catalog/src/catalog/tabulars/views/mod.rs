@@ -6,14 +6,14 @@ mod list;
 mod load;
 mod rename;
 
-use super::tables::validate_table_properties;
-use super::CatalogServer;
 use crate::api::iceberg::types::DropParams;
 use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, CreateViewRequest, DataAccess, ListTablesResponse,
     LoadViewResult, NamespaceParameters, PaginationQuery, Prefix, RenameTableRequest, Result,
     ViewParameters,
 };
+use crate::catalog::tabulars::tables::validate_table_properties;
+use crate::catalog::CatalogServer;
 use crate::request_metadata::RequestMetadata;
 use crate::service_modules::{auth::AuthZHandler, secrets::SecretStore, CatalogBackend, State};
 use iceberg_ext::catalog::rest::ViewUpdate;

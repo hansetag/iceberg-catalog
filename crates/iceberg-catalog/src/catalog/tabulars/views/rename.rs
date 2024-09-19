@@ -1,7 +1,7 @@
 use crate::api::iceberg::types::Prefix;
 use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
-use crate::catalog::tables::{maybe_body_to_json, validate_table_or_view_ident};
+use crate::catalog::tabulars::tables::{maybe_body_to_json, validate_table_or_view_ident};
 use crate::request_metadata::RequestMetadata;
 use crate::service_modules::auth::AuthZHandler;
 use crate::service_modules::contract_verification::ContractVerification;

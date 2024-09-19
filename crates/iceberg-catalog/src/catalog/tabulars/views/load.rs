@@ -3,7 +3,7 @@ use std::str::FromStr as _;
 use crate::api::iceberg::v1::{DataAccess, ViewParameters};
 use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
-use crate::catalog::tables::{require_active_warehouse, validate_table_or_view_ident};
+use crate::catalog::tabulars::tables::{require_active_warehouse, validate_table_or_view_ident};
 use crate::request_metadata::RequestMetadata;
 use crate::service_modules::auth::AuthZHandler;
 use crate::service_modules::object_stores::{StorageCredential, StoragePermissions};

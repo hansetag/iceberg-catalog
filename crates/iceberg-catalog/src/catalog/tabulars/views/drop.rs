@@ -4,7 +4,7 @@ use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::api::management::v1::TabularType;
 use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
-use crate::catalog::tables::validate_table_or_view_ident;
+use crate::catalog::tabulars::tables::validate_table_or_view_ident;
 use crate::request_metadata::RequestMetadata;
 use crate::service_modules::auth::AuthZHandler;
 use crate::service_modules::contract_verification::ContractVerification;
@@ -136,8 +136,8 @@ mod test {
     use crate::api::iceberg::types::{DropParams, Prefix};
     use crate::api::iceberg::v1::ViewParameters;
 
+    use crate::catalog::tabulars::views::drop::drop_view;
     use crate::catalog::test::{create_view, load_view, setup};
-    use crate::catalog::views::drop::drop_view;
     use crate::request_metadata::RequestMetadata;
     use http::StatusCode;
     use iceberg::TableIdent;

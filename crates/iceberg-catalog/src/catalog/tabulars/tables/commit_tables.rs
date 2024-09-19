@@ -10,7 +10,7 @@ use iceberg_ext::{
 use crate::service_modules::{ErrorModel, Result};
 
 /// Apply the commits to table metadata.
-pub(super) fn apply_commit(
+pub(in crate::catalog) fn apply_commit(
     metadata: TableMetadata,
     metadata_location: &Option<Location>,
     requirements: &[TableRequirement],

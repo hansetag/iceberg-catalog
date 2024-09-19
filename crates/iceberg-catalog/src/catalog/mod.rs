@@ -1,4 +1,3 @@
-mod commit_tables;
 pub(crate) mod compression_codec;
 mod config;
 pub(crate) mod io;
@@ -6,9 +5,7 @@ mod metrics;
 pub(crate) mod namespace;
 #[cfg(feature = "s3-signer")]
 mod s3_signer;
-mod tables;
-mod views;
-
+mod tabulars;
 pub use config::Server as ConfigServer;
 use iceberg::spec::{TableMetadata, ViewMetadata};
 use iceberg_ext::catalog::rest::IcebergErrorResponse;

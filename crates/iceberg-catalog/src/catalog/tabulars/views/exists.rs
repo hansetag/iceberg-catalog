@@ -1,7 +1,7 @@
 use crate::api::iceberg::v1::ViewParameters;
 use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
-use crate::catalog::tables::validate_table_or_view_ident;
+use crate::catalog::tabulars::tables::validate_table_or_view_ident;
 use crate::request_metadata::RequestMetadata;
 use crate::service_modules::auth::AuthZHandler;
 use crate::service_modules::Result;

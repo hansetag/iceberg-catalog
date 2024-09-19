@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr as _;
 
-use super::commit_tables::apply_commit;
-use super::{
+use crate::catalog::{
     io::write_metadata_file, maybe_get_secret, namespace::validate_namespace_ident,
     require_warehouse_id, CatalogServer,
 };
+use commit_tables::apply_commit;
 
 use crate::api::iceberg::types::DropParams;
 use crate::api::iceberg::v1::{
@@ -40,6 +40,8 @@ use iceberg_ext::configs::namespace::NamespaceProperties;
 use iceberg_ext::configs::Location;
 use serde::Serialize;
 use uuid::Uuid;
+
+mod commit_tables;
 
 #[async_trait::async_trait]
 impl<C: CatalogBackend, A: AuthZHandler, S: SecretStore>
@@ -1097,7 +1099,7 @@ fn determine_table_ident(
     Ok(identifier)
 }
 
-pub(super) fn determine_tabular_location(
+pub(in crate::catalog) fn determine_tabular_location(
     namespace: &GetNamespaceResponse,
     request_table_location: Option<String>,
     table_id: TabularIdentUuid,

@@ -7,10 +7,10 @@ use crate::api::iceberg::v1::{
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::catalog::io::write_metadata_file;
 use crate::catalog::require_warehouse_id;
-use crate::catalog::tables::{
+use crate::catalog::tabulars::tables::{
     maybe_body_to_json, require_active_warehouse, validate_table_or_view_ident,
 };
-use crate::catalog::views::validate_view_updates;
+use crate::catalog::tabulars::views::validate_view_updates;
 use crate::request_metadata::RequestMetadata;
 use crate::service_modules::contract_verification::ContractVerification;
 use crate::service_modules::event_publisher::EventMetadata;
@@ -372,8 +372,8 @@ mod test {
     use serde_json::json;
     use sqlx::PgPool;
 
+    use crate::catalog::tabulars::views::create::test::create_view_request;
     use crate::catalog::test::{create_view, setup};
-    use crate::catalog::views::create::test::create_view_request;
     use uuid::Uuid;
 
     #[sqlx::test]
