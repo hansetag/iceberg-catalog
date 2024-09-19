@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use iceberg_catalog::api::management::v1::ManagementApiDoc;
+use iceberg_catalog::rest::management::v1::ManagementApiDoc;
 use iceberg_catalog::CONFIG;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
@@ -110,7 +110,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Migrate {}) => {
             print_info();
             println!("Migrating database...");
-            let write_pool = iceberg_catalog::service_modules::catalog_backends::implementations::postgres::get_writer_pool(
+            let write_pool = iceberg_catalog::modules::catalog_backends::implementations::postgres::get_writer_pool(
                 CONFIG
                     .to_pool_opts()
                     .acquire_timeout(std::time::Duration::from_secs(1)),
@@ -120,7 +120,7 @@ async fn main() -> anyhow::Result<()> {
             // This embeds database migrations in the application binary so we can ensure the database
             // is migrated correctly on startup
 
-            iceberg_catalog::service_modules::catalog_backends::implementations::postgres::migrate(
+            iceberg_catalog::modules::catalog_backends::implementations::postgres::migrate(
                 &write_pool,
             )
             .await?;
