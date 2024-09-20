@@ -12,12 +12,13 @@ Implementation of the Iceberg REST Catalog server.
 """
 
 [features]
-all = ["sqlx-postgres", "s3-signer", "router", "nats"]
+all = ["sqlx-postgres", "s3-signer", "router", "nats", "slatedb"]
 sqlx-postgres = ["sqlx"]
 sqlx = ["dep:sqlx"]
 s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]
 router = ["dep:tower-http"]
 nats = ["dep:async-nats"]
+slatedb = ["dep:slatedb", "dep:object_store"]
 default = ["sqlx-postgres", "s3-signer", "router"]
 
 [dependencies]
@@ -53,10 +54,12 @@ lazy-regex = { workspace = true }
 lazy_static = { workspace = true }
 lru = { workspace = true }
 maplit = { workspace = true }
+object_store = { workspace = true, optional = true }
 rand = "0.8.5"
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
+slatedb = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true, features = ["tls-rustls"] }
 strum = { workspace = true }
 strum_macros = { workspace = true }

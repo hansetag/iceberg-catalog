@@ -10,6 +10,7 @@ use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{async_trait, Extension, Json, Router};
+use axum_prometheus::lifecycle::service;
 use http::{HeaderMap, StatusCode};
 use iceberg::TableIdent;
 

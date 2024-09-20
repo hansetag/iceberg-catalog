@@ -72,6 +72,8 @@ jwks_client_rs = { version = "0.5.1", default-features = false, features = [
 ] }
 lazy-regex = { version = "3.2.0", features = ["lite"] }
 lru = "0.12.4"
+slatedb = { version = "*" }
+object_store = { version = "0.11.0" }
 strum = { version = "^0.26", features = ["derive"] }
 sqlx = { version = "^0.8.0", default-features = false, features = [
     "runtime-tokio",
