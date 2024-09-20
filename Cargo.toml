@@ -31,6 +31,9 @@ azure_identity = { version = "0.20.0", default-features = false, features = [
 ] }
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-sts = "1.36.0"
+base64 = "0.22.1"
+google-cloud-auth = "0.17.0"
+google-cloud-token = "0.1.2"
 figment = { version = "0.10.19", features = ["env"] }
 serde = { version = "^1.0", features = ["rc"] }
 serde_derive = "^1.0"
@@ -42,7 +45,10 @@ reqwest = { version = "^0.12", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
-iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "47bfdda", features = [
+#iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "47bfdda", features = [
+#    "storage-all",
+#] }
+iceberg = { path = "../iceberg-rust/crates/iceberg", features = [
     "storage-all",
 ] }
 typed-builder = "^0.19.1"
@@ -72,6 +78,7 @@ jwks_client_rs = { version = "0.5.1", default-features = false, features = [
 ] }
 lazy-regex = { version = "3.2.0", features = ["lite"] }
 lru = "0.12.4"
+percent-encoding = "2.3.1"
 strum = { version = "^0.26", features = ["derive"] }
 sqlx = { version = "^0.8.0", default-features = false, features = [
     "runtime-tokio",

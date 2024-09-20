@@ -181,6 +181,8 @@ pub enum CredentialsError {
     },
     #[error("Failed to convert credential: {0}")]
     Mismatch(#[from] ConversionError),
+    #[error("Failed to serialize credential.")]
+    SerializationError(#[from] serde_json::Error),
 }
 
 impl From<CredentialsError> for IcebergErrorResponse {
@@ -201,6 +203,9 @@ impl From<CredentialsError> for IcebergErrorResponse {
             CredentialsError::UnsupportedCredential(_) => {
                 ErrorModel::not_implemented(message, "UnsupportedCredentialError", Some(boxed))
                     .into()
+            }
+            CredentialsError::SerializationError(_) => {
+                ErrorModel::internal(message, "SerializationError", Some(boxed)).into()
             }
         }
     }

@@ -2,6 +2,7 @@
 
 mod az;
 mod error;
+mod gcs;
 mod s3;
 
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
@@ -34,6 +35,8 @@ pub enum StorageProfile {
     S3(S3Profile),
     #[cfg(test)]
     Test(TestProfile),
+    #[serde(rename = "gcs")]
+    Gcs(gcs::GcsProfile),
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
@@ -46,6 +49,8 @@ pub enum StorageType {
     #[cfg(test)]
     #[strum(serialize = "test")]
     Test,
+    #[strum(serialize = "gcs")]
+    Gcs,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -69,6 +74,7 @@ impl StorageProfile {
                 }
             }
             StorageProfile::Azdls(prof) => prof.generate_catalog_config(warehouse_id),
+            StorageProfile::Gcs(prof) => prof.generate_catalog_config(warehouse_id),
         }
     }
 
@@ -116,6 +122,9 @@ impl StorageProfile {
             StorageProfile::Azdls(prof) => prof.file_io(secret.map(|s| s.try_to_az()).transpose()?),
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(iceberg::io::FileIOBuilder::new("file").build()?),
+            StorageProfile::Gcs(prof) => {
+                Ok(prof.file_io(secret.map(|s| s.try_into_gcs()).transpose()?)?)
+            }
         }
     }
 
@@ -127,6 +136,7 @@ impl StorageProfile {
         match self {
             StorageProfile::S3(profile) => profile.base_location().map(Into::into),
             StorageProfile::Azdls(profile) => profile.base_location(),
+            StorageProfile::Gcs(profile) => profile.base_location(),
             #[cfg(test)]
             StorageProfile::Test(_) => std::str::FromStr::from_str("file://tmp/").map_err(|_| {
                 ValidationError::InvalidLocation {
@@ -161,6 +171,7 @@ impl StorageProfile {
             #[cfg(test)]
             StorageProfile::Test(_) => StorageType::Test,
             StorageProfile::Azdls(_) => StorageType::Azdls,
+            StorageProfile::Gcs(_) => StorageType::Gcs,
         }
     }
 
@@ -202,6 +213,16 @@ impl StorageProfile {
             }
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(TableProperties::default()),
+            StorageProfile::Gcs(profile) => {
+                profile
+                    .generate_table_config(
+                        data_access,
+                        secret.map(|s| s.try_into_gcs()).transpose()?,
+                        table_location,
+                        storage_permissions,
+                    )
+                    .await
+            }
         }
     }
 
@@ -222,6 +243,7 @@ impl StorageProfile {
             StorageProfile::Azdls(prof) => prof.normalize(),
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(()),
+            StorageProfile::Gcs(profile) => profile.normalize(),
         }
     }
 
@@ -255,6 +277,8 @@ impl StorageProfile {
             StorageProfile::Azdls(_) => true,
             #[cfg(test)]
             StorageProfile::Test(_) => false,
+            // TODO: Implement GCS vended credentials, it's probably always vended
+            StorageProfile::Gcs(_) => true,
         };
 
         if test_vended_credentials {
@@ -280,6 +304,11 @@ impl StorageProfile {
                 }
                 #[cfg(test)]
                 StorageProfile::Test(_) => {}
+                StorageProfile::Gcs(_) => {
+                    let sts_file_io = gcs::get_file_io_from_table_config(&tbl_config)?;
+                    self.validate_read_write(&sts_file_io, &test_location, true)
+                        .await?;
+                }
             }
         }
         tracing::info!("Cleanup started");
@@ -443,6 +472,8 @@ pub enum StorageCredential {
     S3(S3Credential),
     #[serde(rename = "az")]
     Az(AzCredential),
+    #[serde(rename = "gcs")]
+    Gcs(gcs::GcsCredential),
 }
 
 impl SecretInStorage for StorageCredential {}
@@ -453,6 +484,7 @@ impl StorageCredential {
         match self {
             StorageCredential::S3(_) => StorageType::S3,
             StorageCredential::Az(_) => StorageType::Azdls,
+            StorageCredential::Gcs(_) => StorageType::Gcs,
         }
     }
 
@@ -481,6 +513,21 @@ impl StorageCredential {
             _ => Err(ConversionError {
                 is: self.storage_type(),
                 to: StorageType::Azdls,
+            }
+            .into()),
+        }
+    }
+
+    /// Try to convert the credential into an Gcs credential.
+    ///
+    ///  # Errors
+    /// Fails if the credential is not an Gcs credential.
+    pub fn try_into_gcs(&self) -> Result<&gcs::GcsCredential, CredentialsError> {
+        match self {
+            Self::Gcs(profile) => Ok(profile),
+            _ => Err(ConversionError {
+                is: self.storage_type(),
+                to: StorageType::Gcs,
             }
             .into()),
         }
