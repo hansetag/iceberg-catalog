@@ -1,312 +1,319 @@
-pub mod auth;
-mod catalog;
-pub mod config;
-pub mod contract_verification;
-pub mod event_publisher;
-pub mod health;
-pub mod secrets;
-pub mod storage;
-pub mod tabular_idents;
-pub mod task_queue;
-pub mod token_verification;
+pub(crate) mod compression_codec;
+mod config;
+pub(crate) mod io;
+mod metrics;
+pub(crate) mod namespace;
+#[cfg(feature = "s3-signer")]
+mod s3_signer;
+mod tabulars;
+pub use config::Server as ConfigServer;
+use iceberg::spec::{TableMetadata, ViewMetadata};
+use iceberg_ext::catalog::rest::IcebergErrorResponse;
+pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
 
-pub use catalog::{
-    Catalog, CommitTableResponse, CreateNamespaceRequest, CreateNamespaceResponse,
-    CreateTableRequest, CreateTableResponse, DeletionDetails, DropFlags, GetNamespaceResponse,
-    GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse, ListFlags,
-    ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
-    TableCommit, TableCreation, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
-    UpdateNamespacePropertiesResponse, ViewMetadataWithLocation,
+use crate::modules::object_stores::StorageCredential;
+use crate::rest::{iceberg::v1::Prefix, ErrorModel, Result};
+use crate::{
+    modules::{auth::AuthZHandler, secrets::SecretStore, CatalogBackend},
+    WarehouseIdent,
 };
-use std::ops::Deref;
+use std::collections::HashMap;
+use std::marker::PhantomData;
 
-use self::auth::AuthZHandler;
-use crate::api::iceberg::v1::Prefix;
-use crate::api::ThreadSafe as ServiceState;
-pub use crate::api::{ErrorModel, IcebergErrorResponse};
-use crate::service::contract_verification::ContractVerifiers;
-use crate::service::event_publisher::CloudEventsPublisher;
-use crate::service::task_queue::TaskQueues;
-use http::StatusCode;
-pub use secrets::{SecretIdent, SecretStore};
-use std::str::FromStr;
-
-#[async_trait::async_trait]
-pub trait NamespaceIdentExt
-where
-    Self: Sized,
-{
-    fn parent(&self) -> Option<NamespaceIdent>;
+pub trait CommonMetadata {
+    fn properties(&self) -> &HashMap<String, String>;
 }
 
-#[async_trait::async_trait]
-impl NamespaceIdentExt for NamespaceIdent {
-    fn parent(&self) -> Option<Self> {
-        let mut name = self.clone().inner();
-        // The last element is the namespace itself, everything before it the parent.
-        name.pop();
-
-        if name.is_empty() {
-            None
-        } else {
-            match NamespaceIdent::from_vec(name) {
-                Ok(ident) => Some(ident),
-                // This only fails if the vector is empty,
-                // in which case there is no parent, so return None
-                Err(_e) => None,
-            }
-        }
+impl CommonMetadata for TableMetadata {
+    fn properties(&self) -> &HashMap<String, String> {
+        TableMetadata::properties(self)
     }
 }
 
-// ---------------- State ----------------
+impl CommonMetadata for ViewMetadata {
+    fn properties(&self) -> &HashMap<String, String> {
+        ViewMetadata::properties(self)
+    }
+}
 
 #[derive(Clone, Debug)]
-pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
-    pub auth: A::State,
-    pub catalog: C::State,
-    pub secrets: S,
-    pub publisher: CloudEventsPublisher,
-    pub contract_verifiers: ContractVerifiers,
-    pub queues: TaskQueues,
+
+pub struct CatalogServer<C: CatalogBackend, A: AuthZHandler, S: SecretStore> {
+    auth_handler: PhantomData<A>,
+    config_server: PhantomData<C>,
+    secret_store: PhantomData<S>,
 }
 
-impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}
+fn require_warehouse_id(prefix: Option<Prefix>) -> Result<WarehouseIdent> {
+    prefix
+        .ok_or(
+            ErrorModel::builder()
+                .code(http::StatusCode::BAD_REQUEST.into())
+                .message(
+                    "No prefix specified. The warehouse-id must be provided as prefix in the URL."
+                        .to_string(),
+                )
+                .r#type("NoPrefixProvided".to_string())
+                .build(),
+        )?
+        .try_into()
+}
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
-pub struct NamespaceIdentUuid(uuid::Uuid);
-
-impl std::default::Default for NamespaceIdentUuid {
-    fn default() -> Self {
-        Self(uuid::Uuid::now_v7())
+pub(crate) async fn maybe_get_secret<S: SecretStore>(
+    secret: Option<crate::SecretIdent>,
+    state: &S,
+) -> Result<Option<StorageCredential>, IcebergErrorResponse> {
+    if let Some(secret_id) = &secret {
+        Ok(Some(state.get_secret_by_id(secret_id).await?.secret))
+    } else {
+        Ok(None)
     }
 }
 
-impl Deref for NamespaceIdentUuid {
-    type Target = uuid::Uuid;
+#[cfg(test)]
+pub(crate) mod test {
+    use crate::modules::catalog_backends::implementations::postgres::tabular::table;
+    use crate::modules::catalog_backends::implementations::postgres::tabular::table::create_table;
+    use crate::modules::catalog_backends::implementations::postgres::tabular::table::tests::get_namespace_id;
+    use crate::modules::catalog_backends::implementations::postgres::{
+        task_queues, CatalogState, PostgresCatalog, ReadWrite, SecretsState,
+    };
+    use crate::modules::catalog_backends::implementations::{
+        AllowAllAuthState, AllowAllAuthZHandler,
+    };
+    use crate::modules::contract_verification::ContractVerifiers;
+    use crate::modules::event_publisher::CloudEventsPublisher;
+    use crate::modules::object_stores::{StorageCredential, StorageProfile, TestProfile};
+    use crate::modules::task_queue::TaskQueues;
+    use crate::modules::{NamespaceIdentUuid, State, TableCreation, TableIdentUuid};
+    use crate::request_metadata::RequestMetadata;
+    use crate::rest::iceberg::types::Prefix;
+    use crate::rest::iceberg::v1::namespace::Service as _;
+    use crate::rest::iceberg::v1::views::Service as _;
+    use crate::rest::iceberg::v1::{DataAccess, NamespaceParameters, ViewParameters};
+    use crate::rest::management::v1::warehouse::{
+        CreateWarehouseRequest, CreateWarehouseResponse, Service as _, TabularDeleteProfile,
+    };
+    use crate::rest::management::v1::ApiServer;
+    use crate::rest::ApiContext;
+    use crate::service::CatalogServer;
+    use crate::{WarehouseIdent, CONFIG};
+    use iceberg::{NamespaceIdent, TableIdent};
+    use iceberg_ext::catalog::rest::{
+        CreateNamespaceRequest, CreateNamespaceResponse, CreateViewRequest, IcebergErrorResponse,
+        LoadViewResult,
+    };
+    use sqlx::PgPool;
+    use std::str::FromStr;
+    use std::sync::Arc;
+    use uuid::Uuid;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for NamespaceIdentUuid {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl FromStr for NamespaceIdentUuid {
-    type Err = IcebergErrorResponse;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(NamespaceIdentUuid(uuid::Uuid::from_str(s).map_err(
-            |e| {
-                ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message("Provided namespace id is not a valid UUID".to_string())
-                    .r#type("NamespaceIDIsNotUUID".to_string())
-                    .source(Some(Box::new(e)))
-                    .build()
+    pub(crate) async fn setup(
+        pool: PgPool,
+        namespace_name: Option<String>,
+        storage_profile: Option<StorageProfile>,
+        storage_credential: Option<StorageCredential>,
+    ) -> (
+        ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>>,
+        CreateNamespaceResponse,
+        CreateWarehouseResponse,
+    ) {
+        let api_context = get_api_context(pool);
+        let _state = api_context.v1_state.catalog.clone();
+        let warehouse = ApiServer::create_warehouse(
+            CreateWarehouseRequest {
+                warehouse_name: format!("test-warehouse-{}", Uuid::now_v7()),
+                project_id: Uuid::now_v7(),
+                storage_profile: storage_profile.unwrap_or(StorageProfile::Test(TestProfile)),
+                storage_credential,
+                delete_profile: TabularDeleteProfile::Hard {},
             },
-        )?))
-    }
-}
+            api_context.clone(),
+            random_request_metadata(),
+        )
+        .await
+        .unwrap();
 
-impl From<uuid::Uuid> for NamespaceIdentUuid {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
+        let namespace = NamespaceIdent::new(namespace_name.unwrap_or(Uuid::now_v7().to_string()));
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
-pub struct TableIdentUuid(uuid::Uuid);
+        let namespace = create_namespace(
+            namespace,
+            warehouse.warehouse_id.into(),
+            api_context.clone(),
+        )
+        .await;
 
-impl std::default::Default for TableIdentUuid {
-    fn default() -> Self {
-        Self(uuid::Uuid::now_v7())
-    }
-}
-
-impl std::fmt::Display for TableIdentUuid {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Deref for TableIdentUuid {
-    type Target = uuid::Uuid;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<uuid::Uuid> for TableIdentUuid {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
-    }
-}
-
-impl FromStr for TableIdentUuid {
-    type Err = IcebergErrorResponse;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(TableIdentUuid(uuid::Uuid::from_str(s).map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Provided table id is not a valid UUID".to_string())
-                .r#type("TableIDIsNotUUID".to_string())
-                .source(Some(Box::new(e)))
-                .build()
-        })?))
-    }
-}
-
-impl From<TableIdentUuid> for uuid::Uuid {
-    fn from(ident: TableIdentUuid) -> Self {
-        ident.0
-    }
-}
-
-// ---------------- Identifier ----------------
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(transparent))]
-// Is UUID here too strict?
-pub struct ProjectIdent(uuid::Uuid);
-
-impl Deref for ProjectIdent {
-    type Target = uuid::Uuid;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for ProjectIdent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl FromStr for ProjectIdent {
-    type Err = IcebergErrorResponse;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(ProjectIdent(uuid::Uuid::from_str(s).map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Provided project id is not a valid UUID".to_string())
-                .r#type("ProjectIDIsNotUUID".to_string())
-                .source(Some(Box::new(e)))
-                .build()
-        })?))
-    }
-}
-
-/// Status of a warehouse
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    strum_macros::Display,
-    serde::Serialize,
-    serde::Deserialize,
-    utoipa::ToSchema,
-)]
-#[serde(rename_all = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(
-    feature = "sqlx",
-    sqlx(type_name = "warehouse_status", rename_all = "kebab-case")
-)]
-pub enum WarehouseStatus {
-    /// The warehouse is active and can be used
-    Active,
-    /// The warehouse is inactive and cannot be used.
-    Inactive,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(transparent))]
-pub struct WarehouseIdent(pub(crate) uuid::Uuid);
-
-impl WarehouseIdent {
-    #[must_use]
-    pub fn to_uuid(&self) -> uuid::Uuid {
-        **self
+        (api_context, namespace, warehouse)
     }
 
-    #[must_use]
-    pub fn as_uuid(&self) -> &uuid::Uuid {
-        self
+    pub(crate) async fn create_namespace(
+        ident: NamespaceIdent,
+        warehouse_id: WarehouseIdent,
+        api_context: ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>>,
+    ) -> CreateNamespaceResponse {
+        CatalogServer::create_namespace(
+            Some(Prefix(warehouse_id.to_string())),
+            CreateNamespaceRequest {
+                namespace: ident,
+                properties: None,
+            },
+            api_context,
+            random_request_metadata(),
+        )
+        .await
+        .unwrap()
     }
-}
 
-impl Deref for WarehouseIdent {
-    type Target = uuid::Uuid;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub(crate) async fn create_view(
+        api_context: ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>>,
+        namespace: NamespaceIdent,
+        rq: CreateViewRequest,
+        prefix: Option<String>,
+    ) -> Result<LoadViewResult, IcebergErrorResponse> {
+        CatalogServer::create_view(
+            NamespaceParameters {
+                namespace: namespace.clone(),
+                prefix: Some(Prefix(
+                    prefix.unwrap_or("b8683712-3484-11ef-a305-1bc8771ed40c".to_string()),
+                )),
+            },
+            rq,
+            api_context,
+            DataAccess {
+                vended_credentials: true,
+                remote_signing: false,
+            },
+            RequestMetadata::new_random(),
+        )
+        .await
     }
-}
 
-impl From<uuid::Uuid> for WarehouseIdent {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
+    pub(crate) async fn load_view(
+        api_context: ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>>,
+        params: ViewParameters,
+    ) -> crate::rest::Result<LoadViewResult> {
+        CatalogServer::load_view(
+            params,
+            api_context,
+            DataAccess {
+                vended_credentials: true,
+                remote_signing: false,
+            },
+            RequestMetadata::new_random(),
+        )
+        .await
     }
-}
 
-impl std::fmt::Display for WarehouseIdent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+    pub(crate) struct InitializedTable {
+        #[allow(dead_code)]
+        pub(crate) namespace_id: NamespaceIdentUuid,
+        pub(crate) namespace: NamespaceIdent,
+        pub(crate) table_id: TableIdentUuid,
+        pub(crate) table_ident: TableIdent,
     }
-}
 
-impl FromStr for WarehouseIdent {
-    type Err = IcebergErrorResponse;
+    pub(crate) async fn initialize_table(
+        warehouse_id: WarehouseIdent,
+        api_context: ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>>,
+        staged: bool,
+        namespace: Option<NamespaceIdent>,
+        table_name: Option<String>,
+    ) -> InitializedTable {
+        // my_namespace_<uuid>
+        let namespace = if let Some(namespace) = namespace {
+            namespace
+        } else {
+            let namespace =
+                NamespaceIdent::from_vec(vec![format!("my_namespace_{}", Uuid::now_v7())]).unwrap();
+            create_namespace(namespace.clone(), warehouse_id, api_context.clone()).await;
+            namespace
+        };
+        let namespace_id = get_namespace_id(
+            api_context.v1_state.catalog.clone(),
+            warehouse_id,
+            &namespace,
+        )
+        .await;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(WarehouseIdent(uuid::Uuid::from_str(s).map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("Provided warehouse id is not a valid UUID".to_string())
-                .r#type("WarehouseIDIsNotUUID".to_string())
-                .source(Some(Box::new(e)))
-                .build()
-        })?))
+        let (request, metadata_location) = table::tests::create_request(Some(staged), table_name);
+        let table_ident = TableIdent {
+            namespace: namespace.clone(),
+            name: request.name.clone(),
+        };
+        let table_id = Uuid::now_v7().into();
+        let table_location = request
+            .location
+            .as_deref()
+            .map(FromStr::from_str)
+            .transpose()
+            .unwrap()
+            .unwrap();
+        let create = TableCreation {
+            namespace_id,
+            table_ident: &table_ident,
+            table_id,
+            table_location: &table_location,
+            table_schema: request.schema,
+            table_partition_spec: request.partition_spec,
+            table_write_order: request.write_order,
+            table_properties: request.properties,
+            metadata_location: metadata_location.as_ref(),
+        };
+        let mut transaction = api_context
+            .v1_state
+            .catalog
+            .write_pool()
+            .begin()
+            .await
+            .unwrap();
+        let _create_result = create_table(create, &mut transaction).await.unwrap();
+
+        transaction.commit().await.unwrap();
+
+        InitializedTable {
+            namespace_id,
+            namespace,
+            table_id,
+            table_ident,
+        }
     }
-}
 
-impl From<uuid::Uuid> for ProjectIdent {
-    fn from(uuid: uuid::Uuid) -> Self {
-        Self(uuid)
+    pub(crate) fn random_request_metadata() -> RequestMetadata {
+        RequestMetadata {
+            request_id: Uuid::new_v4(),
+            auth_details: None,
+        }
     }
-}
 
-impl TryFrom<Prefix> for WarehouseIdent {
-    type Error = IcebergErrorResponse;
+    pub(crate) fn get_api_context(
+        pool: PgPool,
+    ) -> ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>> {
+        let (tx, _) = tokio::sync::mpsc::channel(1000);
 
-    fn try_from(value: Prefix) -> Result<Self, Self::Error> {
-        let prefix = uuid::Uuid::parse_str(value.as_str()).map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(format!(
-                    "Provided prefix is not a warehouse id. Expected UUID, got: {}",
-                    value.as_str()
-                ))
-                .r#type("PrefixIsNotWarehouseID".to_string())
-                .source(Some(Box::new(e)))
-                .build()
-        })?;
-        Ok(WarehouseIdent(prefix))
+        ApiContext {
+            v1_state: State {
+                auth: AllowAllAuthState,
+                catalog: CatalogState::from_pools(pool.clone(), pool.clone()),
+                secrets: SecretsState::from_pools(pool.clone(), pool.clone()),
+                publisher: CloudEventsPublisher::new(tx.clone()),
+                contract_verifiers: ContractVerifiers::new(vec![]),
+                queues: TaskQueues::new(
+                    Arc::new(
+                        task_queues::TabularExpirationQueue::from_config(
+                            ReadWrite::from_pools(pool.clone(), pool.clone()),
+                            CONFIG.queue_config.clone(),
+                        )
+                        .unwrap(),
+                    ),
+                    Arc::new(
+                        task_queues::TabularPurgeQueue::from_config(
+                            ReadWrite::from_pools(pool.clone(), pool),
+                            CONFIG.queue_config.clone(),
+                        )
+                        .unwrap(),
+                    ),
+                ),
+            },
+        }
     }
 }

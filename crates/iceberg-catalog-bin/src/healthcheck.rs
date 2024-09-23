@@ -1,6 +1,8 @@
 use anyhow::Context;
-use iceberg_catalog::implementations::postgres::{get_reader_pool, get_writer_pool, ReadWrite};
-use iceberg_catalog::service::health::{HealthExt, HealthState, HealthStatus};
+use iceberg_catalog::modules::catalog_backends::implementations::postgres::{
+    get_reader_pool, get_writer_pool, ReadWrite,
+};
+use iceberg_catalog::modules::health::{HealthExt, HealthState, HealthStatus};
 use iceberg_catalog::CONFIG;
 
 pub async fn health(check_db: bool, check_server: bool) -> anyhow::Result<()> {

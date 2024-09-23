@@ -1,5 +1,7 @@
 use crate::healthcheck::db_health_check;
-use iceberg_catalog::implementations::postgres::{get_reader_pool, MigrationState};
+use iceberg_catalog::modules::catalog_backends::implementations::postgres::{
+    get_reader_pool, MigrationState,
+};
 use iceberg_catalog::CONFIG;
 
 pub(crate) async fn wait_for_db(
@@ -37,7 +39,7 @@ pub(crate) async fn wait_for_db(
 
             let read_pool = get_reader_pool(opts).await?;
             let migrations =
-                iceberg_catalog::implementations::postgres::check_migration_status(&read_pool)
+                iceberg_catalog::modules::catalog_backends::implementations::postgres::check_migration_status(&read_pool)
                     .await;
             match migrations {
                 Ok(MigrationState::Complete) => {

@@ -7,16 +7,14 @@
 #![allow(clippy::module_name_repetitions)]
 #![forbid(unsafe_code)]
 
-pub mod api;
+pub mod rest;
 
-pub mod catalog;
 mod config;
+pub mod modules;
 pub mod service;
-pub use service::{ProjectIdent, SecretIdent, WarehouseIdent};
+pub use modules::{ProjectIdent, SecretIdent, WarehouseIdent};
 
 pub use config::{SecretBackend, CONFIG};
-
-pub mod implementations;
 
 mod request_metadata;
 
