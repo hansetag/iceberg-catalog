@@ -79,8 +79,8 @@ pub mod v1 {
 
     #[derive(Debug, Serialize, utoipa::ToSchema)]
     pub enum UserOrigin {
-        ImplicitRegistration(String),
-        ExplicitRegistration,
+        ImplicitViaConfigCall,
+        ExplicitViaRegisterCall,
     }
 
     #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -89,7 +89,7 @@ pub mod v1 {
         pub display_name: Option<String>,
         pub user_origin: UserOrigin,
         pub email: Option<String>,
-        pub id: uuid::Uuid,
+        pub id: String,
         pub created_at: chrono::DateTime<chrono::Utc>,
         pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
     }
@@ -100,20 +100,20 @@ pub mod v1 {
         }
     }
 
-    /// Create a new user
+    /// Register a new user
     #[utoipa::path(
         post,
         tag = "management",
         path = "/management/v1/user",
         responses(
-            (status = 201, description = "User created successfully", body = [User]),
+            (status = 201, description = "User successfully registered", body = [User]),
         )
     )]
-    async fn create_user<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn register_user<C: Catalog, A: AuthZHandler, S: SecretStore>(
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
     ) -> Result<User> {
-        ApiServer::<C, A, S>::create_user(api_context, metadata).await
+        ApiServer::<C, A, S>::register_user(api_context, metadata).await
     }
 
     /// Create a new warehouse.
@@ -425,7 +425,7 @@ pub mod v1 {
                     "/warehouse/:warehouse_id/deleted_tabulars",
                     get(list_deleted_tabulars),
                 )
-                .route("/user", post(create_user))
+                .route("/user", post(register_user))
         }
     }
 }

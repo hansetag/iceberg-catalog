@@ -1,4 +1,4 @@
-use crate::service::token_verification::AuthDetails;
+use crate::service::token_verification::{AuthDetails, UserId};
 use axum::middleware::Next;
 use axum::response::Response;
 use http::HeaderMap;
@@ -26,12 +26,13 @@ impl RequestMetadata {
     }
 
     #[must_use]
-    pub fn user_id(&self) -> Option<Uuid> {
-        self.auth_details.as_ref().and_then(AuthDetails::user_id)
+    pub fn user_id(&self) -> Option<&UserId> {
+        self.auth_details.as_ref().map(AuthDetails::user_id)
     }
 
+    // TODO: differentiate between machine user & natural person? I.e. have separate name fns for them?
     #[must_use]
-    pub fn user_name(&self) -> Option<String> {
+    pub fn user_name(&self) -> Option<&str> {
         self.auth_details.as_ref().and_then(AuthDetails::name)
     }
 

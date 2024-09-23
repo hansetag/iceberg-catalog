@@ -40,7 +40,7 @@ impl<
         )
         .await?;
 
-        maybe_add_user::<D>(&request_metadata, api_context.v1_state.catalog.clone()).await?;
+        maybe_register_user::<D>(&request_metadata, api_context.v1_state.catalog.clone()).await?;
 
         let UserWarehouse {
             project_id: project_from_auth,
@@ -133,23 +133,27 @@ impl<
     }
 }
 
-async fn maybe_add_user<D: Catalog>(
+async fn maybe_register_user<D: Catalog>(
     request_metadata: &RequestMetadata,
     state: <D as Catalog>::State,
 ) -> Result<()> {
     if let Some(user_id) = request_metadata.user_id() {
         // If the user is authenticated, create a user in the catalog
-        let user = D::create_user(
+        let user = D::register_user(
             user_id,
             request_metadata.user_display_name(),
-            request_metadata.user_name().as_deref(),
+            request_metadata.user_name().ok_or(ErrorModel::bad_request(
+                "Cannot register user without name",
+                "InvalidAccessTokenClaims",
+                None,
+            ))?,
             request_metadata.email(),
-            UserOrigin::ImplicitRegistration("config".to_string()),
+            UserOrigin::ImplicitViaConfigCall,
             state,
         )
         .await?;
         if user.updated_at.is_none() {
-            tracing::info!("Registered new user with id: '{}'", user_id);
+            tracing::info!("Registered new user with id: '{}'", user_id.inner());
         }
     } else {
         tracing::debug!("Got no user_id from request_metadata, not trying to register.");

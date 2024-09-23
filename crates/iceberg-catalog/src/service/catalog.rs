@@ -14,11 +14,11 @@ use crate::SecretIdent;
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::api::management::v1::{User, UserOrigin};
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
+use crate::service::token_verification::UserId;
 use iceberg::spec::{Schema, SortOrder, TableMetadata, UnboundPartitionSpec, ViewMetadata};
 pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
 use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait Transaction<D>
@@ -270,10 +270,10 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
-    async fn create_user(
-        user_id: Uuid,
+    async fn register_user(
+        user_id: &UserId,
         display_name: Option<&str>,
-        name: Option<&str>,
+        name: &str,
         email: Option<&str>,
         origin: UserOrigin,
         catalog_state: Self::State,

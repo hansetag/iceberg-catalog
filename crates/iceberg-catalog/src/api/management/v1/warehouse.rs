@@ -17,7 +17,6 @@ use crate::{ProjectIdent, WarehouseIdent, CONFIG};
 use iceberg_ext::catalog::rest::ErrorModel;
 use serde::Deserialize;
 use utoipa::ToSchema;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -163,7 +162,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore> Service<C, A, S> for ApiServer
 
 #[async_trait::async_trait]
 pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
-    async fn create_user(
+    async fn register_user(
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<User> {
@@ -174,19 +173,17 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
                 "MissingUserId",
                 None,
             ))?;
-        let user_id = auth.user_id().ok_or(ErrorModel::bad_request(
-            "User ID not found in auth details",
-            "MissingUserId",
-            None,
-        ))?;
 
-        let user_id = Uuid::new_v5(&user_id, auth.issuer().as_bytes());
-        C::create_user(
-            user_id,
+        C::register_user(
+            auth.user_id(),
             auth.display_name(),
-            auth.name().as_deref(),
+            auth.name().ok_or(ErrorModel::bad_request(
+                "Cannot register user without name",
+                "InvalidAccessTokenClaims",
+                None,
+            ))?,
             auth.email(),
-            UserOrigin::ExplicitRegistration,
+            UserOrigin::ExplicitViaRegisterCall,
             context.v1_state.catalog,
         )
         .await

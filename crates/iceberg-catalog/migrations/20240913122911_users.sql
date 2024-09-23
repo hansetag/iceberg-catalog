@@ -1,12 +1,15 @@
+create type user_origin as enum ('explicit-via-register-call', 'implicit-via-config-call');
+
 create table users
 (
-    id           uuid primary key,
+    id           text primary key, -- url-encoded(issuer-url)/(oid|sub-alphanumeric)
     name         text,
     display_name text,
     email        text,
-    origin       text not null, -- either registered or the endpoint via which the user was implicitly created, TODO: @christian enum?
+    origin       user_origin not null,
     deleted_at   timestamptz
 );
+
 
 -- TODO: project table with user id? Could be useful for tracking who created the project, could also offload that to openfga.
 

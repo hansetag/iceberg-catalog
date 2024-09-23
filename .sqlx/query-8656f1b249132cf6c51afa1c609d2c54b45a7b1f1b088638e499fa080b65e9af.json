@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT \n            id,\n            name,\n            display_name,\n            origin,\n            email,\n            created_at,\n            updated_at\n        FROM users\n        where deleted_at is null AND id = $1\n        ",
+  "query": "\n        SELECT \n            id,\n            name,\n            display_name,\n            origin as \"origin: DbUserOrigin\",\n            email,\n            created_at,\n            updated_at\n        FROM users\n        where deleted_at is null AND id = $1\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "id",
-        "type_info": "Uuid"
+        "type_info": "Text"
       },
       {
         "ordinal": 1,
@@ -20,8 +20,18 @@
       },
       {
         "ordinal": 3,
-        "name": "origin",
-        "type_info": "Text"
+        "name": "origin: DbUserOrigin",
+        "type_info": {
+          "Custom": {
+            "name": "user_origin",
+            "kind": {
+              "Enum": [
+                "explicit-via-register-call",
+                "implicit-via-config-call"
+              ]
+            }
+          }
+        }
       },
       {
         "ordinal": 4,
@@ -41,7 +51,7 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
@@ -54,5 +64,5 @@
       true
     ]
   },
-  "hash": "2ab006a84ec71e0ee0405d6ce41331695e5ac4af08291868a46b631376fbe978"
+  "hash": "8656f1b249132cf6c51afa1c609d2c54b45a7b1f1b088638e499fa080b65e9af"
 }

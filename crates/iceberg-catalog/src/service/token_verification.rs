@@ -12,6 +12,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use jwks_client_rs::source::WebSource;
 use jwks_client_rs::{JsonWebKey, JwksClient};
 
+use crate::api::Result;
 use crate::request_metadata::RequestMetadata;
 use axum::Extension;
 use serde::de::DeserializeOwned;
@@ -20,53 +21,101 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::sync::Arc;
 use url::Url;
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
-pub enum AuthDetails {
-    JWT(Claims),
+pub struct AuthDetails {
+    user_id: UserId,
+    name: Option<String>,
+    display_name: Option<String>,
+    // e.g. client_id in azure, should be there for technical users
+    application_id: Option<String>,
+    issuer: String,
+    email: Option<String>,
 }
 
 impl AuthDetails {
-    #[must_use]
-    pub fn user_id(&self) -> Option<Uuid> {
-        match self {
-            // TODO: sub is a string, we don't want to deal with that in our db, can we prescribe
-            //       uuid in the jwt?
-            // should we use oid / id? Airflow is doing that:
-            //  - google:   "username": "google_" + data.get("id", ""),
-            //  - azure:    "username": me["oid"],
-            //  - keycloak: "username": data.get("preferred_username", ""),
-            // this seems to conflate the username with the user id though
-            Self::JWT(claims) => claims.sub.parse().ok(),
-        }
+    fn try_from_jwt_claims(claims: Claims) -> Result<Self> {
+        let name = claims.name.as_deref().map(String::from).or_else(|| {
+            match (claims.first_name.as_deref(), claims.last_name.as_deref()) {
+                (Some(first), Some(last)) => Some(format!("{first} {last}")),
+                (Some(first), None) => Some(first.to_string()),
+                (None, Some(last)) => Some(last.to_string()),
+                (None, None) => None,
+            }
+        });
+
+        Ok(Self {
+            user_id: UserId::try_from_claims(&claims)?,
+            display_name: claims.preferred_username.clone().or(name.clone()),
+            name,
+            issuer: claims.iss,
+            email: claims.email,
+            application_id: claims.azp,
+        })
     }
+
     #[must_use]
-    pub fn name(&self) -> Option<String> {
-        match self {
-            Self::JWT(claims) => claims.name(),
-        }
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    #[must_use]
+    pub fn app_id(&self) -> Option<&str> {
+        self.application_id.as_deref()
+    }
+
+    #[must_use]
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 
     #[must_use]
     pub fn display_name(&self) -> Option<&str> {
-        match self {
-            Self::JWT(claims) => claims.preferred_username.as_deref(),
-        }
+        self.display_name.as_deref()
     }
 
     #[must_use]
     pub fn issuer(&self) -> &str {
-        match self {
-            Self::JWT(claims) => &claims.iss,
-        }
+        self.issuer.as_str()
     }
 
     #[must_use]
     pub fn email(&self) -> Option<&str> {
-        match self {
-            Self::JWT(claims) => claims.email.as_deref(),
+        self.email.as_deref()
+    }
+}
+
+/// Unique identifier of a user in the system.
+///
+/// This is a combination of the issuer and the subject/oid claim in the jwt.
+/// The issuer is urlencoded and the subject/oid is appended to it with '/' as separator.
+#[derive(Debug, Clone)]
+pub struct UserId(String);
+
+impl UserId {
+    fn try_from_claims(claims: &Claims) -> Result<Self> {
+        let prefix = urlencoding::encode(claims.iss.as_str());
+        let suffix = if let Some(oid) = &claims.oid {
+            oid.as_str()
+        } else {
+            claims.sub.as_str()
+        };
+
+        if suffix.chars().any(|c| !(c.is_alphanumeric() || c == '-')) {
+            return Err(ErrorModel::bad_request(
+                "sub or oid claim contain illegal characters. Only alphanumeric + - are legal.",
+                "InvalidUserIdError",
+                None,
+            )
+            .into());
         }
+
+        Ok(UserId(format!("{prefix}/{suffix}")))
+    }
+
+    #[must_use]
+    pub fn inner(&self) -> &str {
+        self.0.as_str()
     }
 }
 
@@ -77,6 +126,11 @@ pub struct Claims {
     pub aud: Aud,
     pub exp: usize,
     pub iat: usize,
+    // Azure Entra ID uses this as a globally unique identifier
+    pub oid: Option<String>,
+
+    // Identifier of the client using the token, e.g. the client id in azure
+    pub azp: Option<String>,
 
     pub name: Option<String>,
     #[serde(
@@ -109,25 +163,6 @@ pub struct Claims {
     pub other: serde_json::Value,
 }
 
-impl Claims {
-    #[must_use]
-    pub fn name(&self) -> Option<String> {
-        // TODO: keycloak sets name, first_name and last_name, we're using name here
-        //       if all are returned, this may not be the case for every idp, should
-        //       we make this depend on what idp is configured? That's the airflow way
-        if let Some(name) = self.name.as_deref() {
-            return Some(name.to_string());
-        }
-
-        match (self.first_name.as_deref(), self.last_name.as_deref()) {
-            (Some(first), Some(last)) => Some(format!("{first} {last}")),
-            (Some(first), None) => Some(first.to_string()),
-            (None, Some(last)) => Some(last.to_string()),
-            (None, None) => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum Aud {
@@ -145,7 +180,12 @@ pub(crate) async fn auth_middleware_fn(
     if let Some(authorization) = authorization {
         match verifier.decode::<Claims>(authorization.token()).await {
             Ok(val) => {
-                metadata.auth_details = Some(AuthDetails::JWT(val));
+                match AuthDetails::try_from_jwt_claims(val) {
+                    Ok(details) => {
+                        metadata.auth_details = Some(details);
+                    }
+                    Err(err) => return err.into_response(),
+                }
                 request.extensions_mut().insert(metadata);
             }
             Err(err) => {

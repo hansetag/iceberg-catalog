@@ -22,6 +22,7 @@ use crate::implementations::postgres::tabular::view::{
 };
 use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_deleted};
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
+use crate::service::token_verification::UserId;
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, DeletionDetails, GetWarehouseResponse,
     ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result, TableCreation,
@@ -42,7 +43,6 @@ use crate::{
 use iceberg::spec::ViewMetadata;
 use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 impl Catalog for super::PostgresCatalog {
@@ -393,10 +393,10 @@ impl Catalog for super::PostgresCatalog {
         mark_tabular_as_deleted(table_id, transaction).await
     }
 
-    async fn create_user(
-        user_id: Uuid,
+    async fn register_user(
+        user_id: &UserId,
         display_name: Option<&str>,
-        name: Option<&str>,
+        name: &str,
         email: Option<&str>,
         origin: UserOrigin,
         catalog_state: Self::State,
