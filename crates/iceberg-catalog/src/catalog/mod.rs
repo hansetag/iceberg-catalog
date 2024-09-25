@@ -61,6 +61,14 @@ fn require_warehouse_id(prefix: Option<Prefix>) -> Result<WarehouseIdent> {
         .try_into()
 }
 
+pub(crate) fn set_not_found_status_code(
+    e: impl Into<IcebergErrorResponse>,
+) -> IcebergErrorResponse {
+    let mut e = e.into();
+    e.error.code = http::StatusCode::NOT_FOUND.into();
+    e
+}
+
 pub(crate) async fn maybe_get_secret<S: SecretStore>(
     secret: Option<crate::SecretIdent>,
     state: &S,

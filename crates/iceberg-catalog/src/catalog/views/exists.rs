@@ -1,9 +1,7 @@
-use http::StatusCode;
-
 use crate::api::iceberg::v1::ViewParameters;
 use crate::api::ApiContext;
-use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::validate_table_or_view_ident;
+use crate::catalog::{require_warehouse_id, set_not_found_status_code};
 use crate::request_metadata::RequestMetadata;
 use crate::service::authz::{Authorizer, ViewAction, WarehouseAction};
 use crate::service::Result;
@@ -35,10 +33,7 @@ pub(crate) async fn view_exists<C: Catalog, A: Authorizer, S: SecretStore>(
             ViewAction::CanGetMetadata,
         )
         .await
-        .map_err(|mut e| {
-            e.error.code = StatusCode::NOT_FOUND.into();
-            e
-        })?;
+        .map_err(set_not_found_status_code)?;
     Ok(())
 }
 
@@ -98,6 +93,6 @@ mod test {
         .await
         .unwrap_err();
 
-        assert_eq!(non_exist.error.code, StatusCode::NOT_FOUND);
+        assert_eq!(non_exist.error.code, http::StatusCode::NOT_FOUND);
     }
 }

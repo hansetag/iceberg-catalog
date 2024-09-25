@@ -4,7 +4,7 @@ use std::str::FromStr as _;
 use super::commit_tables::apply_commit;
 use super::{
     io::write_metadata_file, maybe_get_secret, namespace::validate_namespace_ident,
-    require_warehouse_id, CatalogServer,
+    require_warehouse_id, set_not_found_status_code, CatalogServer,
 };
 
 use crate::api::iceberg::types::DropParams;
@@ -346,10 +346,7 @@ impl<C: Catalog, A: Authorizer, S: SecretStore>
                 TableAction::CanGetMetadata,
             )
             .await
-            .map_err(|mut e| {
-                e.error.code = StatusCode::NOT_FOUND.into();
-                e
-            })?;
+            .map_err(set_not_found_status_code)?;
 
         let (read_access, write_access) = futures::try_join!(
             authorizer.is_allowed_table_action(
@@ -737,10 +734,7 @@ impl<C: Catalog, A: Authorizer, S: SecretStore>
                 TableAction::CanGetMetadata,
             )
             .await
-            .map_err(|mut e| {
-                e.error.code = StatusCode::NOT_FOUND.into();
-                e
-            })?;
+            .map_err(set_not_found_status_code)?;
 
         // ------------------- BUSINESS LOGIC -------------------
         Ok(())

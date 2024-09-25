@@ -2,14 +2,13 @@ use std::str::FromStr as _;
 
 use crate::api::iceberg::v1::{DataAccess, ViewParameters};
 use crate::api::ApiContext;
-use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{require_active_warehouse, validate_table_or_view_ident};
+use crate::catalog::{require_warehouse_id, set_not_found_status_code};
 use crate::request_metadata::RequestMetadata;
 use crate::service::authz::{Authorizer, ViewAction, WarehouseAction};
 use crate::service::storage::{StorageCredential, StoragePermissions};
 use crate::service::{Catalog, SecretStore, State, Transaction, ViewMetadataWithLocation};
 use crate::service::{GetWarehouseResponse, Result};
-use http::StatusCode;
 use iceberg_ext::catalog::rest::{ErrorModel, LoadViewResult};
 use iceberg_ext::configs::Location;
 
@@ -52,10 +51,7 @@ pub(crate) async fn load_view<C: Catalog, A: Authorizer, S: SecretStore>(
             ViewAction::CanGetMetadata,
         )
         .await
-        .map_err(|mut e| {
-            e.error.code = StatusCode::NOT_FOUND.into();
-            e
-        })?;
+        .map_err(set_not_found_status_code)?;
 
     // ------------------- BUSINESS LOGIC -------------------
     let GetWarehouseResponse {

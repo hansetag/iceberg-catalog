@@ -1,4 +1,4 @@
-use super::{require_warehouse_id, CatalogServer};
+use super::{require_warehouse_id, set_not_found_status_code, CatalogServer};
 use crate::api::iceberg::v1::{
     ApiContext, CreateNamespaceRequest, CreateNamespaceResponse, ErrorModel, GetNamespaceResponse,
     ListNamespacesQuery, ListNamespacesResponse, NamespaceParameters, Prefix, Result,
@@ -177,7 +177,8 @@ impl<C: Catalog, A: Authorizer, S: SecretStore>
                 namespace_id,
                 NamespaceAction::CanGetMetadata,
             )
-            .await?;
+            .await
+            .map_err(set_not_found_status_code)?;
 
         // ------------------- BUSINESS LOGIC -------------------
         let r = C::get_namespace(warehouse_id, namespace_id, t.transaction()).await?;
@@ -215,7 +216,8 @@ impl<C: Catalog, A: Authorizer, S: SecretStore>
                 namespace_id,
                 NamespaceAction::CanGetMetadata,
             )
-            .await?;
+            .await
+            .map_err(set_not_found_status_code)?;
         Ok(())
     }
 
