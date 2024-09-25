@@ -1,0 +1,201 @@
+name: Custom Roles
+model_file: ./schema.fga
+tuples:
+  # Hierarchies: server_1 -> project_1 -> (warehouse_1, warehouse_2)
+  - user: server:server_1
+    relation: parent
+    object: project:project_1
+  - user: project:project_1
+    relation: child
+    object: server:server_1
+  - user: warehouse:warehouse_1
+    relation: child
+    object: project:project_1
+  - user: project:project_1
+    relation: parent
+    object: warehouse:warehouse_1
+  - user: warehouse:warehouse_2
+    relation: child
+    object: project:project_1
+  - user: project:project_1
+    relation: parent
+    object: warehouse:warehouse_2
+  # Hierarchies: warehouse_1 -> namespace_1 -> (table_1, table_2)
+  - user: warehouse:warehouse_1
+    relation: parent
+    object: namespace:namespace_1
+  - user: namespace:namespace_1
+    relation: child
+    object: warehouse:warehouse_1
+  - user: table:table_1
+    relation: child
+    object: namespace:namespace_1
+  - user: namespace:namespace_1
+    relation: parent
+    object: table:table_1
+  # Hierarchies: warehouse_1 -> namespace_2 -> namespace_3 -> (table_3, view_1)
+  - user: warehouse:warehouse_1
+    relation: parent
+    object: namespace:namespace_2
+  - user: namespace:namespace_2
+    relation: child
+    object: warehouse:warehouse_1
+  - user: namespace:namespace_2
+    relation: parent
+    object: namespace:namespace_3
+  - user: namespace:namespace_3
+    relation: child
+    object: namespace:namespace_2
+  - user: table:table_3
+    relation: child
+    object: namespace:namespace_3
+  - user: namespace:namespace_3
+    relation: parent
+    object: table:table_3
+  - user: view:view_1
+    relation: child
+    object: namespace:namespace_3
+  - user: namespace:namespace_3
+    relation: parent
+    object: view:view_1
+  # Roles (Global Admin)
+  - user: user:global_admin
+    relation: global_admin
+    object: server:server_1
+  # Roles (Project 1 admin)
+  - user: user:project_1_admin
+    relation: admin
+    object: project:project_1
+  # Roles (Warehouse 1 admin)
+  - user: user:warehouse_1_admin
+    relation: admin
+    object: warehouse:warehouse_1
+  # Roles (Namespace 1 admin)
+  - user: user:namespace_1_admin
+    relation: admin
+    object: namespace:namespace_1
+  # Roles (Modify on Table 1)
+  - user: user:modify_table_1
+    relation: assignee
+    object: role:table_1_modify
+  - user: role:table_1_modify#assignee
+    relation: modify
+    object: table:table_1
+  # Roles (Table 3 Describe)
+  - user: user:describe_table_3
+    relation: assignee
+    object: role:table_3_describe
+  - user: role:table_3_describe#assignee
+    relation: describe
+    object: table:table_3
+tests:
+  - name: Test Global Admin
+    check:
+      - user: user:global_admin
+        object: server:server_1
+        assertions:
+          can_create: true
+      - user: user:global_admin
+        object: project:project_1
+        assertions:
+          can_create: true
+          can_delete: true
+          can_get_metadata: true
+          can_list: true
+          can_grant_create: true
+          can_grant_describe: true
+          can_grant_modify: true
+          can_grant_select: true
+          can_grant_admin: true
+      - user: user:global_admin
+        object: warehouse:warehouse_1
+        assertions:
+          can_create: true
+          can_delete: true
+          can_get_metadata: true
+          can_list: true
+          can_grant_create: true
+          can_grant_describe: true
+          can_grant_modify: true
+          can_grant_select: true
+          can_grant_admin: true
+      - user: user:global_admin
+        object: namespace:namespace_1
+        assertions:
+          can_create: true
+          can_delete: true
+          can_get_metadata: true
+          can_list: true
+          can_grant_create: true
+          can_grant_describe: true
+          can_grant_modify: true
+          can_grant_select: true
+          can_grant_admin: true
+      - user: user:global_admin
+        object: table:table_3
+        assertions:
+          can_delete: true
+          can_write_data: true
+          can_read_data: true
+          can_get_metadata: true
+          can_commit: true
+          can_grant_describe: true
+          can_grant_select: true
+          can_grant_modify: true
+  - name: Test metadata bubble up
+    check:
+    - user: user:modify_table_1
+      object: table:table_1
+      assertions:
+        can_get_metadata: true
+        can_delete: true
+        can_commit: true
+    - user: user:modify_table_1
+      object: namespace:namespace_1
+      assertions:
+        can_get_metadata: true
+        can_list: true
+        can_delete: false
+        can_modify: false
+        can_create: false
+    - user: user:modify_table_1
+      object: warehouse:warehouse_1
+      assertions:
+        can_get_metadata: true
+        can_list: true
+        can_delete: false
+        can_modify: false
+        can_create: false
+    - user: user:modify_table_1
+      object: project:project_1
+      assertions:
+        can_get_metadata: true
+        can_list: true
+        can_delete: false
+        can_modify: false
+        can_create: false
+  - name: Test namespace admin
+    check:
+    - user: user:namespace_1_admin
+      object: namespace:namespace_1
+      assertions:
+        can_get_metadata: true
+        can_list: true
+        can_delete: true
+        can_modify: true
+        can_create: true
+    - user: user:namespace_1_admin
+      object: project:project_1
+      assertions:
+        can_get_metadata: true
+        can_list: true
+        can_delete: false
+        can_modify: false
+        can_create: false
+    - user: user:namespace_1_admin
+      object: table:table_1
+      assertions:
+        can_get_metadata: true
+        can_delete: true
+        can_commit: true
+ 

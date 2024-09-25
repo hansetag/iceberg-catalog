@@ -1,6 +1,6 @@
 use super::{
     namespace::{
-        create_namespace, drop_namespace, get_namespace, list_namespaces, namespace_ident_to_id,
+        create_namespace, drop_namespace, get_namespace, list_namespaces, namespace_to_id,
         update_namespace_properties,
     },
     tabular::table::{
@@ -9,8 +9,9 @@ use super::{
         table_ident_to_id, table_idents_to_ids,
     },
     warehouse::{
-        create_warehouse, delete_warehouse, get_warehouse, list_projects, list_warehouses,
-        rename_warehouse, set_warehouse_status, update_storage_profile,
+        create_warehouse, delete_warehouse, get_config_for_warehouse, get_warehouse,
+        get_warehouse_by_name, list_projects, list_warehouses, rename_warehouse,
+        set_warehouse_status, update_storage_profile,
     },
     CatalogState, PostgresTransaction,
 };
@@ -19,12 +20,12 @@ use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
 };
 use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_deleted};
-use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use crate::service::{
     CreateNamespaceRequest, CreateNamespaceResponse, DeletionDetails, GetWarehouseResponse,
     ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent, Result, TableCreation,
     TableIdent, WarehouseStatus,
 };
+use crate::service::{TabularIdentOwned, TabularIdentUuid};
 use crate::{
     api::iceberg::v1::{PaginatedTabulars, PaginationQuery},
     service::TableCommit,
@@ -38,13 +39,28 @@ use crate::{
     SecretIdent,
 };
 use iceberg::spec::ViewMetadata;
-use iceberg_ext::configs::Location;
+use iceberg_ext::{catalog::rest::CatalogConfig, configs::Location};
 use std::collections::{HashMap, HashSet};
 
 #[async_trait::async_trait]
 impl Catalog for super::PostgresCatalog {
     type Transaction = PostgresTransaction;
     type State = CatalogState;
+
+    async fn get_warehouse_by_name(
+        warehouse_name: &str,
+        project_id: ProjectIdent,
+        catalog_state: CatalogState,
+    ) -> Result<WarehouseIdent> {
+        get_warehouse_by_name(warehouse_name, project_id, catalog_state).await
+    }
+
+    async fn get_config_for_warehouse(
+        warehouse_id: WarehouseIdent,
+        catalog_state: CatalogState,
+    ) -> Result<CatalogConfig> {
+        get_config_for_warehouse(warehouse_id, catalog_state).await
+    }
 
     async fn create_warehouse<'a>(
         warehouse_name: String,
@@ -74,18 +90,18 @@ impl Catalog for super::PostgresCatalog {
 
     async fn get_namespace<'a>(
         warehouse_id: WarehouseIdent,
-        namespace: &NamespaceIdent,
-        transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
+        namespace: NamespaceIdentUuid,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<GetNamespaceResponse> {
         get_namespace(warehouse_id, namespace, transaction).await
     }
 
-    async fn list_namespaces(
+    async fn list_namespaces<'a>(
         warehouse_id: WarehouseIdent,
         query: &ListNamespacesQuery,
-        catalog_state: CatalogState,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ListNamespacesResponse> {
-        list_namespaces(warehouse_id, query, catalog_state).await
+        list_namespaces(warehouse_id, query, transaction).await
     }
 
     async fn create_namespace<'a>(
@@ -97,29 +113,29 @@ impl Catalog for super::PostgresCatalog {
         create_namespace(warehouse_id, namespace_id, request, transaction).await
     }
 
-    async fn namespace_ident_to_id(
+    async fn namespace_to_id<'a>(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
-        catalog_state: CatalogState,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Option<NamespaceIdentUuid>> {
-        namespace_ident_to_id(warehouse_id, namespace, catalog_state).await
+        namespace_to_id(warehouse_id, namespace, transaction).await
     }
 
     async fn drop_namespace<'a>(
         warehouse_id: WarehouseIdent,
-        namespace: &NamespaceIdent,
+        namespace_id: NamespaceIdentUuid,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
-        drop_namespace(warehouse_id, namespace, transaction).await
+        drop_namespace(warehouse_id, namespace_id, transaction).await
     }
 
     async fn update_namespace_properties<'a>(
         warehouse_id: WarehouseIdent,
-        namespace: &NamespaceIdent,
+        namespace_id: NamespaceIdentUuid,
         properties: HashMap<String, String>,
         transaction: <Self::Transaction as Transaction<CatalogState>>::Transaction<'a>,
     ) -> Result<()> {
-        update_namespace_properties(warehouse_id, namespace, properties, transaction).await
+        update_namespace_properties(warehouse_id, namespace_id, properties, transaction).await
     }
 
     async fn create_table<'a>(
@@ -129,18 +145,18 @@ impl Catalog for super::PostgresCatalog {
         create_table(table_creation, transaction).await
     }
 
-    async fn list_tables(
+    async fn list_tables<'a>(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
-        list_flags: crate::service::ListFlags,
-        catalog_state: CatalogState,
+        list_flags: ListFlags,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
         pagination_query: PaginationQuery,
     ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
         list_tables(
             warehouse_id,
             namespace,
             list_flags,
-            catalog_state,
+            &mut **transaction,
             pagination_query,
         )
         .await
@@ -159,28 +175,28 @@ impl Catalog for super::PostgresCatalog {
     async fn get_table_metadata_by_id(
         warehouse_id: WarehouseIdent,
         table: TableIdentUuid,
-        list_flags: crate::service::ListFlags,
+        list_flags: ListFlags,
         catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResponse> {
+    ) -> Result<Option<GetTableMetadataResponse>> {
         get_table_metadata_by_id(warehouse_id, table, list_flags, catalog_state).await
     }
 
     async fn get_table_metadata_by_s3_location(
         warehouse_id: WarehouseIdent,
         location: &Location,
-        list_flags: crate::service::ListFlags,
+        list_flags: ListFlags,
         catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResponse> {
+    ) -> Result<Option<GetTableMetadataResponse>> {
         get_table_metadata_by_s3_location(warehouse_id, location, list_flags, catalog_state).await
     }
 
-    async fn table_ident_to_id(
+    async fn table_to_id<'a>(
         warehouse_id: WarehouseIdent,
         table: &TableIdent,
-        list_flags: crate::service::ListFlags,
-        catalog_state: Self::State,
+        list_flags: ListFlags,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Option<TableIdentUuid>> {
-        table_ident_to_id(warehouse_id, table, list_flags, &catalog_state.read_pool()).await
+        table_ident_to_id(warehouse_id, table, list_flags, &mut **transaction).await
     }
 
     async fn rename_table<'a>(
@@ -218,23 +234,19 @@ impl Catalog for super::PostgresCatalog {
     }
 
     // ---------------- Management API ----------------
-    async fn list_projects(catalog_state: Self::State) -> Result<HashSet<ProjectIdent>> {
-        list_projects(catalog_state).await
+    async fn list_projects(
+        project_id_filter: Option<HashSet<ProjectIdent>>,
+        catalog_state: Self::State,
+    ) -> Result<HashSet<ProjectIdent>> {
+        list_projects(project_id_filter, catalog_state).await
     }
 
     async fn list_warehouses(
         project_id: ProjectIdent,
         include_inactive: Option<Vec<WarehouseStatus>>,
-        warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
         catalog_state: Self::State,
     ) -> Result<Vec<GetWarehouseResponse>> {
-        list_warehouses(
-            project_id,
-            include_inactive,
-            warehouse_id_filter,
-            catalog_state,
-        )
-        .await
+        list_warehouses(project_id, include_inactive, catalog_state).await
     }
 
     async fn delete_warehouse<'a>(
@@ -294,12 +306,12 @@ impl Catalog for super::PostgresCatalog {
         .await
     }
 
-    async fn view_ident_to_id(
+    async fn view_to_id<'a>(
         warehouse_id: WarehouseIdent,
         view: &TableIdent,
-        catalog_state: Self::State,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Option<TableIdentUuid>> {
-        view_ident_to_id(warehouse_id, view, false, &catalog_state.read_pool()).await
+        view_ident_to_id(warehouse_id, view, false, &mut **transaction).await
     }
 
     async fn load_view<'a>(
@@ -310,18 +322,18 @@ impl Catalog for super::PostgresCatalog {
         load_view(view_id, include_deleted, &mut *transaction).await
     }
 
-    async fn list_views(
+    async fn list_views<'a>(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         include_deleted: bool,
-        catalog_state: Self::State,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
         pagination_query: PaginationQuery,
     ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
         list_views(
             warehouse_id,
             namespace,
             include_deleted,
-            catalog_state,
+            &mut **transaction,
             pagination_query,
         )
         .await

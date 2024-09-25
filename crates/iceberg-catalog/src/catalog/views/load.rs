@@ -5,7 +5,7 @@ use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{require_active_warehouse, validate_table_or_view_ident};
 use crate::request_metadata::RequestMetadata;
-use crate::service::auth::AuthZHandler;
+use crate::service::authz::{Authorizer, ViewAction, WarehouseAction};
 use crate::service::storage::{StorageCredential, StoragePermissions};
 use crate::service::{Catalog, SecretStore, State, Transaction, ViewMetadataWithLocation};
 use crate::service::{GetWarehouseResponse, Result};
@@ -13,7 +13,7 @@ use http::StatusCode;
 use iceberg_ext::catalog::rest::{ErrorModel, LoadViewResult};
 use iceberg_ext::configs::Location;
 
-pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
+pub(crate) async fn load_view<C: Catalog, A: Authorizer, S: SecretStore>(
     parameters: ViewParameters,
     state: ApiContext<State<A, C, S>>,
     data_access: DataAccess,
@@ -38,31 +38,26 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     }
 
     // ------------------- AUTHZ -------------------
-    let view_id = C::view_ident_to_id(warehouse_id, &view, state.v1_state.catalog.clone())
+    let authorizer = state.v1_state.authz;
+    authorizer
+        .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+        .await?;
+    let mut t = C::Transaction::begin_read(state.v1_state.catalog).await?;
+    let view_id = C::view_to_id(warehouse_id, &view, t.transaction()).await; // We can't fail before AuthZ
+    let view_id = authorizer
+        .require_view_action(
+            &request_metadata,
+            warehouse_id,
+            view_id,
+            ViewAction::CanGetMetadata,
+        )
         .await
-        // We can't fail before AuthZ.
-        .transpose();
-
-    A::check_load_view(
-        &request_metadata,
-        warehouse_id,
-        Some(&view.namespace),
-        view_id.as_ref().and_then(|id| id.as_ref().ok()),
-        state.v1_state.auth,
-    )
-    .await?;
+        .map_err(|mut e| {
+            e.error.code = StatusCode::NOT_FOUND.into();
+            e
+        })?;
 
     // ------------------- BUSINESS LOGIC -------------------
-    let view_id = view_id.transpose()?.ok_or_else(|| {
-        tracing::debug!("View does not exist.");
-        ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message(format!("View does not exist in warehouse {warehouse_id}"))
-            .r#type("ViewNotFound".to_string())
-            .build()
-    })?;
-    let mut transaction = C::Transaction::begin_read(state.v1_state.catalog).await?;
-
     let GetWarehouseResponse {
         id: _,
         name: _,
@@ -71,13 +66,13 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         storage_secret_id,
         status,
         tabular_delete_profile: _,
-    } = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
+    } = C::get_warehouse(warehouse_id, t.transaction()).await?;
     require_active_warehouse(status)?;
 
     let ViewMetadataWithLocation {
         metadata_location,
         metadata: view_metadata,
-    } = C::load_view(view_id, false, transaction.transaction()).await?;
+    } = C::load_view(view_id, false, t.transaction()).await?;
 
     let view_location = Location::from_str(&view_metadata.location).map_err(|e| {
         ErrorModel::internal(
@@ -116,7 +111,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         config: Some(access.into()),
     };
 
-    transaction.commit().await?;
+    t.commit().await?;
     Ok(load_table_result)
 }
 
@@ -129,7 +124,7 @@ pub(crate) mod test {
     use crate::implementations::postgres::secrets::SecretsState;
 
     use crate::implementations::postgres::PostgresCatalog;
-    use crate::implementations::AllowAllAuthZHandler;
+    use crate::service::authz::AllowAllAuthorizer;
 
     use crate::service::State;
 
@@ -142,11 +137,11 @@ pub(crate) mod test {
     use crate::catalog::views::test::setup;
 
     pub(crate) async fn load_view(
-        api_context: ApiContext<State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>>,
+        api_context: ApiContext<State<AllowAllAuthorizer, PostgresCatalog, SecretsState>>,
         params: ViewParameters,
     ) -> crate::api::Result<LoadViewResult> {
-        <CatalogServer<PostgresCatalog, AllowAllAuthZHandler, SecretsState> as views::Service<
-            State<AllowAllAuthZHandler, PostgresCatalog, SecretsState>,
+        <CatalogServer<PostgresCatalog, AllowAllAuthorizer, SecretsState> as views::Service<
+            State<AllowAllAuthorizer, PostgresCatalog, SecretsState>,
         >>::load_view(
             params,
             api_context,

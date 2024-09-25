@@ -1,91 +1,54 @@
 use crate::api::iceberg::v1::config::GetConfigQueryParams;
-use crate::api::iceberg::v1::{
-    ApiContext, CatalogConfig, ErrorModel, IcebergErrorResponse, Result,
-};
+use crate::api::iceberg::v1::{ApiContext, CatalogConfig, ErrorModel, Result};
 use crate::request_metadata::RequestMetadata;
-use http::StatusCode;
-use std::marker::PhantomData;
+use crate::service::authz::{ProjectAction, WarehouseAction};
+use crate::service::token_verification::AuthDetails;
 use std::str::FromStr;
 
 use crate::service::SecretStore;
-use crate::service::{
-    auth::{AuthConfigHandler, AuthZHandler, UserWarehouse},
-    config::ConfigProvider,
-    Catalog, ProjectIdent, State,
-};
+use crate::service::{authz::Authorizer, Catalog, ProjectIdent, State};
 use crate::CONFIG;
 
-#[derive(Clone, Debug)]
-pub struct Server<C: ConfigProvider<D>, D: Catalog, T: AuthConfigHandler<A>, A: AuthZHandler> {
-    auth_handler: PhantomData<T>,
-    auth_state: PhantomData<A::State>,
-    config_server: PhantomData<C>,
-    catalog_state: PhantomData<D::State>,
-}
+use super::CatalogServer;
 
 #[async_trait::async_trait]
-impl<
-        C: ConfigProvider<D>,
-        A: AuthZHandler,
-        D: Catalog,
-        S: SecretStore,
-        T: AuthConfigHandler<A>,
-    > crate::api::iceberg::v1::config::Service<State<A, D, S>> for Server<C, D, T, A>
+impl<A: Authorizer, C: Catalog, S: SecretStore>
+    crate::api::iceberg::v1::config::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     async fn get_config(
         query: GetConfigQueryParams,
-        api_context: ApiContext<State<A, D, S>>,
+        api_context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<CatalogConfig> {
-        let auth_info = T::get_and_validate_user_warehouse(
-            api_context.v1_state.auth.clone(),
-            &request_metadata,
-        )
-        .await?;
+        let authorizer = api_context.v1_state.authz;
+        let project_id_from_auth = &request_metadata
+            .auth_details
+            .as_ref()
+            .and_then(AuthDetails::project_id);
+        let warehouse_id_from_auth = &request_metadata
+            .auth_details
+            .as_ref()
+            .and_then(AuthDetails::warehouse_id);
 
-        let UserWarehouse {
-            project_id: project_from_auth,
-            warehouse_id: warehouse_from_auth,
-        } = auth_info;
-
-        if query.warehouse.is_none() && warehouse_from_auth.is_none() {
-            let e: IcebergErrorResponse = ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message("No warehouse specified. Please specify the 'warehouse' parameter in the GET /config request.".to_string())
-                .r#type("GetConfigNoWarehouseProvided".to_string())
-                .build()
-                .into();
-            return Err(e);
-        }
-
-        let (project_from_arg, warehouse_from_arg) = query
-            .warehouse
-            .map_or((None, None), |arg| parse_warehouse_arg(&arg));
-
-        if let Some(project_from_arg) = &project_from_arg {
-            // This is a user-provided project-id, so we need to check if the user is allowed to access it
-            T::check_list_warehouse_in_project(
-                api_context.v1_state.auth.clone(),
-                project_from_arg,
-                &request_metadata,
-            )
-            .await?;
-        }
-
-        let project_id = project_from_arg
-            .or(project_from_auth)
-            .or(CONFIG.default_project_id.map(std::convert::Into::into))
-            .ok_or_else(|| {
-                let e: IcebergErrorResponse = ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message("No project provided".to_string())
-                    .r#type("GetConfigNoProjectProvided".to_string())
-                    .build()
-                    .into();
-                e
-            })?;
-
-        let warehouse_id = if let Some(warehouse_from_arg) = warehouse_from_arg {
+        // Arg takes precedence over auth
+        let warehouse_id = if let Some(query_warehouse) = query.warehouse {
+            let (project_from_arg, warehouse_from_arg) = parse_warehouse_arg(&query_warehouse);
+            let project_id = project_from_arg
+                .or(*project_id_from_auth)
+                .or(CONFIG.default_project_id)
+                .ok_or_else(|| {
+                    // ToDo Christian: Split Project into separate endpoint, Use name
+                    ErrorModel::bad_request(
+                        "No project provided. Please provide warehouse as: <project-name>/<warehouse-name>",
+                        "GetConfigNoProjectProvided", None)
+                })?;
+            authorizer
+                .require_project_action(
+                    &request_metadata,
+                    project_id,
+                    ProjectAction::CanListWarehouses,
+                )
+                .await?;
             C::get_warehouse_by_name(
                 &warehouse_from_arg,
                 project_id,
@@ -93,42 +56,22 @@ impl<
             )
             .await?
         } else {
-            warehouse_from_auth.ok_or_else(|| {
-                let e: IcebergErrorResponse = ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message("No warehouse provided".to_string())
-                    .r#type("GetConfigNoWarehouseProvided".to_string())
-                    .build()
-                    .into();
-                e
+            warehouse_id_from_auth.ok_or_else(|| {
+                ErrorModel::bad_request("No warehouse specified. Please specify the 'warehouse' parameter in the GET /config request.".to_string(), "GetConfigNoWarehouseProvided", None)
             })?
         };
 
-        T::check_user_get_config_for_warehouse(
-            api_context.v1_state.auth.clone(),
-            warehouse_id,
-            &request_metadata,
-        )
-        .await?;
+        authorizer
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                WarehouseAction::CanGetConfig,
+            )
+            .await?;
 
         // Get config from DB and new token from AuthHandler simultaneously
-        let config = C::get_config_for_warehouse(warehouse_id, api_context.v1_state.catalog);
-
-        // Give the auth-handler a chance to exchange / enrich the token
-        let new_token = T::exchange_token_for_warehouse(
-            api_context.v1_state.auth.clone(),
-            &request_metadata,
-            &project_id,
-            warehouse_id,
-        );
-
-        let (config, new_token) = futures::join!(config, new_token);
-        let new_token = new_token?;
-        let mut config = config?;
-
-        if let Some(new_token) = new_token {
-            config.overrides.insert("token".to_string(), new_token);
-        }
+        let mut config =
+            C::get_config_for_warehouse(warehouse_id, api_context.v1_state.catalog).await?;
 
         config
             .overrides
@@ -142,22 +85,16 @@ impl<
     }
 }
 
-fn parse_warehouse_arg(arg: &str) -> (Option<ProjectIdent>, Option<String>) {
-    // structure of the argument is <(optional uuid project_id)>/<warehouse_name which might include />
-    fn filter_empty_strings(s: String) -> Option<String> {
-        if s.is_empty() {
-            None
-        } else {
-            Some(s)
-        }
-    }
+fn parse_warehouse_arg(arg: &str) -> (Option<ProjectIdent>, String) {
+    // structure of the argument is <(optional uuid project_id)>/<warehouse_name>
+    // Warehouse names cannot include /
 
     // Split arg at first /
     let parts: Vec<&str> = arg.splitn(2, '/').collect();
     match parts.len() {
         1 => {
             // No project_id provided
-            let warehouse_name = filter_empty_strings(parts[0].to_string());
+            let warehouse_name = parts[0].to_string();
             (None, warehouse_name)
         }
         2 => {
@@ -165,10 +102,10 @@ fn parse_warehouse_arg(arg: &str) -> (Option<ProjectIdent>, Option<String>) {
             // If parts[0] is a valid UUID, it is a project_id, otherwise the whole thing is a warehouse_id
             match ProjectIdent::from_str(parts[0]) {
                 Ok(project_id) => {
-                    let warehouse_name = filter_empty_strings(parts[1].to_string());
+                    let warehouse_name = parts[1].to_string();
                     (Some(project_id), warehouse_name)
                 }
-                Err(_) => (None, filter_empty_strings(arg.to_string())),
+                Err(_) => (None, arg.to_string()),
             }
         }
         // Because of the splitn(2, ..) there can't be more than 2 parts

@@ -20,9 +20,40 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use url::Url;
 
+use super::{ProjectIdent, WarehouseIdent};
+
 #[derive(Debug, Clone)]
 pub enum AuthDetails {
     JWT(Claims),
+}
+
+impl AuthDetails {
+    #[must_use]
+    pub fn actor(&self) -> Actor {
+        match self {
+            Self::JWT(claims) => Actor::Principal(claims.sub.clone()),
+        }
+    }
+
+    #[must_use]
+    pub fn project_id(&self) -> Option<ProjectIdent> {
+        None
+    }
+
+    #[must_use]
+    pub fn warehouse_id(&self) -> Option<WarehouseIdent> {
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Actor {
+    Anonymous,
+    Principal(String),
+    Role {
+        principal: String,
+        assumed_role: String,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]

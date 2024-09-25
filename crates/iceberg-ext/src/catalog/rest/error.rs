@@ -214,8 +214,8 @@ impl ErrorModel {
     }
 
     #[must_use]
-    pub fn append_details(mut self, details: &[String]) -> Self {
-        self.stack.extend_from_slice(details);
+    pub fn append_details(mut self, details: impl IntoIterator<Item = String>) -> Self {
+        self.stack.extend(details);
         self
     }
 

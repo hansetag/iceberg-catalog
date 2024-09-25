@@ -5,12 +5,12 @@ pub mod v1 {
 
     use crate::api::{ApiContext, Result};
     use crate::request_metadata::RequestMetadata;
-    use crate::service::auth::AuthZHandler;
+    use crate::service::authz::Authorizer;
     use std::marker::PhantomData;
 
     use crate::api::iceberg::v1::PaginationQuery;
 
-    use crate::service::tabular_idents::TabularIdentUuid;
+    use crate::service::TabularIdentUuid;
     use crate::service::{storage::S3Flavor, Catalog, SecretStore, State};
     use axum::extract::{Path, Query, State as AxumState};
     use axum::routing::{get, post};
@@ -71,7 +71,7 @@ pub mod v1 {
 
     #[derive(Clone, Debug)]
 
-    pub struct ApiServer<C: Catalog, A: AuthZHandler, S: SecretStore> {
+    pub struct ApiServer<C: Catalog, A: Authorizer, S: SecretStore> {
         auth_handler: PhantomData<A>,
         config_server: PhantomData<C>,
         secret_store: PhantomData<S>,
@@ -91,7 +91,7 @@ pub mod v1 {
             (status = 201, description = "Warehouse created successfully", body = [CreateWarehouseResponse]),
         )
     )]
-    async fn create_warehouse<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn create_warehouse<C: Catalog, A: Authorizer, S: SecretStore>(
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
         Json(request): Json<CreateWarehouseRequest>,
@@ -108,7 +108,7 @@ pub mod v1 {
             (status = 200, description = "List of projects", body = [ListProjectsResponse])
         )
     )]
-    async fn list_projects<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn list_projects<C: Catalog, A: Authorizer, S: SecretStore>(
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
     ) -> Result<ListProjectsResponse> {
@@ -128,7 +128,7 @@ pub mod v1 {
             (status = 200, description = "List of warehouses", body = [ListWarehousesResponse])
         )
     )]
-    async fn list_warehouses<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn list_warehouses<C: Catalog, A: Authorizer, S: SecretStore>(
         Query(request): Query<ListWarehousesRequest>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
@@ -145,7 +145,7 @@ pub mod v1 {
             (status = 200, description = "Warehouse details", body = [GetWarehouseResponse])
         )
     )]
-    async fn get_warehouse<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn get_warehouse<C: Catalog, A: Authorizer, S: SecretStore>(
         Path(warehouse_id): Path<uuid::Uuid>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
@@ -162,7 +162,7 @@ pub mod v1 {
             (status = 200, description = "Warehouse deleted successfully")
         )
     )]
-    async fn delete_warehouse<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn delete_warehouse<C: Catalog, A: Authorizer, S: SecretStore>(
         Path(warehouse_id): Path<uuid::Uuid>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
@@ -180,7 +180,7 @@ pub mod v1 {
             (status = 200, description = "Warehouse renamed successfully")
         )
     )]
-    async fn rename_warehouse<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn rename_warehouse<C: Catalog, A: Authorizer, S: SecretStore>(
         Path(warehouse_id): Path<uuid::Uuid>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
@@ -199,7 +199,7 @@ pub mod v1 {
             (status = 200, description = "Warehouse deactivated successfully")
         )
     )]
-    async fn deactivate_warehouse<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn deactivate_warehouse<C: Catalog, A: Authorizer, S: SecretStore>(
         Path(warehouse_id): Path<uuid::Uuid>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
@@ -216,7 +216,7 @@ pub mod v1 {
             (status = 200, description = "Warehouse activated successfully")
         )
     )]
-    async fn activate_warehouse<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn activate_warehouse<C: Catalog, A: Authorizer, S: SecretStore>(
         Path(warehouse_id): Path<uuid::Uuid>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
@@ -224,7 +224,7 @@ pub mod v1 {
         ApiServer::<C, A, S>::activate_warehouse(warehouse_id.into(), api_context, metadata).await
     }
 
-    /// Update the storage profile of a warehouse
+    /// Update the storage profile of a warehouse including its storage credential.
     #[utoipa::path(
         post,
         tag = "management",
@@ -234,7 +234,7 @@ pub mod v1 {
             (status = 200, description = "Storage profile updated successfully")
         )
     )]
-    async fn update_storage_profile<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn update_storage_profile<C: Catalog, A: Authorizer, S: SecretStore>(
         Path(warehouse_id): Path<uuid::Uuid>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
@@ -244,7 +244,8 @@ pub mod v1 {
             .await
     }
 
-    /// Update the storage credential of a warehouse
+    /// Update the storage credential of a warehouse. The storage profile is not modified.
+    /// This can be used to update credentials before expiration.
     #[utoipa::path(
         post,
         tag = "management",
@@ -254,14 +255,19 @@ pub mod v1 {
             (status = 200, description = "Storage credential updated successfully")
         )
     )]
-    async fn update_storage_credential<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn update_storage_credential<C: Catalog, A: Authorizer, S: SecretStore>(
         Path(warehouse_id): Path<uuid::Uuid>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
         Json(request): Json<UpdateWarehouseCredentialRequest>,
     ) -> Result<()> {
-        ApiServer::<C, A, S>::update_credential(warehouse_id.into(), request, api_context, metadata)
-            .await
+        ApiServer::<C, A, S>::update_storage_credential(
+            warehouse_id.into(),
+            request,
+            api_context,
+            metadata,
+        )
+        .await
     }
 
     /// List soft-deleted tabulars
@@ -275,7 +281,7 @@ pub mod v1 {
             (status = 200, description = "List of soft-deleted tabulars", body = [ListDeletedTabularsResponse])
         )
     )]
-    async fn list_deleted_tabulars<C: Catalog, A: AuthZHandler, S: SecretStore>(
+    async fn list_deleted_tabulars<C: Catalog, A: Authorizer, S: SecretStore>(
         Path(warehouse_id): Path<uuid::Uuid>,
         Query(pagination): Query<PaginationQuery>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
@@ -343,7 +349,7 @@ pub mod v1 {
         Purge,
     }
 
-    impl<C: Catalog, A: AuthZHandler, S: SecretStore> ApiServer<C, A, S> {
+    impl<C: Catalog, A: Authorizer, S: SecretStore> ApiServer<C, A, S> {
         pub fn new_v1_router() -> Router<ApiContext<State<A, C, S>>> {
             Router::new()
                 // Create a new warehouse

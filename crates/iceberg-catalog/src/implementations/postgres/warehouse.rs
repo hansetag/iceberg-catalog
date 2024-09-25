@@ -1,6 +1,5 @@
 use super::dbutils::DBErrorHandler as _;
 use crate::api::{CatalogConfig, ErrorModel, Result};
-use crate::service::config::ConfigProvider;
 use crate::service::{GetWarehouseResponse, WarehouseStatus};
 use crate::{service::storage::StorageProfile, ProjectIdent, SecretIdent, WarehouseIdent};
 use http::StatusCode;
@@ -8,55 +7,52 @@ use sqlx::Error;
 use std::collections::HashSet;
 use std::ops::Deref;
 
-use super::{CatalogState, PostgresCatalog};
+use super::CatalogState;
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use sqlx::types::Json;
 
-#[async_trait::async_trait]
-impl ConfigProvider<PostgresCatalog> for super::PostgresCatalog {
-    async fn get_warehouse_by_name(
-        warehouse_name: &str,
-        project_id: ProjectIdent,
-        catalog_state: CatalogState,
-    ) -> Result<WarehouseIdent> {
-        let warehouse_id = sqlx::query_scalar!(
-            r#"
+pub(super) async fn get_warehouse_by_name(
+    warehouse_name: &str,
+    project_id: ProjectIdent,
+    catalog_state: CatalogState,
+) -> Result<WarehouseIdent> {
+    let warehouse_id = sqlx::query_scalar!(
+        r#"
             SELECT 
                 warehouse_id
             FROM warehouse
             WHERE warehouse_name = $1 AND project_id = $2
             AND status = 'active'
             "#,
-            warehouse_name.to_string(),
-            *project_id
-        )
-        .fetch_one(&catalog_state.read_pool())
-        .await
-        .map_err(map_select_warehouse_err)?;
+        warehouse_name.to_string(),
+        *project_id
+    )
+    .fetch_one(&catalog_state.read_pool())
+    .await
+    .map_err(map_select_warehouse_err)?;
 
-        Ok(warehouse_id.into())
-    }
+    Ok(warehouse_id.into())
+}
 
-    async fn get_config_for_warehouse(
-        warehouse_id: WarehouseIdent,
-        catalog_state: CatalogState,
-    ) -> Result<CatalogConfig> {
-        let storage_profile = sqlx::query_scalar!(
-            r#"
+pub(super) async fn get_config_for_warehouse(
+    warehouse_id: WarehouseIdent,
+    catalog_state: CatalogState,
+) -> Result<CatalogConfig> {
+    let storage_profile = sqlx::query_scalar!(
+        r#"
             SELECT 
                 storage_profile as "storage_profile: Json<StorageProfile>"
             FROM warehouse
             WHERE warehouse_id = $1
             AND status = 'active'
             "#,
-            *warehouse_id
-        )
-        .fetch_one(&catalog_state.read_pool())
-        .await
-        .map_err(map_select_warehouse_err)?;
+        *warehouse_id
+    )
+    .fetch_one(&catalog_state.read_pool())
+    .await
+    .map_err(map_select_warehouse_err)?;
 
-        Ok(storage_profile.generate_catalog_config(warehouse_id))
-    }
+    Ok(storage_profile.generate_catalog_config(warehouse_id))
 }
 
 pub(crate) async fn create_warehouse<'a>(
@@ -113,7 +109,6 @@ pub(crate) async fn create_warehouse<'a>(
 pub(crate) async fn list_warehouses(
     project_id: ProjectIdent,
     include_status: Option<Vec<WarehouseStatus>>,
-    warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
     catalog_state: CatalogState,
 ) -> Result<Vec<GetWarehouseResponse>> {
     #[derive(sqlx::FromRow, Debug, PartialEq)]
@@ -128,37 +123,9 @@ pub(crate) async fn list_warehouses(
     }
 
     let include_status = include_status.unwrap_or_else(|| vec![WarehouseStatus::Active]);
-    let warehouses = if let Some(warehouse_id_filter) = warehouse_id_filter {
-        let warehouse_ids: Vec<uuid::Uuid> = warehouse_id_filter
-            .iter()
-            .map(WarehouseIdent::to_uuid)
-            .collect();
-        sqlx::query_as!(
-            WarehouseRecord,
-            r#"
-            SELECT 
-                warehouse_id,
-                warehouse_name,
-                storage_profile as "storage_profile: Json<StorageProfile>",
-                storage_secret_id,
-                status AS "status: WarehouseStatus",
-                tabular_delete_mode as "tabular_delete_mode: DbTabularDeleteProfile",
-                tabular_expiration_seconds
-            FROM warehouse
-            WHERE project_id = $1 AND warehouse_id = ANY($2)
-            AND status = ANY($3)
-            "#,
-            *project_id,
-            &warehouse_ids,
-            include_status as Vec<WarehouseStatus>
-        )
-        .fetch_all(&catalog_state.read_pool())
-        .await
-        .map_err(|e| e.into_error_model("Error fetching warehouses".into()))?
-    } else {
-        sqlx::query_as!(
-            WarehouseRecord,
-            r#"
+    let warehouses = sqlx::query_as!(
+        WarehouseRecord,
+        r#"
             SELECT 
                 warehouse_id,
                 warehouse_name,
@@ -171,13 +138,12 @@ pub(crate) async fn list_warehouses(
             WHERE project_id = $1
             AND status = ANY($2)
             "#,
-            *project_id,
-            include_status as Vec<WarehouseStatus>
-        )
-        .fetch_all(&catalog_state.read_pool())
-        .await
-        .map_err(|e| e.into_error_model("Error fetching warehouses".into()))?
-    };
+        *project_id,
+        include_status as Vec<WarehouseStatus>
+    )
+    .fetch_all(&catalog_state.read_pool())
+    .await
+    .map_err(|e| e.into_error_model("Error fetching warehouses".into()))?;
 
     warehouses
         .into_iter()
@@ -259,16 +225,35 @@ pub(crate) async fn get_warehouse<'a>(
     })
 }
 
-pub(crate) async fn list_projects(catalog_state: CatalogState) -> Result<HashSet<ProjectIdent>> {
-    let projects = sqlx::query!(r#"SELECT DISTINCT project_id FROM warehouse"#)
+pub(crate) async fn list_projects(
+    project_id_filter: Option<HashSet<ProjectIdent>>,
+    catalog_state: CatalogState,
+) -> Result<HashSet<ProjectIdent>> {
+    let projects = if let Some(project_id_filter) = project_id_filter {
+        sqlx::query!(
+            r#"
+            SELECT DISTINCT project_id FROM warehouse
+            WHERE project_id = ANY($1)
+            "#,
+            project_id_filter.into_iter().collect::<Vec<_>>() as Vec<ProjectIdent>
+        )
         .fetch_all(&catalog_state.read_pool())
         .await
-        .map_err(|e| e.into_error_model("Error fetching projects".into()))?;
-
-    Ok(projects
+        .map_err(|e| e.into_error_model("Error fetching projects".into()))?
         .into_iter()
         .map(|project| ProjectIdent::from(project.project_id))
-        .collect())
+        .collect()
+    } else {
+        sqlx::query!(r#"SELECT DISTINCT project_id FROM warehouse"#)
+            .fetch_all(&catalog_state.read_pool())
+            .await
+            .map_err(|e| e.into_error_model("Error fetching projects".into()))?
+            .into_iter()
+            .map(|project| ProjectIdent::from(project.project_id))
+            .collect()
+    };
+
+    Ok(projects)
 }
 
 pub(crate) async fn delete_warehouse<'a>(
@@ -438,6 +423,7 @@ impl From<TabularDeleteProfile> for DbTabularDeleteProfile {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
+    use crate::implementations::postgres::PostgresCatalog;
     use crate::service::storage::S3Flavor;
     use crate::{
         implementations::postgres::PostgresTransaction,
@@ -509,14 +495,18 @@ pub(crate) mod test {
         let project_id_1 = ProjectIdent::from(uuid::Uuid::new_v4());
         initialize_warehouse(state.clone(), None, Some(&project_id_1), None).await;
 
-        let projects = PostgresCatalog::list_projects(state.clone()).await.unwrap();
+        let projects = PostgresCatalog::list_projects(None, state.clone())
+            .await
+            .unwrap();
         assert_eq!(projects.len(), 1);
         assert!(projects.contains(&project_id_1));
 
         let project_id_2 = ProjectIdent::from(uuid::Uuid::new_v4());
         initialize_warehouse(state.clone(), None, Some(&project_id_2), None).await;
 
-        let projects = PostgresCatalog::list_projects(state.clone()).await.unwrap();
+        let projects = PostgresCatalog::list_projects(None, state.clone())
+            .await
+            .unwrap();
         assert_eq!(projects.len(), 2);
         assert!(projects.contains(&project_id_1));
         assert!(projects.contains(&project_id_2));
@@ -529,60 +519,12 @@ pub(crate) mod test {
         let warehouse_id_1 =
             initialize_warehouse(state.clone(), None, Some(&project_id), None).await;
 
-        let warehouses = PostgresCatalog::list_warehouses(project_id, None, None, state.clone())
+        let warehouses = PostgresCatalog::list_warehouses(project_id, None, state.clone())
             .await
             .unwrap();
         assert_eq!(warehouses.len(), 1);
         // Check ids
         assert!(warehouses.iter().any(|w| w.id == warehouse_id_1));
-    }
-
-    #[sqlx::test]
-    async fn test_list_warehouses_active_filter(pool: sqlx::PgPool) {
-        let state = CatalogState::from_pools(pool.clone(), pool.clone());
-        let project_id = ProjectIdent::from(uuid::Uuid::new_v4());
-        let warehouse_id_1 =
-            initialize_warehouse(state.clone(), None, Some(&project_id), None).await;
-
-        // Rename warehouse 1
-        let mut transaction = PostgresTransaction::begin_write(state.clone())
-            .await
-            .unwrap();
-        PostgresCatalog::rename_warehouse(warehouse_id_1, "new_name", transaction.transaction())
-            .await
-            .unwrap();
-        PostgresCatalog::set_warehouse_status(
-            warehouse_id_1,
-            WarehouseStatus::Inactive,
-            transaction.transaction(),
-        )
-        .await
-        .unwrap();
-        transaction.commit().await.unwrap();
-
-        // Create warehouse 2
-        let warehouse_id_2 =
-            initialize_warehouse(state.clone(), None, Some(&project_id), None).await;
-
-        // Assert active whs
-        let warehouses = PostgresCatalog::list_warehouses(
-            project_id,
-            Some(vec![WarehouseStatus::Active, WarehouseStatus::Inactive]),
-            None,
-            state.clone(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(warehouses.len(), 2);
-        assert!(warehouses.iter().any(|w| w.id == warehouse_id_1));
-        assert!(warehouses.iter().any(|w| w.id == warehouse_id_2));
-
-        // Assert only active whs
-        let warehouses = PostgresCatalog::list_warehouses(project_id, None, None, state.clone())
-            .await
-            .unwrap();
-        assert_eq!(warehouses.len(), 1);
-        assert!(warehouses.iter().any(|w| w.id == warehouse_id_2));
     }
 
     #[sqlx::test]

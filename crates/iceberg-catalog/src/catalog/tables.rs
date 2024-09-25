@@ -18,17 +18,20 @@ use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::api::management::v1::TabularType;
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
+use crate::service::authz::{NamespaceAction, TableAction, WarehouseAction};
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
-use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
+use crate::service::TabularIdentUuid;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
-    LoadTableResponse as CatalogLoadTableResult, State, TableCreation, Transaction,
+    authz::Authorizer, secrets::SecretStore, Catalog, CreateTableResponse, ListFlags,
+    LoadTableResponse as CatalogLoadTableResult, State, Transaction,
 };
-use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
+use crate::service::{
+    GetNamespaceResponse, TableCommit, TableCreation, TableIdentUuid, WarehouseStatus,
+};
 
 use http::StatusCode;
 use iceberg::{NamespaceIdent, TableUpdate};
@@ -38,7 +41,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
-impl<C: Catalog, A: AuthZHandler, S: SecretStore>
+impl<C: Catalog, A: Authorizer, S: SecretStore>
     crate::api::iceberg::v1::tables::Service<State<A, C, S>> for CatalogServer<C, A, S>
 {
     /// List all table identifiers underneath a given namespace
@@ -54,13 +57,22 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         validate_namespace_ident(&namespace)?;
 
         // ------------------- AUTHZ -------------------
-        A::check_list_tables(
-            &request_metadata,
-            warehouse_id,
-            &namespace,
-            state.v1_state.auth,
-        )
-        .await?;
+        let authorizer = state.v1_state.authz;
+        authorizer
+            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+            .await?;
+        let mut t: <C as Catalog>::Transaction =
+            C::Transaction::begin_read(state.v1_state.catalog).await?;
+        let namespace_id = C::namespace_to_id(warehouse_id, &namespace, t.transaction()).await; // We can't fail before AuthZ.
+
+        authorizer
+            .require_namespace_action(
+                &request_metadata,
+                warehouse_id,
+                namespace_id,
+                NamespaceAction::CanListTables,
+            )
+            .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
         let include_staged = false;
@@ -75,14 +87,30 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 include_staged,
                 include_deleted,
             },
-            state.v1_state.catalog,
+            t.transaction(),
             pagination_query,
         )
         .await?;
 
+        // ToDo: Better pagination with non-empty pages
+        let next_page_token = tables.next_page_token;
+        let identifiers = futures::future::try_join_all(tables.tabulars.iter().map(|t| {
+            authorizer.is_allowed_table_action(
+                &request_metadata,
+                warehouse_id,
+                *t.0,
+                TableAction::CanShowInList,
+            )
+        }))
+        .await?
+        .into_iter()
+        .zip(tables.tabulars.into_iter())
+        .filter_map(|(allowed, table)| if allowed { Some(table.1) } else { None })
+        .collect();
+
         Ok(ListTablesResponse {
-            next_page_token: None,
-            identifiers: tables.into_iter().map(|t| t.1).collect(),
+            next_page_token,
+            identifiers,
         })
     }
 
@@ -107,19 +135,24 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         // ------------------- AUTHZ -------------------
-        A::check_create_table(
-            &request_metadata,
-            warehouse_id,
-            &namespace,
-            state.v1_state.auth,
-        )
-        .await?;
+        let authorizer = state.v1_state.authz;
+        authorizer
+            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+            .await?;
+        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let namespace_id = C::namespace_to_id(warehouse_id, &namespace, t.transaction()).await; // We can't fail before AuthZ.
+        let namespace_id = authorizer
+            .require_namespace_action(
+                &request_metadata,
+                warehouse_id,
+                namespace_id,
+                NamespaceAction::CanCreateTable,
+            )
+            .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
         let table_id: TabularIdentUuid = TabularIdentUuid::Table(uuid::Uuid::now_v7());
-
-        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let namespace = C::get_namespace(warehouse_id, &namespace, t.transaction()).await?;
+        let namespace = C::get_namespace(warehouse_id, namespace_id, t.transaction()).await?;
         let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
         let storage_profile = &warehouse.storage_profile;
         require_active_warehouse(warehouse.status)?;
@@ -243,6 +276,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     }
 
     /// Register a table in the given namespace using given metadata file location
+    #[allow(clippy::too_many_lines)]
     async fn register_table(
         _parameters: NamespaceParameters,
         _request: RegisterTableRequest,
@@ -258,6 +292,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
     }
 
     /// Load a table from the catalog
+    #[allow(clippy::too_many_lines)]
     async fn load_table(
         parameters: TableParameters,
         data_access: DataAccess,
@@ -283,11 +318,16 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         // ------------------- AUTHZ -------------------
-        let include_staged = false;
+        let authorizer = state.v1_state.authz;
+        authorizer
+            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+            .await?;
+        let include_staged: bool = false;
         let include_deleted = false;
         let include_active = true;
 
-        let table_id = C::table_ident_to_id(
+        let mut t = C::Transaction::begin_read(state.v1_state.catalog).await?;
+        let table_id = C::table_to_id(
             warehouse_id,
             &table,
             ListFlags {
@@ -295,25 +335,46 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 include_staged,
                 include_deleted,
             },
-            state.v1_state.catalog.clone(),
+            t.transaction(),
         )
-        .await
-        // We can't fail before AuthZ.
-        .ok()
-        .flatten();
+        .await; // We can't fail before AuthZ.
+        let table_id = authorizer
+            .require_table_action(
+                &request_metadata,
+                warehouse_id,
+                table_id,
+                TableAction::CanGetMetadata,
+            )
+            .await
+            .map_err(|mut e| {
+                e.error.code = StatusCode::NOT_FOUND.into();
+                e
+            })?;
 
-        A::check_load_table(
-            &request_metadata,
-            warehouse_id,
-            Some(&table.namespace),
-            table_id,
-            state.v1_state.auth,
-        )
-        .await?;
+        let (read_access, write_access) = futures::try_join!(
+            authorizer.is_allowed_table_action(
+                &request_metadata,
+                warehouse_id,
+                table_id,
+                TableAction::CanWriteData,
+            ),
+            authorizer.is_allowed_table_action(
+                &request_metadata,
+                warehouse_id,
+                table_id,
+                TableAction::CanWriteData,
+            ),
+        )?;
+
+        let storage_permissions = if write_access {
+            Some(StoragePermissions::ReadWrite) // ToDo Tobi: Double check with gc.enabled / deletion enabled flag
+        } else if read_access {
+            Some(StoragePermissions::Read)
+        } else {
+            None
+        };
 
         // ------------------- BUSINESS LOGIC -------------------
-        let table_id = require_table_id(&table, table_id)?;
-        let mut t = C::Transaction::begin_read(state.v1_state.catalog).await?;
         let mut metadatas = C::load_tables(
             warehouse_id,
             vec![table_id],
@@ -331,20 +392,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         } = remove_table(&table_id, &table, &mut metadatas)?;
         require_not_staged(&metadata_location)?;
 
-        // ToDo: This is a small inefficiency: We fetch the secret even if it might
-        // not be required based on the `data_access` parameter.
-        let storage_secret = if let Some(secret_id) = storage_secret_ident {
-            Some(
-                state
-                    .v1_state
-                    .secrets
-                    .get_secret_by_id(&secret_id)
-                    .await?
-                    .secret,
-            )
-        } else {
-            None
-        };
         let table_location = Location::from_str(table_metadata.location()).map_err(|e| {
             ErrorModel::internal(
                 format!("Invalid table location in DB: {e}"),
@@ -352,21 +399,30 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 Some(Box::new(e)),
             )
         })?;
-        let load_table_result = LoadTableResult {
-            metadata_location: metadata_location.as_ref().map(ToString::to_string),
-            metadata: table_metadata,
-            config: Some(
+
+        // ToDo: This is a small inefficiency: We fetch the secret even if it might
+        // not be required based on the `data_access` parameter.
+        let storage_config = if let Some(storage_permissions) = storage_permissions {
+            let storage_secret =
+                maybe_get_secret(storage_secret_ident, &state.v1_state.secrets).await?;
+            Some(
                 storage_profile
                     .generate_table_config(
                         &data_access,
                         storage_secret.as_ref(),
                         &table_location,
-                        // TODO: This should be a permission based on authz
-                        StoragePermissions::ReadWriteDelete,
+                        storage_permissions,
                     )
-                    .await?
-                    .into(),
-            ),
+                    .await?,
+            )
+        } else {
+            None
+        };
+
+        let load_table_result = LoadTableResult {
+            metadata_location: metadata_location.as_ref().map(ToString::to_string),
+            metadata: table_metadata,
+            config: storage_config.map(Into::into),
         };
 
         Ok(load_table_result)
@@ -391,11 +447,17 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         validate_table_updates(&request.updates)?;
 
         // ------------------- AUTHZ -------------------
+        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let authorizer = state.v1_state.authz;
+        authorizer
+            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+            .await?;
+
         let include_staged = true;
         let include_deleted = false;
         let include_active = true;
 
-        let table_id = C::table_ident_to_id(
+        let table_id = C::table_to_id(
             warehouse_id,
             &table_ident,
             ListFlags {
@@ -403,24 +465,20 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 include_staged,
                 include_deleted,
             },
-            state.v1_state.catalog.clone(),
+            t.transaction(),
         )
-        .await
-        // We can't fail before AuthZ.
-        .ok()
-        .flatten();
+        .await; // We can't fail before AuthZ.
 
-        A::check_commit_table(
-            &request_metadata,
-            warehouse_id,
-            table_id,
-            Some(&table_ident.namespace),
-            state.v1_state.auth,
-        )
-        .await?;
+        let table_id = authorizer
+            .require_table_action(
+                &request_metadata,
+                warehouse_id,
+                table_id,
+                TableAction::CanCommit,
+            )
+            .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let table_id = require_table_id(&table_ident, table_id)?;
         // serialize body before moving it
         let body = maybe_body_to_json(&request);
         let CommitTableRequest {
@@ -429,7 +487,6 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             updates,
         } = request;
 
-        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let mut previous_table = C::load_tables(
             warehouse_id,
             vec![table_id],
@@ -531,11 +588,17 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         validate_table_or_view_ident(&table)?;
 
         // ------------------- AUTHZ -------------------
+        let authorizer = state.v1_state.authz;
+        authorizer
+            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+            .await?;
+
         let include_staged = true;
         let include_deleted = false;
         let include_active = true;
 
-        let table_id = C::table_ident_to_id(
+        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let table_id = C::table_to_id(
             warehouse_id,
             &table,
             ListFlags {
@@ -543,34 +606,22 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 include_staged,
                 include_deleted,
             },
-            state.v1_state.catalog.clone(),
+            t.transaction(),
         )
-        .await
-        // We can't fail before AuthZ.
-        .ok()
-        .flatten();
+        .await; // We can't fail before AuthZ
 
-        A::check_drop_table(
-            &request_metadata,
-            warehouse_id,
-            table_id,
-            state.v1_state.auth,
-        )
-        .await?;
+        let table_id = authorizer
+            .require_table_action(
+                &request_metadata,
+                warehouse_id,
+                table_id,
+                TableAction::CanDrop,
+            )
+            .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
         let purge = purge_requested.unwrap_or(false);
-
-        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
-
-        let table_id = table_id.ok_or_else(|| {
-            ErrorModel::not_found(
-                format!("Table does not exist in warehouse {warehouse_id}"),
-                "TableNotFound",
-                None,
-            )
-        })?;
+        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
 
         state
             .v1_state
@@ -581,11 +632,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         match warehouse.tabular_delete_profile {
             TabularDeleteProfile::Hard {} => {
-                let location = C::drop_table(table_id, transaction.transaction()).await?;
+                let location = C::drop_table(table_id, t.transaction()).await?;
                 // committing here means maybe dangling data if queue_tabular_purge fails
                 // commiting after queuing means we may end up with a table pointing nowhere
                 // I feel that some undeleted files are less bad than a table that's there but can't be loaded
-                transaction.commit().await?;
+                t.commit().await?;
 
                 if purge {
                     state
@@ -604,12 +655,9 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 tracing::debug!("Queued purge task for dropped table '{table_id}'.");
             }
             TabularDeleteProfile::Soft { expiration_seconds } => {
-                C::mark_tabular_as_deleted(
-                    TabularIdentUuid::Table(*table_id),
-                    transaction.transaction(),
-                )
-                .await?;
-                transaction.commit().await?;
+                C::mark_tabular_as_deleted(TabularIdentUuid::Table(*table_id), t.transaction())
+                    .await?;
+                t.commit().await?;
 
                 state
                     .v1_state
@@ -660,11 +708,17 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         validate_table_or_view_ident(&table)?;
 
         // ------------------- AUTHZ -------------------
+        let authorizer = state.v1_state.authz;
+        authorizer
+            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+            .await?;
+
         let include_staged = false;
         let include_deleted = false;
         let include_active = true;
 
-        let table_id = C::table_ident_to_id(
+        let mut t = C::Transaction::begin_read(state.v1_state.catalog).await?;
+        let table_id = C::table_to_id(
             warehouse_id,
             &table,
             ListFlags {
@@ -672,31 +726,24 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 include_staged,
                 include_deleted,
             },
-            state.v1_state.catalog.clone(),
+            t.transaction(),
         )
-        .await
-        .transpose();
-        // We can't fail before AuthZ.
-        A::check_table_exists(
-            &request_metadata,
-            warehouse_id,
-            Some(&table.namespace),
-            table_id.as_ref().and_then(|x| x.as_ref().ok()).copied(),
-            state.v1_state.auth,
-        )
-        .await?;
+        .await; // We can't fail before AuthZ
+        authorizer
+            .require_table_action(
+                &request_metadata,
+                warehouse_id,
+                table_id,
+                TableAction::CanGetMetadata,
+            )
+            .await
+            .map_err(|mut e| {
+                e.error.code = StatusCode::NOT_FOUND.into();
+                e
+            })?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        if table_id.transpose()?.is_some() {
-            Ok(())
-        } else {
-            Err(ErrorModel::builder()
-                .code(StatusCode::NOT_FOUND.into())
-                .message(format!("Table does not exist in warehouse {warehouse_id}"))
-                .r#type("TableNotFound".to_string())
-                .build()
-                .into())
-        }
+        Ok(())
     }
 
     /// Rename a table
@@ -717,11 +764,17 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         validate_table_or_view_ident(&destination)?;
 
         // ------------------- AUTHZ -------------------
+        let authorizer = state.v1_state.authz;
+        authorizer
+            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+            .await?;
+
         let include_staged = false;
         let include_deleted = false;
         let include_active = true;
 
-        let source_id = C::table_ident_to_id(
+        let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
+        let source_table_id = C::table_to_id(
             warehouse_id,
             &source,
             ListFlags {
@@ -729,67 +782,60 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                 include_staged,
                 include_deleted,
             },
-            state.v1_state.catalog.clone(),
+            t.transaction(),
         )
-        .await
-        // We can't fail before AuthZ.
-        .ok()
-        .flatten();
+        .await; // We can't fail before AuthZ;
+        let source_table_id = authorizer
+            .require_table_action(
+                &request_metadata,
+                warehouse_id,
+                source_table_id,
+                TableAction::CanRename,
+            )
+            .await
+            .map_err(|mut e| {
+                e.error.code = StatusCode::NOT_FOUND.into();
+                e
+            })?;
+        let namespace_id =
+            C::namespace_to_id(warehouse_id, &source.namespace, t.transaction()).await; // We can't fail before AuthZ
 
         // We need to be allowed to delete the old table and create the new one
-        let rename_check = A::check_rename_table(
-            &request_metadata,
-            warehouse_id,
-            source_id,
-            state.v1_state.auth.clone(),
-        );
-        let create_check = A::check_create_table(
-            &request_metadata,
-            warehouse_id,
-            &destination.namespace,
-            state.v1_state.auth,
-        );
-        futures::try_join!(rename_check, create_check)?;
+        authorizer
+            .require_namespace_action(
+                &request_metadata,
+                warehouse_id,
+                namespace_id,
+                NamespaceAction::CanCreateTable,
+            )
+            .await?;
 
         // ------------------- BUSINESS LOGIC -------------------
         if source == destination {
             return Ok(());
         }
 
-        // This case should not happen after AuthZ.
-        // Its rust though, so we have do to something.
-        let source_id = source_id.ok_or_else(|| {
-            ErrorModel::builder()
-                .code(StatusCode::NOT_FOUND.into())
-                .message(format!(
-                    "Source table does not exist in warehouse {warehouse_id}"
-                ))
-                .r#type("TableNotFound".to_string())
-                .build()
-        })?;
-
-        let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
         C::rename_table(
             warehouse_id,
-            source_id,
+            source_table_id,
             &source,
             &destination,
-            transaction.transaction(),
+            t.transaction(),
         )
         .await?;
 
         state
             .v1_state
             .contract_verifiers
-            .check_rename(TabularIdentUuid::Table(*source_id), &destination)
+            .check_rename(TabularIdentUuid::Table(*source_table_id), &destination)
             .await?
             .into_result()?;
 
-        transaction.commit().await?;
+        t.commit().await?;
 
         emit_change_event(
             EventMetadata {
-                tabular_id: TabularIdentUuid::Table(*source_id),
+                tabular_id: TabularIdentUuid::Table(*source_table_id),
                 warehouse_id: *warehouse_id,
                 name: source.name,
                 namespace: source.namespace.to_url_string(),
@@ -840,6 +886,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         }
 
         // ------------------- AUTHZ -------------------
+        let authorizer = state.v1_state.authz;
+        authorizer
+            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+            .await?;
+
         let include_staged = true;
         let include_deleted = false;
         let include_active = true;
@@ -862,36 +913,34 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         )
         .await
         .map_err(|e| {
-            ErrorModel::builder()
-                .code(StatusCode::INTERNAL_SERVER_ERROR.into())
-                .message("Error fetching table ids".to_string())
-                .r#type("TableIdsFetchError".to_string())
-                .stack(
+            ErrorModel::internal("Error fetching table ids", "TableIdsFetchError", None)
+                .append_details(
                     vec![e.error.message, e.error.r#type]
                         .into_iter()
-                        .chain(e.error.stack.into_iter())
-                        .collect(),
+                        .chain(e.error.stack.into_iter()),
                 )
-                .build()
         })?;
 
-        let auth_checks = table_ids
-            .iter()
-            .map(|(table_ident, table_id)| {
-                A::check_commit_table(
+        let authz_checks = table_ids
+            .values()
+            .map(|table_id| {
+                authorizer.require_table_action(
                     &request_metadata,
                     warehouse_id,
-                    *table_id,
-                    Some(&table_ident.namespace),
-                    state.v1_state.auth.clone(),
+                    Ok(*table_id),
+                    TableAction::CanCommit,
                 )
             })
             .collect::<Vec<_>>();
 
-        futures::future::try_join_all(auth_checks).await?;
+        let table_uuids = futures::future::try_join_all(authz_checks).await?;
+        let table_ids = table_ids
+            .into_iter()
+            .zip(table_uuids)
+            .map(|((table_ident, _), table_uuid)| (table_ident, table_uuid))
+            .collect::<HashMap<_, _>>();
 
         // ------------------- BUSINESS LOGIC -------------------
-        let table_ids = require_table_ids(table_ids)?;
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
@@ -931,10 +980,10 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                         "ChangeWithoutIdentifier",
                         None,
                     ))?;
-                let table_id =
-                    require_table_id(&table_ident, table_ids.get(&table_ident).copied())?;
-                let previous_table =
-                    remove_table(&table_id, &table_ident, &mut previous_metadatas)?;
+                let table_id = table_ids.get(&table_ident).ok_or_else(|| {
+                    ErrorModel::internal("Table not found", "TableNotFound", None)
+                })?;
+                let previous_table = remove_table(table_id, &table_ident, &mut previous_metadatas)?;
                 let new_metadata = apply_commit(
                     previous_table.table_metadata.clone(),
                     &previous_table.metadata_location,
@@ -1143,48 +1192,6 @@ pub(super) fn determine_tabular_location(
     // all locations are without a trailing slash
     location.without_trailing_slash();
     Ok(location)
-}
-
-fn require_table_ids(
-    table_ids: HashMap<TableIdent, Option<TableIdentUuid>>,
-) -> Result<HashMap<TableIdent, TableIdentUuid>> {
-    table_ids
-        .into_iter()
-        .map(|(table_ident, table_id)| {
-            if let Some(table_id) = table_id {
-                Ok((table_ident, table_id))
-            } else {
-                Err(ErrorModel::not_found(
-                    format!(
-                        "Table '{}.{}' does not exist.",
-                        table_ident.namespace.to_url_string(),
-                        table_ident.name
-                    ),
-                    "TableNotFound",
-                    None,
-                )
-                .into())
-            }
-        })
-        .collect::<Result<std::collections::HashMap<_, _>>>()
-}
-
-fn require_table_id(
-    table_ident: &TableIdent,
-    table_id: Option<TableIdentUuid>,
-) -> Result<TableIdentUuid> {
-    table_id.ok_or_else(|| {
-        ErrorModel::not_found(
-            format!(
-                "Table '{}.{}' does not exist.",
-                table_ident.namespace.to_url_string(),
-                table_ident.name
-            ),
-            "TableNotFound",
-            None,
-        )
-        .into()
-    })
 }
 
 fn require_not_staged<T>(metadata_location: &Option<T>) -> Result<()> {

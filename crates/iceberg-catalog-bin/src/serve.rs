@@ -1,14 +1,14 @@
 use anyhow::{anyhow, Error};
 use iceberg_catalog::api::router::{new_full_router, serve as service_serve};
 use iceberg_catalog::implementations::postgres::{CatalogState, PostgresCatalog, ReadWrite};
-use iceberg_catalog::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
+use iceberg_catalog::implementations::Secrets;
+use iceberg_catalog::service::authz::AllowAllAuthorizer;
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
     CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
     NatsBackend,
 };
 use iceberg_catalog::service::health::ServiceHealthProvider;
-use iceberg_catalog::service::secrets::Secrets;
 use iceberg_catalog::service::token_verification::Verifier;
 use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
@@ -43,7 +43,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
             .into()
         }
     };
-    let auth_state = AllowAllAuthState;
+    let auth_state = AllowAllAuthorizer;
 
     let health_provider = ServiceHealthProvider::new(
         vec![
@@ -88,13 +88,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
     let metrics_layer =
         iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?;
 
-    let router = new_full_router::<
-        PostgresCatalog,
-        PostgresCatalog,
-        AllowAllAuthZHandler,
-        AllowAllAuthZHandler,
-        Secrets,
-    >(
+    let router = new_full_router::<PostgresCatalog, AllowAllAuthorizer, Secrets>(
         auth_state,
         catalog_state.clone(),
         secrets_state.clone(),

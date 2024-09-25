@@ -8,7 +8,7 @@ use std::str::FromStr;
 use url::Url;
 
 use crate::service::task_queue::TaskQueueConfig;
-use crate::WarehouseIdent;
+use crate::{ProjectIdent, WarehouseIdent};
 use itertools::Itertools;
 use serde::{Deserialize, Deserializer, Serialize};
 use veil::Redact;
@@ -53,7 +53,7 @@ pub struct DynAppConfig {
     /// The default Project ID to use. We recommend setting this
     /// only for singe-project deployments. A single project
     /// can still contain multiple warehouses.
-    pub default_project_id: Option<uuid::Uuid>,
+    pub default_project_id: Option<ProjectIdent>,
     /// Template to obtain the "prefix" for a warehouse,
     /// may contain `{warehouse_id}` placeholder.
     ///

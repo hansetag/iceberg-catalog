@@ -1,6 +1,9 @@
 use crate::api::management::v1::{ApiServer, DeletedTabularResponse, ListDeletedTabularsResponse};
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
+use crate::service::authz::{
+    ListProjectsResponse as AuthZListProjectsResponse, ProjectAction, WarehouseAction,
+};
 pub use crate::service::storage::{
     AzCredential, AzdlsProfile, S3Credential, S3Profile, StorageCredential, StorageProfile,
 };
@@ -9,21 +12,24 @@ use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 
 pub use crate::service::WarehouseStatus;
 use crate::service::{
-    auth::AuthZHandler, secrets::SecretStore, Catalog, ListFlags, State, Transaction,
+    authz::Authorizer, secrets::SecretStore, Catalog, ListFlags, State, Transaction,
 };
 use crate::{ProjectIdent, WarehouseIdent, CONFIG};
 use iceberg_ext::catalog::rest::ErrorModel;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use super::TabularType;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct CreateWarehouseRequest {
     /// Name of the warehouse to create. Must be unique
-    /// within a project.
+    /// within a project and may not contain "/"
     pub warehouse_name: String,
     /// Project ID in which to create the warehouse.
-    pub project_id: uuid::Uuid,
+    /// If no default project is set for this server, this field is required.
+    pub project_id: Option<uuid::Uuid>,
     /// Storage profile to use for the warehouse.
     pub storage_profile: StorageProfile,
     /// Optional storage credential to use for the warehouse.
@@ -156,11 +162,11 @@ impl axum::response::IntoResponse for CreateWarehouseResponse {
     }
 }
 
-impl<C: Catalog, A: AuthZHandler, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
+impl<C: Catalog, A: Authorizer, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
 
 #[async_trait::async_trait]
 
-pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
+pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
     async fn create_warehouse(
         request: CreateWarehouseRequest,
         context: ApiContext<State<A, C, S>>,
@@ -173,12 +179,44 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             storage_credential,
             delete_profile,
         } = request;
-        let project_ident = ProjectIdent::from(project_id);
+        let project_ident = project_id
+            .map(ProjectIdent::from)
+            .or(CONFIG.default_project_id)
+            .ok_or(ErrorModel::bad_request(
+                "project_id must be specified",
+                "CreateWarehouseProjectIdMissing",
+                None,
+            ))?;
 
         // ------------------- AuthZ -------------------
-        A::check_create_warehouse(&request_metadata, &project_ident, context.v1_state.auth).await?;
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_project_action(
+                &request_metadata,
+                project_ident,
+                ProjectAction::CanCreateWarehouse,
+            )
+            .await?;
 
         // ------------------- Business Logic -------------------
+        if warehouse_name.contains('/') {
+            return Err(ErrorModel::bad_request(
+                "Warehouse Name may not contain `/`",
+                "InvalidCharInWarehouseName",
+                None,
+            )
+            .into());
+        }
+
+        if warehouse_name.is_empty() {
+            return Err(ErrorModel::bad_request(
+                "Warehouse Name may not be empty",
+                "EmptyWarehouseName",
+                None,
+            )
+            .into());
+        }
+
         storage_profile.normalize()?;
         storage_profile
             .validate_access(storage_credential.as_ref(), None)
@@ -199,7 +237,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         let warehouse_id = C::create_warehouse(
             warehouse_name,
-            project_id.into(),
+            project_ident,
             storage_profile,
             delete_profile,
             secret_id,
@@ -219,21 +257,15 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<ListProjectsResponse> {
         // ------------------- AuthZ -------------------
-        let projects = A::check_list_projects(&request_metadata, context.v1_state.auth).await?;
+        let authorizer = context.v1_state.authz;
+        let projects = authorizer.list_projects(&request_metadata).await?;
 
         // ------------------- Business Logic -------------------
-        if let Some(projects) = projects {
-            return Ok(ListProjectsResponse {
-                projects: projects
-                    .into_iter()
-                    .map(|project_id| ProjectResponse {
-                        project_id: *project_id,
-                    })
-                    .collect(),
-            });
-        }
-
-        let projects = C::list_projects(context.v1_state.catalog).await?;
+        let project_id_filter = match projects {
+            AuthZListProjectsResponse::All => None,
+            AuthZListProjectsResponse::Projects(projects) => Some(projects),
+        };
+        let projects = C::list_projects(project_id_filter, context.v1_state.catalog).await?;
         Ok(ListProjectsResponse {
             projects: projects
                 .into_iter()
@@ -250,37 +282,53 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<ListWarehousesResponse> {
         // ------------------- AuthZ -------------------
-        let project_id = ProjectIdent::from(
-            request.project_id.ok_or(
-                ErrorModel::builder()
-                    .code(http::StatusCode::BAD_REQUEST.into())
-                    .message("project-id is required".to_string())
-                    .r#type("MissingProjectId".to_string())
-                    .build(),
-            )?,
-        );
-        let warehouses = A::check_list_warehouse_in_project(
-            &request_metadata,
-            project_id,
-            context.v1_state.auth,
-        )
-        .await?;
+        let project_id = request
+            .project_id
+            .map(ProjectIdent::from)
+            .or(CONFIG.default_project_id)
+            .ok_or(ErrorModel::bad_request(
+                "project_id must be specified",
+                "ListWarehousesProjectIdMissing",
+                None,
+            ))?;
+
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_project_action(
+                &request_metadata,
+                project_id,
+                ProjectAction::CanListWarehouses,
+            )
+            .await?;
 
         // ------------------- Business Logic -------------------
         let warehouses = C::list_warehouses(
             project_id,
             request.warehouse_status,
-            warehouses.as_ref(),
             context.v1_state.catalog,
         )
         .await?;
 
-        Ok(ListWarehousesResponse {
-            warehouses: warehouses
-                .into_iter()
-                .map(std::convert::Into::into)
-                .collect(),
+        let warehouses = futures::future::try_join_all(warehouses.iter().map(|w| {
+            authorizer.is_allowed_warehouse_action(
+                &request_metadata,
+                w.id,
+                WarehouseAction::CanShowInList,
+            )
+        }))
+        .await?
+        .into_iter()
+        .zip(warehouses.into_iter())
+        .filter_map(|(allowed, warehouse)| {
+            if allowed {
+                Some(warehouse.into())
+            } else {
+                None
+            }
         })
+        .collect();
+
+        Ok(ListWarehousesResponse { warehouses })
     }
 
     async fn get_warehouse(
@@ -289,7 +337,14 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<GetWarehouseResponse> {
         // ------------------- AuthZ -------------------
-        A::check_get_warehouse(&request_metadata, warehouse_id, context.v1_state.auth).await?;
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                WarehouseAction::CanGetMetadata,
+            )
+            .await?;
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_read(context.v1_state.catalog).await?;
@@ -304,7 +359,10 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_delete_warehouse(&request_metadata, warehouse_id, context.v1_state.auth).await?;
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanDelete)
+            .await?;
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
@@ -322,7 +380,10 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_rename_warehouse(&request_metadata, warehouse_id, context.v1_state.auth).await?;
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanRename)
+            .await?;
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
@@ -340,7 +401,13 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_deactivate_warehouse(&request_metadata, warehouse_id, context.v1_state.auth)
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                WarehouseAction::CanDeactivate,
+            )
             .await?;
 
         // ------------------- Business Logic -------------------
@@ -364,7 +431,14 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_activate_warehouse(&request_metadata, warehouse_id, context.v1_state.auth).await?;
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                WarehouseAction::CanActivate,
+            )
+            .await?;
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
@@ -388,7 +462,14 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_update_storage(&request_metadata, warehouse_id, context.v1_state.auth).await?;
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                WarehouseAction::CanUpdateStorage,
+            )
+            .await?;
 
         // ------------------- Business Logic -------------------
         let UpdateWarehouseStorageRequest {
@@ -446,14 +527,21 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         Ok(())
     }
 
-    async fn update_credential(
+    async fn update_storage_credential(
         warehouse_id: WarehouseIdent,
         request: UpdateWarehouseCredentialRequest,
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        A::check_update_storage(&request_metadata, warehouse_id, context.v1_state.auth).await?;
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                WarehouseAction::CanUpdateStorageCredential,
+            )
+            .await?;
 
         // ------------------- Business Logic -------------------
         let UpdateWarehouseCredentialRequest {
@@ -514,7 +602,13 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         pagination_query: PaginationQuery,
     ) -> Result<ListDeletedTabularsResponse> {
         // ------------------- AuthZ -------------------
-        A::check_list_soft_deletions(&request_metadata, warehouse_id, context.v1_state.auth)
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                WarehouseAction::CanListDeletedTabulars,
+            )
             .await?;
 
         // ------------------- Business Logic -------------------
@@ -529,29 +623,52 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         )
         .await?;
 
-        Ok(ListDeletedTabularsResponse {
-            tabulars: tabulars
-                .into_iter()
-                .map(|(k, (ident, delete_opts))| {
-                    let i = ident.into_inner();
-                    let deleted = delete_opts.ok_or(ErrorModel::internal(
-                        "Expected delete options to be Some, but found None",
-                        "InternalDatabaseError",
-                        None,
-                    ))?;
+        let tabulars = tabulars
+            .into_iter()
+            .map(|(k, (ident, delete_opts))| {
+                let i = ident.into_inner();
+                let deleted = delete_opts.ok_or(ErrorModel::internal(
+                    "Expected delete options to be Some, but found None",
+                    "InternalDatabaseError",
+                    None,
+                ))?;
 
-                    Ok(DeletedTabularResponse {
-                        id: *k,
-                        name: i.name,
-                        namespace: i.namespace.inner(),
-                        typ: k.into(),
-                        warehouse_id: *warehouse_id,
-                        created_at: deleted.created_at,
-                        deleted_at: deleted.deleted_at,
-                        expiration_date: deleted.expiration_date,
-                    })
+                Ok(DeletedTabularResponse {
+                    id: *k,
+                    name: i.name,
+                    namespace: i.namespace.inner(),
+                    typ: k.into(),
+                    warehouse_id: *warehouse_id,
+                    created_at: deleted.created_at,
+                    deleted_at: deleted.deleted_at,
+                    expiration_date: deleted.expiration_date,
                 })
-                .collect::<Result<Vec<_>>>()?,
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let tabulars = futures::future::try_join_all(tabulars.iter().map(|t| match t.typ {
+            TabularType::View => authorizer.is_allowed_view_action(
+                &request_metadata,
+                warehouse_id,
+                t.id.into(),
+                crate::service::authz::ViewAction::CanShowInList,
+            ),
+            TabularType::Table => authorizer.is_allowed_table_action(
+                &request_metadata,
+                warehouse_id,
+                t.id.into(),
+                crate::service::authz::TableAction::CanShowInList,
+            ),
+        }))
+        .await?
+        .into_iter()
+        .zip(tabulars.into_iter())
+        .filter_map(|(allowed, tabular)| if allowed { Some(tabular) } else { None })
+        .collect();
+
+        // ToDo: Better pagination with non-empty pages
+        Ok(ListDeletedTabularsResponse {
+            tabulars,
             next_page_token,
         })
     }
@@ -614,7 +731,7 @@ mod test {
         assert_eq!(request.warehouse_name, "test_warehouse");
         assert_eq!(
             request.project_id,
-            uuid::Uuid::parse_str("f47ac10b-58cc-4372-a567-0e02b2c3d479").unwrap()
+            Some(uuid::Uuid::parse_str("f47ac10b-58cc-4372-a567-0e02b2c3d479").unwrap())
         );
         let s3_profile = request.storage_profile.try_into_s3().unwrap();
         assert_eq!(s3_profile.bucket, "test");

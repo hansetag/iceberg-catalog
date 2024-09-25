@@ -232,18 +232,21 @@ pub(crate) async fn load_tables(
         .collect::<Result<HashMap<_, _>>>()
 }
 
-pub(crate) async fn list_tables(
+pub(crate) async fn list_tables<'e, 'c: 'e, E>(
     warehouse_id: WarehouseIdent,
     namespace: &NamespaceIdent,
     list_flags: crate::service::ListFlags,
-    catalog_state: CatalogState,
+    transaction: E,
     pagination_query: PaginationQuery,
-) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
+) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>>
+where
+    E: 'e + sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
     let tabulars = list_tabulars(
         warehouse_id,
         Some(namespace),
         list_flags,
-        &catalog_state.read_pool(),
+        transaction,
         Some(TabularType::Table),
         pagination_query,
     )
@@ -271,7 +274,7 @@ pub(crate) async fn get_table_metadata_by_id(
     table: TableIdentUuid,
     list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
-) -> Result<GetTableMetadataResponse> {
+) -> Result<Option<GetTableMetadataResponse>> {
     let table = sqlx::query!(
         r#"
         SELECT
@@ -279,6 +282,7 @@ pub(crate) async fn get_table_metadata_by_id(
             ti.name as "table_name",
             ti.location as "table_location",
             namespace_name,
+            ti.namespace_id,
             t."metadata" as "metadata: Json<TableMetadata>",
             ti."metadata_location",
             w.storage_profile as "storage_profile: Json<StorageProfile>",
@@ -296,39 +300,37 @@ pub(crate) async fn get_table_metadata_by_id(
         list_flags.include_deleted
     )
     .fetch_one(&catalog_state.read_pool())
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Table not found".to_string())
-            .r#type("NoSuchTableError".to_string())
-            .build(),
-        _ => e.into_error_model("Error fetching table".to_string()),
-    })?;
+    .await;
+
+    let table = match table {
+        Ok(table) => table,
+        Err(sqlx::Error::RowNotFound) => return Ok(None),
+        Err(e) => {
+            return Err(e
+                .into_error_model("Error fetching table".to_string())
+                .into());
+        }
+    };
 
     if !list_flags.include_staged && table.metadata_location.is_none() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Table is staged and not yet created".to_string())
-            .r#type("TableStaged".to_string())
-            .build()
-            .into());
+        return Ok(None);
     }
 
     let namespace = try_parse_namespace_ident(table.namespace_name)?;
 
-    Ok(GetTableMetadataResponse {
+    Ok(Some(GetTableMetadataResponse {
         table: TableIdent {
             namespace,
             name: table.table_name,
         },
+        namespace_id: table.namespace_id.into(),
         table_id: table.table_id.into(),
         warehouse_id,
         location: table.table_location,
         metadata_location: table.metadata_location,
         storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
         storage_profile: table.storage_profile.deref().clone(),
-    })
+    }))
 }
 
 pub(crate) async fn get_table_metadata_by_s3_location(
@@ -336,7 +338,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
     location: &Location,
     list_flags: crate::service::ListFlags,
     catalog_state: CatalogState,
-) -> Result<GetTableMetadataResponse> {
+) -> Result<Option<GetTableMetadataResponse>> {
     let query_strings = location
         .partial_locations()
         .into_iter()
@@ -352,6 +354,7 @@ pub(crate) async fn get_table_metadata_by_s3_location(
              ti.name as "table_name",
              ti.location as "table_location",
              namespace_name,
+             ti.namespace_id,
              t."metadata" as "metadata: Json<TableMetadata>",
              ti."metadata_location",
              w.storage_profile as "storage_profile: Json<StorageProfile>",
@@ -372,43 +375,37 @@ pub(crate) async fn get_table_metadata_by_s3_location(
         list_flags.include_deleted
     )
     .fetch_one(&catalog_state.read_pool())
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::RowNotFound => ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Table not found".to_string())
-            .r#type("NoSuchTableError".to_string())
-            .stack(vec![
-                location.to_string(),
-                format!("Warehouse: {}", warehouse_id),
-            ])
-            .build(),
-        _ => e.into_error_model("Error fetching table".to_string()),
-    })?;
+    .await;
+
+    let table = match table {
+        Ok(table) => table,
+        Err(sqlx::Error::RowNotFound) => return Ok(None),
+        Err(e) => {
+            return Err(e
+                .into_error_model("Error fetching table".to_string())
+                .into());
+        }
+    };
 
     if !list_flags.include_staged && table.metadata_location.is_none() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::NOT_FOUND.into())
-            .message("Table is staged and not yet created".to_string())
-            .r#type("TableStaged".to_string())
-            .build()
-            .into());
+        return Ok(None);
     }
 
     let namespace = try_parse_namespace_ident(table.namespace_name)?;
 
-    Ok(GetTableMetadataResponse {
+    Ok(Some(GetTableMetadataResponse {
         table: TableIdent {
             namespace,
             name: table.table_name,
         },
         table_id: table.table_id.into(),
+        namespace_id: table.namespace_id.into(),
         warehouse_id,
         location: table.table_location,
         metadata_location: table.metadata_location,
         storage_secret_ident: table.storage_secret_id.map(SecretIdent::from),
         storage_profile: table.storage_profile.deref().clone(),
-    })
+    }))
 }
 
 /// Rename a table. Tables may be moved across namespaces.
@@ -1157,7 +1154,7 @@ pub(crate) mod tests {
             warehouse_id,
             &namespace,
             ListFlags::default(),
-            state.clone(),
+            &state.read_pool(),
             PaginationQuery::empty(),
         )
         .await
@@ -1170,7 +1167,7 @@ pub(crate) mod tests {
             warehouse_id,
             &table1.namespace,
             ListFlags::default(),
-            state.clone(),
+            &state.read_pool(),
             PaginationQuery::empty(),
         )
         .await
@@ -1183,7 +1180,7 @@ pub(crate) mod tests {
             warehouse_id,
             &table2.namespace,
             ListFlags::default(),
-            state.clone(),
+            &state.read_pool(),
             PaginationQuery::empty(),
         )
         .await
@@ -1196,7 +1193,7 @@ pub(crate) mod tests {
                 include_staged: true,
                 ..ListFlags::default()
             },
-            state.clone(),
+            &state.read_pool(),
             PaginationQuery::empty(),
         )
         .await
@@ -1216,7 +1213,7 @@ pub(crate) mod tests {
             warehouse_id,
             &namespace,
             ListFlags::default(),
-            state.clone(),
+            &state.read_pool(),
             PaginationQuery::empty(),
         )
         .await
@@ -1255,7 +1252,7 @@ pub(crate) mod tests {
                 include_staged: true,
                 ..ListFlags::default()
             },
-            state.clone(),
+            &state.read_pool(),
             PaginationQuery {
                 page_token: PageToken::NotSpecified,
                 page_size: Some(2),
@@ -1274,7 +1271,7 @@ pub(crate) mod tests {
                 include_staged: true,
                 ..ListFlags::default()
             },
-            state.clone(),
+            &state.read_pool(),
             PaginationQuery {
                 page_token: PageToken::Present(tables.next_page_token.unwrap()),
                 page_size: Some(2),
@@ -1293,7 +1290,7 @@ pub(crate) mod tests {
                 include_staged: true,
                 ..ListFlags::default()
             },
-            state.clone(),
+            &state.read_pool(),
             PaginationQuery {
                 page_token: PageToken::Present(tables.next_page_token.unwrap()),
                 page_size: Some(2),
@@ -1405,6 +1402,7 @@ pub(crate) mod tests {
             state.clone(),
         )
         .await
+        .unwrap()
         .unwrap();
         let mut metadata_location = metadata.location.parse::<Location>().unwrap();
         // Exact path works
@@ -1415,6 +1413,7 @@ pub(crate) mod tests {
             state.clone(),
         )
         .await
+        .unwrap()
         .unwrap()
         .table_id;
 
@@ -1430,6 +1429,7 @@ pub(crate) mod tests {
             state.clone(),
         )
         .await
+        .unwrap()
         .unwrap()
         .table_id;
 
@@ -1463,14 +1463,15 @@ pub(crate) mod tests {
             .unwrap();
 
         // Shorter path does not work
-        get_table_metadata_by_s3_location(
+        assert!(get_table_metadata_by_s3_location(
             warehouse_id,
             &shorter,
             ListFlags::default(),
             state.clone(),
         )
         .await
-        .unwrap_err();
+        .unwrap()
+        .is_none());
     }
 
     #[sqlx::test]
@@ -1479,21 +1480,21 @@ pub(crate) mod tests {
 
         let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
         let table = initialize_table(warehouse_id, state.clone(), false, None, None).await;
-        let mut transaction = pool.begin().await.unwrap();
+        let mut transaction = pool.begin().await.expect("Failed to start transaction");
         set_warehouse_status(warehouse_id, WarehouseStatus::Inactive, &mut transaction)
             .await
-            .unwrap();
+            .expect("Failed to set warehouse status");
         transaction.commit().await.unwrap();
 
-        let err = get_table_metadata_by_id(
+        let r = get_table_metadata_by_id(
             warehouse_id,
             table.table_id,
             ListFlags::default(),
             state.clone(),
         )
         .await
-        .unwrap_err();
-        assert_eq!(err.error.code, StatusCode::NOT_FOUND);
+        .unwrap();
+        assert!(r.is_none());
     }
 
     #[sqlx::test]
@@ -1509,15 +1510,15 @@ pub(crate) mod tests {
             .unwrap();
         transaction.commit().await.unwrap();
 
-        let err = get_table_metadata_by_id(
+        assert!(get_table_metadata_by_id(
             warehouse_id,
             table.table_id,
             ListFlags::default(),
             state.clone(),
         )
         .await
-        .unwrap_err();
-        assert_eq!(err.error.code, StatusCode::NOT_FOUND);
+        .unwrap()
+        .is_none());
 
         let ok = get_table_metadata_by_id(
             warehouse_id,
@@ -1529,6 +1530,7 @@ pub(crate) mod tests {
             state.clone(),
         )
         .await
+        .unwrap()
         .unwrap();
         assert_eq!(ok.table_id, table.table_id);
 
@@ -1537,7 +1539,7 @@ pub(crate) mod tests {
         drop_table(table.table_id, &mut transaction).await.unwrap();
         transaction.commit().await.unwrap();
 
-        let err = get_table_metadata_by_id(
+        assert!(get_table_metadata_by_id(
             warehouse_id,
             table.table_id,
             ListFlags {
@@ -1547,7 +1549,7 @@ pub(crate) mod tests {
             state.clone(),
         )
         .await
-        .unwrap_err();
-        assert_eq!(err.error.code, StatusCode::NOT_FOUND);
+        .unwrap()
+        .is_none());
     }
 }
