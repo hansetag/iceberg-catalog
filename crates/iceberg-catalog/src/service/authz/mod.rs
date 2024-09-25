@@ -24,14 +24,14 @@ pub enum ServerAction {
     CanCreate,
     /// List projects on this server. Returned projects
     /// are filtered by the user's permissions (`CanShowInList`)
-    CanListProjects,
+    CanListAllProjects,
 }
 
 #[derive(Debug, Clone)]
 pub enum ProjectAction {
     CanCreateWarehouse,
     CanDelete,
-    CanModify,
+    CanRename,
     CanGetMetadata,
     CanListWarehouses,
     CanShowInList,
@@ -40,6 +40,7 @@ pub enum ProjectAction {
 #[derive(Debug, Clone)]
 pub enum WarehouseAction {
     CanCreateNamespace,
+    /// Can delete this warehouse permanently.
     CanDelete,
     CanUpdateStorage,
     CanUpdateStorageCredential,

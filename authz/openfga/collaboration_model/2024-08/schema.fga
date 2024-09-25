@@ -16,9 +16,13 @@ type server
     define global_admin: [user, role#assignee]
 
     # ------------------ Actions ------------------
-    define can_create: global_admin
+    define can_create_project: global_admin
 
     # ------------------ Assignable Privileges ------------------
+    # Anyone can list projects, they are however filtered by can_show_in_list of the project.
+    # Only global_admin can list all projects.
+    define can_list_all_projects: global_admin
+
     # GRANT Permissions
     define can_grant_global_admin: global_admin
 
@@ -31,31 +35,36 @@ type project
     # ------------------ Built-in Roles ------------------
     # Project Admin has two purposes:
     # 1. Lock-out protection: Checked to never be empty
-    # 2. Granting new privileges, such as billing
-    define admin: [user, role#assignee] or global_admin from parent
+    # 2. Granting new privileges, such as billing, which might require separate permissions / admin roles
+    define project_admin: [user, role#assignee] or global_admin from parent
+    # Security Admins can manage all security aspects (grants, ownership) but not modify, create or access objects
+    define security_admin: [user, role#assignee] or project_admin
+    # Warehouse Admins can manage all warehouse aspects but not grant privileges
+    define warehouse_admin: [user, role#assignee] or project_admin
 
     # ------------------ Assignable Privileges ------------------
     # Privileges relevant for the warehouse and sub-objects
-    define create: [role#assignee]  # Should admin show-up in the list of roles assigned? It does not in Dremio.
-    define describe: [role#assignee]
-    define modify: [role#assignee]
-
-    # Privileges relevant for sub-objects only
-    define select: [role#assignee]
+    define describe: [role#assignee] or select or create or warehouse_admin or security_admin
+    define select: [role#assignee] or modify
+    define create: [role#assignee] or warehouse_admin
+    define modify: [role#assignee] or project_admin
 
     # ------------------ Actions ------------------
-    define can_create: create or admin  # Create stuff inside the project / create new warehouses
-    define can_delete: modify or admin  # Drop this project
-    define can_modify: modify or admin  # Modify the project, including its billing profile
-    define can_get_metadata: can_create or can_delete or describe or can_get_metadata from child
-    define can_list: can_get_metadata # Can list elements in this projects - will be filtered subsequently
+    define can_create_warehouse: create  # Create stuff inside the project / create new warehouses
+    define can_delete: modify  # Drop this project
+    define can_get_metadata: describe or can_get_metadata from child
+    define can_list_warehouses: can_get_metadata # Can list elements in this projects - will be filtered subsequently
+    define can_show_in_list: can_get_metadata
+    define can_rename: modify
 
     # GRANT Permissions
-    define can_grant_create: admin
-    define can_grant_describe: admin
-    define can_grant_modify: admin
-    define can_grant_select: admin
-    define can_grant_admin: admin
+    define can_grant_create: security_admin
+    define can_grant_describe: security_admin
+    define can_grant_modify: security_admin
+    define can_grant_select: security_admin
+    define can_grant_project_admin: project_admin
+    define can_grant_security_admin: security_admin
+    define can_grant_warehouse_admin: warehouse_admin
 
 type warehouse
   relations
@@ -63,31 +72,42 @@ type warehouse
     define parent: [project]
     define child: [namespace]
 
-    # ------------------ Built-in Roles ------------------
-    define admin: [user, role#assignee] or admin from parent
+    # ------------------ Special roles ------------------
+    define ownership: [user, role#assignee]
+    define managed_access: [user:*, role:*]
+    define managed_access_inheritance: managed_access
 
     # ------------------ Assignable Privileges ------------------
-    # Privileges relevant for the warehouse and sub-objects
-    define create: [role#assignee] or create from parent  # Create objects inside the warehouse
-    define describe: [role#assignee] or describe from parent
-    define modify: [role#assignee] or modify from parent
+    define pass_grants: [role#assignee]
+    define manage_grants: [role#assignee] or ownership or security_admin from parent
+    define describe: [role#assignee] or ownership or select or create or describe from parent
+    define select: [role#assignee] or ownership or modify or select from parent
+    define create: [role#assignee] or ownership or create from parent
+    define modify: [role#assignee] or ownership or modify from parent or warehouse_admin from parent
 
-    # Privileges relevant for sub-objects only
-    define select: [role#assignee] or select from parent
     # ------------------ Actions ------------------
-    define can_create: create or admin  # Create stuff inside of the warehouse
-    define can_modify: modify  or admin  # Modify the warehouse, including its storage profile
-    define can_delete: can_modify or admin # Drop this warehouse
-    define can_get_metadata: can_create or can_modify or describe or can_get_metadata from child
+    define can_create_namespace: create
+    define can_delete: modify # Delete this warehouse premanently
+    define can_modify_storage: modify
+    define can_modify_storage_credential: modify
+    define can_get_metadata: describe or can_get_metadata from child
     define can_get_config: can_get_metadata
-    define can_list: can_get_metadata # Can list elements in this warehouse - will be filtered subsequently
+    define can_list_namespaces: can_get_metadata # Can list elements in this warehouse - will be filtered subsequently
+    define can_use: can_get_metadata
+    define can_show_in_list: can_get_metadata
+    define can_deactivate: modify
+    define can_activate: modify
+    define can_rename: modify
+    define can_list_deleted_tabulars: can_get_metadata
 
     # GRANT Permissions
-    define can_grant_create: admin
-    define can_grant_describe: admin
-    define can_grant_modify: admin
-    define can_grant_select: admin
-    define can_grant_admin: admin
+    define can_grant_create: manage_grants or (create and pass_grants)
+    define can_grant_describe: manage_grants or (describe and pass_grants)
+    define can_grant_modify: manage_grants or (modify and pass_grants)
+    define can_grant_select: manage_grants or (select and pass_grants)
+    define can_grant_pass_grants: manage_grants
+    define can_grant_manage_grants: manage_grants
+    define can_change_ownership: manage_grants
 
 type namespace
   relations
@@ -95,80 +115,97 @@ type namespace
     define parent: [namespace, warehouse]
     define child: [namespace, table, view]
 
-    # ------------------ Built-in Roles ------------------
-    define admin: [user, role#assignee] or admin from parent
+    # ------------------ Special roles ------------------
+    define ownership: [user, role#assignee]
+    define managed_access: [user:*, role:*]
+    define managed_access_inheritance: managed_access or managed_access_inheritance from parent
 
     # ------------------ Assignable Privileges ------------------
-    # Privileges relevant for the Namespace and sub-objects
-    define create: [role#assignee] or create from parent  # Create objects inside the namespace, more specific variants can be added later
-    define describe: [role#assignee] or describe from parent
-    define modify: [role#assignee] or modify from parent
-
-    # Privileges relevant for sub-objects only
-    define select: [role#assignee] or select from parent
+    define pass_grants: [role#assignee]
+    define manage_grants: [role#assignee] or (ownership but not managed_access_inheritance from parent) or manage_grants from parent
+    define describe: [role#assignee] or ownership or select or create or describe from parent
+    define select: [role#assignee] or ownership or modify or select from parent
+    define create: [role#assignee] or ownership or create from parent
+    define modify: [role#assignee] or ownership or modify from parent
 
     # ------------------ Actions ------------------
-    # REST Permissions for Namespace object
-    define can_modify: modify or admin
-    define can_create: create or admin # Create stuff inside of the Namespace
-    define can_delete: can_modify or admin # Drop this namespace
-    # can_create for can_get_metadata: To be able to create objects in namespaces, we need to get namespace metadata - i.e. for location.
-    # can_get_metadata from child bubbles up to parent for easy collaboration.
-    define can_get_metadata: can_create or can_modify or describe or can_get_metadata from child
-    define can_list: can_get_metadata # Can list elements in this namespace - will be filtered subsequently
+    define can_create_table: create
+    define can_create_view: create
+    define can_create_namespace: create
+    define can_delete: modify
+    define can_update_properties: modify
+    define can_get_metadata: describe or can_get_metadata from child
+    define can_list_tables: can_get_metadata
+    define can_list_views: can_get_metadata
+    define can_list_namespaces: can_get_metadata
+    define can_show_in_list: can_get_metadata
 
     # GRANT Permissions
-    define can_grant_create: admin
-    define can_grant_describe: admin
-    define can_grant_modify: admin
-    define can_grant_select: admin
-    define can_grant_admin: admin
+    define can_grant_create: manage_grants or (create and pass_grants)
+    define can_grant_describe: manage_grants or (describe and pass_grants)
+    define can_grant_modify: manage_grants or (modify and pass_grants)
+    define can_grant_select: manage_grants or (select and pass_grants)
+    define can_grant_pass_grants: manage_grants
+    define can_grant_manage_grants: manage_grants
+    define can_change_ownership: manage_grants
 
 type table
   relations
     # ------------------ Relation Hierarchies ------------------
     define parent: [namespace]
 
-    # ------------------ Built-in Roles ------------------
-    define admin: [user, role#assignee] or admin from parent
-
+    # ------------------ Special roles ------------------
+    define ownership: [user, role#assignee]
 
     # ------------------ Assignable Privileges ------------------
-    define describe: [role#assignee] or describe from parent
-    define select: [role#assignee] or select from parent
-    define modify: [role#assignee]  or modify from parent # Allows to insert, update, delete, truncate, etc.
+    define pass_grants: [role#assignee]
+    define manage_grants: [role#assignee] or (ownership but not managed_access_inheritance from parent) or manage_grants from parent
+    define describe: [role#assignee] or ownership or select or describe from parent
+    define select: [role#assignee] or ownership or modify or select from parent
+    define modify: [role#assignee] or ownership or modify from parent
 
     # ------------------ Actions ------------------
-    # REST Permissions for Table object
-    define can_delete: modify or admin
-    define can_write_data: modify or admin # Includes delete
-    define can_read_data: can_write_data or select or admin
-    define can_get_metadata: can_read_data or describe # Only tables for which this permission is set show up in lists & searches
-    define can_commit: can_write_data
+    define can_drop: modify
+    define can_write_data: modify
+    define can_read_data: select
+    define can_get_metadata: describe
+    define can_commit: modify
+    define can_rename: modify
+    define can_show_in_list: can_get_metadata
 
     # GRANT Permissions
-    define can_grant_describe: admin
-    define can_grant_select: admin
-    define can_grant_modify: admin
+    define can_grant_pass_grants: manage_grants
+    define can_grant_manage_grants: manage_grants
+    define can_grant_describe: manage_grants or (describe and pass_grants)
+    define can_grant_select: manage_grants or (select and pass_grants)
+    define can_grant_modify: manage_grants or (modify and pass_grants)
+    define can_change_ownership: manage_grants
 
 type view
   relations
     # ------------------ Relation Hierarchies ------------------
     define parent: [namespace]
 
-    # ------------------ Built-in Roles ------------------
-    define admin: [user, role#assignee] or admin from parent
+    # ------------------ Special roles ------------------
+    define ownership: [user, role#assignee]
 
     # ------------------ Assignable Privileges ------------------
-    define describe: [role#assignee] or describe from parent or select from parent
-    define modify: [role#assignee]  or modify from parent
+    define pass_grants: [role#assignee]
+    define manage_grants: [role#assignee] or (ownership but not managed_access_inheritance from parent) or manage_grants from parent
+    define describe: [role#assignee] or ownership or modify or describe from parent
+    define modify: [role#assignee] or ownership or modify from parent
 
     # ------------------ Actions ------------------
-    # REST Permissions for Table object
-    define can_delete: modify or admin
-    define can_get_metadata: can_delete or describe # Only views for which this permission is set show up in lists & searches of the parent
-    define can_commit: modify or admin
+    define can_drop: modify
+    define can_commit: modify
+    define can_get_metadata: describe
+    define can_rename: modify
+    define can_show_in_list: can_get_metadata
+
 
     # GRANT Permissions
-    define can_grant_describe: admin
-    define can_grant_modify: admin
+    define can_grant_pass_grants: manage_grants
+    define can_grant_manage_grants: manage_grants
+    define can_grant_describe: manage_grants or (describe and pass_grants)
+    define can_grant_modify: manage_grants or (modify and pass_grants)
+    define can_change_ownership: manage_grants
