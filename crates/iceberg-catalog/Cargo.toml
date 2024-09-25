@@ -19,8 +19,10 @@ s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]
 router = ["dep:tower-http"]
 nats = ["dep:async-nats"]
 default = ["sqlx-postgres", "s3-signer", "router"]
+openfga = ["dep:openfga-rs"]
 
 [dependencies]
+openfga-rs = { workspace = true, optional = true }
 anyhow = { workspace = true }
 async-nats = { workspace = true, optional = true }
 async-trait = { workspace = true }
