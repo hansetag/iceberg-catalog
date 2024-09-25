@@ -182,9 +182,6 @@ services:
 
   starrocks:
     image: starrocks/allin1-ubuntu:3.3.2
-    environment:
-      - CATALOG_MANAGEMENT=dynamic
-      - ICEBERG_REST_TEST_CATALOG_URL=http://server:8080/catalog
     healthcheck:
       test: [ "CMD", "curl", "-I", "http://starrocks:8030/api/health" ]
       interval: 2s
