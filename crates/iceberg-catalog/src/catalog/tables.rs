@@ -908,8 +908,8 @@ impl<C: Catalog, A: Authorizer, S: SecretStore>
         .await
         .map_err(|e| {
             ErrorModel::internal("Error fetching table ids", "TableIdsFetchError", None)
-                .append_details(&vec![e.error.message, e.error.r#type])
-                .append_details(&e.error.stack)
+                .append_details(vec![e.error.message, e.error.r#type])
+                .append_details(e.error.stack)
         })?;
 
         let authz_checks = table_ids

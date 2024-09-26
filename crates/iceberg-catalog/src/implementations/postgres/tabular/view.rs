@@ -77,7 +77,7 @@ pub(crate) async fn create_view(
             "InternalServerError",
             None,
         )
-        .append_details(&vec![location.to_string(), metadata.location.to_string()])
+        .append_details(vec![location.to_string(), metadata.location.to_string()])
         .into());
     }
     let tabular_id = create_tabular(

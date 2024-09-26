@@ -241,7 +241,7 @@ where
             Err(e) => Err(ErrorModel::internal(msg, typ, e.error.source)
                 .append_detail(format!("Original Type: {}", e.error.r#type))
                 .append_detail(e.error.message)
-                .append_details(&e.error.stack)
+                .append_details(e.error.stack)
                 .into()),
         }
     }
@@ -271,7 +271,7 @@ where
             Err(e) => Err(ErrorModel::internal(msg, typ, e.error.source)
                 .append_detail(format!("Original Type: {}", e.error.r#type))
                 .append_detail(e.error.message)
-                .append_details(&e.error.stack)
+                .append_details(e.error.stack)
                 .into()),
         }
     }
@@ -301,7 +301,7 @@ where
             Err(e) => Err(ErrorModel::internal(msg, typ, e.error.source)
                 .append_detail(format!("Original Type: {}", e.error.r#type))
                 .append_detail(e.error.message)
-                .append_details(&e.error.stack)
+                .append_details(e.error.stack)
                 .into()),
         }
     }
