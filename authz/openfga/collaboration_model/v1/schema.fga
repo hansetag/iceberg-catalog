@@ -7,6 +7,9 @@ type role
   relations
     define assignee: [user, role#assignee]
 
+    # ------------------ Actions ------------------
+    define can_assume: assignee
+
 type server
   relations
     # Relation Hierarchies

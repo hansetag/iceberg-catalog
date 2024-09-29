@@ -19,24 +19,32 @@ const DEFAULT_ENCRYPTION_KEY: &str = "<This is unsafe, please set a proper key>"
 lazy_static::lazy_static! {
     /// Configuration of the service module.
     pub static ref CONFIG: DynAppConfig = {
-        let defaults = figment::providers::Serialized::defaults(DynAppConfig::default());
-        let mut config = figment::Figment::from(defaults)
-            .merge(figment::providers::Env::prefixed("ICEBERG_REST__").split("__"))
-            .extract::<DynAppConfig>()
-            .expect("Valid Configuration");
-
-        config.reserved_namespaces.extend(DEFAULT_RESERVED_NAMESPACES.into_iter().map(str::to_string));
-
-        // Fail early if the base_uri is not a valid URL
-        config.s3_signer_uri_for_warehouse(WarehouseIdent::from(uuid::Uuid::new_v4()));
-        config.base_uri_catalog();
-        config.base_uri_management();
-        if config.secret_backend == SecretBackend::Postgres && config.pg_encryption_key == DEFAULT_ENCRYPTION_KEY {
-            tracing::warn!("THIS IS UNSAFE! Using default encryption key for secrets in postgres, please set a proper key using ICEBERG_REST__PG_ENCRYPTION_KEY environment variable.");
-        }
-
-        config
+        get_config()
     };
+}
+
+fn get_config() -> DynAppConfig {
+    let defaults = figment::providers::Serialized::defaults(DynAppConfig::default());
+    let mut config = figment::Figment::from(defaults)
+        .merge(figment::providers::Env::prefixed("ICEBERG_REST__").split("__"))
+        .extract::<DynAppConfig>()
+        .expect("Valid Configuration");
+
+    config
+        .reserved_namespaces
+        .extend(DEFAULT_RESERVED_NAMESPACES.into_iter().map(str::to_string));
+
+    // Fail early if the base_uri is not a valid URL
+    config.s3_signer_uri_for_warehouse(WarehouseIdent::from(uuid::Uuid::new_v4()));
+    config.base_uri_catalog();
+    config.base_uri_management();
+    if config.secret_backend == SecretBackend::Postgres
+        && config.pg_encryption_key == DEFAULT_ENCRYPTION_KEY
+    {
+        tracing::warn!("THIS IS UNSAFE! Using default encryption key for secrets in postgres, please set a proper key using ICEBERG_REST__PG_ENCRYPTION_KEY environment variable.");
+    }
+
+    config
 }
 
 #[derive(Clone, Deserialize, Serialize, PartialEq, Redact)]
@@ -101,8 +109,12 @@ pub struct DynAppConfig {
     #[redact]
     pub nats_token: Option<String>,
 
-    // ------------- AUTHORIZATION -------------
+    // ------------- AUTHENTICATION -------------
     pub openid_provider_uri: Option<Url>,
+
+    // ------------- AUTHORIZATION - OPENFGA -------------
+    pub authz_backend: Option<AuthZBackend>,
+    pub openfga: Option<OpenFGAConfig>,
 
     // ------------- Health -------------
     pub health_check_frequency_seconds: u64,
@@ -145,6 +157,58 @@ where
     S: serde::Serializer,
 {
     duration.num_seconds().to_string().serialize(serializer)
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, veil::Redact)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenFGAAuth {
+    ClientCredentials {
+        client_id: String,
+        #[redact]
+        client_secret: Option<String>,
+    },
+    #[redact(all)]
+    ApiKey(String),
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, veil::Redact)]
+pub struct OpenFGAConfig {
+    /// Store Name
+    pub store_name: String,
+    /// Server Name - Top level requests are made for `server:{server_id`}
+    /// If not specified, 00000000-0000-0000-0000-000000000000 is used.
+    pub server_id: Option<uuid::Uuid>,
+    /// API-Key. If client-id is specified, this is ignored.
+    pub api_key: Option<String>,
+    /// Client Credentials
+    pub client_id: Option<String>,
+    #[redact]
+    pub client_secret: Option<String>,
+}
+
+impl OpenFGAConfig {
+    pub fn server_id(&self) -> uuid::Uuid {
+        self.server_id.unwrap_or_else(uuid::Uuid::nil)
+    }
+
+    pub fn auth(&self) -> Option<OpenFGAAuth> {
+        if let Some(client_id) = &self.client_id {
+            Some(OpenFGAAuth::ClientCredentials {
+                client_id: client_id.clone(),
+                client_secret: self.client_secret.clone(),
+            })
+        } else {
+            self.api_key
+                .as_ref()
+                .map(|api_key| OpenFGAAuth::ApiKey(api_key.clone()))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AuthZBackend {
+    #[serde(alias = "openfga", alias = "OpenFGA", alias = "OPENFGA")]
+    OpenFGA,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -202,6 +266,8 @@ impl Default for DynAppConfig {
             health_check_frequency_seconds: 10,
             health_check_jitter_millis: 500,
             kv2: None,
+            authz_backend: None,
+            openfga: None,
             secret_backend: SecretBackend::Postgres,
             queue_config: TaskQueueConfig::default(),
             default_tabular_expiration_delay_seconds: chrono::Duration::days(7),
@@ -332,5 +398,40 @@ mod test {
     fn reserved_namespaces_should_contains_default_values() {
         assert!(CONFIG.reserved_namespaces.contains("system"));
         assert!(CONFIG.reserved_namespaces.contains("examples"));
+    }
+
+    #[test]
+    fn test_openfga_config_no_auth() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("ICEBERG_REST__AUTHZ_BACKEND", "openfga");
+            jail.set_env("ICEBERG_REST__STORE_NAME", "store_name");
+            let config = get_config();
+            let authz_config = config.openfga.unwrap();
+            assert_eq!(config.authz_backend, Some(AuthZBackend::OpenFGA));
+            assert_eq!(authz_config.store_name, "store_name");
+
+            assert_eq!(authz_config.auth(), None);
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn test_openfga_config_api_key() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("ICEBERG_REST__AUTHZ_BACKEND", "openfga");
+            jail.set_env("ICEBERG_REST__OPENFGA__API_KEY", "api_key");
+            jail.set_env("ICEBERG_REST__STORE_NAME", "store_name");
+            let config = get_config();
+            let authz_config = config.openfga.unwrap();
+            assert_eq!(config.authz_backend, Some(AuthZBackend::OpenFGA));
+            assert_eq!(authz_config.store_name, "store_name");
+
+            assert_eq!(
+                authz_config.auth(),
+                Some(OpenFGAAuth::ApiKey("api_key".to_string()))
+            );
+            Ok(())
+        });
     }
 }

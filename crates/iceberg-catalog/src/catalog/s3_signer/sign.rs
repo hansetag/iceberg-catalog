@@ -49,7 +49,7 @@ impl<C: Catalog, A: Authorizer, S: SecretStore>
         let warehouse_id = require_warehouse_id(prefix.clone())?;
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
             .await?;
 
         let S3SignRequest {
@@ -99,7 +99,7 @@ impl<C: Catalog, A: Authorizer, S: SecretStore>
                     &request_metadata,
                     warehouse_id,
                     metadata,
-                    TableAction::CanGetMetadata,
+                    &TableAction::CanGetMetadata,
                 )
                 .await?
         } else {
@@ -122,7 +122,7 @@ impl<C: Catalog, A: Authorizer, S: SecretStore>
                     &request_metadata,
                     warehouse_id,
                     metadata,
-                    TableAction::CanGetMetadata,
+                    &TableAction::CanGetMetadata,
                 )
                 .await?
         };
@@ -360,7 +360,7 @@ async fn validate_table_method<A: Authorizer>(
                 metadata,
                 warehouse_id,
                 Ok(Some(table_id)),
-                TableAction::CanWriteData,
+                &TableAction::CanWriteData,
             )
             .await?;
     } else if READ_METHODS.contains(&method.as_str()) {
@@ -369,7 +369,7 @@ async fn validate_table_method<A: Authorizer>(
                 metadata,
                 warehouse_id,
                 Ok(Some(table_id)),
-                TableAction::CanReadData,
+                &TableAction::CanReadData,
             )
             .await?;
     } else {

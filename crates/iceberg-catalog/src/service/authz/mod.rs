@@ -1,24 +1,20 @@
-use std::collections::HashSet;
-
-use super::health::HealthExt;
 use super::{NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent};
 use crate::api::iceberg::v1::Result;
 use crate::request_metadata::RequestMetadata;
+use std::collections::HashSet;
 
-mod implementations {
+pub mod implementations {
     pub(super) mod allow_all;
+
+    #[cfg(feature = "openfga")]
+    pub mod openfga;
 }
 
 use iceberg_ext::catalog::rest::ErrorModel;
 pub use implementations::allow_all::AllowAllAuthorizer;
 
-// #[derive(Debug, Clone)]
-// pub struct UserWarehouse {
-//     pub project_id: Option<ProjectIdent>,
-//     pub warehouse_id: Option<WarehouseIdent>,
-// }
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, strum_macros::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum ServerAction {
     /// Can create items inside the server (can create Warehouses).
     CanCreate,
@@ -27,7 +23,8 @@ pub enum ServerAction {
     CanListAllProjects,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, strum_macros::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum ProjectAction {
     CanCreateWarehouse,
     CanDelete,
@@ -37,7 +34,8 @@ pub enum ProjectAction {
     CanShowInList,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, strum_macros::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum WarehouseAction {
     CanCreateNamespace,
     /// Can delete this warehouse permanently.
@@ -57,7 +55,8 @@ pub enum WarehouseAction {
     CanListDeletedTabulars,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, strum_macros::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum NamespaceAction {
     CanCreateTable,
     CanCreateView,
@@ -70,7 +69,8 @@ pub enum NamespaceAction {
     CanListNamespaces,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, strum_macros::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum TableAction {
     CanDrop,
     CanWriteData,
@@ -81,7 +81,8 @@ pub enum TableAction {
     CanShowInList,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, strum_macros::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum ViewAction {
     CanDrop,
     CanGetMetadata,
@@ -110,33 +111,30 @@ pub enum ListProjectsResponse {
 
 #[async_trait::async_trait]
 /// Interface to provide AuthZ functions to the catalog.
-///
-/// Error codes for AuthZ are directly forwarded to the user. This means:
-/// * If an object does not exist, 404 may only be returned if the user is allowed to know this, otherwise FORBIDDEN must be returned.
-/// * If an object exists, but the user is not allowed to know this, 401 must be returned.
-/// * Some methods take Option<Ident> as an argument. If the ident is None, the object does not exist. Return 404 only if the user is allowed to know this.
 pub trait Authorizer
 where
-    Self: Send + Sync + Clone + 'static + HealthExt,
+    Self: Send + Sync + Clone + 'static,
 {
+    async fn list_projects(&self, metadata: &RequestMetadata) -> Result<ListProjectsResponse>;
+
     async fn is_allowed_server_action(
         &self,
         metadata: &RequestMetadata,
-        action: ServerAction,
+        action: &ServerAction,
     ) -> Result<bool>;
 
     async fn is_allowed_project_action(
         &self,
         metadata: &RequestMetadata,
         project_id: ProjectIdent,
-        action: ProjectAction,
+        action: &ProjectAction,
     ) -> Result<bool>;
 
     async fn is_allowed_warehouse_action(
         &self,
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
-        action: WarehouseAction,
+        action: &WarehouseAction,
     ) -> Result<bool>;
 
     /// Return the namespace_id if the action is allowed, otherwise return None.
@@ -145,7 +143,7 @@ where
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
         namespace_id: NamespaceIdentUuid,
-        action: NamespaceAction,
+        action: &NamespaceAction,
     ) -> Result<bool>;
 
     /// Return the table_id if the action is allowed, otherwise return None.
@@ -154,7 +152,7 @@ where
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
         table_id: TableIdentUuid,
-        action: TableAction,
+        action: &TableAction,
     ) -> Result<bool>;
 
     /// Return the view_id if the action is allowed, otherwise return None.
@@ -163,18 +161,23 @@ where
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
         view_id: TableIdentUuid,
-        action: ViewAction,
+        action: &ViewAction,
     ) -> Result<bool>;
 
     async fn require_server_action(
         &self,
         metadata: &RequestMetadata,
-        action: ServerAction,
+        action: &ServerAction,
     ) -> Result<()> {
         if self.is_allowed_server_action(metadata, action).await? {
             Ok(())
         } else {
-            Err(ErrorModel::forbidden("Forbidden", "ServerActionForbidden", None).into())
+            Err(ErrorModel::forbidden(
+                format!("Forbidden action {action} on server"),
+                "ServerActionForbidden",
+                None,
+            )
+            .into())
         }
     }
 
@@ -182,7 +185,7 @@ where
         &self,
         metadata: &RequestMetadata,
         project_id: ProjectIdent,
-        action: ProjectAction,
+        action: &ProjectAction,
     ) -> Result<()> {
         if self
             .is_allowed_project_action(metadata, project_id, action)
@@ -190,7 +193,12 @@ where
         {
             Ok(())
         } else {
-            Err(ErrorModel::forbidden("Forbidden", "ProjectActionForbidden", None).into())
+            Err(ErrorModel::forbidden(
+                format!("Forbidden action {action} on project {project_id}"),
+                "ProjectActionForbidden",
+                None,
+            )
+            .into())
         }
     }
 
@@ -198,7 +206,7 @@ where
         &self,
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
-        action: WarehouseAction,
+        action: &WarehouseAction,
     ) -> Result<()> {
         if self
             .is_allowed_warehouse_action(metadata, warehouse_id, action)
@@ -206,7 +214,12 @@ where
         {
             Ok(())
         } else {
-            Err(ErrorModel::forbidden("Forbidden", "WarehouseActionForbidden", None).into())
+            Err(ErrorModel::forbidden(
+                format!("Forbidden action {action} on warehouse {warehouse_id}"),
+                "WarehouseActionForbidden",
+                None,
+            )
+            .into())
         }
     }
 
@@ -218,12 +231,11 @@ where
         // Ok(None): Namespace does not exist.
         // Ok(Some(namespace_id)): Namespace exists.
         namespace_id: Result<Option<NamespaceIdentUuid>>,
-        action: NamespaceAction,
+        action: &NamespaceAction,
     ) -> Result<NamespaceIdentUuid> {
         // It is important to throw the same error if the namespace does not exist (None) or if the action is not allowed,
         // to avoid leaking information about the existence of the namespace.
-        // let err = ErrorModel::forbidden("Forbidden", "NamespaceActionForbidden", None).into();
-        let msg = "Forbidden";
+        let msg = format!("Namespace action {action} forbidden");
         let typ = "NamespaceActionForbidden";
 
         match namespace_id {
@@ -251,9 +263,9 @@ where
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
         table_id: Result<Option<T>>,
-        action: TableAction,
+        action: &TableAction,
     ) -> Result<T> {
-        let msg = "Forbidden";
+        let msg = format!("Table action {action} forbidden");
         let typ = "TableActionForbidden";
 
         match table_id {
@@ -281,9 +293,9 @@ where
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
         view_id: Result<Option<TableIdentUuid>>,
-        action: ViewAction,
+        action: &ViewAction,
     ) -> Result<TableIdentUuid> {
-        let msg = "Forbidden";
+        let msg = format!("View action {action} forbidden");
         let typ = "ViewActionForbidden";
 
         match view_id {
@@ -305,66 +317,17 @@ where
                 .into()),
         }
     }
-
-    async fn list_projects(&self, metadata: &RequestMetadata) -> Result<ListProjectsResponse>;
 }
 
-// /// Interface to provide Auth-related functions to the config gateway.
-// /// This is separated from the AuthHandler as different functions
-// /// are required while fetching the config. The config server might be
-// /// external to the rest of the catalog.
-// // We use the same associated type as AuthHandler to avoid requiring
-// // an additional state to pass as part of the APIContext.
-// // A dummy AuthHandler implementation is enough to implement this trait.
-// // This still feels less clunky than using a generic state type.
-// #[async_trait::async_trait]
-// pub trait AuthConfigHandler
-// where
-//     Self: Send + Sync + Clone + 'static + HealthExt,
-// {
-//     /// Extract information from the user credentials. Return an error if
-//     /// the user is not authenticated or if an expected extraction
-//     /// of information (e.g. project or warehouse) failed.
-//     /// If information is correctly not available, return None for the
-//     /// respective field. In this case project / warehouse must be passed
-//     /// as arguments to the config endpoint.
-//     /// If a warehouse_id is returned, a project_id must also be returned.
-//     ///
-//     /// If a project_id or warehouse_id is returned, this function must also check the
-//     /// `list_warehouse_in_project` permission for a project_id and the
-//     /// `get_config_for_warehouse` permission for a warehouse_id.
-//     async fn get_and_validate_user_warehouse(
-//         &self,
-//         metadata: &RequestMetadata,
-//     ) -> Result<UserWarehouse>;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     /// Enrich / Exchange the token that is used for all further requests
-//     /// to the specified warehouse. Typically, this is used to enrich the
-//     /// token with the warehouse-id, so that the get_token function can
-//     /// extract it.
-//     /// If this AuthNHadler does not support enriching the token, or
-//     /// if no change to the original token is required, return Ok(None).
-//     async fn exchange_token_for_warehouse(
-//         state: A::State,
-//         previous_request_metadata: &RequestMetadata,
-//         project_id: &ProjectIdent,
-//         warehouse_id: WarehouseIdent,
-//     ) -> Result<Option<String>>;
-
-//     // // Used for all endpoints
-//     // fn get_warehouse(state: T, headers: &HeaderMap) -> Result<WarehouseIdent>;
-
-//     /// Check if the user is allowed to list all warehouses in a project.
-//     async fn is_allowed_list_warehouse_in_project(
-//         state: A::State,
-//         project_id: &ProjectIdent,
-//         metadata: &RequestMetadata,
-//     ) -> Result<bool>;
-
-//     /// Check if the user is allowed to get the config for a warehouse.
-//     async fn is_allowed_user_get_config_for_warehouse(
-//         state: A::State,
-//         warehouse_id: WarehouseIdent,
-//         metadata: &RequestMetadata,
-//     ) -> Result<bool>;
-// }
+    #[test]
+    fn test_namespace_action() {
+        assert_eq!(
+            NamespaceAction::CanCreateTable.to_string(),
+            "can_create_table"
+        );
+    }
+}

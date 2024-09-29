@@ -20,7 +20,7 @@ pub(crate) async fn view_exists<C: Catalog, A: Authorizer, S: SecretStore>(
     // ------------------- BUSINESS LOGIC -------------------
     let authorizer = state.v1_state.authz;
     authorizer
-        .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+        .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
         .await?;
     let mut t = C::Transaction::begin_read(state.v1_state.catalog).await?;
     let view_id = C::view_to_id(warehouse_id, &view, t.transaction()).await; // Can't fail before authz
@@ -30,7 +30,7 @@ pub(crate) async fn view_exists<C: Catalog, A: Authorizer, S: SecretStore>(
             &request_metadata,
             warehouse_id,
             view_id,
-            ViewAction::CanGetMetadata,
+            &ViewAction::CanGetMetadata,
         )
         .await
         .map_err(set_not_found_status_code)?;

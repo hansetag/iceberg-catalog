@@ -38,3 +38,11 @@ jobs:
           BASE_PATH=authz/openfga/collaboration_model
           LAST_VERSION=$(ls $BASE_PATH | sort -r | head -n 1)
           fga model test --tests $BASE_PATH/$LAST_VERSION/store.fga.yaml
+
+      - name: Check json up-to-date
+        run: |
+          BASE_PATH=authz/openfga/collaboration_model
+          LAST_VERSION=$(ls $BASE_PATH | sort -r | head -n 1)
+          DESIRED_SCHEMA_JSON=$(fga model transform --file $BASE_PATH/$LAST_VERSION/schema.fga)
+          CURRENT_SCHEMA_JSON=$(cat $BASE_PATH/$LAST_VERSION/schema.json)
+          echo $DESIRED_SCHEMA_JSON | jq -e '. == '"$CURRENT_SCHEMA_JSON" > /dev/null || { echo "Schema json is not up-to-date"; exit 1; }

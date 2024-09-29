@@ -22,7 +22,7 @@ pub(crate) async fn list_views<C: Catalog, A: Authorizer, S: SecretStore>(
     // ------------------- AUTHZ -------------------
     let authorizer = state.v1_state.authz;
     authorizer
-        .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+        .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
         .await?;
     let mut t: <C as Catalog>::Transaction =
         C::Transaction::begin_read(state.v1_state.catalog).await?;
@@ -33,7 +33,7 @@ pub(crate) async fn list_views<C: Catalog, A: Authorizer, S: SecretStore>(
             &request_metadata,
             warehouse_id,
             namespace_id,
-            NamespaceAction::CanListViews,
+            &NamespaceAction::CanListViews,
         )
         .await?;
 
@@ -54,7 +54,7 @@ pub(crate) async fn list_views<C: Catalog, A: Authorizer, S: SecretStore>(
             &request_metadata,
             warehouse_id,
             *t.0,
-            ViewAction::CanShowInList,
+            &ViewAction::CanShowInList,
         )
     }))
     .await?

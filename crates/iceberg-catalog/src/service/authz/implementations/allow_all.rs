@@ -31,7 +31,7 @@ impl Authorizer for AllowAllAuthorizer {
     async fn is_allowed_server_action(
         &self,
         _metadata: &RequestMetadata,
-        _action: ServerAction,
+        _action: &ServerAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -40,7 +40,7 @@ impl Authorizer for AllowAllAuthorizer {
         &self,
         _metadata: &RequestMetadata,
         _project_id: ProjectIdent,
-        _action: ProjectAction,
+        _action: &ProjectAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -49,7 +49,7 @@ impl Authorizer for AllowAllAuthorizer {
         &self,
         _metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
-        _action: WarehouseAction,
+        _action: &WarehouseAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -59,7 +59,7 @@ impl Authorizer for AllowAllAuthorizer {
         _metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
         _namespace_id: NamespaceIdentUuid,
-        _action: NamespaceAction,
+        _action: &NamespaceAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -69,7 +69,7 @@ impl Authorizer for AllowAllAuthorizer {
         _metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
         _table_id: TableIdentUuid,
-        _action: TableAction,
+        _action: &TableAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -79,7 +79,7 @@ impl Authorizer for AllowAllAuthorizer {
         _metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
         _view_id: TableIdentUuid,
-        _action: ViewAction,
+        _action: &ViewAction,
     ) -> Result<bool> {
         Ok(true)
     }

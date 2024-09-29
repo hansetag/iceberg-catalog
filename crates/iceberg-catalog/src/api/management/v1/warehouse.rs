@@ -194,7 +194,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_project_action(
                 &request_metadata,
                 project_ident,
-                ProjectAction::CanCreateWarehouse,
+                &ProjectAction::CanCreateWarehouse,
             )
             .await?;
 
@@ -297,7 +297,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_project_action(
                 &request_metadata,
                 project_id,
-                ProjectAction::CanListWarehouses,
+                &ProjectAction::CanListWarehouses,
             )
             .await?;
 
@@ -313,7 +313,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             authorizer.is_allowed_warehouse_action(
                 &request_metadata,
                 w.id,
-                WarehouseAction::CanShowInList,
+                &WarehouseAction::CanShowInList,
             )
         }))
         .await?
@@ -342,7 +342,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                WarehouseAction::CanGetMetadata,
+                &WarehouseAction::CanGetMetadata,
             )
             .await?;
 
@@ -361,7 +361,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // ------------------- AuthZ -------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanDelete)
+            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanDelete)
             .await?;
 
         // ------------------- Business Logic -------------------
@@ -382,7 +382,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // ------------------- AuthZ -------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanRename)
+            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanRename)
             .await?;
 
         // ------------------- Business Logic -------------------
@@ -406,7 +406,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                WarehouseAction::CanDeactivate,
+                &WarehouseAction::CanDeactivate,
             )
             .await?;
 
@@ -436,7 +436,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                WarehouseAction::CanActivate,
+                &WarehouseAction::CanActivate,
             )
             .await?;
 
@@ -467,7 +467,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                WarehouseAction::CanUpdateStorage,
+                &WarehouseAction::CanUpdateStorage,
             )
             .await?;
 
@@ -539,7 +539,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                WarehouseAction::CanUpdateStorageCredential,
+                &WarehouseAction::CanUpdateStorageCredential,
             )
             .await?;
 
@@ -607,7 +607,7 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                WarehouseAction::CanListDeletedTabulars,
+                &WarehouseAction::CanListDeletedTabulars,
             )
             .await?;
 
@@ -651,13 +651,13 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
                 &request_metadata,
                 warehouse_id,
                 t.id.into(),
-                crate::service::authz::ViewAction::CanShowInList,
+                &crate::service::authz::ViewAction::CanShowInList,
             ),
             TabularType::Table => authorizer.is_allowed_table_action(
                 &request_metadata,
                 warehouse_id,
                 t.id.into(),
-                crate::service::authz::TableAction::CanShowInList,
+                &crate::service::authz::TableAction::CanShowInList,
             ),
         }))
         .await?

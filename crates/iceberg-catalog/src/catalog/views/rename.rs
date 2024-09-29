@@ -31,7 +31,7 @@ pub(crate) async fn rename_view<C: Catalog, A: Authorizer, S: SecretStore>(
     // ------------------- AUTHZ -------------------
     let authorizer = state.v1_state.authz;
     authorizer
-        .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+        .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
         .await?;
     let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
 
@@ -41,7 +41,7 @@ pub(crate) async fn rename_view<C: Catalog, A: Authorizer, S: SecretStore>(
             &request_metadata,
             warehouse_id,
             source_id,
-            ViewAction::CanRename,
+            &ViewAction::CanRename,
         )
         .await
         .map_err(|mut e| {
@@ -56,7 +56,7 @@ pub(crate) async fn rename_view<C: Catalog, A: Authorizer, S: SecretStore>(
             &request_metadata,
             warehouse_id,
             namespace_id,
-            NamespaceAction::CanCreateTable,
+            &NamespaceAction::CanCreateTable,
         )
         .await?;
 

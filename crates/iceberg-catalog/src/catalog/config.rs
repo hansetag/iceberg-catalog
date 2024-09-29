@@ -46,7 +46,7 @@ impl<A: Authorizer, C: Catalog, S: SecretStore>
                 .require_project_action(
                     &request_metadata,
                     project_id,
-                    ProjectAction::CanListWarehouses,
+                    &ProjectAction::CanListWarehouses,
                 )
                 .await?;
             C::get_warehouse_by_name(
@@ -65,7 +65,7 @@ impl<A: Authorizer, C: Catalog, S: SecretStore>
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                WarehouseAction::CanGetConfig,
+                &WarehouseAction::CanGetConfig,
             )
             .await?;
 

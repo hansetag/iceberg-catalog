@@ -30,7 +30,7 @@ pub(crate) async fn drop_view<C: Catalog, A: Authorizer, S: SecretStore>(
     // ------------------- AUTHZ -------------------
     let authorizer = state.v1_state.authz;
     authorizer
-        .require_warehouse_action(&request_metadata, warehouse_id, WarehouseAction::CanUse)
+        .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
         .await?;
     let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
     let view_id = C::view_to_id(warehouse_id, &view, t.transaction()).await; // Can't fail before authz
@@ -40,7 +40,7 @@ pub(crate) async fn drop_view<C: Catalog, A: Authorizer, S: SecretStore>(
             &request_metadata,
             warehouse_id,
             view_id,
-            ViewAction::CanDrop,
+            &ViewAction::CanDrop,
         )
         .await?;
 

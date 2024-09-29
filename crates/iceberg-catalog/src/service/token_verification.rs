@@ -30,9 +30,10 @@ pub enum AuthDetails {
 impl AuthDetails {
     #[must_use]
     pub fn actor(&self) -> Actor {
-        match self {
-            Self::JWT(claims) => Actor::Principal(claims.sub.clone()),
-        }
+        // match self {
+        //     Self::JWT(claims) => Actor::Principal(claims.sub.clone()),
+        // }
+        todo!()
     }
 
     #[must_use]
