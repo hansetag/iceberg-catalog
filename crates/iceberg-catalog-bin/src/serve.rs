@@ -70,21 +70,18 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
 
     let mut cloud_event_sinks = vec![];
 
-    let mut running_with_publisher = false;
     if let Some(nat_addr) = &CONFIG.nats_address {
         let nats_publisher = build_nats_client(nat_addr).await?;
         cloud_event_sinks
             .push(Arc::new(nats_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
-        running_with_publisher = true;
     }
     if let Some(kafka_brokers) = &CONFIG.kafka_brokers {
         let kafka_publisher = build_kafka_producer(kafka_brokers)?;
         cloud_event_sinks
             .push(Arc::new(kafka_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
-        running_with_publisher = true;
     }
 
-    if !running_with_publisher {
+    if cloud_event_sinks.is_empty() {
         tracing::info!("Running without publisher.");
     };
 
@@ -173,9 +170,7 @@ async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
 }
 
 fn build_kafka_producer(kafka_brokers: &Vec<SocketAddr>) -> Result<KafkaBackend, Error> {
-    let kafka_brokers_csv = kafka_brokers
-        .iter()
-        .fold(String::new(), |acc, e| format!("{acc},{e}"));
+    let kafka_brokers_csv = itertools::join(kafka_brokers.iter(), ",");
     let kafka_backend = KafkaBackend {
         producer: rdkafka::ClientConfig::new()
             .set("bootstrap.servers", &kafka_brokers_csv)

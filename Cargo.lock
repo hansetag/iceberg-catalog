@@ -2874,6 +2874,7 @@ dependencies = [
  "axum",
  "clap",
  "iceberg-catalog",
+ "itertools",
  "rdkafka",
  "reqwest 0.12.7",
  "tokio",
