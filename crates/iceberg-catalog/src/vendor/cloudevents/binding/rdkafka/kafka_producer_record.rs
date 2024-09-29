@@ -1,3 +1,13 @@
+// Copied from
+// https://github.com/cloudevents/sdk-rust/tree/a59c3f55a01d2c61afbc8ccadf4374cc159bf947/src/binding/rdkafka
+// and modified as necessary
+//
+// Reason: cloudevents rust-sdk latest release at 2024-09-07 is 0.7, which depends on rdkafka 0.29
+// We want to use 0.36
+//
+// Cloudevents SDK Rust is distributed under Apache Licence. See ./mod.rs for a copy of the lincese
+// text
+
 use crate::vendor::cloudevents::binding::{
     kafka::{header_prefix, SPEC_VERSION_HEADER},
     CLOUDEVENTS_JSON_HEADER, CONTENT_TYPE,
@@ -8,7 +18,7 @@ use cloudevents::message::{
 };
 use cloudevents::Event;
 use rdkafka::message::{Header, OwnedHeaders, ToBytes};
-use rdkafka::producer::{BaseRecord, FutureRecord};
+use rdkafka::producer::FutureRecord;
 
 /// This struct contains a serialized `CloudEvent` message in the Kafka shape.
 /// Implements [`StructuredSerializer`] & [`BinarySerializer`] traits.
@@ -86,32 +96,6 @@ impl StructuredSerializer<MessageRecord> for MessageRecord {
         self.headers = self.headers.insert(header);
 
         self.payload = Some(bytes);
-
-        Ok(self)
-    }
-}
-
-/// Extension Trait for [`BaseRecord`] that fills the record with a [`MessageRecord`].
-///
-/// This trait is sealed and cannot be implemented for types outside of this crate.
-pub(crate) trait BaseRecordExt<'a, K: ToBytes + ?Sized>: private::Sealed {
-    /// Fill this [`BaseRecord`] with a [`MessageRecord`].
-    fn message_record(
-        self,
-        message_record: &'a MessageRecord,
-    ) -> Result<BaseRecord<'a, K, Vec<u8>>>;
-}
-
-impl<'a, K: ToBytes + ?Sized> BaseRecordExt<'a, K> for BaseRecord<'a, K, Vec<u8>> {
-    fn message_record(
-        mut self,
-        message_record: &'a MessageRecord,
-    ) -> Result<BaseRecord<'a, K, Vec<u8>>> {
-        self = self.headers(message_record.headers.clone());
-
-        if let Some(s) = message_record.payload.as_ref() {
-            self = self.payload(s);
-        }
 
         Ok(self)
     }
