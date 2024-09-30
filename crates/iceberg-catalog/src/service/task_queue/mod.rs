@@ -221,7 +221,7 @@ mod test {
 
     // this is really more of an integration test but missing traits in file io etc make it rather hard
     // to test this module in isolation.
-    #[needs_env_var::needs_env_var("TEST_MINIO" = 1)]
+    #[needs_env_var::needs_env_var(TEST_MINIO = 1)]
     mod minio {
         use crate::api::iceberg::v1::PaginationQuery;
         use crate::api::management::v1::TabularType;

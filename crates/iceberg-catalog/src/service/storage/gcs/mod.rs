@@ -34,7 +34,7 @@ pub struct GcsProfile {
 #[serde(tag = "credential-type", rename_all = "kebab-case")]
 #[schema(rename_all = "kebab-case")]
 pub enum GcsCredential {
-    ServiceAccountKey(GcsServiceKey),
+    ServiceAccountKey { key: GcsServiceKey },
 }
 
 #[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -67,7 +67,7 @@ impl GcsProfile {
     ) -> Result<iceberg::io::FileIO, FileIoError> {
         let mut builder = iceberg::io::FileIOBuilder::new("gcs");
 
-        if let Some(GcsCredential::ServiceAccountKey(key)) = credential {
+        if let Some(GcsCredential::ServiceAccountKey { key }) = credential {
             builder = builder.with_prop(
                 iceberg::io::GCS_CREDENTIALS_JSON,
                 // guess we're doing base64 now ¯\_(._.)_/¯
@@ -157,9 +157,9 @@ impl GcsProfile {
         storage_permissions: StoragePermissions,
     ) -> Result<TableProperties, TableConfigError> {
         let mut config = TableProperties::default();
-        if let Some(GcsCredential::ServiceAccountKey(cred)) = cred {
+        if let Some(GcsCredential::ServiceAccountKey { key }) = cred {
             let token = sts::downscope(
-                cred,
+                key,
                 &self.bucket,
                 table_location.clone(),
                 storage_permissions,
@@ -167,7 +167,7 @@ impl GcsProfile {
             .await?;
 
             config.insert(&gcs::Token(token.access_token));
-            config.insert(&gcs::ProjectId(cred.project_id.clone()));
+            config.insert(&gcs::ProjectId(key.project_id.clone()));
 
             if let Some(expiry) = token.expires_in {
                 config.insert(&gcs::TokenExpiresAt(
@@ -342,7 +342,7 @@ mod test {
         assert!(validate_bucket_name("a".repeat(64).as_str()).is_err()); // More than 63 characters
     }
 
-    #[needs_env_var("TEST_GCS" = 1)]
+    // #[needs_env_var(TEST_GCS = 1)]
     mod cloud_tests {
         use crate::service::storage::gcs::{GcsCredential, GcsProfile, GcsServiceKey};
         use crate::service::storage::StorageCredential;
@@ -351,17 +351,16 @@ mod test {
         #[tokio::test]
         async fn test_can_validate() {
             let cred: StorageCredential = std::env::var("GCS_CREDENTIAL")
-                .map(|s| {
-                    GcsCredential::ServiceAccountKey(
-                        serde_json::from_str::<GcsServiceKey>(&s).unwrap(),
-                    )
+                .map(|s| GcsCredential::ServiceAccountKey {
+                    key: serde_json::from_str::<GcsServiceKey>(&s).unwrap(),
                 })
                 .map_err(|_| ())
                 .ok()
                 .expect("Missing cred")
                 .into();
-            serde_json::from_str::<StorageCredential>(&serde_json::to_string(&cred).unwrap())
-                .expect("json roundtrip failed");
+            let s = &serde_json::to_string(&cred).unwrap();
+            serde_json::from_str::<StorageCredential>(s).expect("json roundtrip failed");
+
             let bucket = std::env::var("GCS_BUCKET").expect("Missing bucket");
 
             let mut profile: StorageProfile = GcsProfile {
