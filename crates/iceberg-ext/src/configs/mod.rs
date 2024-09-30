@@ -243,6 +243,7 @@ macro_rules! impl_properties {
                 config
             }
 
+            #[must_use]
             pub fn inner(&self) -> &std::collections::HashMap<String, String> {
                 &self.props
             }

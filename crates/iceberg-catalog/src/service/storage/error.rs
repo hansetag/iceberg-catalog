@@ -45,6 +45,10 @@ impl From<TableConfigError> for ValidationError {
                     entity: "TableConfig".to_string(),
                 }
             }
+            TableConfigError::StsError(_, _) => ValidationError::Internal {
+                reason: value.to_string(),
+                source: Some(Box::new(value)),
+            },
         }
     }
 }
@@ -137,6 +141,11 @@ pub enum TableConfigError {
     FailedDependency(String),
     #[error("Misconfiguration: {0}")]
     Misconfiguration(String),
+    #[error("STS error: {0}")]
+    StsError(
+        String,
+        #[source] Option<Box<dyn std::error::Error + 'static + Send + Sync>>,
+    ),
 }
 
 impl From<TableConfigError> for IcebergErrorResponse {
@@ -149,6 +158,9 @@ impl From<TableConfigError> for IcebergErrorResponse {
             }
             e @ TableConfigError::Misconfiguration(_) => {
                 ErrorModel::bad_request(e.to_string(), "Misconfiguration", Some(Box::new(e))).into()
+            }
+            e @ TableConfigError::StsError(_, _) => {
+                ErrorModel::internal(e.to_string(), "StsError", Some(Box::new(e))).into()
             }
         }
     }

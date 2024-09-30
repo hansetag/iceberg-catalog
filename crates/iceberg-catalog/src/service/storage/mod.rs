@@ -9,6 +9,7 @@ use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::catalog::io::list_location;
+use crate::service::storage::gcs::{GcsCredential, GcsProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
 pub use az::{AzCredential, AzdlsLocation, AzdlsProfile};
@@ -36,7 +37,7 @@ pub enum StorageProfile {
     #[cfg(test)]
     Test(TestProfile),
     #[serde(rename = "gcs")]
-    Gcs(gcs::GcsProfile),
+    Gcs(GcsProfile),
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
@@ -275,10 +276,9 @@ impl StorageProfile {
         let test_vended_credentials = match self {
             StorageProfile::S3(profile) => profile.sts_enabled,
             StorageProfile::Azdls(_) => true,
+            StorageProfile::Gcs(_) => true,
             #[cfg(test)]
             StorageProfile::Test(_) => false,
-            // TODO: Implement GCS vended credentials, it's probably always vended
-            StorageProfile::Gcs(_) => true,
         };
 
         if test_vended_credentials {
@@ -343,7 +343,14 @@ impl StorageProfile {
         let mut test_file_write =
             self.default_metadata_location(test_location, &compression_codec, uuid::Uuid::now_v7());
         if is_vended_credentials {
-            test_file_write.push("test_vended_credentials");
+            let f = test_file_write
+                .url()
+                .path()
+                .split('/')
+                .next_back()
+                .unwrap_or("missing")
+                .to_string();
+            test_file_write.pop().push("vended").push(&f);
             tracing::debug!(
                 "Validating vended credential access to: {}",
                 test_file_write
@@ -473,7 +480,7 @@ pub enum StorageCredential {
     #[serde(rename = "az")]
     Az(AzCredential),
     #[serde(rename = "gcs")]
-    Gcs(gcs::GcsCredential),
+    Gcs(GcsCredential),
 }
 
 impl SecretInStorage for StorageCredential {}
@@ -522,7 +529,7 @@ impl StorageCredential {
     ///
     ///  # Errors
     /// Fails if the credential is not an Gcs credential.
-    pub fn try_into_gcs(&self) -> Result<&gcs::GcsCredential, CredentialsError> {
+    pub fn try_into_gcs(&self) -> Result<&GcsCredential, CredentialsError> {
         match self {
             Self::Gcs(profile) => Ok(profile),
             _ => Err(ConversionError {
