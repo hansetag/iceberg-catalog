@@ -56,7 +56,7 @@ lazy-regex = { workspace = true }
 lazy_static = { workspace = true }
 lru = { workspace = true }
 maplit = { workspace = true }
-openfga-rs = { path = "/Users/cht/code/ht/iceberg-rest/openfga-rs", optional = true }
+openfga-rs = { workspace = true, optional = true }
 rand = "0.8.5"
 reqwest = { workspace = true }
 serde = { workspace = true }
