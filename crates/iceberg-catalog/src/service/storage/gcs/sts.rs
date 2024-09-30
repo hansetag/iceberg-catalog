@@ -187,7 +187,7 @@ struct AvailabilityCondition {
 impl From<&GcsServiceKey> for CredentialsFile {
     fn from(
         GcsServiceKey {
-            r#type: tp,
+            key_type,
             project_id,
             private_key_id,
             private_key,
@@ -201,7 +201,7 @@ impl From<&GcsServiceKey> for CredentialsFile {
         }: &GcsServiceKey,
     ) -> Self {
         Self {
-            tp: tp.to_string(),
+            tp: key_type.to_string(),
             client_email: Some(client_email.clone()),
             private_key_id: Some(private_key_id.clone()),
             private_key: Some(private_key.clone()),

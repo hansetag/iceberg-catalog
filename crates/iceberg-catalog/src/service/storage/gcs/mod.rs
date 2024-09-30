@@ -39,8 +39,9 @@ pub enum GcsCredential {
 
 #[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct GcsServiceKey {
-    #[serde(rename = "type")]
-    pub r#type: String,
+    // In the gcp service account creds file, this is the `type` field.
+    // this conflicts with the type we use as a tag on an outer layer..
+    pub key_type: String,
     pub project_id: String,
     pub private_key_id: String,
     #[redact(partial)]
@@ -341,7 +342,6 @@ mod test {
         assert!(validate_bucket_name("a".repeat(64).as_str()).is_err()); // More than 63 characters
     }
 
-    #[needs_env_var(TEST_GCS = 1)]
     mod cloud_tests {
         use crate::service::storage::gcs::{GcsCredential, GcsProfile, GcsServiceKey};
         use crate::service::storage::StorageCredential;
@@ -359,6 +359,8 @@ mod test {
                 .ok()
                 .expect("Missing cred")
                 .into();
+            serde_json::from_str::<StorageCredential>(&serde_json::to_string(&cred).unwrap())
+                .expect("json roundtrip failed");
             let bucket = std::env::var("GCS_BUCKET").expect("Missing bucket");
 
             let mut profile: StorageProfile = GcsProfile {

@@ -63,13 +63,13 @@ For more information on deployment, please check the [User Guide](USER_GUIDE.md)
 ### Storage Profile Support
 
 | Storage              |    Status    | Comment                                                   |
-| -------------------- | :----------: | --------------------------------------------------------- |
+| -------------------- |:------------:| --------------------------------------------------------- |
 | S3 - AWS             | ![semi-done] | vended-credentials & remote-signing, assume role missing  |
 | S3 - Custom          |   ![done]    | vended-credentials & remote-signing, tested against minio |
 | Azure ADLS Gen2      |   ![done]    |                                                           |
 | Azure Blob           |   ![open]    |                                                           |
 | Microsoft OneLake    |   ![open]    |                                                           |
-| Google Cloud Storage |   ![open]    |                                                           |
+| Google Cloud Storage |   ![done]    |                                                           |
 
 Details on how to configure the storage profiles can be found in the [Storage Guide](STORAGE.md).
 
