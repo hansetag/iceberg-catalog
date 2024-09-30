@@ -257,7 +257,7 @@ mod test {
             let expiration_queue = Arc::new(
                 crate::implementations::postgres::task_queues::TabularExpirationQueue::from_config(
                     rw.clone(),
-                    config,
+                    config.clone(),
                 )
                 .unwrap(),
             );
