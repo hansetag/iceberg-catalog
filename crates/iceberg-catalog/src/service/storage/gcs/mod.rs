@@ -342,6 +342,7 @@ mod test {
         assert!(validate_bucket_name("a".repeat(64).as_str()).is_err()); // More than 63 characters
     }
 
+    #[needs_env_var("TEST_GCS" = 1)]
     mod cloud_tests {
         use crate::service::storage::gcs::{GcsCredential, GcsProfile, GcsServiceKey};
         use crate::service::storage::StorageCredential;
