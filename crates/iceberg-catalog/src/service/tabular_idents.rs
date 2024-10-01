@@ -46,8 +46,6 @@ impl Display for TabularIdentUuid {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum TabularIdentBorrowed<'a> {
-    // TODO: TableIdent is from iceberg-rust, AFAIK, TableIdent and ViewIdent are the same, should we
-    //       duplicate the type or use the same type and just accept it's called TableIdent?
     Table(&'a TableIdent),
     #[allow(dead_code)]
     View(&'a TableIdent),
@@ -64,8 +62,6 @@ impl<'a> TabularIdentBorrowed<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TabularIdentOwned {
-    // TODO: TableIdent is from iceberg-rust, AFAIK, TableIdent and ViewIdent are the same, should we
-    //       duplicate the type or use the same type and just accept it's called TableIdent?
     Table(TableIdent),
     View(TableIdent),
 }

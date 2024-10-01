@@ -275,7 +275,6 @@ impl TableUpdateExt for TableUpdate {
                 builder.set_default_partition_spec(spec_id)?;
             }
             TableUpdate::SetDefaultSortOrder { sort_order_id } => {
-                // ToDo: Harmonize types
                 builder.set_default_sort_order(sort_order_id)?;
             }
             TableUpdate::AddSpec { spec } => {
