@@ -1037,7 +1037,7 @@ dependencies = [
  "pin-project",
  "quick-xml 0.31.0",
  "rand 0.8.5",
- "reqwest 0.12.7",
+ "reqwest 0.12.8",
  "rustc_version",
  "serde",
  "serde_json",
@@ -2786,7 +2786,7 @@ dependencies = [
  "opendal",
  "ordered-float 4.2.2",
  "parquet",
- "reqwest 0.12.7",
+ "reqwest 0.12.8",
  "rust_decimal",
  "serde",
  "serde_bytes",
@@ -2840,7 +2840,7 @@ dependencies = [
  "maplit",
  "needs_env_var",
  "rand 0.8.5",
- "reqwest 0.12.7",
+ "reqwest 0.12.8",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -2873,7 +2873,7 @@ dependencies = [
  "axum",
  "clap",
  "iceberg-catalog",
- "reqwest 0.12.7",
+ "reqwest 0.12.8",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2893,7 +2893,7 @@ dependencies = [
  "lazy_static",
  "log",
  "paste",
- "reqwest 0.12.7",
+ "reqwest 0.12.8",
  "serde",
  "serde_derive",
  "serde_json",
@@ -3052,7 +3052,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "jsonwebtoken",
- "reqwest 0.12.7",
+ "reqwest 0.12.8",
  "serde",
  "serde_json",
  "thiserror",
@@ -3650,7 +3650,7 @@ dependencies = [
  "percent-encoding",
  "quick-xml 0.36.1",
  "reqsign",
- "reqwest 0.12.7",
+ "reqwest 0.12.8",
  "serde",
  "serde_json",
  "tokio",
@@ -4332,7 +4332,7 @@ dependencies = [
  "percent-encoding",
  "quick-xml 0.36.1",
  "rand 0.8.5",
- "reqwest 0.12.7",
+ "reqwest 0.12.8",
  "rsa",
  "rust-ini",
  "serde",
@@ -4385,9 +4385,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.7"
+version = "0.12.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8f4955649ef5c38cc7f9e8aa41761d48fb9677197daea9984dc54f56aad5e63"
+checksum = "f713147fbe92361e52392c73b8c9e48c04c6625bce969ef54dc901e58e042a7b"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -6122,7 +6122,7 @@ dependencies = [
  "axum",
  "mime_guess",
  "regex",
- "reqwest 0.12.7",
+ "reqwest 0.12.8",
  "rust-embed",
  "serde",
  "serde_json",
