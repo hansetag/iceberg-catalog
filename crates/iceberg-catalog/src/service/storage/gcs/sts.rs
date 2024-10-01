@@ -111,10 +111,7 @@ impl STSRequest {
             requested_token_type: "urn:ietf:params:oauth:token-type:access_token".to_string(),
             subject_token: token.to_string(),
             subject_token_type: "urn:ietf:params:oauth:token-type:access_token".to_string(),
-            // string
-            //
-            // A JSON-format Credential Access Boundary, encoded with percent encoding.
-            // idk?
+            // A string with JSON-format Credential Access Boundary, encoded with percent encoding.
             options: percent_encoding::utf8_percent_encode(&op, percent_encoding::NON_ALPHANUMERIC)
                 .to_string(),
         })
@@ -142,13 +139,12 @@ impl Options {
                     available_resource: format!(
                         "//storage.googleapis.com/projects/_/buckets/{bucket}",
                     ),
-                    available_permissions: vec![
-                        match storage_permissions {
-                            StoragePermissions::Read => "inRole:roles/storage.objectViewer".to_string(),
-                            StoragePermissions::ReadWrite => "inRole:roles/storage.objectCreator".to_string(),
-                            StoragePermissions::ReadWriteDelete => "inRole:roles/storage.objectUser".to_string()
-                        },
-                    ],
+                    available_permissions: match storage_permissions {
+                        StoragePermissions::Read => vec!["inRole:roles/storage.objectViewer".to_string()],
+                        StoragePermissions::ReadWrite => vec!["inRole:roles/storage.objectViewer".to_string(),
+                                                              "inRole:roles/storage.objectCreator".to_string()],
+                        StoragePermissions::ReadWriteDelete => vec!["inRole:roles/storage.objectUser".to_string()]
+                    },
                     availability_condition: AvailabilityCondition {
                         title: "obj-prefixes".to_string(),
                         // need the getAttribute to allow Listing operations
