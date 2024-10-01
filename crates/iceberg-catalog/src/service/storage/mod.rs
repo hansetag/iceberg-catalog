@@ -495,13 +495,13 @@ pub enum StorageCredential {
     ///
     /// ```
     /// use iceberg_catalog::service::storage::StorageCredential;
-    /// let cred: StorageCredential = serde_json::from_str(r#"{ {
+    /// let cred: StorageCredential = serde_json::from_str(r#"{
     ///     "type": "az",
     ///     "credential-type": "client-credentials",
     ///     "client-id": "...",
     ///     "client-secret": "...",
     ///     "tenant-id": "..."
-    ///   })"#).unwrap();
+    ///   }"#).unwrap();
     /// ```
     #[serde(rename = "az")]
     Az(AzCredential),
