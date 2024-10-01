@@ -12,25 +12,22 @@ use crate::{
     },
     ProjectIdent, WarehouseIdent, CONFIG,
 };
+use openfga_rs::open_fga_service_client::OpenFgaServiceClient;
 use openfga_rs::{
-    authentication::{BearerTokenInterceptor, ClientCredentialInterceptor},
     tonic::{
         self,
         codegen::{Body, Bytes, StdError},
-        service::interceptor::InterceptedService,
-        transport::{Channel, Endpoint},
     },
     CheckRequest, CheckRequestTupleKey, ConsistencyPreference, ListObjectsRequest,
-    ListStoresRequest, Store,
-};
-use openfga_rs::{
-    authentication::{ClientCredentials, RefreshConfiguration},
-    open_fga_service_client::OpenFgaServiceClient,
 };
 
+mod client;
 mod models;
+mod service_ext;
 
+pub use client::{new_bearer_auth_client, new_client_credentials, new_unauthenticated_client};
 pub use models::{CollaborationModelVersion, CollaborationModels};
+pub use service_ext::ClientHelper;
 
 lazy_static::lazy_static! {
     static ref AUTH_CONFIG: crate::config::OpenFGAConfig = {
@@ -404,152 +401,5 @@ fn capitalize(s: &str) -> String {
     match c.next() {
         None => String::new(),
         Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
-}
-
-async fn new_channel(endpoint: url::Url) -> Result<Channel> {
-    let channel = Endpoint::from_str(endpoint.as_ref())
-        .map_err(|e| {
-            ErrorModel::internal(
-                format!("Invalid OpenFGA endpoint: {endpoint}"),
-                "OpenFGAConnection",
-                Some(Box::new(e)),
-            )
-        })?
-        .connect()
-        .await
-        .map_err(|e| {
-            ErrorModel::internal(
-                "Failed to connect to OpenFGA",
-                "OpenFGAConnection",
-                Some(Box::new(e)),
-            )
-        })?;
-
-    Ok(channel)
-}
-
-#[async_trait::async_trait]
-pub trait ClientHelper {
-    async fn get_store_by_name(&mut self, store_name: &str) -> Result<Store>;
-}
-
-#[async_trait::async_trait]
-impl<T> ClientHelper for OpenFgaServiceClient<T>
-where
-    T: Clone + Sync + Send + 'static,
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
-    T::Error: Into<StdError>,
-    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
-    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
-    <T as tonic::client::GrpcService<
-        http_body_util::combinators::UnsyncBoxBody<axum::body::Bytes, openfga_rs::tonic::Status>,
-    >>::Future: Send,
-{
-    async fn get_store_by_name(&mut self, store_name: &str) -> Result<Store> {
-        let stores = self
-            .list_stores(ListStoresRequest {
-                page_size: Some(100),
-                continuation_token: String::new(),
-            })
-            .await
-            .map_err(|e| {
-                ErrorModel::internal(
-                    "Failed to list stores",
-                    "OpenFGAConnection",
-                    Some(Box::new(e)),
-                )
-            })?;
-        let store = stores
-            .into_inner()
-            .stores
-            .into_iter()
-            .find(|s| s.name == store_name)
-            .ok_or_else(|| {
-                ErrorModel::internal(
-                    format!("Store {store_name} not found"),
-                    "OpenFGAConnection",
-                    None,
-                )
-            })?;
-
-        Ok(store)
-    }
-}
-
-/// Create a new `OpenFGA` client without authentication.
-///
-/// # Errors
-/// - Connection to `OpenFGA` fails
-pub async fn new_unauthenticated_client(
-    endpoint: url::Url,
-) -> Result<OpenFgaServiceClient<Channel>> {
-    let client = OpenFgaServiceClient::connect(endpoint.to_string())
-        .await
-        .map_err(|e| {
-            ErrorModel::internal(
-                "Failed to connect to OpenFGA",
-                "OpenFGAConnection",
-                Some(Box::new(e)),
-            )
-        })?;
-
-    Ok(client)
-}
-
-/// Create a new `OpenFGA` client with bearer token.
-///
-/// # Errors
-/// - Connection to `OpenFGA` fails
-pub async fn new_bearer_auth_client(
-    endpoint: url::Url,
-    token: &str,
-) -> Result<OpenFgaServiceClient<InterceptedService<Channel, BearerTokenInterceptor>>> {
-    let channel = new_channel(endpoint).await?;
-    let interceptor = BearerTokenInterceptor::new(token).map_err(|e| {
-        ErrorModel::internal(
-            format!("Failed to create BearerTokenInterceptor: {e}"),
-            "OpenFGAConnection",
-            Some(Box::new(e)),
-        )
-    })?;
-    let client = OpenFgaServiceClient::with_interceptor(channel, interceptor);
-    Ok(client)
-}
-
-/// Create a new `OpenFGA` client with client credentials.
-///
-/// # Errors
-/// - Client credentials cannot be exchanged for a token
-/// - Connection to `OpenFGA` fails
-pub async fn new_client_credentials(
-    endpoint: url::Url,
-    credentials: ClientCredentials,
-    refresh_config: RefreshConfiguration,
-) -> Result<OpenFgaServiceClient<InterceptedService<Channel, ClientCredentialInterceptor>>> {
-    let channel = new_channel(endpoint).await?;
-    let interceptor = ClientCredentialInterceptor::new_initialized(credentials, refresh_config)
-        .map_err(|e| {
-            ErrorModel::internal(
-                format!("Failed to create ClientCredentialInterceptor: {e}"),
-                "OpenFGAConnection",
-                Some(Box::new(e)),
-            )
-        })?;
-    let client: OpenFgaServiceClient<InterceptedService<Channel, ClientCredentialInterceptor>> =
-        OpenFgaServiceClient::with_interceptor(channel, interceptor);
-    Ok(client)
-}
-
-#[cfg(test)]
-mod test {
-
-    // #[needs_env_var::needs_env_var("TEST_OPENFGA" = 1)]
-    mod openfga {
-
-        // async fn get_client() -> OpenFGAAuthorizer<Channel> {
-        //     let endpoint = AUTH_CONFIG.endpoint.clone();
-        //     new_unauthenticated(endpoint).await.unwrap()
-        // }
     }
 }

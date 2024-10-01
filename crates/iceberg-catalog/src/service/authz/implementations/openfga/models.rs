@@ -34,6 +34,11 @@ impl CollaborationModelVersion {
     pub fn latest() -> Self {
         CollaborationModelVersion::V1
     }
+
+    #[must_use]
+    pub fn get_model(&self) -> AuthorizationModel {
+        MODEL.get_model(self).clone()
+    }
 }
 
 #[derive(Debug, serde::Deserialize, Clone, PartialEq)]

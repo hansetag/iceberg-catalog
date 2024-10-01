@@ -25,8 +25,15 @@ lazy_static::lazy_static! {
 
 fn get_config() -> DynAppConfig {
     let defaults = figment::providers::Serialized::defaults(DynAppConfig::default());
+    #[cfg(not(test))]
     let mut config = figment::Figment::from(defaults)
         .merge(figment::providers::Env::prefixed("ICEBERG_REST__").split("__"))
+        .extract::<DynAppConfig>()
+        .expect("Valid Configuration");
+
+    #[cfg(test)]
+    let mut config = figment::Figment::from(defaults)
+        .merge(figment::providers::Env::prefixed("LAKEKEEPER_TEST__").split("__"))
         .extract::<DynAppConfig>()
         .expect("Valid Configuration");
 
@@ -173,11 +180,13 @@ pub enum OpenFGAAuth {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, veil::Redact)]
 pub struct OpenFGAConfig {
-    /// Store Name
-    pub store_name: String,
+    /// GRPC Endpoint Url
+    pub endpoint: Url,
+    /// Store Name - if not specified, `lakekeeper` is used.
+    store_name: Option<String>,
     /// Server Name - Top level requests are made for `server:{server_id`}
     /// If not specified, 00000000-0000-0000-0000-000000000000 is used.
-    pub server_id: Option<uuid::Uuid>,
+    server_id: Option<uuid::Uuid>,
     /// API-Key. If client-id is specified, this is ignored.
     pub api_key: Option<String>,
     /// Client Credentials
@@ -189,6 +198,12 @@ pub struct OpenFGAConfig {
 impl OpenFGAConfig {
     pub fn server_id(&self) -> uuid::Uuid {
         self.server_id.unwrap_or_else(uuid::Uuid::nil)
+    }
+
+    pub fn store_name(&self) -> String {
+        self.store_name
+            .clone()
+            .unwrap_or_else(|| "lakekeeper".to_string())
     }
 
     pub fn auth(&self) -> Option<OpenFGAAuth> {
@@ -403,12 +418,12 @@ mod test {
     #[test]
     fn test_openfga_config_no_auth() {
         figment::Jail::expect_with(|jail| {
-            jail.set_env("ICEBERG_REST__AUTHZ_BACKEND", "openfga");
-            jail.set_env("ICEBERG_REST__STORE_NAME", "store_name");
+            jail.set_env("LAKEKEEPER_TEST__AUTHZ_BACKEND", "openfga");
+            jail.set_env("LAKEKEEPER_TEST__OPENFGA__STORE_NAME", "store_name");
             let config = get_config();
             let authz_config = config.openfga.unwrap();
             assert_eq!(config.authz_backend, Some(AuthZBackend::OpenFGA));
-            assert_eq!(authz_config.store_name, "store_name");
+            assert_eq!(authz_config.store_name(), "store_name");
 
             assert_eq!(authz_config.auth(), None);
 
@@ -419,13 +434,12 @@ mod test {
     #[test]
     fn test_openfga_config_api_key() {
         figment::Jail::expect_with(|jail| {
-            jail.set_env("ICEBERG_REST__AUTHZ_BACKEND", "openfga");
-            jail.set_env("ICEBERG_REST__OPENFGA__API_KEY", "api_key");
-            jail.set_env("ICEBERG_REST__STORE_NAME", "store_name");
+            jail.set_env("LAKEKEEPER_TEST__AUTHZ_BACKEND", "openfga");
+            jail.set_env("LAKEKEEPER_TEST__OPENFGA__API_KEY", "api_key");
             let config = get_config();
             let authz_config = config.openfga.unwrap();
             assert_eq!(config.authz_backend, Some(AuthZBackend::OpenFGA));
-            assert_eq!(authz_config.store_name, "store_name");
+            assert_eq!(authz_config.store_name(), "lakekeeper");
 
             assert_eq!(
                 authz_config.auth(),
