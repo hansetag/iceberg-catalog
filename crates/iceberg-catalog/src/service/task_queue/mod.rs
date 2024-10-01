@@ -218,10 +218,11 @@ const fn valid_max_age(num: i64) -> chrono::Duration {
 
 #[cfg(test)]
 mod test {
+    use needs_env_var::needs_env_var;
 
     // this is really more of an integration test but missing traits in file io etc make it rather hard
     // to test this module in isolation.
-    #[needs_env_var::needs_env_var(TEST_MINIO = 1)]
+    #[needs_env_var(TEST_MINIO = 1)]
     mod minio {
         use crate::api::iceberg::v1::PaginationQuery;
         use crate::api::management::v1::TabularType;
@@ -233,7 +234,7 @@ mod test {
         };
         use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
         use crate::service::task_queue::{TaskQueue, TaskQueueConfig};
-        use crate::service::{Catalog, ListFlags, SecretStore};
+        use crate::service::{Catalog, ListFlags, SecretStore, Transaction};
         use sqlx::PgPool;
         use std::sync::Arc;
 
@@ -318,6 +319,34 @@ mod test {
             )
             .await;
 
+            let (_, _) = <PostgresCatalog as Catalog>::list_tabulars(
+                warehouse,
+                ListFlags {
+                    include_active: true,
+                    include_staged: false,
+                    include_deleted: true,
+                },
+                catalog_state.clone(),
+                PaginationQuery::empty(),
+            )
+            .await
+            .unwrap()
+            .tabulars
+            .remove(&tab.table_id.into())
+            .unwrap();
+
+            let mut trx =
+                <PostgresCatalog as Catalog>::Transaction::begin_write(catalog_state.clone())
+                    .await
+                    .unwrap();
+            <PostgresCatalog as Catalog>::mark_tabular_as_deleted(
+                tab.table_id.into(),
+                trx.transaction(),
+            )
+            .await
+            .unwrap();
+            trx.commit().await.unwrap();
+
             expiration_queue
                 .enqueue(TabularExpirationInput {
                     tabular_id: tab.table_id.0,
@@ -332,8 +361,8 @@ mod test {
             let (_, del) = <PostgresCatalog as Catalog>::list_tabulars(
                 warehouse,
                 ListFlags {
-                    include_active: false,
-                    include_staged: false,
+                    include_active: true,
+                    include_staged: true,
                     include_deleted: true,
                 },
                 catalog_state.clone(),
@@ -344,8 +373,7 @@ mod test {
             .tabulars
             .remove(&tab.table_id.into())
             .unwrap();
-
-            let _del = del.unwrap();
+            del.unwrap();
 
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
