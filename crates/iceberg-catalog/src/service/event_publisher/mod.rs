@@ -1,3 +1,5 @@
+pub(crate) mod vendor;
+
 use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
 use cloudevents::Event;
@@ -6,7 +8,9 @@ use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
 #[cfg(feature = "kafka")]
-use crate::vendor::cloudevents::binding::rdkafka::{FutureRecordExt, MessageRecord};
+use crate::service::event_publisher::vendor::cloudevents::binding::rdkafka::{
+    FutureRecordExt, MessageRecord,
+};
 #[cfg(feature = "kafka")]
 use rdkafka::producer::{FutureProducer, FutureRecord};
 

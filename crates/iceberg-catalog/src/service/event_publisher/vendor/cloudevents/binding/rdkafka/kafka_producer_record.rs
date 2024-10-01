@@ -8,7 +8,7 @@
 // Cloudevents SDK Rust is distributed under Apache Licence. See ./mod.rs for a copy of the lincese
 // text
 
-use crate::vendor::cloudevents::binding::{
+use crate::service::event_publisher::vendor::cloudevents::binding::{
     kafka::{header_prefix, SPEC_VERSION_HEADER},
     CLOUDEVENTS_JSON_HEADER, CONTENT_TYPE,
 };
