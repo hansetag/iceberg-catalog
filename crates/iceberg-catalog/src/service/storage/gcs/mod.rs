@@ -39,9 +39,7 @@ pub enum GcsCredential {
 
 #[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct GcsServiceKey {
-    // In the gcp service account creds file, this is the `type` field.
-    // this conflicts with the type we use as a tag on an outer layer..
-    pub key_type: String,
+    pub r#type: String,
     pub project_id: String,
     pub private_key_id: String,
     #[redact(partial)]
@@ -355,7 +353,6 @@ mod test {
                     key: serde_json::from_str::<GcsServiceKey>(&s).unwrap(),
                 })
                 .map_err(|_| ())
-                .ok()
                 .expect("Missing cred")
                 .into();
             let s = &serde_json::to_string(&cred).unwrap();

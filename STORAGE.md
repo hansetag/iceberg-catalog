@@ -136,7 +136,7 @@ A sample storage profile could look like this:
     "type": "gcs",
     "credential-type": "service-account-key",
     "key": {
-      "key_type": "service_account",
+      "type": "service_account",
       "project_id": "example-project-1234",
       "private_key_id": "....",
       "private_key": "-----BEGIN PRIVATE KEY-----\n.....\n-----END PRIVATE KEY-----\n",
