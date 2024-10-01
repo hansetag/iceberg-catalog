@@ -395,7 +395,6 @@ impl Catalog for super::PostgresCatalog {
 
     async fn register_user(
         user_id: &UserId,
-        display_name: Option<&str>,
         name: &str,
         email: Option<&str>,
         origin: UserOrigin,
@@ -408,7 +407,6 @@ impl Catalog for super::PostgresCatalog {
             .map_err(|e| e.into_error_model("Failed to get connection".into()))?;
         crate::implementations::postgres::user::insert_user(
             user_id,
-            display_name,
             name,
             email,
             origin,
