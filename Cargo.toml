@@ -89,7 +89,7 @@ tokio = { version = "1", default-features = false, features = [
     "rt-multi-thread",
 ] }
 tower = { version = "^0.4" }
-tower-http = { version = "^0.5", features = [
+tower-http = { version = "^0.6.0", features = [
     "catch-panic",
     "compression-full",
     "sensitive-headers",
