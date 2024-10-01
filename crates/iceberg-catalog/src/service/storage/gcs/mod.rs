@@ -202,7 +202,7 @@ impl GcsProfile {
             if key_prefix.len() > 896 {
                 return Err(ValidationError::InvalidProfile {
                     source: None,
-                    reason: "Storage Profile `key_prefix` must be less than 1024 characters."
+                    reason: "Storage Profile `key_prefix` must be less than 896 characters."
                         .to_string(),
                     entity: "key_prefix".to_string(),
                 });
@@ -339,9 +339,13 @@ mod test {
 
     #[needs_env_var(TEST_GCS = 1)]
     mod cloud_tests {
-        use crate::service::storage::gcs::{GcsCredential, GcsProfile, GcsServiceKey};
-        use crate::service::storage::StorageCredential;
+        use crate::api::iceberg::v1::DataAccess;
+        use crate::service::storage::gcs::{
+            get_file_io_from_table_config, GcsCredential, GcsProfile, GcsServiceKey,
+        };
         use crate::service::storage::StorageProfile;
+        use crate::service::storage::{StorageCredential, StoragePermissions};
+        use uuid::Uuid;
 
         #[tokio::test]
         async fn test_can_validate() {

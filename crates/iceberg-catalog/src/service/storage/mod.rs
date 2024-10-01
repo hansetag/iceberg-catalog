@@ -588,9 +588,9 @@ pub(crate) async fn check_location_is_empty(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
+    use needs_env_var::needs_env_var;
+    use std::str::FromStr;
 
     #[test]
     fn test_reduce_scheme_string() {
@@ -733,5 +733,222 @@ mod tests {
                 profile.base_location().unwrap(),
             );
         }
+    }
+
+    // TODO: add vended azure test here once opendal supports sas
+
+    #[tokio::test]
+    #[needs_env_var::needs_env_var(TEST_GCS = 1)]
+    async fn test_vended_gcs() {
+        let key_prefix = Some(format!("test_prefix-{}", uuid::Uuid::now_v7()));
+
+        {
+            let cred: StorageCredential = std::env::var("GCS_CREDENTIAL")
+                .map(|s| GcsCredential::ServiceAccountKey {
+                    key: serde_json::from_str::<GcsServiceKey>(&s).unwrap(),
+                })
+                .map_err(|_| ())
+                .expect("Missing cred")
+                .into();
+            let bucket = std::env::var("GCS_BUCKET").expect("Missing bucket");
+            let mut profile: StorageProfile = GcsProfile {
+                bucket,
+                key_prefix: key_prefix.clone(),
+            }
+            .into();
+
+            test_profile(&cred, &mut profile).await;
+        }
+    }
+
+    #[tokio::test]
+    #[needs_env_var(TEST_AWS = 1)]
+    async fn test_vended_aws() {
+        let key_prefix = Some(format!("test_prefix-{}", uuid::Uuid::now_v7()));
+        let bucket = std::env::var("AWS_S3_BUCKET").unwrap();
+        let region = std::env::var("AWS_S3_REGION").unwrap();
+        let sts_role_arn = std::env::var("AWS_S3_STS_ROLE_ARN").unwrap();
+        let cred: StorageCredential = S3Credential::AccessKey {
+            aws_access_key_id: std::env::var("AWS_S3_ACCESS_KEY_ID").unwrap(),
+            aws_secret_access_key: std::env::var("AWS_S3_SECRET_ACCESS_KEY").unwrap(),
+        }
+        .into();
+
+        let mut profile: StorageProfile = S3Profile {
+            bucket,
+            key_prefix: key_prefix.clone(),
+            assume_role_arn: None,
+            endpoint: None,
+            region,
+            path_style_access: Some(true),
+            sts_role_arn: Some(sts_role_arn),
+            flavor: S3Flavor::Aws,
+            sts_enabled: true,
+        }
+        .into();
+
+        test_profile(&cred, &mut profile).await;
+    }
+
+    #[tokio::test]
+    #[needs_env_var::needs_env_var(TEST_MINIO = 1)]
+    async fn test_vended_minio() {
+        let key_prefix = Some(format!("test_prefix-{}", uuid::Uuid::now_v7()));
+        let bucket = std::env::var("ICEBERG_REST_TEST_S3_BUCKET").unwrap();
+        let region = std::env::var("ICEBERG_REST_TEST_S3_REGION").unwrap_or("local".into());
+        let aws_access_key_id = std::env::var("ICEBERG_REST_TEST_S3_ACCESS_KEY").unwrap();
+        let aws_secret_access_key = std::env::var("ICEBERG_REST_TEST_S3_SECRET_KEY").unwrap();
+        let endpoint = std::env::var("ICEBERG_REST_TEST_S3_ENDPOINT").unwrap();
+
+        let cred: StorageCredential = S3Credential::AccessKey {
+            aws_access_key_id,
+            aws_secret_access_key,
+        }
+        .into();
+
+        let mut profile = S3Profile {
+            bucket,
+            key_prefix: key_prefix.clone(),
+            assume_role_arn: None,
+            endpoint: Some(endpoint.parse().unwrap()),
+            region,
+            path_style_access: Some(true),
+            sts_role_arn: None,
+            flavor: S3Flavor::Minio,
+            sts_enabled: true,
+        }
+        .into();
+
+        test_profile(&cred, &mut profile).await;
+    }
+
+    #[allow(dead_code, clippy::too_many_lines)]
+    async fn test_profile(cred: &StorageCredential, profile: &mut StorageProfile) {
+        profile.normalize().expect("Failed to normalize profile");
+        let base_location = profile
+            .base_location()
+            .expect("Failed to get base location");
+        let mut table_location1 = base_location.clone();
+        table_location1.push("test");
+        let mut table_location2 = base_location.clone();
+        table_location2.push("test2");
+
+        let config1 = profile
+            .generate_table_config(
+                &DataAccess {
+                    vended_credentials: true,
+                    remote_signing: false,
+                },
+                Some(cred),
+                &table_location1,
+                StoragePermissions::ReadWriteDelete,
+            )
+            .await
+            .unwrap();
+
+        let config2 = profile
+            .generate_table_config(
+                &DataAccess {
+                    vended_credentials: true,
+                    remote_signing: false,
+                },
+                Some(cred),
+                &table_location2,
+                StoragePermissions::ReadWriteDelete,
+            )
+            .await
+            .unwrap();
+        let (downscoped1, downscoped2) = match profile {
+            StorageProfile::Test(_) | StorageProfile::Azdls(_) => {
+                unimplemented!("Not supported")
+            }
+            StorageProfile::S3(_) => {
+                let downscoped1 = s3::get_file_io_from_table_config(&config1).unwrap();
+                let downscoped2 = s3::get_file_io_from_table_config(&config2).unwrap();
+                (downscoped1, downscoped2)
+            }
+            StorageProfile::Gcs(_) => {
+                let downscoped1 = gcs::get_file_io_from_table_config(&config1).unwrap();
+                let downscoped2 = gcs::get_file_io_from_table_config(&config2).unwrap();
+                (downscoped1, downscoped2)
+            }
+        };
+        // can read & write in own locations
+        let test_file1 = table_location1.cloning_push("test.txt");
+        let test_file2 = table_location2.cloning_push("test.txt");
+
+        let output = downscoped1.new_output(test_file1.as_str()).unwrap();
+        output.write(b"test".to_vec().into()).await.unwrap();
+
+        let output2 = downscoped2.new_output(test_file2.as_str()).unwrap();
+        output2.write(b"test2".to_vec().into()).await.unwrap();
+
+        let input1 = downscoped1
+            .new_input(test_file1.as_str())
+            .unwrap()
+            .read()
+            .await
+            .unwrap();
+        assert_eq!(input1.as_ref(), b"test");
+        let input2 = downscoped2
+            .new_input(test_file2.as_str())
+            .unwrap()
+            .read()
+            .await
+            .unwrap();
+        assert_eq!(input2.as_ref(), b"test2");
+
+        // cannot read across locations
+        let _ = downscoped1
+            .new_input(test_file2.as_str())
+            .unwrap()
+            .read()
+            .await
+            .unwrap_err();
+        let _ = downscoped2
+            .new_input(test_file1.as_str())
+            .unwrap()
+            .read()
+            .await
+            .unwrap_err();
+
+        // cannot write across locations
+        let _ = downscoped1
+            .new_output(
+                table_location2
+                    .cloning_push("this-should-fail.txt")
+                    .as_str(),
+            )
+            .unwrap()
+            .write(b"this-fails".to_vec().into())
+            .await
+            .unwrap_err();
+
+        let _ = downscoped2
+            .new_output(
+                table_location1
+                    .cloning_push("this-should-fail.txt")
+                    .as_str(),
+            )
+            .unwrap()
+            .write(b"this-fails".to_vec().into())
+            .await
+            .unwrap_err();
+
+        // cannot delete across locations
+        downscoped1.delete(test_file2.as_str()).await.unwrap_err();
+        downscoped2.delete(test_file1.as_str()).await.unwrap_err();
+
+        // can delete in own locations
+        downscoped1.delete(test_file1.as_str()).await.unwrap();
+        downscoped2.delete(test_file2.as_str()).await.unwrap();
+
+        // cleanup
+        profile
+            .file_io(Some(&cred))
+            .unwrap()
+            .remove_all(base_location.as_str())
+            .await
+            .unwrap();
     }
 }

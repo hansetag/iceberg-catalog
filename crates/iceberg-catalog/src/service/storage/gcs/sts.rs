@@ -130,6 +130,8 @@ impl Options {
         table_location: &Location,
         storage_permissions: StoragePermissions,
     ) -> Self {
+        let mut table_location = table_location.clone();
+        table_location.with_trailing_slash();
         let prefixless_location = table_location
             .as_str()
             .replace(&format!("gs://{bucket}/"), "");
@@ -154,7 +156,6 @@ impl Options {
                     },
                 }],
             },
-
         }
     }
 }
