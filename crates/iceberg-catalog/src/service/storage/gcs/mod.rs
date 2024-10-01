@@ -169,8 +169,8 @@ impl GcsProfile {
                     (std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
-                        .as_secs()
-                        + expiry as u64)
+                        .as_millis()
+                        + expiry as u128)
                         .to_string(),
                 ));
             }
