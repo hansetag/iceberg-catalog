@@ -1,9 +1,8 @@
-use std::str::FromStr as _;
-
 use crate::api::iceberg::v1::{DataAccess, ViewParameters};
 use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{require_active_warehouse, validate_table_or_view_ident};
+use crate::catalog::views::parse_view_location;
 use crate::request_metadata::RequestMetadata;
 use crate::service::auth::AuthZHandler;
 use crate::service::storage::{StorageCredential, StoragePermissions};
@@ -11,7 +10,6 @@ use crate::service::{Catalog, SecretStore, State, Transaction, ViewMetadataWithL
 use crate::service::{GetWarehouseResponse, Result};
 use http::StatusCode;
 use iceberg_ext::catalog::rest::{ErrorModel, LoadViewResult};
-use iceberg_ext::configs::Location;
 
 pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     parameters: ViewParameters,
@@ -79,13 +77,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         metadata: view_metadata,
     } = C::load_view(view_id, false, transaction.transaction()).await?;
 
-    let view_location = Location::from_str(&view_metadata.location).map_err(|e| {
-        ErrorModel::internal(
-            format!("Invalid view location in DB: {e}"),
-            "InvalidViewLocation",
-            Some(Box::new(e)),
-        )
-    })?;
+    let view_location = parse_view_location(&view_metadata.location)?;
 
     // We don't commit the transaction yet, first we need to write the metadata file.
     let storage_secret: Option<StorageCredential> = if let Some(secret_id) = &storage_secret_id {

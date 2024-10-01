@@ -16,7 +16,6 @@ use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::service::Result;
 use crate::service::{Catalog, SecretStore, State, Transaction};
-use http::StatusCode;
 use iceberg::spec::ViewMetadataBuilder;
 use iceberg::{TableIdent, ViewCreation};
 use iceberg_ext::catalog::rest::{CreateViewRequest, ErrorModel, LoadViewResult};
@@ -41,12 +40,12 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     validate_view_properties(request.properties.keys())?;
 
     if request.view_version.representations().is_empty() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("View must have at least one query.".to_string())
-            .r#type("EmptyView".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "View must have at least one representation.",
+            "EmptyView",
+            None,
+        )
+        .into());
     }
 
     // ------------------- AUTHZ -------------------
@@ -62,13 +61,11 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
     let namespace_id =
         C::namespace_ident_to_id(warehouse_id, &namespace, state.v1_state.catalog.clone())
             .await?
-            .ok_or(
-                ErrorModel::builder()
-                    .code(StatusCode::NOT_FOUND.into())
-                    .message("Namespace does not exist".to_string())
-                    .r#type("NamespaceNotFound".to_string())
-                    .build(),
-            )?;
+            .ok_or(ErrorModel::not_found(
+                "Namespace does not exist",
+                "NamespaceNotFound",
+                None,
+            ))?;
 
     let mut t = C::Transaction::begin_write(state.v1_state.catalog.clone()).await?;
     let namespace = C::get_namespace(warehouse_id, &namespace, t.transaction()).await?;
