@@ -62,10 +62,7 @@ pub(crate) async fn downscope(
         .await
         .map_err(|e| {
             tracing::error!("Failed to parse downscoping response: {:?}", e);
-            TableConfigError::Internal(
-                "Parsing downscoping response failed unexpectedly. This means either a problem with the server or Google broke their API contract.".to_string(),
-                Some(Box::new(e)),
-            )
+            TableConfigError::FailedDependency("Failed to downscope.".to_string())
         })
 }
 

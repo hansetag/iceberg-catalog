@@ -141,7 +141,7 @@ pub enum TableConfigError {
     FailedDependency(String),
     #[error("Misconfiguration: {0}")]
     Misconfiguration(String),
-    #[error("STS error: {0}")]
+    #[error("Internal error: {0}")]
     Internal(
         String,
         #[source] Option<Box<dyn std::error::Error + 'static + Send + Sync>>,

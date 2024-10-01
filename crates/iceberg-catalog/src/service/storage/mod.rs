@@ -997,7 +997,7 @@ mod tests {
 
         // cleanup
         profile
-            .file_io(Some(&cred))
+            .file_io(Some(cred))
             .unwrap()
             .remove_all(base_location.as_str())
             .await
