@@ -1,4 +1,4 @@
-# TIP Catalog for Apache Iceberg
+# Lakekeeper Catalog for Apache Iceberg
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Unittests](https://github.com/hansetag/iceberg-catalog/actions/workflows/unittests.yml/badge.svg)](https://github.com/hansetag/iceberg-catalog/actions/workflows/unittests.yml)
@@ -7,11 +7,11 @@
 [![Trino Integration](https://github.com/hansetag/iceberg-catalog/actions/workflows/trino-integration.yml/badge.svg)](https://github.com/hansetag/iceberg-catalog/actions/workflows/trino-integration.yml)
 [![Starrocks Integration](https://github.com/hansetag/iceberg-catalog/actions/workflows/starrocks-integration.yml/badge.svg)](https://github.com/hansetag/iceberg-catalog/actions/workflows/starrocks-integration.yml)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/tip-catalog)](https://artifacthub.io/packages/helm/tip-catalog/tip-catalog)
-[![Docker on quay](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://quay.io/repository/hansetag/tip-catalog?tab=tags&filter_tag_name=like%3Av)
+[![Docker on quay](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)](https://quay.io/repository/lakekeeper/catalog?tab=tags&filter_tag_name=like%3Av)
 [![Helm Chart](https://img.shields.io/badge/Helm-0F1689?style=for-the-badge&logo=Helm&labelColor=0F1689)](https://github.com/hansetag/tip-catalog-charts/tree/main/charts/tip-catalog)
 [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/jkAGG8p93B)
 
-This is TIP: A Rust-native implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification based on [apache/iceberg-rust](https://github.com/apache/iceberg-rust).
+This is Lakekeeper: A Rust-native implementation of the [Apache Iceberg](https://iceberg.apache.org/) REST Catalog specification based on [apache/iceberg-rust](https://github.com/apache/iceberg-rust).
 
 If you have questions, feature requests or just want a chat, we are hanging around in [Discord](https://discord.gg/jkAGG8p93B)!
 
@@ -24,7 +24,7 @@ Our next milestones are:
 
 # Scope and Features
 
-**T**he **I**ceberg **P**rotocol (**TIP**) based on REST has become the standard for catalogs in open Lakehouses. It natively enables multi-table commits, server-side deconflicting and much more. It is figuratively the (**TIP**) of the Iceberg.
+The Iceberg Catalog REST interface has become the standard for catalogs in open Lakehouses. It natively enables multi-table commits, server-side deconflicting and much more. It is figuratively the (**TIP**) of the Iceberg.
 
 We have started this implementation because we were missing customizability, support for on-premise deployments and other features that are important for us in existing Iceberg Catalogs. Please find following some of our focuses with this implementation:
 

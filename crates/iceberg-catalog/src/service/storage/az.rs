@@ -555,7 +555,7 @@ pub(super) async fn validate_vended_credentials(
     let container = client.container_client(table_location.filesystem.as_str());
     let blob_client = container.blob_client(reduce_scheme_string(&file_location.to_string(), true));
     blob_client
-        .put_block_blob("TIP IOTest")
+        .put_block_blob("Lakekeeper IOTest")
         .content_type("text/plain")
         .await
         .map_err(|e| {

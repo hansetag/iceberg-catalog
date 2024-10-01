@@ -16,7 +16,6 @@ use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::Result;
 use crate::service::TabularIdentUuid;
 use crate::service::{Catalog, SecretStore, State, Transaction};
-use http::StatusCode;
 use iceberg::spec::ViewMetadataBuilder;
 use iceberg::{TableIdent, ViewCreation};
 use iceberg_ext::catalog::rest::{CreateViewRequest, ErrorModel, LoadViewResult};
@@ -41,12 +40,12 @@ pub(crate) async fn create_view<C: Catalog, A: Authorizer, S: SecretStore>(
     validate_view_properties(request.properties.keys())?;
 
     if request.view_version.representations().is_empty() {
-        return Err(ErrorModel::builder()
-            .code(StatusCode::BAD_REQUEST.into())
-            .message("View must have at least one query.".to_string())
-            .r#type("EmptyView".to_string())
-            .build()
-            .into());
+        return Err(ErrorModel::bad_request(
+            "View must have at least one representation.",
+            "EmptyView",
+            None,
+        )
+        .into());
     }
 
     // ------------------- AUTHZ -------------------

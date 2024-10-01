@@ -14,7 +14,7 @@ rust-version = "1.75.0"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-async-nats = "0.36.0"
+async-nats = "0.37.0"
 async-compression = { version = "^0.4", features = ["tokio", "gzip"] }
 azure_core = { version = "0.20.0", default-features = false, features = [
     "hmac_rust",
@@ -47,7 +47,7 @@ iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "47bfdda
     "storage-all",
 ] }
 openfga-rs = { git = "https://github.com/c-thiel/openfga-rs.git", rev = "19ed07e" }
-typed-builder = "^0.19.1"
+typed-builder = "^0.20.0"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }
 axum-prometheus = "0.7.0"

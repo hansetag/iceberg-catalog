@@ -1,16 +1,15 @@
-use std::str::FromStr as _;
-
 use crate::api::iceberg::v1::{
     ApiContext, CommitViewRequest, DataAccess, ErrorModel, LoadViewResult, Prefix, Result,
-    TableIdent, ViewParameters,
+    ViewParameters,
 };
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::catalog::io::write_metadata_file;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{
-    maybe_body_to_json, require_active_warehouse, validate_table_or_view_ident,
+    determine_table_ident, maybe_body_to_json, require_active_warehouse,
+    validate_table_or_view_ident,
 };
-use crate::catalog::views::validate_view_updates;
+use crate::catalog::views::{parse_view_location, validate_view_updates};
 use crate::request_metadata::RequestMetadata;
 use crate::service::authz::{ViewAction, WarehouseAction};
 use crate::service::contract_verification::ContractVerification;
@@ -18,15 +17,13 @@ use crate::service::event_publisher::EventMetadata;
 use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::TabularIdentUuid;
 use crate::service::{
-    authz::Authorizer, secrets::SecretStore, Catalog, GetWarehouseResponse, State, Transaction,
-    ViewMetadataWithLocation,
+    authz::Authorizer, secrets::SecretStore, Catalog, GetWarehouseResponse, State, TableIdentUuid,
+    Transaction, ViewMetadataWithLocation,
 };
 use http::StatusCode;
-use iceberg::spec::{AppendViewVersion, ViewMetadataBuilder};
-use iceberg::NamespaceIdent;
+use iceberg::spec::{AppendViewVersion, ViewMetadata, ViewMetadataBuilder};
 use iceberg_ext::catalog::rest::ViewUpdate;
 use iceberg_ext::catalog::ViewRequirement;
-use iceberg_ext::configs::Location;
 use uuid::Uuid;
 
 /// Commit updates to a view
@@ -34,7 +31,7 @@ use uuid::Uuid;
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn commit_view<C: Catalog, A: Authorizer, S: SecretStore>(
     parameters: ViewParameters,
-    mut request: CommitViewRequest,
+    request: CommitViewRequest,
     state: ApiContext<State<A, C, S>>,
     data_access: DataAccess,
     request_metadata: RequestMetadata,
@@ -42,67 +39,14 @@ pub(crate) async fn commit_view<C: Catalog, A: Authorizer, S: SecretStore>(
     // ------------------- VALIDATIONS -------------------
     let warehouse_id = require_warehouse_id(parameters.prefix.clone())?;
 
-    if let Some(identifier) = &request.identifier {
-        if identifier != &parameters.view {
-            // When querying a branch, spark sends something like:
-            // namespace: (<my>, <namespace>, <table_name>)
-            // table_name: branch_<branch_name>
-            let ns_parts = parameters.view.namespace.clone().inner();
-            let table_name_candidate = if ns_parts.len() >= 2 {
-                NamespaceIdent::from_vec(
-                    ns_parts.iter().take(ns_parts.len() - 1).cloned().collect(),
-                )
-                .ok()
-                .map(|n| TableIdent::new(n, ns_parts.last().cloned().unwrap_or_default()))
-            } else {
-                None
-            };
-
-            if table_name_candidate != Some(identifier.clone()) {
-                return Err(ErrorModel::builder()
-                    .code(StatusCode::BAD_REQUEST.into())
-                    .message(
-                        "Table identifier in path does not match the one in the request body"
-                            .to_string(),
-                    )
-                    .r#type("TableIdentifierMismatch".to_string())
-                    .build()
-                    .into());
-            }
-        }
-    }
-
-    if request.identifier.is_none() {
-        request.identifier = Some(parameters.view.clone());
-    }
-    if let Some(ref mut identifier) = request.identifier {
-        validate_table_or_view_ident(identifier)?;
-    }
-
     let CommitViewRequest {
         identifier,
         requirements,
         updates,
     } = &request;
 
-    identifier
-        .as_ref()
-        .map(validate_table_or_view_ident)
-        .transpose()?;
-
-    if let Some(identifier) = identifier {
-        if identifier != &parameters.view {
-            return Err(ErrorModel::builder()
-                .code(StatusCode::BAD_REQUEST.into())
-                .message(
-                    "View identifier in path does not match the one in the request body"
-                        .to_string(),
-                )
-                .r#type("ViewIdentifierMismatch".to_string())
-                .build()
-                .into());
-        }
-    }
+    let identifier = determine_table_ident(parameters.view, identifier)?;
+    validate_table_or_view_ident(&identifier)?;
 
     // ------------------- AUTHZ -------------------
     let authorizer = state.v1_state.authz;
@@ -110,7 +54,7 @@ pub(crate) async fn commit_view<C: Catalog, A: Authorizer, S: SecretStore>(
         .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
         .await?;
     let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
-    let view_id = C::view_to_id(warehouse_id, &parameters.view, t.transaction()).await; // We can't fail before AuthZ;
+    let view_id = C::view_to_id(warehouse_id, &identifier, t.transaction()).await; // We can't fail before AuthZ;
 
     let view_id = authorizer
         .require_view_action(
@@ -124,16 +68,13 @@ pub(crate) async fn commit_view<C: Catalog, A: Authorizer, S: SecretStore>(
     // ------------------- BUSINESS LOGIC -------------------
     validate_view_updates(updates)?;
 
-    let namespace_id =
-        C::namespace_to_id(warehouse_id, &parameters.view.namespace, t.transaction())
-            .await?
-            .ok_or(
-                ErrorModel::builder()
-                    .code(StatusCode::NOT_FOUND.into())
-                    .message("Namespace does not exist".to_string())
-                    .r#type("NamespaceNotFound".to_string())
-                    .build(),
-            )?;
+    let namespace_id = C::namespace_to_id(warehouse_id, identifier.namespace(), t.transaction())
+        .await?
+        .ok_or(ErrorModel::not_found(
+            "Namespace does not exist",
+            "NamespaceNotFound",
+            None,
+        ))?;
 
     let GetWarehouseResponse {
         id: _,
@@ -146,32 +87,13 @@ pub(crate) async fn commit_view<C: Catalog, A: Authorizer, S: SecretStore>(
     } = C::get_warehouse(warehouse_id, t.transaction()).await?;
     require_active_warehouse(status)?;
 
-    for assertion in requirements.as_deref().unwrap_or(&[]) {
-        match assertion {
-            ViewRequirement::AssertViewUuid(uuid) => {
-                if uuid.uuid != *view_id {
-                    return Err(ErrorModel::builder()
-                        .code(StatusCode::BAD_REQUEST.into())
-                        .message("View UUID does not match".to_string())
-                        .r#type("ViewUuidMismatch".to_string())
-                        .build()
-                        .into());
-                }
-            }
-        }
-    }
+    check_asserts(requirements, view_id)?;
 
     let ViewMetadataWithLocation {
         metadata_location: _,
         metadata: before_update_metadata,
     } = C::load_view(view_id, false, t.transaction()).await?;
-    let view_location = Location::from_str(&before_update_metadata.location).map_err(|e| {
-        ErrorModel::internal(
-            format!("Invalid view location in DB: {e}"),
-            "InvalidViewLocation",
-            Some(Box::new(e)),
-        )
-    })?;
+    let view_location = parse_view_location(&before_update_metadata.location)?;
 
     state
         .v1_state
@@ -180,10 +102,125 @@ pub(crate) async fn commit_view<C: Catalog, A: Authorizer, S: SecretStore>(
         .await?
         .into_result()?;
 
-    let mut m = ViewMetadataBuilder::new(before_update_metadata);
-
     // serialize body before moving it
     let body = maybe_body_to_json(&request);
+
+    let requested_update_metadata = build_new_metadata(request, before_update_metadata)?;
+
+    let metadata_location = storage_profile.default_metadata_location(
+        &view_location,
+        &CompressionCodec::try_from_properties(requested_update_metadata.properties())?,
+        Uuid::now_v7(),
+    );
+
+    C::update_view_metadata(
+        namespace_id,
+        view_id,
+        &identifier,
+        &metadata_location,
+        requested_update_metadata.clone(),
+        &view_location,
+        t.transaction(),
+    )
+    .await?;
+
+    // We don't commit the transaction yet, first we need to write the metadata file.
+    let storage_secret = if let Some(secret_id) = &storage_secret_id {
+        Some(
+            state
+                .v1_state
+                .secrets
+                .get_secret_by_id(secret_id)
+                .await?
+                .secret,
+        )
+    } else {
+        None
+    };
+
+    let file_io = storage_profile.file_io(storage_secret.as_ref())?;
+    write_metadata_file(
+        &metadata_location,
+        &requested_update_metadata,
+        CompressionCodec::try_from_metadata(&requested_update_metadata)?,
+        &file_io,
+    )
+    .await?;
+
+    tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
+    // Generate the storage profile. This requires the storage secret
+    // because the table config might contain vended-credentials based
+    // on the `data_access` parameter.
+    // ToDo: There is a small inefficiency here: If storage credentials
+    // are not required because of i.e. remote-signing and if this
+    // is a stage-create, we still fetch the secret.
+    let config = storage_profile
+        .generate_table_config(
+            &data_access,
+            storage_secret.as_ref(),
+            &metadata_location,
+            // TODO: This should be a permission based on authz
+            StoragePermissions::ReadWriteDelete,
+        )
+        .await?;
+    t.commit().await?;
+
+    let _ = state
+        .v1_state
+        .publisher
+        .publish(
+            Uuid::now_v7(),
+            "commitView",
+            body,
+            EventMetadata {
+                tabular_id: TabularIdentUuid::View(*view_id),
+                warehouse_id: *warehouse_id,
+                name: identifier.name,
+                namespace: identifier.namespace.to_url_string(),
+                prefix: parameters
+                    .prefix
+                    .map(Prefix::into_string)
+                    .unwrap_or_default(),
+                num_events: 1,
+                sequence_number: 0,
+                trace_id: request_metadata.request_id,
+            },
+        )
+        .await;
+
+    Ok(LoadViewResult {
+        metadata_location: metadata_location.to_string(),
+        metadata: requested_update_metadata,
+        config: Some(config.into()),
+    })
+}
+
+fn check_asserts(
+    requirements: &Option<Vec<ViewRequirement>>,
+    view_id: TableIdentUuid,
+) -> Result<()> {
+    for assertion in requirements.as_deref().unwrap_or_default() {
+        match assertion {
+            ViewRequirement::AssertViewUuid(uuid) => {
+                if uuid.uuid != *view_id {
+                    return Err(ErrorModel::bad_request(
+                        "View UUID does not match",
+                        "ViewUuidMismatch",
+                        None,
+                    )
+                    .into());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn build_new_metadata(
+    request: CommitViewRequest,
+    before_update_metadata: ViewMetadata,
+) -> Result<ViewMetadata> {
+    let mut m = ViewMetadataBuilder::new(before_update_metadata);
 
     for upd in request.updates {
         m = match upd {
@@ -257,93 +294,7 @@ pub(crate) async fn commit_view<C: Catalog, A: Authorizer, S: SecretStore>(
             .r#type("BuildMetadataError".to_string())
             .build()
     })?;
-
-    let metadata_location = storage_profile.default_metadata_location(
-        &view_location,
-        &CompressionCodec::try_from_properties(requested_update_metadata.properties())?,
-        Uuid::now_v7(),
-    );
-
-    C::update_view_metadata(
-        namespace_id,
-        view_id,
-        &parameters.view,
-        &metadata_location,
-        requested_update_metadata.clone(),
-        &view_location,
-        t.transaction(),
-    )
-    .await?;
-
-    // We don't commit the transaction yet, first we need to write the metadata file.
-    let storage_secret = if let Some(secret_id) = &storage_secret_id {
-        Some(
-            state
-                .v1_state
-                .secrets
-                .get_secret_by_id(secret_id)
-                .await?
-                .secret,
-        )
-    } else {
-        None
-    };
-
-    let file_io = storage_profile.file_io(storage_secret.as_ref())?;
-    let compression_codec = CompressionCodec::try_from_metadata(&requested_update_metadata)?;
-    write_metadata_file(
-        &metadata_location,
-        &requested_update_metadata,
-        compression_codec,
-        &file_io,
-    )
-    .await?;
-    tracing::debug!("Wrote new metadata file to: '{}'", metadata_location);
-    // Generate the storage profile. This requires the storage secret
-    // because the table config might contain vended-credentials based
-    // on the `data_access` parameter.
-    // ToDo: There is a small inefficiency here: If storage credentials
-    // are not required because of i.e. remote-signing and if this
-    // is a stage-create, we still fetch the secret.
-    let config = storage_profile
-        .generate_table_config(
-            &data_access,
-            storage_secret.as_ref(),
-            &metadata_location,
-            // TODO: This should be a permission based on authz
-            StoragePermissions::ReadWriteDelete,
-        )
-        .await?;
-    t.commit().await?;
-
-    let _ = state
-        .v1_state
-        .publisher
-        .publish(
-            Uuid::now_v7(),
-            "commitView",
-            body,
-            EventMetadata {
-                tabular_id: TabularIdentUuid::View(*view_id),
-                warehouse_id: *warehouse_id,
-                name: parameters.view.name,
-                namespace: parameters.view.namespace.to_url_string(),
-                prefix: parameters
-                    .prefix
-                    .map(Prefix::into_string)
-                    .unwrap_or_default(),
-                num_events: 1,
-                sequence_number: 0,
-                trace_id: request_metadata.request_id,
-            },
-        )
-        .await;
-
-    Ok(LoadViewResult {
-        metadata_location: metadata_location.to_string(),
-        metadata: requested_update_metadata,
-        config: Some(config.into()),
-    })
+    Ok(requested_update_metadata)
 }
 
 #[cfg(test)]

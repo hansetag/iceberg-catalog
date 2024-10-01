@@ -437,7 +437,7 @@ impl<C: Catalog, A: Authorizer, S: SecretStore>
         let warehouse_id = require_warehouse_id(parameters.prefix.clone())?;
         let TableParameters { table, prefix } = parameters;
 
-        let table_ident = determine_table_ident(table, request.identifier)?;
+        let table_ident = determine_table_ident(table, &request.identifier)?;
         // Fix identifier in request for emitted event
         request.identifier = Some(table_ident.clone());
         validate_table_or_view_ident(&table_ident)?;
@@ -1092,16 +1092,16 @@ impl CommitContext {
     }
 }
 
-fn determine_table_ident(
+pub(crate) fn determine_table_ident(
     parameters_ident: TableIdent,
-    request_ident: Option<TableIdent>,
+    request_ident: &Option<TableIdent>,
 ) -> Result<TableIdent> {
     let Some(identifier) = request_ident else {
         return Ok(parameters_ident);
     };
 
-    if identifier == parameters_ident {
-        return Ok(identifier);
+    if identifier == &parameters_ident {
+        return Ok(identifier.clone());
     }
 
     // Below is for the tricky case: We have a conflict.
@@ -1126,7 +1126,7 @@ fn determine_table_ident(
         .into());
     }
 
-    Ok(identifier)
+    Ok(identifier.clone())
 }
 
 pub(super) fn determine_tabular_location(

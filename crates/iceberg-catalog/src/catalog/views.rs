@@ -16,7 +16,9 @@ use crate::api::iceberg::v1::{
 };
 use crate::request_metadata::RequestMetadata;
 use crate::service::{authz::Authorizer, secrets::SecretStore, Catalog, State};
-use iceberg_ext::catalog::rest::ViewUpdate;
+use iceberg_ext::catalog::rest::{ErrorModel, ViewUpdate};
+use iceberg_ext::configs::Location;
+use std::str::FromStr;
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: Authorizer, S: SecretStore>
@@ -114,6 +116,16 @@ fn validate_view_updates(updates: &Vec<ViewUpdate>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn parse_view_location(location: &str) -> Result<Location> {
+    Ok(Location::from_str(location).map_err(|e| {
+        ErrorModel::internal(
+            format!("Invalid view location in DB: {e}"),
+            "InvalidViewLocation",
+            Some(Box::new(e)),
+        )
+    })?)
 }
 
 #[cfg(test)]
