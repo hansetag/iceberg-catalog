@@ -9,18 +9,18 @@ use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
 use crate::api::{iceberg::v1::DataAccess, CatalogConfig};
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::catalog::io::list_location;
-use crate::service::storage::gcs::{GcsCredential, GcsProfile};
 use crate::service::tabular_idents::TabularIdentUuid;
 use crate::WarehouseIdent;
 pub use az::{AzCredential, AzdlsLocation, AzdlsProfile};
 pub(crate) use error::ValidationError;
 use error::{ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError};
 use futures::StreamExt;
+pub use gcs::{GcsCredential, GcsProfile, GcsServiceKey};
 use iceberg::io::FileIO;
 use iceberg_ext::configs::table::TableProperties;
 use iceberg_ext::configs::Location;
-pub use s3::S3Location;
-pub use s3::{S3Credential, S3Flavor, S3Profile};
+pub use s3::{S3Credential, S3Flavor, S3Location, S3Profile};
+
 use serde::{Deserialize, Serialize};
 
 /// Storage profile for a warehouse.

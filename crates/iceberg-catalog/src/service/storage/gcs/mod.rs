@@ -23,7 +23,7 @@ mod sts;
 #[schema(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub struct GcsProfile {
-    /// Name of the S3 bucket
+    /// Name of the GCS bucket
     pub bucket: String,
     /// Subpath in the bucket to use.
     /// The same prefix can be used for multiple warehouses.
@@ -54,7 +54,7 @@ pub struct GcsServiceKey {
 }
 
 impl GcsProfile {
-    /// Create a new `FileIO` instance for S3.
+    /// Create a new `FileIO` instance for GCS.
     ///
     /// # Errors
     /// Fails if the `FileIO` instance cannot be created.
@@ -80,14 +80,11 @@ impl GcsProfile {
         Ok(builder.build()?)
     }
 
-    /// Validate the S3 profile.
+    /// Validate the GCS profile.
     ///
     /// # Errors
     /// - Fails if the bucket name is invalid.
-    /// - Fails if the region is too long.
     /// - Fails if the key prefix is too long.
-    /// - Fails if the region or endpoint is missing.
-    /// - Fails if the endpoint is not a valid URL.
     pub(super) fn normalize(&mut self) -> Result<(), ValidationError> {
         validate_bucket_name(&self.bucket)?;
         self.normalize_key_prefix()?;
