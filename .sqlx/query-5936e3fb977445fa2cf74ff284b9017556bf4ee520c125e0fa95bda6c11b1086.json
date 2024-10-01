@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT \n            id,\n            name,\n            display_name,\n            origin as \"origin: DbUserOrigin\",\n            email,\n            created_at,\n            updated_at\n        FROM users\n        where deleted_at is null AND id = $1\n        ",
+  "query": "\n        SELECT \n            id,\n            name,\n            origin as \"origin: DbUserOrigin\",\n            email,\n            created_at,\n            updated_at\n        FROM users\n        where deleted_at is null AND id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -15,11 +15,6 @@
       },
       {
         "ordinal": 2,
-        "name": "display_name",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 3,
         "name": "origin: DbUserOrigin",
         "type_info": {
           "Custom": {
@@ -34,17 +29,17 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "email",
         "type_info": "Text"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -56,13 +51,12 @@
     },
     "nullable": [
       false,
-      true,
-      true,
+      false,
       false,
       true,
       false,
       true
     ]
   },
-  "hash": "8656f1b249132cf6c51afa1c609d2c54b45a7b1f1b088638e499fa080b65e9af"
+  "hash": "5936e3fb977445fa2cf74ff284b9017556bf4ee520c125e0fa95bda6c11b1086"
 }

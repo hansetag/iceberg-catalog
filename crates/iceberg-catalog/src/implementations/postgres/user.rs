@@ -18,7 +18,6 @@ pub(crate) async fn get_user(user_id: &str, connection: &mut PgConnection) -> Re
         SELECT 
             id,
             name,
-            display_name,
             origin as "origin: DbUserOrigin",
             email,
             created_at,
@@ -41,7 +40,6 @@ pub(crate) async fn get_user(user_id: &str, connection: &mut PgConnection) -> Re
     // let origin = row;
     Ok(crate::api::management::v1::User {
         name: row.name,
-        display_name: row.display_name,
         user_origin: match row.origin {
             DbUserOrigin::ExplicitViaRegisterCall => UserOrigin::ExplicitViaRegisterCall,
             DbUserOrigin::ImplicitViaConfigCall => UserOrigin::ImplicitViaConfigCall,
@@ -55,7 +53,6 @@ pub(crate) async fn get_user(user_id: &str, connection: &mut PgConnection) -> Re
 
 pub(crate) async fn insert_user(
     id: &UserId,
-    display_name: Option<&str>,
     name: &str,
     email: Option<&str>,
     origin: UserOrigin,
@@ -70,16 +67,15 @@ pub(crate) async fn insert_user(
 
     let row = sqlx::query!(
         r#"
-        INSERT INTO users (id, name, email, display_name, origin)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO users (id, name, email, origin)
+        VALUES ($1, $2, $3, $4)
         ON CONFLICT (id) -- we assume to have a globally unique id
-        DO UPDATE SET name = $2, email = $3, display_name = $4, origin = $5
-        returning id, name as "name?", email, display_name, created_at, updated_at, origin as "origin: DbUserOrigin"
+        DO UPDATE SET name = $2, email = $3, origin = $4
+        returning id, name, email, created_at, updated_at, origin as "origin: DbUserOrigin"
         "#,
         id.inner(),
         name,
         email,
-        display_name,
         origin as _,
     )
     .fetch_one(connection)
@@ -88,7 +84,6 @@ pub(crate) async fn insert_user(
 
     Ok(User {
         name: row.name,
-        display_name: row.display_name,
         user_origin: match row.origin {
             DbUserOrigin::ExplicitViaRegisterCall => UserOrigin::ExplicitViaRegisterCall,
             DbUserOrigin::ImplicitViaConfigCall => UserOrigin::ImplicitViaConfigCall,

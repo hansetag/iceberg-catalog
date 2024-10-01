@@ -301,7 +301,6 @@ where
 
     async fn register_user(
         user_id: &UserId,
-        display_name: Option<&str>,
         name: &str,
         email: Option<&str>,
         origin: UserOrigin,

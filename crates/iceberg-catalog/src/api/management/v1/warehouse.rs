@@ -183,12 +183,13 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
 
         C::register_user(
             auth.user_id(),
-            auth.display_name(),
-            auth.name().ok_or(ErrorModel::bad_request(
-                "Cannot register user without name",
-                "InvalidAccessTokenClaims",
-                None,
-            ))?,
+            auth.display_name()
+                .or(auth.name())
+                .ok_or(ErrorModel::bad_request(
+                    "Cannot register user without name",
+                    "InvalidAccessTokenClaims",
+                    None,
+                ))?,
             auth.email(),
             UserOrigin::ExplicitViaRegisterCall,
             context.v1_state.catalog,

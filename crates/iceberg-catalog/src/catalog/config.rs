@@ -94,12 +94,14 @@ async fn maybe_register_user<D: Catalog>(
         // If the user is authenticated, create a user in the catalog
         let user = D::register_user(
             user_id,
-            request_metadata.user_display_name(),
-            request_metadata.user_name().ok_or(ErrorModel::bad_request(
-                "Cannot register user without name",
-                "InvalidAccessTokenClaims",
-                None,
-            ))?,
+            request_metadata
+                .user_display_name()
+                .or(request_metadata.user_name())
+                .ok_or(ErrorModel::bad_request(
+                    "Cannot register user without name & display_name",
+                    "InvalidAccessTokenClaims",
+                    None,
+                ))?,
             request_metadata.email(),
             UserOrigin::ImplicitViaConfigCall,
             state,

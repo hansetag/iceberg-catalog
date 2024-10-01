@@ -86,8 +86,7 @@ pub mod v1 {
 
     #[derive(Debug, Serialize, utoipa::ToSchema)]
     pub struct User {
-        pub name: Option<String>,
-        pub display_name: Option<String>,
+        pub name: String,
         pub user_origin: UserOrigin,
         pub email: Option<String>,
         pub id: String,
