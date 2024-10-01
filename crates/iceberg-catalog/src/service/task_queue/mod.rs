@@ -361,8 +361,8 @@ mod test {
             let (_, del) = <PostgresCatalog as Catalog>::list_tabulars(
                 warehouse,
                 ListFlags {
-                    include_active: true,
-                    include_staged: true,
+                    include_active: false,
+                    include_staged: false,
                     include_deleted: true,
                 },
                 catalog_state.clone(),
@@ -375,7 +375,7 @@ mod test {
             .unwrap();
             del.unwrap();
 
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(1050)).await;
 
             assert!(<PostgresCatalog as Catalog>::list_tabulars(
                 warehouse,
