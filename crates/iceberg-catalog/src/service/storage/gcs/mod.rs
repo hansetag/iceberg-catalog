@@ -33,7 +33,29 @@ pub struct GcsProfile {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "credential-type", rename_all = "kebab-case")]
 #[schema(rename_all = "kebab-case")]
+/// GCS Credentials
+///
+/// Currently only supports Service Account Key
+/// Example of a key:
+/// ```json
+///     {
+///       "type": "service_account",
+///       "project_id": "example-project-1234",
+///       "private_key_id": "....",
+///       "private_key": "-----BEGIN PRIVATE KEY-----\n.....\n-----END PRIVATE KEY-----\n",
+///       "client_email": "abc@example-project-1234.iam.gserviceaccount.com",
+///       "client_id": "123456789012345678901",
+///       "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+///       "token_uri": "https://oauth2.googleapis.com/token",
+///       "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+///       "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/abc%example-project-1234.iam.gserviceaccount.com",
+///       "universe_domain": "googleapis.com"
+///     }
+/// ```
 pub enum GcsCredential {
+    /// Service Account Key
+    ///
+    /// The key is the JSON object obtained when creating a service account key in the GCP console.
     ServiceAccountKey { key: GcsServiceKey },
 }
 

@@ -62,7 +62,10 @@ pub(crate) async fn downscope(
         .await
         .map_err(|e| {
             tracing::error!("Failed to parse downscoping response: {:?}", e);
-            TableConfigError::StsError("Downscoping failed".to_string(), Some(Box::new(e)))
+            TableConfigError::Internal(
+                "Parsing downscoping response failed unexpectedly. This means either a problem with the server or Google broke their API contract.".to_string(),
+                Some(Box::new(e)),
+            )
         })
 }
 
@@ -102,7 +105,7 @@ struct STSRequest {
 impl STSRequest {
     fn from_token_and_options(token: &str, options: &Options) -> Result<Self, TableConfigError> {
         let op = serde_json::to_string(options).map_err(|e| {
-            TableConfigError::StsError("Failed to serialize options".to_string(), Some(Box::new(e)))
+            TableConfigError::Internal("Failed to serialize options".to_string(), Some(Box::new(e)))
         })?;
         Ok(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:token-exchange".to_string(),

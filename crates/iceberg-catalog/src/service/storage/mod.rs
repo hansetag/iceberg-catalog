@@ -475,10 +475,62 @@ pub struct TestProfile;
 #[schema(rename_all = "kebab-case")]
 pub enum StorageCredential {
     /// Credentials for S3 storage
+    ///
+    /// Example payload in the code-snippet below:
+    ///
+    /// ```
+    /// use iceberg_catalog::service::storage::StorageCredential;
+    /// let cred: StorageCredential = serde_json::from_str(r#"{
+    ///     "type": "s3",
+    ///     "credential-type": "access-key",
+    ///     "aws-access-key-id": "minio-root-user",
+    ///     "aws-secret-access-key": "minio-root-password"
+    ///   }"#).unwrap();
+    /// ```
     #[serde(rename = "s3")]
     S3(S3Credential),
+    /// Credentials for Az storage
+    ///
+    /// Example payload:
+    ///
+    /// ```
+    /// use iceberg_catalog::service::storage::StorageCredential;
+    /// let cred: StorageCredential = serde_json::from_str(r#"{ {
+    ///     "type": "az",
+    ///     "credential-type": "client-credentials",
+    ///     "client-id": "...",
+    ///     "client-secret": "...",
+    ///     "tenant-id": "..."
+    ///   })"#).unwrap();
+    /// ```
     #[serde(rename = "az")]
     Az(AzCredential),
+    /// Credentials for GCS storage
+    ///
+    /// Example payload in the code-snippet below:
+    ///
+    /// ```
+    /// use iceberg_catalog::service::storage::StorageCredential;
+    /// let cred: StorageCredential = serde_json::from_str(r#"{
+    ///     "type": "gcs",
+    ///     "credential-type": "service-account-key",
+    ///     "key": {
+    ///       "type": "service_account",
+    ///       "project_id": "example-project-1234",
+    ///       "private_key_id": "....",
+    ///       "private_key": "-----BEGIN PRIVATE KEY-----\n.....\n-----END PRIVATE KEY-----\n",
+    ///       "client_email": "abc@example-project-1234.iam.gserviceaccount.com",
+    ///       "client_id": "123456789012345678901",
+    ///       "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    ///       "token_uri": "https://oauth2.googleapis.com/token",
+    ///       "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    ///       "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/abc%example-project-1234.iam.gserviceaccount.com",
+    ///       "universe_domain": "googleapis.com"
+    ///     }
+    /// }"#).unwrap();
+    /// ```
+    ///
+
     #[serde(rename = "gcs")]
     Gcs(GcsCredential),
 }
