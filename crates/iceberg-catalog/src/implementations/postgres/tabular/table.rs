@@ -9,10 +9,10 @@ use crate::{
 };
 
 use http::StatusCode;
-use iceberg_ext::{
-    spec::{TableMetadata, TableMetadataAggregate},
-    NamespaceIdent,
+use iceberg::spec::{
+    FormatVersion, SortOrder, TableMetadataBuilder, UnboundPartitionSpec, PROPERTY_FORMAT_VERSION,
 };
+use iceberg_ext::{spec::TableMetadata, NamespaceIdent};
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::implementations::postgres::tabular::{
@@ -108,19 +108,44 @@ pub(crate) async fn create_table(
 ) -> Result<CreateTableResponse> {
     let TableIdent { namespace: _, name } = table_ident;
 
-    let mut builder = TableMetadataAggregate::new(table_location.to_string(), table_schema);
-    if let Some(partition_spec) = table_partition_spec {
-        builder.add_partition_spec(partition_spec)?;
-        builder.set_default_partition_spec(-1)?;
-    }
-    if let Some(write_order) = table_write_order {
-        builder.add_sort_order(write_order)?;
-        builder.set_default_sort_order(-1)?;
-    }
-    builder.set_properties(table_properties.unwrap_or_default())?;
-    builder.assign_uuid(*table_id)?;
+    let mut table_properties = table_properties.unwrap_or_default();
+    let format_version = table_properties
+        .remove(PROPERTY_FORMAT_VERSION)
+        .map({
+            |s| match s.as_str() {
+                "v1" => Ok(FormatVersion::V1),
+                "v2" => Ok(FormatVersion::V2),
+                "1" => Ok(FormatVersion::V1),
+                "2" => Ok(FormatVersion::V2),
+                _ => Err(ErrorModel::bad_request(
+                    format!("Invalid format version specified in table_properties: {s}"),
+                    "InvalidFormatVersion",
+                    None,
+                )),
+            }
+        })
+        .transpose()?
+        .unwrap_or(FormatVersion::V2);
 
-    let table_metadata = builder.build()?;
+    let table_metadata = TableMetadataBuilder::new(
+        table_schema,
+        table_partition_spec.unwrap_or(UnboundPartitionSpec::builder().build()),
+        table_write_order.unwrap_or(SortOrder::unsorted_order()),
+        table_location.to_string(),
+        format_version,
+        table_properties,
+    )
+    .map_err(|e| {
+        let msg = e.message().to_string();
+        ErrorModel::bad_request(msg, "CreateTableMetadataError", Some(Box::new(e)))
+    })?
+    .assign_uuid(*table_id)
+    .build()
+    .map_err(|e| {
+        let msg = e.message().to_string();
+        ErrorModel::bad_request(msg, "BuildTableMetadataError", Some(Box::new(e)))
+    })?
+    .metadata;
 
     let table_metadata_ser = serde_json::to_value(table_metadata.clone()).map_err(|e| {
         ErrorModel::internal(
@@ -622,7 +647,7 @@ pub(crate) mod tests {
                         )
                         .into(),
                         NestedField::required(
-                            1,
+                            2,
                             "name",
                             iceberg::spec::Type::Primitive(PrimitiveType::String),
                         )
@@ -1337,22 +1362,26 @@ pub(crate) mod tests {
         let table1_metadata = &loaded_tables.get(&table1.table_id).unwrap().table_metadata;
         let table2_metadata = &loaded_tables.get(&table2.table_id).unwrap().table_metadata;
 
-        let mut builder1 = TableMetadataAggregate::new_from_metadata(table1_metadata.clone());
-        builder1
-            .set_properties(HashMap::from_iter(vec![(
-                "t1_key".to_string(),
-                "t1_value".to_string(),
-            )]))
-            .unwrap();
-        let mut builder2 = TableMetadataAggregate::new_from_metadata(table2_metadata.clone());
-        builder2
-            .set_properties(HashMap::from_iter(vec![(
-                "t2_key".to_string(),
-                "t2_value".to_string(),
-            )]))
-            .unwrap();
-        let updated_metadata1 = builder1.build().unwrap();
-        let updated_metadata2 = builder2.build().unwrap();
+        let builder1 = TableMetadataBuilder::new_from_metadata(
+            table1_metadata.clone(),
+            Some("s3://my_bucket/table1/metadata/foo".to_string()),
+        )
+        .set_properties(HashMap::from_iter(vec![(
+            "t1_key".to_string(),
+            "t1_value".to_string(),
+        )]))
+        .unwrap();
+        let builder2 = TableMetadataBuilder::new_from_metadata(
+            table2_metadata.clone(),
+            Some("s3://my_bucket/table2/metadata/foo".to_string()),
+        )
+        .set_properties(HashMap::from_iter(vec![(
+            "t2_key".to_string(),
+            "t2_value".to_string(),
+        )]))
+        .unwrap();
+        let updated_metadata1 = builder1.build().unwrap().metadata;
+        let updated_metadata2 = builder2.build().unwrap().metadata;
 
         let commits = vec![
             TableCommit {

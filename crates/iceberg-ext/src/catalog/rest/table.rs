@@ -1,5 +1,5 @@
 use crate::catalog::{TableIdent, TableRequirement, TableUpdate};
-use crate::spec::{Schema, SortOrder, TableMetadata, TableMetadataAggregate, UnboundPartitionSpec};
+use crate::spec::{Schema, SortOrder, TableMetadata, UnboundPartitionSpec};
 
 #[cfg(feature = "axum")]
 use super::impl_into_response;
@@ -180,7 +180,7 @@ impl TableRequirementExt for TableRequirement {
             }
             TableRequirement::DefaultSpecIdMatch { default_spec_id } => {
                 // ToDo: Harmonize the types of default_spec_id
-                if i64::from(metadata.default_spec_id) != *default_spec_id {
+                if i64::from(metadata.default_partition_spec_id()) != *default_spec_id {
                     return Err(ErrorModel::conflict(
                         "assert-default-spec-id Table Requirement violated",
                         "TableRequirementDefaultSpecIdMatch",
@@ -188,7 +188,7 @@ impl TableRequirementExt for TableRequirement {
                     )
                     .append_detail(format!(
                         "Expected: {default_spec_id}, Found: {}",
-                        metadata.default_spec_id
+                        metadata.default_partition_spec_id()
                     ))
                     .into());
                 }
@@ -229,80 +229,6 @@ impl TableRequirementExt for TableRequirement {
             }
         };
         Ok(())
-    }
-}
-
-pub trait TableUpdateExt {
-    /// Apply the update to the given metadata builder.
-    ///
-    /// # Errors
-    /// Fails if the update cannot be applied.
-    /// For more details, check the docs of the `TableMetadataBuilder`
-    fn apply(
-        self,
-        builder: &mut TableMetadataAggregate,
-    ) -> Result<&mut TableMetadataAggregate, ErrorModel>;
-}
-
-impl TableUpdateExt for TableUpdate {
-    fn apply(
-        self,
-        builder: &mut TableMetadataAggregate,
-    ) -> Result<&mut TableMetadataAggregate, ErrorModel> {
-        match self {
-            TableUpdate::AssignUuid { uuid } => {
-                builder.assign_uuid(uuid)?;
-            }
-            TableUpdate::UpgradeFormatVersion { format_version } => {
-                builder.upgrade_format_version(format_version)?;
-            }
-            TableUpdate::RemoveProperties { removals } => {
-                builder.remove_properties(&removals)?;
-            }
-            TableUpdate::SetProperties { updates } => {
-                builder.set_properties(updates)?;
-            }
-            TableUpdate::AddSchema {
-                schema,
-                last_column_id,
-            } => {
-                builder.add_schema(schema, last_column_id)?;
-            }
-            TableUpdate::SetCurrentSchema { schema_id } => {
-                builder.set_current_schema(schema_id)?;
-            }
-            TableUpdate::SetDefaultSpec { spec_id } => {
-                builder.set_default_partition_spec(spec_id)?;
-            }
-            TableUpdate::SetDefaultSortOrder { sort_order_id } => {
-                builder.set_default_sort_order(sort_order_id)?;
-            }
-            TableUpdate::AddSpec { spec } => {
-                builder.add_partition_spec(spec)?;
-            }
-            TableUpdate::AddSortOrder { sort_order } => {
-                builder.add_sort_order(sort_order)?;
-            }
-            TableUpdate::SetLocation { location } => {
-                builder.set_location(location)?;
-            }
-            TableUpdate::AddSnapshot { snapshot } => {
-                builder.add_snapshot(snapshot)?;
-            }
-            TableUpdate::RemoveSnapshots { snapshot_ids } => {
-                builder.remove_snapshots(&snapshot_ids)?;
-            }
-            TableUpdate::SetSnapshotRef {
-                ref_name,
-                reference,
-            } => {
-                builder.set_snapshot_ref(ref_name, reference)?;
-            }
-            TableUpdate::RemoveSnapshotRef { ref_name } => {
-                builder.remove_snapshot_by_ref(&ref_name)?;
-            }
-        }
-        Ok(builder)
     }
 }
 

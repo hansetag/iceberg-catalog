@@ -143,6 +143,26 @@ def storage_config(request) -> dict:
         raise ValueError(f"Unknown storage type: {request.param['type']}")
 
 
+@pytest.fixture(scope="session")
+def io_fsspec(storage_config: dict):
+    import fsspec
+
+    if storage_config["storage-profile"]["type"] == "s3":
+        fs = fsspec.filesystem(
+            "s3",
+            anon=False,
+            key=storage_config["storage-credential"]["aws-access-key-id"],
+            secret=storage_config["storage-credential"]["aws-secret-access-key"],
+            client_kwargs={
+                "region_name": storage_config["storage-profile"]["region"],
+                "endpoint_url": storage_config["storage-profile"]["endpoint"],
+                "use_ssl": False,
+            },
+        )
+
+    return fs
+
+
 @dataclasses.dataclass
 class Server:
     catalog_url: str
@@ -150,7 +170,7 @@ class Server:
     access_token: str
 
     def create_warehouse(
-            self, name: str, project_id: uuid.UUID, storage_config: dict
+        self, name: str, project_id: uuid.UUID, storage_config: dict
     ) -> uuid.UUID:
         """Create a warehouse in this server"""
         create_payload = {

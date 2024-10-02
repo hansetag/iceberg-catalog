@@ -28,7 +28,7 @@ pub mod rest {
     pub use table::{
         CommitTableRequest, CommitTableResponse, CommitTransactionRequest, CreateTableRequest,
         ListTablesResponse, LoadTableResult, RegisterTableRequest, RenameTableRequest,
-        TableRequirementExt, TableUpdateExt,
+        TableRequirementExt,
     };
 
     mod view;
