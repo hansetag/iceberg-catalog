@@ -102,7 +102,7 @@ pub struct DynAppConfig {
     pub nats_token: Option<String>,
 
     // ------------- KAFKA CLOUDEVENTS -------------
-    pub kafka_brokers: Option<Vec<std::net::SocketAddr>>,
+    pub kafka_brokers: Option<Vec<Url>>,
     pub kafka_topic: Option<String>,
 
     // ------------- AUTHORIZATION -------------

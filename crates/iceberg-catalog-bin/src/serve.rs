@@ -169,7 +169,7 @@ async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
     Ok(nats_publisher)
 }
 
-fn build_kafka_producer(kafka_brokers: &Vec<SocketAddr>) -> Result<KafkaBackend, Error> {
+fn build_kafka_producer(kafka_brokers: &[Url]) -> Result<KafkaBackend, Error> {
     let kafka_brokers_csv = itertools::join(kafka_brokers.iter(), ",");
     let kafka_backend = KafkaBackend {
         producer: rdkafka::ClientConfig::new()
