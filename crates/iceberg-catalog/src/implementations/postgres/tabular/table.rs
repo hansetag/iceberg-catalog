@@ -113,10 +113,8 @@ pub(crate) async fn create_table(
         .remove(PROPERTY_FORMAT_VERSION)
         .map({
             |s| match s.as_str() {
-                "v1" => Ok(FormatVersion::V1),
-                "v2" => Ok(FormatVersion::V2),
-                "1" => Ok(FormatVersion::V1),
-                "2" => Ok(FormatVersion::V2),
+                "v1" | "1" => Ok(FormatVersion::V1),
+                "v2" | "2" => Ok(FormatVersion::V2),
                 _ => Err(ErrorModel::bad_request(
                     format!("Invalid format version specified in table_properties: {s}"),
                     "InvalidFormatVersion",

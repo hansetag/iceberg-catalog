@@ -503,7 +503,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         t.commit().await?;
 
         // Delete files in parallel - if one delete fails, we still want to delete the rest
-        if get_delete_after_commit_enabled(&commit.new_metadata.properties()) {
+        if get_delete_after_commit_enabled(commit.new_metadata.properties()) {
             let _ = futures::future::join_all(
                 expired_metadata_logs
                     .into_iter()
@@ -975,7 +975,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     &change.requirements,
                     change.updates.clone(),
                 )?;
-                if get_delete_after_commit_enabled(&new_metadata.properties()) {
+                if get_delete_after_commit_enabled(new_metadata.properties()) {
                     expired_metadata_logs.extend(this_expired);
                 }
                 let new_table_location =
@@ -1328,8 +1328,9 @@ pub(crate) fn validate_lowercase_property(prop: &str) -> Result<()> {
 pub(crate) fn get_delete_after_commit_enabled(properties: &HashMap<String, String>) -> bool {
     properties
         .get(PROPERTY_METADATA_DELETE_AFTER_COMMIT_ENABLED)
-        .map(|v| v == "true")
-        .unwrap_or(PROPERTY_METADATA_DELETE_AFTER_COMMIT_ENABLED_DEFAULT)
+        .map_or(PROPERTY_METADATA_DELETE_AFTER_COMMIT_ENABLED_DEFAULT, |v| {
+            v == "true"
+        })
 }
 
 pub(crate) fn validate_table_properties<'a, I>(properties: I) -> Result<()>
