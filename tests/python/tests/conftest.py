@@ -2,12 +2,15 @@ import dataclasses
 import os
 import urllib
 import uuid
+from typing import Optional, List
 
+import pydantic
 import pyiceberg.catalog
 import pyiceberg.catalog.rest
 import pyiceberg.typedef
 import pytest
 import requests
+from keycloak import KeycloakAdmin
 
 # ---- Core
 MANAGEMENT_URL = os.environ.get("ICEBERG_REST_TEST_MANAGEMENT_URL")
@@ -128,7 +131,7 @@ class Server:
     access_token: str
 
     def create_warehouse(
-        self, name: str, project_id: uuid.UUID, storage_config: dict
+            self, name: str, project_id: uuid.UUID, storage_config: dict
     ) -> uuid.UUID:
         """Create a warehouse in this server"""
         create_payload = {
@@ -136,7 +139,7 @@ class Server:
             "warehouse-name": name,
             **storage_config,
         }
-
+        print(self.access_token)
         warehouse_url = self.warehouse_url
         response = requests.post(
             warehouse_url,
@@ -154,6 +157,20 @@ class Server:
     @property
     def warehouse_url(self) -> str:
         return urllib.parse.urljoin(self.management_url, "v1/warehouse")
+
+
+class User(pydantic.BaseModel):
+    id: str
+    name: str
+    user_origin: str
+    email: Optional[str]
+    created_at: str
+    updated_at: Optional[str]
+
+
+class ListUsersResponse(pydantic.BaseModel):
+    users: List[User]
+    next_page_token: Optional[str]
 
 
 @dataclasses.dataclass
@@ -176,6 +193,48 @@ class Warehouse:
     @property
     def normalized_catalog_name(self) -> str:
         return f"catalog_{self.warehouse_name.replace('-', '_')}"
+
+    def create_user(self, token: Optional[str] = None) -> User:
+        user_url = urllib.parse.urljoin(self.server.management_url, "v1/user")
+        response = requests.post(
+            user_url,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        if not response.ok:
+            raise ValueError(
+                f"Failed to create user ({response.status_code}): {response.text}"
+            )
+        return User.model_validate(response.json())
+
+    def delete_user(self, token: str, user_id: str) -> None:
+        user_url = urllib.parse.urljoin(self.server.management_url, f"v1/user/{user_id}")
+        response = requests.delete(
+            user_url,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        if not response.ok:
+            raise ValueError(
+                f"Failed to delete user ({response.status_code}): {response.text}"
+            )
+
+    def list_users(self, token: str, name_filter: Optional[str] = None,
+                   include_deleted: bool = False) -> ListUsersResponse:
+        path = f"v1/user?include-deleted={include_deleted}"
+        if name_filter is not None:
+            path += f"&name-filter={name_filter}"
+        user_url = urllib.parse.urljoin(self.server.management_url, path)
+        response = requests.get(
+            user_url,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        if not response.ok:
+            raise ValueError(
+                f"Failed to list users ({response.status_code}): {response.text}"
+            )
+        return ListUsersResponse.model_validate(response.json())
 
 
 @dataclasses.dataclass
@@ -246,6 +305,48 @@ def namespace(warehouse: Warehouse):
     namespace = (f"namespace-{uuid.uuid4()}",)
     catalog.create_namespace(namespace)
     return Namespace(name=namespace, warehouse=warehouse)
+
+
+@pytest.fixture(scope="session")
+def keycloak_admin() -> KeycloakAdmin:
+    if OPENID_PROVIDER_URI is None:
+        pytest.skip("ICEBERG_REST_TEST_OPENID_PROVIDER_URI is not set")
+    from keycloak import KeycloakOpenIDConnection, KeycloakAdmin
+    keycloak_connection = KeycloakOpenIDConnection(server_url=OPENID_PROVIDER_URI.rstrip("/realm/test"),
+                                                   username="admin",
+                                                   password="admin",
+                                                   realm_name="master",
+                                                   verify=True)
+
+    keycloak_connection.refresh_token()
+
+    keycloak_admin = KeycloakAdmin(server_url=OPENID_PROVIDER_URI.rstrip("/realm/test"),
+                                   token=keycloak_connection.token,
+                                   realm_name="test",
+                                   verify=True)
+
+    return keycloak_admin
+
+
+@dataclasses.dataclass
+class KeycloakClient:
+    client_id: str
+    client_secret: str
+
+
+@pytest.fixture(scope="function")
+def new_keycloak_client(keycloak_admin: KeycloakAdmin):
+    client_representation = {
+        "enabled": True,
+        "protocol": "openid-connect",
+        "publicClient": False,
+        "directAccessGrantsEnabled": True,
+        "client_id": str(uuid.uuid4()),
+    }
+
+    client_id = keycloak_admin.create_client(client_representation)
+    secret = keycloak_admin.generate_client_secrets(client_id)
+    return KeycloakClient(client_id=client_id, client_secret=secret.decode("utf-8"))
 
 
 @pytest.fixture(scope="session")

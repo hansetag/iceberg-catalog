@@ -12,7 +12,10 @@ use crate::service::health::HealthExt;
 use crate::SecretIdent;
 
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
-use crate::api::management::v1::{User, UserOrigin};
+use crate::api::management::v1::{
+    CreateRoleRequest, ListRolesResponse, ListUsersResponse, Role, UpdateUserRequest, User,
+    UserOrigin,
+};
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use crate::service::token_verification::UserId;
 use iceberg::spec::{Schema, SortOrder, TableMetadata, UnboundPartitionSpec, ViewMetadata};
@@ -306,7 +309,20 @@ where
         origin: UserOrigin,
         catalog_state: Self::State,
     ) -> Result<User>;
-
+    async fn update_user(
+        user_id: UserId,
+        request: UpdateUserRequest,
+        catalog_state: Self::State,
+    ) -> Result<User>;
+    async fn delete_user(user_id: UserId, catalog_state: Self::State) -> Result<()>;
+    async fn list_users(
+        include_deleted: bool,
+        name_filter: Option<&str>,
+        catalog_state: Self::State,
+    ) -> Result<ListUsersResponse>;
+    async fn create_role(request: CreateRoleRequest, catalog_state: Self::State) -> Result<Role>;
+    async fn delete_role(role_id: &str, catalog_state: Self::State) -> Result<()>;
+    async fn list_roles(catalog_state: Self::State) -> Result<ListRolesResponse>;
     // ---------------- Warehouse Management API ----------------
 
     /// Create a warehouse.

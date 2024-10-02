@@ -9,8 +9,16 @@ create table users
     deleted_at timestamptz
 );
 
-
--- TODO: project table with user id? Could be useful for tracking who created the project, could also offload that to openfga.
-
 call add_time_columns('users');
-select trigger_updated_at('"users"');
+select trigger_updated_at('users');
+
+create table roles
+(
+    id          text primary key,
+    name        text not null,
+    description text
+);
+
+call add_time_columns('roles');
+select trigger_updated_at('roles');
+

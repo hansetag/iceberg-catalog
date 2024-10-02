@@ -24,6 +24,7 @@ use url::Url;
 
 use super::{ProjectIdent, WarehouseIdent};
 
+// TODO: make AuthDetails an enum with Authenticated/ Unauthenticated variants
 #[derive(Debug, Clone)]
 pub struct AuthDetails {
     user_id: UserId,
@@ -52,6 +53,7 @@ impl AuthDetails {
             name,
             issuer: claims.iss,
             email: claims.email,
+            // TODO: add as nullable col to DB
             application_id: claims.azp,
         })
     }
@@ -94,7 +96,17 @@ impl AuthDetails {
 #[derive(Debug, Clone)]
 pub struct UserId(String);
 
+impl std::fmt::Display for UserId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.as_str())
+    }
+}
+
 impl UserId {
+    pub(crate) fn from_parts(issuer: &str, subject: &str) -> Self {
+        Self(format!("{issuer}/{subject}"))
+    }
+
     fn try_from_claims(claims: &Claims) -> Result<Self> {
         let prefix = urlencoding::encode(claims.iss.as_str());
         let suffix = if let Some(oid) = &claims.oid {
@@ -161,6 +173,7 @@ pub struct Claims {
     // Azure Entra ID uses this as a globally unique identifier
     pub oid: Option<String>,
 
+    #[serde(alias = "client_id")]
     // Identifier of the client using the token, e.g. the client id in azure
     pub azp: Option<String>,
 
@@ -181,7 +194,17 @@ pub struct Claims {
         alias = "last-name"
     )]
     pub last_name: Option<String>,
-    // TODO: add aliases
+    #[serde(
+        // azure calls this app_displayname
+        alias = "app_displayname",
+        alias = "app-displayname",
+        alias = "app_display_name",
+        alias = "appDisplayName",
+        // keycloak calls this preferred_username
+        alias = "preferred_username",
+        alias = "preferred-username",
+        alias = "preferredUsername"
+    )]
     pub preferred_username: Option<String>,
     // TODO: what happens if things clash here?
     #[serde(

@@ -10,12 +10,13 @@ pub mod v1 {
 
     use crate::api::iceberg::v1::PaginationQuery;
 
+    use crate::service::token_verification::UserId;
     use crate::service::TabularIdentUuid;
     use crate::service::{storage::S3Flavor, Catalog, SecretStore, State};
     use axum::extract::{Path, Query, State as AxumState};
-    use axum::response::IntoResponse;
-    use axum::routing::{get, post};
-    use serde::Serialize;
+    use axum::response::{IntoResponse, Response};
+    use axum::routing::{delete, get, post};
+    use serde::{Deserialize, Serialize};
     use warehouse::{
         AzCredential, AzdlsProfile, CreateWarehouseRequest, CreateWarehouseResponse,
         GetWarehouseResponse, ListProjectsResponse, ListWarehousesRequest, ListWarehousesResponse,
@@ -79,6 +80,7 @@ pub mod v1 {
     }
 
     #[derive(Debug, Serialize, utoipa::ToSchema)]
+    #[serde(rename_all = "kebab-case")]
     pub enum UserOrigin {
         ImplicitViaConfigCall,
         ExplicitViaRegisterCall,
@@ -114,6 +116,171 @@ pub mod v1 {
         Extension(metadata): Extension<RequestMetadata>,
     ) -> Result<User> {
         ApiServer::<C, A, S>::register_user(api_context, metadata).await
+    }
+
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub struct ListUsersResponse {
+        pub users: Vec<User>,
+        pub next_page_token: Option<String>,
+    }
+
+    impl IntoResponse for ListUsersResponse {
+        fn into_response(self) -> axum::response::Response {
+            (http::StatusCode::OK, Json(self)).into_response()
+        }
+    }
+
+    #[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+    pub struct ListUsersQuery {
+        pub name: Option<String>,
+        #[serde(default)]
+        pub include_deleted: bool,
+    }
+
+    /// List Registered Users
+    #[utoipa::path(
+        get,
+        tag = "management",
+        path = "/management/v1/user",
+        params(
+            ListUsersQuery
+        ),
+        responses(
+            (status = 200, description = "List of users", body = [ListUsersResponse]),
+        )
+    )]
+    async fn list_users<C: Catalog, A: Authorizer, S: SecretStore>(
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Query(ListUsersQuery {
+            name,
+            include_deleted,
+        }): Query<ListUsersQuery>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<ListUsersResponse> {
+        ApiServer::<C, A, S>::list_users(api_context, metadata, include_deleted, name.as_deref())
+            .await
+    }
+
+    #[derive(Debug, Deserialize, utoipa::ToSchema)]
+    pub struct UpdateUserRequest {
+        pub name: String,
+        pub email: Option<String>,
+    }
+
+    /// Update user details
+    #[utoipa::path(
+        put,
+        tag = "management",
+        path = "/management/v1/user/{issuer}/{id}",
+        responses(
+            (status = 200, description = "User details updated successfully", body = [User]),
+        )
+    )]
+    async fn update_user<C: Catalog, A: Authorizer, S: SecretStore>(
+        Path((issuer, id)): Path<(String, String)>,
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+        Json(request): Json<UpdateUserRequest>,
+    ) -> Response {
+        let id = UserId::from_parts(issuer.as_str(), id.as_str());
+        match ApiServer::<C, A, S>::update_user(id, request, api_context, metadata).await {
+            Ok(user) => (http::StatusCode::OK, Json(user)).into_response(),
+            Err(e) => e.into_response(),
+        }
+    }
+
+    /// Delete user
+    ///
+    /// This endpoint is used to delete a user. The user will be soft-deleted and can be recovered
+    /// Deleting a user will only remove it from this service. The user will still be able to register
+    /// again as long as the user exists in the identity provider.
+    #[utoipa::path(
+        delete,
+        tag = "management",
+        path = "/management/v1/user/{issuer}/{id}",
+        responses(
+            (status = 200, description = "User deleted successfully"),
+        )
+    )]
+    async fn delete_user<C: Catalog, A: Authorizer, S: SecretStore>(
+        Path((issuer, id)): Path<(String, String)>,
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Response {
+        let id = UserId::from_parts(issuer.as_str(), id.as_str());
+        (
+            http::StatusCode::OK,
+            Json(ApiServer::<C, A, S>::delete_user(api_context, metadata, id).await),
+        )
+            .into_response()
+    }
+
+    #[derive(Debug, Deserialize, utoipa::ToSchema)]
+    pub struct CreateRoleRequest {
+        pub id: String,
+        pub name: String,
+        pub description: Option<String>,
+    }
+
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub struct Role {
+        pub id: String,
+        pub name: String,
+        pub description: Option<String>,
+        pub created_at: chrono::DateTime<chrono::Utc>,
+        pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    }
+
+    impl IntoResponse for Role {
+        fn into_response(self) -> Response {
+            (http::StatusCode::CREATED, Json(self)).into_response()
+        }
+    }
+
+    /// Create a new role
+    #[utoipa::path(
+        post,
+        tag = "management",
+        path = "/management/v1/role",
+        request_body = CreateRoleRequest,
+        responses(
+            (status = 201, description = "Role successfully created", body = [Role]),
+        )
+    )]
+    async fn create_role<C: Catalog, A: Authorizer, S: SecretStore>(
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+        Json(request): Json<CreateRoleRequest>,
+    ) -> Result<Role> {
+        ApiServer::<C, A, S>::create_role(request, api_context, metadata).await
+    }
+
+    #[derive(Debug, Serialize, utoipa::ToSchema)]
+    pub struct ListRolesResponse {
+        pub roles: Vec<Role>,
+        pub next_page_token: Option<String>,
+    }
+
+    impl IntoResponse for ListRolesResponse {
+        fn into_response(self) -> Response {
+            (http::StatusCode::OK, Json(self)).into_response()
+        }
+    }
+
+    /// List existing roles
+    #[utoipa::path(
+        get,
+        tag = "management",
+        path = "/management/v1/role",
+        responses(
+            (status = 200, description = "List of roles", body = [ListRolesResponse]),
+        )
+    )]
+    async fn list_roles<C: Catalog, A: Authorizer, S: SecretStore>(
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<ListRolesResponse> {
+        ApiServer::<C, A, S>::list_roles(api_context, metadata).await
     }
 
     /// Create a new warehouse.
@@ -431,7 +598,9 @@ pub mod v1 {
                     "/warehouse/:warehouse_id/deleted_tabulars",
                     get(list_deleted_tabulars),
                 )
-                .route("/user", post(register_user))
+                .route("/user", post(register_user).get(list_users))
+                .route("user/:issuer/:id", delete(delete_user).put(update_user))
+                .route("/role", post(create_role).get(list_roles))
         }
     }
 }

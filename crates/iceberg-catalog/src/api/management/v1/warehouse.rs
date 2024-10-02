@@ -1,5 +1,6 @@
 use crate::api::management::v1::{
-    ApiServer, DeletedTabularResponse, ListDeletedTabularsResponse, User, UserOrigin,
+    ApiServer, CreateRoleRequest, DeletedTabularResponse, ListDeletedTabularsResponse,
+    ListRolesResponse, ListUsersResponse, Role, UpdateUserRequest, User, UserOrigin,
 };
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
@@ -12,6 +13,8 @@ pub use crate::service::storage::{
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 
+use super::TabularType;
+use crate::service::token_verification::UserId;
 pub use crate::service::WarehouseStatus;
 use crate::service::{
     authz::Authorizer, secrets::SecretStore, Catalog, ListFlags, State, Transaction,
@@ -20,8 +23,6 @@ use crate::{ProjectIdent, WarehouseIdent, CONFIG};
 use iceberg_ext::catalog::rest::ErrorModel;
 use serde::Deserialize;
 use utoipa::ToSchema;
-
-use super::TabularType;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -195,6 +196,61 @@ pub trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             context.v1_state.catalog,
         )
         .await
+    }
+
+    async fn list_users(
+        context: ApiContext<State<A, C, S>>,
+        _request_metadata: RequestMetadata,
+        include_deleted: bool,
+        name_filter: Option<&str>,
+    ) -> Result<ListUsersResponse> {
+        // TODO: authz
+        C::list_users(include_deleted, name_filter, context.v1_state.catalog).await
+    }
+
+    async fn update_user(
+        id: UserId,
+        request: UpdateUserRequest,
+        context: ApiContext<State<A, C, S>>,
+        _request_metadata: RequestMetadata,
+    ) -> Result<User> {
+        // TODO: authz? Who can update what? Also, should we take name & email from request or from auth?
+        //       went for request here, so that users can fix issues with themselves.
+        C::update_user(id, request, context.v1_state.catalog).await
+    }
+
+    async fn delete_user(
+        context: ApiContext<State<A, C, S>>,
+        _request_metadata: RequestMetadata,
+        user_id: UserId,
+    ) -> Result<()> {
+        // TODO: authz
+        // TODO: cleanup in openfga? (delete user from roles, cleanup existing tuples etc)
+        C::delete_user(user_id, context.v1_state.catalog).await
+    }
+
+    async fn create_role(
+        request: CreateRoleRequest,
+        context: ApiContext<State<A, C, S>>,
+        _request_metadata: RequestMetadata,
+    ) -> Result<Role> {
+        // TODO: authz? Who can create roles?
+        C::create_role(request, context.v1_state.catalog).await
+    }
+
+    async fn list_roles(
+        context: ApiContext<State<A, C, S>>,
+        _request_metadata: RequestMetadata,
+    ) -> Result<ListRolesResponse> {
+        C::list_roles(context.v1_state.catalog).await
+    }
+
+    async fn delete_role(
+        context: ApiContext<State<A, C, S>>,
+        _request_metadata: RequestMetadata,
+        role_id: &str,
+    ) -> Result<()> {
+        C::delete_role(role_id, context.v1_state.catalog).await
     }
 
     async fn create_warehouse(

@@ -32,6 +32,7 @@ aws-sdk-sts = { workspace = true }
 aws-sigv4 = { version = "^1.2", optional = true }
 axum = { workspace = true }
 axum-extra = { workspace = true, features = ["typed-header"] }
+axum-macros = { version = "0.4.2" }
 axum-prometheus = { workspace = true }
 azure_core = { workspace = true }
 azure_identity = { workspace = true }

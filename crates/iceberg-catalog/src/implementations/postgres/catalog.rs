@@ -16,7 +16,10 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
-use crate::api::management::v1::{User, UserOrigin};
+use crate::api::management::v1::{
+    CreateRoleRequest, ListRolesResponse, ListUsersResponse, Role, UpdateUserRequest, User,
+    UserOrigin,
+};
 use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::implementations::postgres::tabular::view::{
     create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
@@ -405,6 +408,29 @@ impl Catalog for super::PostgresCatalog {
         mark_tabular_as_deleted(table_id, transaction).await
     }
 
+    async fn create_role(request: CreateRoleRequest, catalog_state: Self::State) -> Result<Role> {
+        crate::implementations::postgres::user::insert_role(request, &catalog_state.write_pool())
+            .await
+    }
+
+    async fn delete_role(role_id: &str, catalog_state: Self::State) -> Result<()> {
+        crate::implementations::postgres::user::delete_role(role_id, &catalog_state.write_pool())
+            .await
+    }
+
+    async fn list_users(
+        include_deleted: bool,
+        name_filter: Option<&str>,
+        catalog_state: Self::State,
+    ) -> Result<ListUsersResponse> {
+        crate::implementations::postgres::user::list_users(
+            &catalog_state.read_pool(),
+            include_deleted,
+            name_filter,
+        )
+        .await
+    }
+
     async fn register_user(
         user_id: &UserId,
         name: &str,
@@ -425,5 +451,27 @@ impl Catalog for super::PostgresCatalog {
             &mut connection,
         )
         .await
+    }
+
+    async fn update_user(
+        user_id: UserId,
+        request: UpdateUserRequest,
+        catalog_state: Self::State,
+    ) -> Result<User> {
+        crate::implementations::postgres::user::update_user(
+            user_id,
+            request,
+            &catalog_state.write_pool(),
+        )
+        .await
+    }
+
+    async fn delete_user(user_id: UserId, catalog_state: Self::State) -> Result<()> {
+        crate::implementations::postgres::user::delete_user(user_id, &catalog_state.write_pool())
+            .await
+    }
+
+    async fn list_roles(catalog_state: Self::State) -> Result<ListRolesResponse> {
+        crate::implementations::postgres::user::list_roles(&catalog_state.read_pool()).await
     }
 }
