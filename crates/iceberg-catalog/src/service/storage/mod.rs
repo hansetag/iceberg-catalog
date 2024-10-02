@@ -2,6 +2,7 @@
 
 mod az;
 mod error;
+mod gcs;
 mod s3;
 
 use super::{secrets::SecretInStorage, NamespaceIdentUuid, TableIdentUuid};
@@ -14,11 +15,12 @@ pub use az::{AzCredential, AzdlsLocation, AzdlsProfile};
 pub(crate) use error::ValidationError;
 use error::{ConversionError, CredentialsError, FileIoError, TableConfigError, UpdateError};
 use futures::StreamExt;
+pub use gcs::{GcsCredential, GcsProfile, GcsServiceKey};
 use iceberg::io::FileIO;
 use iceberg_ext::configs::table::TableProperties;
 use iceberg_ext::configs::Location;
-pub use s3::S3Location;
-pub use s3::{S3Credential, S3Flavor, S3Profile};
+pub use s3::{S3Credential, S3Flavor, S3Location, S3Profile};
+
 use serde::{Deserialize, Serialize};
 
 /// Storage profile for a warehouse.
@@ -34,6 +36,8 @@ pub enum StorageProfile {
     S3(S3Profile),
     #[cfg(test)]
     Test(TestProfile),
+    #[serde(rename = "gcs")]
+    Gcs(GcsProfile),
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
@@ -46,6 +50,8 @@ pub enum StorageType {
     #[cfg(test)]
     #[strum(serialize = "test")]
     Test,
+    #[strum(serialize = "gcs")]
+    Gcs,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -69,6 +75,7 @@ impl StorageProfile {
                 }
             }
             StorageProfile::Azdls(prof) => prof.generate_catalog_config(warehouse_id),
+            StorageProfile::Gcs(prof) => prof.generate_catalog_config(warehouse_id),
         }
     }
 
@@ -116,6 +123,9 @@ impl StorageProfile {
             StorageProfile::Azdls(prof) => prof.file_io(secret.map(|s| s.try_to_az()).transpose()?),
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(iceberg::io::FileIOBuilder::new("file").build()?),
+            StorageProfile::Gcs(prof) => {
+                Ok(prof.file_io(secret.map(|s| s.try_into_gcs()).transpose()?)?)
+            }
         }
     }
 
@@ -127,6 +137,7 @@ impl StorageProfile {
         match self {
             StorageProfile::S3(profile) => profile.base_location().map(Into::into),
             StorageProfile::Azdls(profile) => profile.base_location(),
+            StorageProfile::Gcs(profile) => profile.base_location(),
             #[cfg(test)]
             StorageProfile::Test(_) => std::str::FromStr::from_str("file://tmp/").map_err(|_| {
                 ValidationError::InvalidLocation {
@@ -161,6 +172,7 @@ impl StorageProfile {
             #[cfg(test)]
             StorageProfile::Test(_) => StorageType::Test,
             StorageProfile::Azdls(_) => StorageType::Azdls,
+            StorageProfile::Gcs(_) => StorageType::Gcs,
         }
     }
 
@@ -202,6 +214,16 @@ impl StorageProfile {
             }
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(TableProperties::default()),
+            StorageProfile::Gcs(profile) => {
+                profile
+                    .generate_table_config(
+                        data_access,
+                        secret.map(|s| s.try_into_gcs()).transpose()?,
+                        table_location,
+                        storage_permissions,
+                    )
+                    .await
+            }
         }
     }
 
@@ -222,6 +244,7 @@ impl StorageProfile {
             StorageProfile::Azdls(prof) => prof.normalize(),
             #[cfg(test)]
             StorageProfile::Test(_) => Ok(()),
+            StorageProfile::Gcs(profile) => profile.normalize(),
         }
     }
 
@@ -253,6 +276,7 @@ impl StorageProfile {
         let test_vended_credentials = match self {
             StorageProfile::S3(profile) => profile.sts_enabled,
             StorageProfile::Azdls(_) => true,
+            StorageProfile::Gcs(_) => true,
             #[cfg(test)]
             StorageProfile::Test(_) => false,
         };
@@ -280,6 +304,11 @@ impl StorageProfile {
                 }
                 #[cfg(test)]
                 StorageProfile::Test(_) => {}
+                StorageProfile::Gcs(_) => {
+                    let sts_file_io = gcs::get_file_io_from_table_config(&tbl_config)?;
+                    self.validate_read_write(&sts_file_io, &test_location, true)
+                        .await?;
+                }
             }
         }
         tracing::info!("Cleanup started");
@@ -314,7 +343,14 @@ impl StorageProfile {
         let mut test_file_write =
             self.default_metadata_location(test_location, &compression_codec, uuid::Uuid::now_v7());
         if is_vended_credentials {
-            test_file_write.push("test_vended_credentials");
+            let f = test_file_write
+                .url()
+                .path()
+                .split('/')
+                .next_back()
+                .unwrap_or("missing")
+                .to_string();
+            test_file_write.pop().push("vended").push(&f);
             tracing::debug!(
                 "Validating vended credential access to: {}",
                 test_file_write
@@ -439,10 +475,64 @@ pub struct TestProfile;
 #[schema(rename_all = "kebab-case")]
 pub enum StorageCredential {
     /// Credentials for S3 storage
+    ///
+    /// Example payload in the code-snippet below:
+    ///
+    /// ```
+    /// use iceberg_catalog::service::storage::StorageCredential;
+    /// let cred: StorageCredential = serde_json::from_str(r#"{
+    ///     "type": "s3",
+    ///     "credential-type": "access-key",
+    ///     "aws-access-key-id": "minio-root-user",
+    ///     "aws-secret-access-key": "minio-root-password"
+    ///   }"#).unwrap();
+    /// ```
     #[serde(rename = "s3")]
     S3(S3Credential),
+    /// Credentials for Az storage
+    ///
+    /// Example payload:
+    ///
+    /// ```
+    /// use iceberg_catalog::service::storage::StorageCredential;
+    /// let cred: StorageCredential = serde_json::from_str(r#"{
+    ///     "type": "az",
+    ///     "credential-type": "client-credentials",
+    ///     "client-id": "...",
+    ///     "client-secret": "...",
+    ///     "tenant-id": "..."
+    ///   }"#).unwrap();
+    /// ```
     #[serde(rename = "az")]
     Az(AzCredential),
+    /// Credentials for GCS storage
+    ///
+    /// Example payload in the code-snippet below:
+    ///
+    /// ```
+    /// use iceberg_catalog::service::storage::StorageCredential;
+    /// let cred: StorageCredential = serde_json::from_str(r#"{
+    ///     "type": "gcs",
+    ///     "credential-type": "service-account-key",
+    ///     "key": {
+    ///       "type": "service_account",
+    ///       "project_id": "example-project-1234",
+    ///       "private_key_id": "....",
+    ///       "private_key": "-----BEGIN PRIVATE KEY-----\n.....\n-----END PRIVATE KEY-----\n",
+    ///       "client_email": "abc@example-project-1234.iam.gserviceaccount.com",
+    ///       "client_id": "123456789012345678901",
+    ///       "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    ///       "token_uri": "https://oauth2.googleapis.com/token",
+    ///       "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    ///       "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/abc%example-project-1234.iam.gserviceaccount.com",
+    ///       "universe_domain": "googleapis.com"
+    ///     }
+    /// }"#).unwrap();
+    /// ```
+    ///
+
+    #[serde(rename = "gcs")]
+    Gcs(GcsCredential),
 }
 
 impl SecretInStorage for StorageCredential {}
@@ -453,6 +543,7 @@ impl StorageCredential {
         match self {
             StorageCredential::S3(_) => StorageType::S3,
             StorageCredential::Az(_) => StorageType::Azdls,
+            StorageCredential::Gcs(_) => StorageType::Gcs,
         }
     }
 
@@ -481,6 +572,21 @@ impl StorageCredential {
             _ => Err(ConversionError {
                 is: self.storage_type(),
                 to: StorageType::Azdls,
+            }
+            .into()),
+        }
+    }
+
+    /// Try to convert the credential into an Gcs credential.
+    ///
+    ///  # Errors
+    /// Fails if the credential is not an Gcs credential.
+    pub fn try_into_gcs(&self) -> Result<&GcsCredential, CredentialsError> {
+        match self {
+            Self::Gcs(profile) => Ok(profile),
+            _ => Err(ConversionError {
+                is: self.storage_type(),
+                to: StorageType::Gcs,
             }
             .into()),
         }
@@ -534,9 +640,9 @@ pub(crate) async fn check_location_is_empty(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
+    use needs_env_var::needs_env_var;
+    use std::str::FromStr;
 
     #[test]
     fn test_reduce_scheme_string() {
@@ -679,5 +785,222 @@ mod tests {
                 profile.base_location().unwrap(),
             );
         }
+    }
+
+    // TODO: add vended azure test here once opendal supports sas
+
+    #[tokio::test]
+    #[needs_env_var::needs_env_var(TEST_GCS = 1)]
+    async fn test_vended_gcs() {
+        let key_prefix = Some(format!("test_prefix-{}", uuid::Uuid::now_v7()));
+
+        {
+            let cred: StorageCredential = std::env::var("GCS_CREDENTIAL")
+                .map(|s| GcsCredential::ServiceAccountKey {
+                    key: serde_json::from_str::<GcsServiceKey>(&s).unwrap(),
+                })
+                .map_err(|_| ())
+                .expect("Missing cred")
+                .into();
+            let bucket = std::env::var("GCS_BUCKET").expect("Missing bucket");
+            let mut profile: StorageProfile = GcsProfile {
+                bucket,
+                key_prefix: key_prefix.clone(),
+            }
+            .into();
+
+            test_profile(&cred, &mut profile).await;
+        }
+    }
+
+    #[tokio::test]
+    #[needs_env_var(TEST_AWS = 1)]
+    async fn test_vended_aws() {
+        let key_prefix = Some(format!("test_prefix-{}", uuid::Uuid::now_v7()));
+        let bucket = std::env::var("AWS_S3_BUCKET").unwrap();
+        let region = std::env::var("AWS_S3_REGION").unwrap();
+        let sts_role_arn = std::env::var("AWS_S3_STS_ROLE_ARN").unwrap();
+        let cred: StorageCredential = S3Credential::AccessKey {
+            aws_access_key_id: std::env::var("AWS_S3_ACCESS_KEY_ID").unwrap(),
+            aws_secret_access_key: std::env::var("AWS_S3_SECRET_ACCESS_KEY").unwrap(),
+        }
+        .into();
+
+        let mut profile: StorageProfile = S3Profile {
+            bucket,
+            key_prefix: key_prefix.clone(),
+            assume_role_arn: None,
+            endpoint: None,
+            region,
+            path_style_access: Some(true),
+            sts_role_arn: Some(sts_role_arn),
+            flavor: S3Flavor::Aws,
+            sts_enabled: true,
+        }
+        .into();
+
+        test_profile(&cred, &mut profile).await;
+    }
+
+    #[tokio::test]
+    #[needs_env_var::needs_env_var(TEST_MINIO = 1)]
+    async fn test_vended_minio() {
+        let key_prefix = Some(format!("test_prefix-{}", uuid::Uuid::now_v7()));
+        let bucket = std::env::var("ICEBERG_REST_TEST_S3_BUCKET").unwrap();
+        let region = std::env::var("ICEBERG_REST_TEST_S3_REGION").unwrap_or("local".into());
+        let aws_access_key_id = std::env::var("ICEBERG_REST_TEST_S3_ACCESS_KEY").unwrap();
+        let aws_secret_access_key = std::env::var("ICEBERG_REST_TEST_S3_SECRET_KEY").unwrap();
+        let endpoint = std::env::var("ICEBERG_REST_TEST_S3_ENDPOINT").unwrap();
+
+        let cred: StorageCredential = S3Credential::AccessKey {
+            aws_access_key_id,
+            aws_secret_access_key,
+        }
+        .into();
+
+        let mut profile = S3Profile {
+            bucket,
+            key_prefix: key_prefix.clone(),
+            assume_role_arn: None,
+            endpoint: Some(endpoint.parse().unwrap()),
+            region,
+            path_style_access: Some(true),
+            sts_role_arn: None,
+            flavor: S3Flavor::Minio,
+            sts_enabled: true,
+        }
+        .into();
+
+        test_profile(&cred, &mut profile).await;
+    }
+
+    #[allow(dead_code, clippy::too_many_lines)]
+    async fn test_profile(cred: &StorageCredential, profile: &mut StorageProfile) {
+        profile.normalize().expect("Failed to normalize profile");
+        let base_location = profile
+            .base_location()
+            .expect("Failed to get base location");
+        let mut table_location1 = base_location.clone();
+        table_location1.push("test");
+        let mut table_location2 = base_location.clone();
+        table_location2.push("test2");
+
+        let config1 = profile
+            .generate_table_config(
+                &DataAccess {
+                    vended_credentials: true,
+                    remote_signing: false,
+                },
+                Some(cred),
+                &table_location1,
+                StoragePermissions::ReadWriteDelete,
+            )
+            .await
+            .unwrap();
+
+        let config2 = profile
+            .generate_table_config(
+                &DataAccess {
+                    vended_credentials: true,
+                    remote_signing: false,
+                },
+                Some(cred),
+                &table_location2,
+                StoragePermissions::ReadWriteDelete,
+            )
+            .await
+            .unwrap();
+        let (downscoped1, downscoped2) = match profile {
+            StorageProfile::Test(_) | StorageProfile::Azdls(_) => {
+                unimplemented!("Not supported")
+            }
+            StorageProfile::S3(_) => {
+                let downscoped1 = s3::get_file_io_from_table_config(&config1).unwrap();
+                let downscoped2 = s3::get_file_io_from_table_config(&config2).unwrap();
+                (downscoped1, downscoped2)
+            }
+            StorageProfile::Gcs(_) => {
+                let downscoped1 = gcs::get_file_io_from_table_config(&config1).unwrap();
+                let downscoped2 = gcs::get_file_io_from_table_config(&config2).unwrap();
+                (downscoped1, downscoped2)
+            }
+        };
+        // can read & write in own locations
+        let test_file1 = table_location1.cloning_push("test.txt");
+        let test_file2 = table_location2.cloning_push("test.txt");
+
+        let output = downscoped1.new_output(test_file1.as_str()).unwrap();
+        output.write(b"test".to_vec().into()).await.unwrap();
+
+        let output2 = downscoped2.new_output(test_file2.as_str()).unwrap();
+        output2.write(b"test2".to_vec().into()).await.unwrap();
+
+        let input1 = downscoped1
+            .new_input(test_file1.as_str())
+            .unwrap()
+            .read()
+            .await
+            .unwrap();
+        assert_eq!(input1.as_ref(), b"test");
+        let input2 = downscoped2
+            .new_input(test_file2.as_str())
+            .unwrap()
+            .read()
+            .await
+            .unwrap();
+        assert_eq!(input2.as_ref(), b"test2");
+
+        // cannot read across locations
+        let _ = downscoped1
+            .new_input(test_file2.as_str())
+            .unwrap()
+            .read()
+            .await
+            .unwrap_err();
+        let _ = downscoped2
+            .new_input(test_file1.as_str())
+            .unwrap()
+            .read()
+            .await
+            .unwrap_err();
+
+        // cannot write across locations
+        let _ = downscoped1
+            .new_output(
+                table_location2
+                    .cloning_push("this-should-fail.txt")
+                    .as_str(),
+            )
+            .unwrap()
+            .write(b"this-fails".to_vec().into())
+            .await
+            .unwrap_err();
+
+        let _ = downscoped2
+            .new_output(
+                table_location1
+                    .cloning_push("this-should-fail.txt")
+                    .as_str(),
+            )
+            .unwrap()
+            .write(b"this-fails".to_vec().into())
+            .await
+            .unwrap_err();
+
+        // cannot delete across locations
+        downscoped1.delete(test_file2.as_str()).await.unwrap_err();
+        downscoped2.delete(test_file1.as_str()).await.unwrap_err();
+
+        // can delete in own locations
+        downscoped1.delete(test_file1.as_str()).await.unwrap();
+        downscoped2.delete(test_file2.as_str()).await.unwrap();
+
+        // cleanup
+        profile
+            .file_io(Some(cred))
+            .unwrap()
+            .remove_all(base_location.as_str())
+            .await
+            .unwrap();
     }
 }

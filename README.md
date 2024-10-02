@@ -76,7 +76,7 @@ For more information on deployment, please check the [User Guide](USER_GUIDE.md)
 | Azure ADLS Gen2      |   ![done]    |                                                           |
 | Azure Blob           |   ![open]    |                                                           |
 | Microsoft OneLake    |   ![open]    |                                                           |
-| Google Cloud Storage |   ![open]    |                                                           |
+| Google Cloud Storage |   ![done]    |                                                           |
 
 Details on how to configure the storage profiles can be found in the [Storage Guide](STORAGE.md).
 

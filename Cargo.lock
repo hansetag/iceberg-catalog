@@ -2363,6 +2363,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40ecd4077b5ae9fd2e9e169b102c6c330d0605168eb0e8bf79952b256dbefffd"
 
 [[package]]
+name = "google-cloud-auth"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e96d3b699329c6547d0fb357d7b09be6a9b9eba27186308fa41836baac4cfda"
+dependencies = [
+ "async-trait",
+ "base64 0.21.7",
+ "google-cloud-metadata",
+ "google-cloud-token",
+ "home",
+ "jsonwebtoken",
+ "reqwest 0.12.7",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
+name = "google-cloud-metadata"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04f945a208886a13d07636f38fb978da371d0abc3e34bad338124b9f8c135a8f"
+dependencies = [
+ "reqwest 0.12.7",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "google-cloud-token"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f49c12ba8b21d128a2ce8585955246977fbce4415f680ebf9199b6f9d6d725f"
+dependencies = [
+ "async-trait",
+]
+
+[[package]]
 name = "group"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2760,7 +2802,7 @@ dependencies = [
 [[package]]
 name = "iceberg"
 version = "0.3.0"
-source = "git+https://github.com/hansetag/iceberg-rust.git?rev=47bfdda#47bfdda7478358f771ac6bb1d1da8f71a3d360ba"
+source = "git+https://github.com/hansetag/iceberg-rust.git?rev=72d797c#72d797c9063954dcac35212a79d396bf085b91b7"
 dependencies = [
  "anyhow",
  "apache-avro",
@@ -2820,12 +2862,15 @@ dependencies = [
  "azure_identity",
  "azure_storage",
  "azure_storage_blobs",
+ "base64 0.22.1",
  "chrono",
  "cloudevents-sdk",
  "derive_more",
  "figment",
  "flate2",
  "futures",
+ "google-cloud-auth",
+ "google-cloud-token",
  "hostname 0.4.0",
  "http 1.1.0",
  "http-body-util",
@@ -2839,6 +2884,7 @@ dependencies = [
  "lru",
  "maplit",
  "needs_env_var",
+ "percent-encoding",
  "rand 0.8.5",
  "reqwest 0.12.8",
  "serde",
@@ -4391,6 +4437,7 @@ checksum = "f713147fbe92361e52392c73b8c9e48c04c6625bce969ef54dc901e58e042a7b"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "encoding_rs",
  "futures-channel",
  "futures-core",
  "futures-util",
@@ -5676,6 +5723,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
