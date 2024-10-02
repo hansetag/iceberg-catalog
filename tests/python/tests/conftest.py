@@ -160,7 +160,7 @@ def io_fsspec(storage_config: dict):
             },
         )
 
-    return fs
+        return fs
 
 
 @dataclasses.dataclass

@@ -47,7 +47,7 @@ reqwest = { version = "^0.12", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
-iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "e0eddff40ec69562919f3309d826cea2f8349f25", features = [
+iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "2b6263a6c998df75444f7feb54bd37144354a071", features = [
     "storage-all",
 ] }
 typed-builder = "^0.20.0"
