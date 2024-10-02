@@ -38,12 +38,15 @@ azure_identity = { workspace = true }
 azure_storage = { workspace = true }
 azure_storage_blobs = { workspace = true }
 bytes = { version = "~1.7", optional = true }
+base64 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 cloudevents-sdk = { version = "0.7.0" }
 derive_more = { workspace = true }
 figment = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
+google-cloud-auth = { workspace = true }
+google-cloud-token = { workspace = true }
 hostname = { workspace = true }
 http = { workspace = true }
 http-body-util = { version = "~0.1", optional = true }
@@ -57,6 +60,7 @@ lazy_static = { workspace = true }
 lru = { workspace = true }
 maplit = { workspace = true }
 openfga-rs = { workspace = true, optional = true }
+percent-encoding = { workspace = true }
 rand = "0.8.5"
 reqwest = { workspace = true }
 serde = { workspace = true }

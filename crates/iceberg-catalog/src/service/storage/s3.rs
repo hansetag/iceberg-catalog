@@ -481,7 +481,7 @@ impl S3Profile {
             if key_prefix.len() > 896 {
                 return Err(ValidationError::InvalidProfile {
                     source: None,
-                    reason: "Storage Profile `key_prefix` must be less than 1024 characters."
+                    reason: "Storage Profile `key_prefix` must be less than 896 characters."
                         .to_string(),
                     entity: "key_prefix".to_string(),
                 });

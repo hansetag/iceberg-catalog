@@ -16,11 +16,11 @@ pub mod v1 {
     use axum::routing::{get, post};
     use serde::Serialize;
     use warehouse::{
-        AzCredential, AzdlsProfile, CreateWarehouseRequest, CreateWarehouseResponse,
-        GetWarehouseResponse, ListProjectsResponse, ListWarehousesRequest, ListWarehousesResponse,
-        ProjectResponse, RenameWarehouseRequest, S3Credential, S3Profile, Service,
-        StorageCredential, StorageProfile, TabularDeleteProfile, UpdateWarehouseCredentialRequest,
-        UpdateWarehouseStorageRequest, WarehouseStatus,
+        AzCredential, AzdlsProfile, CreateWarehouseRequest, CreateWarehouseResponse, GcsCredential,
+        GcsProfile, GcsServiceKey, GetWarehouseResponse, ListProjectsResponse,
+        ListWarehousesRequest, ListWarehousesResponse, ProjectResponse, RenameWarehouseRequest,
+        S3Credential, S3Profile, Service, StorageCredential, StorageProfile, TabularDeleteProfile,
+        UpdateWarehouseCredentialRequest, UpdateWarehouseStorageRequest, WarehouseStatus,
     };
 
     #[derive(Debug, OpenApi)]
@@ -46,6 +46,9 @@ pub mod v1 {
             AzdlsProfile,
             CreateWarehouseRequest,
             CreateWarehouseResponse,
+            GcsCredential,
+            GcsProfile,
+            GcsServiceKey,
             GetWarehouseResponse,
             ListProjectsResponse,
             ListWarehousesRequest,

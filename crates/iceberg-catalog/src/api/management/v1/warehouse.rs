@@ -5,7 +5,8 @@ use crate::service::authz::{
     ListProjectsResponse as AuthZListProjectsResponse, ProjectAction, WarehouseAction,
 };
 pub use crate::service::storage::{
-    AzCredential, AzdlsProfile, S3Credential, S3Profile, StorageCredential, StorageProfile,
+    AzCredential, AzdlsProfile, GcsCredential, GcsProfile, GcsServiceKey, S3Credential, S3Profile,
+    StorageCredential, StorageProfile,
 };
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};

@@ -24,6 +24,9 @@ impl TableProperties {
             } else if key.starts_with("client") {
                 client::validate(&key, &value)?;
                 config.props.insert(key, value);
+            } else if key.starts_with("gcs") {
+                gcs::validate(&key, &value)?;
+                config.props.insert(key, value);
             } else {
                 let pair = custom::CustomConfig {
                     key: key.clone(),
@@ -62,6 +65,22 @@ pub mod s3 {
             Signer, String, "s3.signer", "s3_signer";
             SignerUri, String, "s3.signer.uri", "s3_signer_uri";
          }
+    );
+}
+
+pub mod gcs {
+    use super::super::ConfigProperty;
+    use super::{ConfigParseError, NotCustomProp, ParseFromStr, TableProperties, TableProperty};
+    use crate::configs::impl_config_values;
+
+    impl_config_values!(
+        Table,
+        {
+            ProjectId, String, "gcs.project-id", "gcs_project_id";
+            Bucket, String, "gcs.bucket", "gcs_bucket";
+            Token, String, "gcs.oauth2.token", "gcs_oauth2_token";
+            TokenExpiresAt, String, "gcs.oauth2.token.expires-at", "gcs_oauth2_token_expires_at";
+        }
     );
 }
 

@@ -115,3 +115,39 @@ A sample storage profile could look like this:
   }
 }
 ```
+
+
+## GCS
+
+For GCS, the used bucket needs to disable hierarchical namespaces and should have the storage admin role.
+
+A sample storage profile could look like this:
+
+```json
+{
+  "warehouse-name": "test",
+  "project-id": "00000000-0000-0000-0000-000000000000",
+  "storage-profile": {
+    "type": "gcs",
+    "bucket": "...",
+    "key-prefix": "..."
+  },
+  "storage-credential": {
+    "type": "gcs",
+    "credential-type": "service-account-key",
+    "key": {
+      "type": "service_account",
+      "project_id": "example-project-1234",
+      "private_key_id": "....",
+      "private_key": "-----BEGIN PRIVATE KEY-----\n.....\n-----END PRIVATE KEY-----\n",
+      "client_email": "abc@example-project-1234.iam.gserviceaccount.com",
+      "client_id": "123456789012345678901",
+      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+      "token_uri": "https://oauth2.googleapis.com/token",
+      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+      "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/abc%example-project-1234.iam.gserviceaccount.com",
+      "universe_domain": "googleapis.com"
+    }
+  }
+}
+```

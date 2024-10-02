@@ -45,6 +45,10 @@ impl From<TableConfigError> for ValidationError {
                     entity: "TableConfig".to_string(),
                 }
             }
+            TableConfigError::Internal(_, _) => ValidationError::Internal {
+                reason: value.to_string(),
+                source: Some(Box::new(value)),
+            },
         }
     }
 }
@@ -137,6 +141,11 @@ pub enum TableConfigError {
     FailedDependency(String),
     #[error("Misconfiguration: {0}")]
     Misconfiguration(String),
+    #[error("Internal error: {0}")]
+    Internal(
+        String,
+        #[source] Option<Box<dyn std::error::Error + 'static + Send + Sync>>,
+    ),
 }
 
 impl From<TableConfigError> for IcebergErrorResponse {
@@ -149,6 +158,9 @@ impl From<TableConfigError> for IcebergErrorResponse {
             }
             e @ TableConfigError::Misconfiguration(_) => {
                 ErrorModel::bad_request(e.to_string(), "Misconfiguration", Some(Box::new(e))).into()
+            }
+            e @ TableConfigError::Internal(_, _) => {
+                ErrorModel::internal(e.to_string(), "StsError", Some(Box::new(e))).into()
             }
         }
     }
@@ -181,6 +193,8 @@ pub enum CredentialsError {
     },
     #[error("Failed to convert credential: {0}")]
     Mismatch(#[from] ConversionError),
+    #[error("Failed to serialize credential.")]
+    SerializationError(#[from] serde_json::Error),
 }
 
 impl From<CredentialsError> for IcebergErrorResponse {
@@ -201,6 +215,9 @@ impl From<CredentialsError> for IcebergErrorResponse {
             CredentialsError::UnsupportedCredential(_) => {
                 ErrorModel::not_implemented(message, "UnsupportedCredentialError", Some(boxed))
                     .into()
+            }
+            CredentialsError::SerializationError(_) => {
+                ErrorModel::internal(message, "SerializationError", Some(boxed)).into()
             }
         }
     }

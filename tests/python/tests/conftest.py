@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import os
 import urllib
 import uuid
@@ -28,6 +29,9 @@ AZURE_STORAGE_ACCOUNT_NAME = os.environ.get(
 )
 AZURE_STORAGE_FILESYSTEM = os.environ.get("ICEBERG_REST_TEST_AZURE_STORAGE_FILESYSTEM")
 AZURE_TENANT_ID = os.environ.get("ICEBERG_REST_TEST_AZURE_TENANT_ID")
+# ---- GCS
+GCS_CREDENTIAL = os.environ.get("ICEBERG_REST_TEST_GCS_CREDENTIAL")
+GCS_BUCKET = os.environ.get("ICEBERG_REST_TEST_GCS_BUCKET")
 # ---- OAUTH
 OPENID_PROVIDER_URI = os.environ.get("ICEBERG_REST_TEST_OPENID_PROVIDER_URI")
 OPENID_CLIENT_ID = os.environ.get("ICEBERG_REST_TEST_OPENID_CLIENT_ID")
@@ -60,6 +64,9 @@ if S3_ACCESS_KEY is not None:
 
 if AZURE_CLIENT_ID is not None:
     STORAGE_CONFIGS.append({"type": "azure"})
+
+if GCS_CREDENTIAL is not None:
+    STORAGE_CONFIGS.append({"type": "gcs"})
 
 
 def string_to_bool(s: str) -> bool:
@@ -117,6 +124,21 @@ def storage_config(request) -> dict:
                 "tenant-id": AZURE_TENANT_ID,
             },
         }
+    elif request.param["type"] == "gcs":
+        if GCS_BUCKET is None:
+            pytest.skip("ICEBERG_REST_TEST_GCS_BUCKET is not set")
+
+        return {
+            "storage-profile": {
+                "type": "gcs",
+                "bucket": GCS_BUCKET,
+            },
+            "storage-credential": {
+                "type": "gcs",
+                "credential-type": "service-account-key",
+                "key": json.loads(GCS_CREDENTIAL),
+            },
+        }
     else:
         raise ValueError(f"Unknown storage type: {request.param['type']}")
 
@@ -128,7 +150,7 @@ class Server:
     access_token: str
 
     def create_warehouse(
-        self, name: str, project_id: uuid.UUID, storage_config: dict
+            self, name: str, project_id: uuid.UUID, storage_config: dict
     ) -> uuid.UUID:
         """Create a warehouse in this server"""
         create_payload = {
@@ -269,7 +291,8 @@ def spark(warehouse: Warehouse):
     spark_jars_packages = (
         f"org.apache.iceberg:iceberg-spark-runtime-{pyspark_version}_2.12:{SPARK_ICEBERG_VERSION},"
         f"org.apache.iceberg:iceberg-aws-bundle:{SPARK_ICEBERG_VERSION},"
-        f"org.apache.iceberg:iceberg-azure-bundle:{SPARK_ICEBERG_VERSION}"
+        f"org.apache.iceberg:iceberg-azure-bundle:{SPARK_ICEBERG_VERSION},"
+        f"org.apache.iceberg:iceberg-gcp-bundle:{SPARK_ICEBERG_VERSION}"
     )
     # random 5 char string
     catalog_name = warehouse.normalized_catalog_name

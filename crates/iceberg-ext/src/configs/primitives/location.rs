@@ -63,6 +63,14 @@ impl Location {
         self
     }
 
+    /// Clones the location and pushes a segment to the path.
+    #[must_use]
+    pub fn cloning_push(&self, segment: &str) -> Self {
+        let mut cloned = self.clone();
+        cloned.push(segment);
+        cloned
+    }
+
     /// Follows the same logic as `url::MutPathSegments::pop`,
     /// except that getting `MutPathSegments`is not fallible.
     /// Non-fallibility by the constructor which checks
