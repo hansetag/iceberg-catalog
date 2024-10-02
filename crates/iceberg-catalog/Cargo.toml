@@ -86,6 +86,6 @@ veil = { workspace = true }
 [dev-dependencies]
 http-body-util = { workspace = true }
 needs_env_var = { workspace = true }
+serde_urlencoded = "0.7.1"
 tower = { workspace = true }
 tracing-subscriber = { workspace = true }
-serde_urlencoded = "0.7.1"
