@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/hansetag/iceberg-catalog/compare/v0.3.0...v0.4.0) (2024-10-03)
+
+
+### Features
+
+* **cache:** cache metadata location in signer ([#334](https://github.com/hansetag/iceberg-catalog/issues/334)) ([fa0863c](https://github.com/hansetag/iceberg-catalog/commit/fa0863cdbf5df626eec083499d76add4dade4e0b))
+* New TableMetadataBuilder with: ID Reassignments, Metadata expiry, safe binding... ([#387](https://github.com/hansetag/iceberg-catalog/issues/387)) ([e5c1c77](https://github.com/hansetag/iceberg-catalog/commit/e5c1c77fced957cd6703e1ae6ec77e151414a63e))
+* **storage:** support for google cloud storage (gcs) ([#361](https://github.com/hansetag/iceberg-catalog/issues/361)) ([ebb4e27](https://github.com/hansetag/iceberg-catalog/commit/ebb4e27f729e20e30f87e5ce4c2d2351c2422ca6))
+
 ## [0.3.0](https://github.com/hansetag/iceberg-catalog/compare/v0.2.1...v0.3.0) (2024-08-26)
 
 
