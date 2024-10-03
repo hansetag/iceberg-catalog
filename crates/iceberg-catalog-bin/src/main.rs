@@ -8,6 +8,8 @@ mod healthcheck;
 mod serve;
 mod wait_for_db;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
@@ -155,5 +157,14 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn print_info() {
-    tracing::info!("Iceberg Catalog Version: {}", env!("CARGO_PKG_VERSION"));
+    let console_span = r" _      ___  _   _______ _   _______ _________________ 
+| |    / _ \| | / |  ___| | / |  ___|  ___| ___ | ___ \
+| |   / /_\ | |/ /| |__ | |/ /| |__ | |__ | |_/ | |_/ /
+| |   |  _  |    \|  __||    \|  __||  __||  __/|    / 
+| |___| | | | |\  | |___| |\  | |___| |___| |   | |\ \ 
+\_____\_| |_\_| \_\____/\_| \_\____/\____/\_|   \_| \_| 
+";
+    let console_span = format!("{}\nLakekeeper Version: {}\n", console_span, VERSION);
+    println!("{}", console_span);
+    tracing::info!("Lakekeeper Version: {}", VERSION);
 }

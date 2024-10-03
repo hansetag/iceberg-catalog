@@ -8,9 +8,7 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 license = { workspace = true }
 description = """
-The default binary of the iceberg-catalog project.
-We encourage you to build your own binary with the features you need,
-especially incorporating a custom AuthZ Handler.
+This is Lakekeeper, a catalog for Iceberg tables.
 """
 
 [[bin]]
