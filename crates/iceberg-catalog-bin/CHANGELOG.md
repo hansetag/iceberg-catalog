@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/hansetag/iceberg-catalog/compare/v0.3.0...v0.4.0) (2024-10-03)
+
+
+### Features
+
+* Add Lakekeeper startup banner ([#389](https://github.com/hansetag/iceberg-catalog/issues/389)) ([8ead450](https://github.com/hansetag/iceberg-catalog/commit/8ead4508580d5a3e0c82aa40fceb5e688c263556))
+* **catalog:** Soft-deletions & tabular cleanup queues ([#310](https://github.com/hansetag/iceberg-catalog/issues/310)) ([1de63b3](https://github.com/hansetag/iceberg-catalog/commit/1de63b3886820ea219006fcc2c696328b44dfb0f))
+
 ## [0.3.0](https://github.com/hansetag/iceberg-catalog/compare/v0.2.1...v0.3.0) (2024-08-26)
 
 
