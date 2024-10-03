@@ -1,0 +1,75 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO users (id, name, email, origin)\n        VALUES ($1, $2, $3, $4)\n        ON CONFLICT (id) -- we assume to have a globally unique id\n        DO UPDATE SET name = $2, email = $3, origin = $4\n        returning id, name, email, created_at, updated_at, origin as \"origin: DbUserOrigin\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "origin: DbUserOrigin",
+        "type_info": {
+          "Custom": {
+            "name": "user_origin",
+            "kind": {
+              "Enum": [
+                "explicit-via-register-call",
+                "implicit-via-config-call"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "user_origin",
+            "kind": {
+              "Enum": [
+                "explicit-via-register-call",
+                "implicit-via-config-call"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "418343c80b6d165b5f7bbb935fa5736f60b33f4689173fb3f3c651423a8532c1"
+}

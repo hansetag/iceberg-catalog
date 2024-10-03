@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE users\n        SET name = $2, email = $3, updated_at = now()\n        WHERE id = $1\n        returning id, name, email, created_at, updated_at, origin as \"origin: DbUserOrigin\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "origin: DbUserOrigin",
+        "type_info": {
+          "Custom": {
+            "name": "user_origin",
+            "kind": {
+              "Enum": [
+                "explicit-via-register-call",
+                "implicit-via-config-call"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "4918779552296f3ffd5635dd757a39f7bd1a04214eda70b53b800b11803f6154"
+}

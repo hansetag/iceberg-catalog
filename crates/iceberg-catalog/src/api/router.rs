@@ -96,11 +96,13 @@ fn maybe_add_auth<C: Catalog, A: Authorizer, S: SecretStore>(
     router: Router<ApiContext<State<A, C, S>>>,
 ) -> Router<ApiContext<State<A, C, S>>> {
     if let Some(token_verifier) = token_verifier {
+        tracing::info!("Running with auth middleware");
         router.layer(axum::middleware::from_fn_with_state(
             token_verifier,
             crate::service::token_verification::auth_middleware_fn,
         ))
     } else {
+        tracing::warn!("Running without auth middleware");
         router
     }
 }

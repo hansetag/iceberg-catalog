@@ -1,4 +1,4 @@
-use crate::service::token_verification::{Actor, AuthDetails};
+use crate::service::token_verification::{Actor, AuthDetails, UserId};
 use axum::middleware::Next;
 use axum::response::Response;
 use http::HeaderMap;
@@ -26,6 +26,29 @@ impl RequestMetadata {
     }
 
     #[must_use]
+    pub fn user_id(&self) -> Option<&UserId> {
+        self.auth_details.as_ref().map(AuthDetails::user_id)
+    }
+
+    // TODO: differentiate between machine user & natural person? I.e. have separate name fns for them?
+    #[must_use]
+    pub fn user_name(&self) -> Option<&str> {
+        self.auth_details.as_ref().and_then(AuthDetails::name)
+    }
+
+    #[must_use]
+    pub fn user_display_name(&self) -> Option<&str> {
+        self.auth_details
+            .as_ref()
+            .and_then(AuthDetails::display_name)
+    }
+
+    #[must_use]
+    pub fn email(&self) -> Option<&str> {
+        self.auth_details.as_ref().and_then(AuthDetails::email)
+    }
+
+    #[must_use]
     pub fn actor(&self) -> Actor {
         self.auth_details.as_ref().map_or(
             Actor::Anonymous,
@@ -33,6 +56,7 @@ impl RequestMetadata {
         )
     }
 }
+
 #[cfg(feature = "router")]
 pub(crate) async fn create_request_metadata_with_trace_id_fn(
     headers: HeaderMap,
