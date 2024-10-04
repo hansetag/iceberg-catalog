@@ -426,12 +426,8 @@ jobs:
           docker manifest push quay.io/hansetag/tip-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}
           docker manifest create quay.io/hansetag/tip-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }} quay.io/hansetag/tip-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-amd64 quay.io/hansetag/tip-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-arm64
           docker manifest push quay.io/hansetag/tip-catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}
-          if docker manifest inspect quay.io/hansetag/tip-catalog:latest > /dev/null 2>&1; then
-            docker manifest rm quay.io/hansetag/tip-catalog:latest
-            echo "Removed existing manifest for quay.io/hansetag/tip-catalog:latest"
-          else
-            echo "No manifest found for quay.io/hansetag/tip-catalog:latest"
-          fi
+          docker image rm quay.io/hansetag/tip-catalog:latest || true
+          docker manifest rm quay.io/hansetag/tip-catalog:latest || true
           docker manifest create quay.io/hansetag/tip-catalog:latest quay.io/hansetag/tip-catalog:latest-amd64 quay.io/hansetag/tip-catalog:latest-arm64
           docker manifest push quay.io/hansetag/tip-catalog:latest
         
@@ -499,11 +495,7 @@ jobs:
           docker manifest push quay.io/lakekeeper/catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}
           docker manifest create quay.io/lakekeeper/catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }} quay.io/lakekeeper/catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-amd64 quay.io/lakekeeper/catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}-arm64
           docker manifest push quay.io/lakekeeper/catalog:v${{ needs.release_please.outputs.major }}.${{ needs.release_please.outputs.minor }}.${{ needs.release_please.outputs.patch }}
-          if docker manifest inspect quay.io/lakekeeper/catalog:latest > /dev/null 2>&1; then
-            docker manifest rm quay.io/lakekeeper/catalog:latest
-            echo "Removed existing manifest for quay.io/lakekeeper/catalog:latest"
-          else
-            echo "No manifest found for quay.io/lakekeeper/catalog:latest"
-          fi
+          docker image rm quay.io/lakekeeper/catalog:latest || true
+          docker manifest rm quay.io/lakekeeper/catalog:latest || true
           docker manifest create quay.io/lakekeeper/catalog:latest quay.io/lakekeeper/catalog:latest-amd64 quay.io/lakekeeper/catalog:latest-arm64
           docker manifest push quay.io/lakekeeper/catalog:latest
