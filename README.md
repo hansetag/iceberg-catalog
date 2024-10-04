@@ -20,7 +20,9 @@ The catalog is evolving quickly. Especially internal rust APIs are not stable an
 
 Our next milestones are:
 * Release 0.4.0 early October including anticipated features such as GCP support, soft-deletions, security improvements and caching
-* Release 0.X.0 end of October / early November including authorization, UI and various management APIs. From this release onwards, we also consider management APIs stable.
+* Release 0.5.0 end of October / early November including authorization, UI and various management APIs. From this release onwards, we also consider management APIs stable.
+* Following Release 0.5.0 we will focus on docs and simplify usability
+
 
 # Scope and Features
 
