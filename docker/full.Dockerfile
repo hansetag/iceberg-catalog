@@ -29,7 +29,7 @@ FROM gcr.io/distroless/cc-debian12:nonroot as base
 COPY --from=builder /app/tmp_file /tmp_file
 
 
-FROM busybox:1.36.1 as cleaner
+FROM busybox:1.37.0 as cleaner
 # small diversion through busybox to remove some files
 
 COPY --from=base / /clean

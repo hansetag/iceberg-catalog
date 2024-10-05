@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.4.0](https://github.com/hansetag/iceberg-catalog/compare/v0.3.0...v0.4.0) (2024-10-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* Rename TIP to Lakekeeper ([#372](https://github.com/hansetag/iceberg-catalog/issues/372))
+
+### Features
+
+* **cache:** cache metadata location in signer ([#334](https://github.com/hansetag/iceberg-catalog/issues/334)) ([fa0863c](https://github.com/hansetag/iceberg-catalog/commit/fa0863cdbf5df626eec083499d76add4dade4e0b))
+* **catalog:** expiration queue configuration ([#330](https://github.com/hansetag/iceberg-catalog/issues/330)) ([fd96861](https://github.com/hansetag/iceberg-catalog/commit/fd96861f6179296a554bacab47144838a0d352ab))
+* **catalog:** Soft-deletions & tabular cleanup queues ([#310](https://github.com/hansetag/iceberg-catalog/issues/310)) ([1de63b3](https://github.com/hansetag/iceberg-catalog/commit/1de63b3886820ea219006fcc2c696328b44dfb0f))
+* list soft deletions ([#302](https://github.com/hansetag/iceberg-catalog/issues/302)) ([0a01eaf](https://github.com/hansetag/iceberg-catalog/commit/0a01eaf87f32e7f393f0d8f0d104594171dccfce))
+* make sure table locations are unique ([#335](https://github.com/hansetag/iceberg-catalog/issues/335)) ([543db50](https://github.com/hansetag/iceberg-catalog/commit/543db50319f757cb40f01600d36da2836cf49fb3))
+* New TableMetadataBuilder with: ID Reassignments, Metadata expiry, safe binding... ([#387](https://github.com/hansetag/iceberg-catalog/issues/387)) ([e5c1c77](https://github.com/hansetag/iceberg-catalog/commit/e5c1c77fced957cd6703e1ae6ec77e151414a63e))
+* Rename TIP to Lakekeeper ([#372](https://github.com/hansetag/iceberg-catalog/issues/372)) ([57df07e](https://github.com/hansetag/iceberg-catalog/commit/57df07e69a14fb74aa486cd185ae700c3040fe90))
+* **storage:** support for google cloud storage (gcs) ([#361](https://github.com/hansetag/iceberg-catalog/issues/361)) ([ebb4e27](https://github.com/hansetag/iceberg-catalog/commit/ebb4e27f729e20e30f87e5ce4c2d2351c2422ca6))
+* **tabular:** soft-delete & drop purge ([#287](https://github.com/hansetag/iceberg-catalog/issues/287)) ([475db44](https://github.com/hansetag/iceberg-catalog/commit/475db4438f3bb7f1246fb846d04843d4afe3782a))
+
+
+### Bug Fixes
+
+* make conditional compilation of tests depend on var content ([#311](https://github.com/hansetag/iceberg-catalog/issues/311)) ([79036db](https://github.com/hansetag/iceberg-catalog/commit/79036dba4739cc3a65d2fe706278ac81f64bc5f2))
+* replace pretty debug prints with properly formatted errors ([#327](https://github.com/hansetag/iceberg-catalog/issues/327)) ([efe9fe9](https://github.com/hansetag/iceberg-catalog/commit/efe9fe9bd1953d59dc5e48d6901b70fbe8e24895))
+
 ## [0.3.0](https://github.com/hansetag/iceberg-catalog/compare/v0.2.1...v0.3.0) (2024-08-26)
 
 

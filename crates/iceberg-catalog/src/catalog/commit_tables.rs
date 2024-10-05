@@ -2,9 +2,9 @@ use std::str::FromStr as _;
 
 use iceberg::{spec::TableMetadata, TableRequirement, TableUpdate};
 use iceberg_ext::{
-    catalog::rest::{TableRequirementExt as _, TableUpdateExt},
+    catalog::rest::TableRequirementExt as _,
     configs::Location,
-    spec::TableMetadataAggregate,
+    spec::{TableMetadataBuildResult, TableMetadataBuilder},
 };
 
 use crate::service::{ErrorModel, Result};
@@ -15,7 +15,7 @@ pub(super) fn apply_commit(
     metadata_location: &Option<Location>,
     requirements: &[TableRequirement],
     updates: Vec<TableUpdate>,
-) -> Result<TableMetadata> {
+) -> Result<TableMetadataBuildResult> {
     // Check requirements
     requirements
         .iter()
@@ -31,7 +31,10 @@ pub(super) fn apply_commit(
         )
     })?;
     let previous_uuid = metadata.uuid();
-    let mut builder = TableMetadataAggregate::new_from_metadata(metadata);
+    let mut builder = TableMetadataBuilder::new_from_metadata(
+        metadata,
+        metadata_location.clone().map(|l| l.to_string()),
+    );
 
     // Update!
     for update in updates {
@@ -57,10 +60,16 @@ pub(super) fn apply_commit(
                 }
             }
             _ => {
-                TableUpdateExt::apply(update, &mut builder)?;
+                builder = TableUpdate::apply(update, builder).map_err(|e| {
+                    let msg = e.message().to_string();
+                    ErrorModel::bad_request(msg, "InvalidTableUpdate", Some(Box::new(e)))
+                })?;
             }
         }
     }
 
-    builder.build().map_err(Into::into)
+    builder.build().map_err(|e| {
+        let msg = e.message().to_string();
+        ErrorModel::bad_request(msg, "TableMetadataBuildFailed", Some(Box::new(e))).into()
+    })
 }

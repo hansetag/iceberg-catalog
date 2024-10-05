@@ -103,11 +103,15 @@ def test_drop_purge_table(namespace: conftest.Namespace, storage_config):
     tab = catalog.load_table((*namespace.name, table_name))
 
     properties = tab.properties
-    if storage_config['storage-profile']['type'] == 's3':
-        properties["s3.access-key-id"] = storage_config['storage-credential']['aws-access-key-id']
-        properties["s3.secret-access-key"] = storage_config['storage-credential']['aws-secret-access-key']
-        properties["s3.endpoint"] = storage_config['storage-profile']['endpoint']
-        
+    if storage_config["storage-profile"]["type"] == "s3":
+        properties["s3.access-key-id"] = storage_config["storage-credential"][
+            "aws-access-key-id"
+        ]
+        properties["s3.secret-access-key"] = storage_config["storage-credential"][
+            "aws-secret-access-key"
+        ]
+        properties["s3.endpoint"] = storage_config["storage-profile"]["endpoint"]
+
     file_io = io._infer_file_io_from_scheme(tab.location(), properties)
 
     catalog.drop_table((*namespace.name, table_name), purge_requested=True)

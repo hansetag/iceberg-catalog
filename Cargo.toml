@@ -14,7 +14,15 @@ rust-version = "1.75.0"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-rdkafka = "0.36.2"
+
+utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
+rdkafka = { version = "0.36.2", features = ["ssl"] }
+utoipa = { version = "4.2.3", features = [
+  "axum_extras",
+  "chrono",
+  "url",
+  "uuid",
+] }
 async-nats = "0.37.0"
 async-compression = { version = "^0.4", features = ["tokio", "gzip"] }
 azure_core = { version = "0.20.0", default-features = false, features = [
@@ -32,6 +40,11 @@ azure_identity = { version = "0.20.0", default-features = false, features = [
 ] }
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-sts = "1.36.0"
+base64 = "0.22.1"
+google-cloud-auth = { version = "0.17.0", features = [
+  "rustls-tls",
+], default-features = false }
+google-cloud-token = "0.1.2"
 figment = { version = "0.10.19", features = ["env"] }
 serde = { version = "^1.0", features = ["rc"] }
 serde_derive = "^1.0"
@@ -43,7 +56,7 @@ reqwest = { version = "^0.12", default-features = false, features = [
   "json",
   "rustls-tls",
 ] }
-iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "47bfdda", features = [
+iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "2b6263a6c998df75444f7feb54bd37144354a071", features = [
   "storage-all",
 ] }
 typed-builder = "^0.20.0"
@@ -73,6 +86,7 @@ jwks_client_rs = { version = "0.5.1", default-features = false, features = [
 ] }
 lazy-regex = { version = "3.2.0", features = ["lite"] }
 lru = "0.12.4"
+percent-encoding = "2.3.1"
 strum = { version = "^0.26", features = ["derive"] }
 sqlx = { version = "^0.8.0", default-features = false, features = [
   "runtime-tokio",
@@ -100,13 +114,6 @@ tower-http = { version = "^0.5", features = [
 tracing = { version = "^0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 urlencoding = "^2.1"
-utoipa = { version = "4.2.3", features = [
-  "axum_extras",
-  "chrono",
-  "url",
-  "uuid",
-] }
-utoipa-swagger-ui = { version = "7.1.0", features = ["axum"] }
 veil = "0.1.7"
 paste = "1.0.15"
 heck = "0.5.0"

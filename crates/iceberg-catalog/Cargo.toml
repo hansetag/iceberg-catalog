@@ -1,7 +1,7 @@
 [package]
 name = "iceberg-catalog"
 resolver = "2"
-version = "0.3.0"
+version = "0.4.0"
 edition = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
@@ -37,12 +37,15 @@ azure_core = { workspace = true }
 azure_identity = { workspace = true }
 azure_storage = { workspace = true }
 azure_storage_blobs = { workspace = true }
+base64 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 cloudevents-sdk = { version = "0.7.0" }
 derive_more = { workspace = true }
 figment = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
+google-cloud-auth = { workspace = true }
+google-cloud-token = { workspace = true }
 hostname = { workspace = true }
 http = { workspace = true }
 iceberg = { workspace = true }
@@ -54,6 +57,7 @@ lazy-regex = { workspace = true }
 lazy_static = { workspace = true }
 lru = { workspace = true }
 maplit = { workspace = true }
+percent-encoding = { workspace = true }
 rand = "0.8.5"
 reqwest = { workspace = true }
 rdkafka = { workspace = true, optional = true }
@@ -84,6 +88,6 @@ veil = { workspace = true }
 [dev-dependencies]
 http-body-util = { workspace = true }
 needs_env_var = { workspace = true }
+serde_urlencoded = "0.7.1"
 tower = { workspace = true }
 tracing-subscriber = { workspace = true }
-serde_urlencoded = "0.7.1"

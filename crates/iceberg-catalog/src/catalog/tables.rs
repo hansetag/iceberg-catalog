@@ -31,11 +31,18 @@ use crate::service::{
 use crate::service::{GetNamespaceResponse, TableCommit, TableIdentUuid, WarehouseStatus};
 
 use http::StatusCode;
+use iceberg::spec::{
+    MetadataLog, TableMetadataBuildResult, PROPERTY_METADATA_PREVIOUS_VERSIONS_MAX,
+};
 use iceberg::{NamespaceIdent, TableUpdate};
 use iceberg_ext::configs::namespace::NamespaceProperties;
 use iceberg_ext::configs::Location;
 use serde::Serialize;
 use uuid::Uuid;
+
+const PROPERTY_METADATA_DELETE_AFTER_COMMIT_ENABLED: &str =
+    "write.metadata.delete-after-commit.enabled";
+const PROPERTY_METADATA_DELETE_AFTER_COMMIT_ENABLED_DEFAULT: bool = false;
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: AuthZHandler, S: SecretStore>
@@ -449,7 +456,11 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
             .into_result()?;
 
         // Apply changes
-        let new_metadata = apply_commit(
+        let TableMetadataBuildResult {
+            metadata: new_metadata,
+            changes: _,
+            expired_metadata_logs,
+        } = apply_commit(
             previous_table.table_metadata,
             &previous_table.metadata_location,
             &requirements,
@@ -490,6 +501,23 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         .await?;
 
         t.commit().await?;
+
+        // Delete files in parallel - if one delete fails, we still want to delete the rest
+        if get_delete_after_commit_enabled(commit.new_metadata.properties()) {
+            let _ = futures::future::join_all(
+                expired_metadata_logs
+                    .into_iter()
+                    .map(|expired_metadata_log| file_io.delete(expired_metadata_log.metadata_file))
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .into_iter()
+            .map(|r| {
+                r.map_err(|e| tracing::warn!("Failed to delete metadata file: {:?}", e))
+                    .ok()
+            });
+        }
+
         emit_change_event(
             EventMetadata {
                 tabular_id: TabularIdentUuid::Table(*previous_table.table_id),
@@ -919,6 +947,8 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         )
         .await?;
 
+        let mut expired_metadata_logs: Vec<MetadataLog> = vec![];
+
         // Apply changes
         let commits = request
             .table_changes
@@ -935,12 +965,19 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
                     require_table_id(&table_ident, table_ids.get(&table_ident).copied())?;
                 let previous_table =
                     remove_table(&table_id, &table_ident, &mut previous_metadatas)?;
-                let new_metadata = apply_commit(
+                let TableMetadataBuildResult {
+                    metadata: new_metadata,
+                    changes: _,
+                    expired_metadata_logs: this_expired,
+                } = apply_commit(
                     previous_table.table_metadata.clone(),
                     &previous_table.metadata_location,
                     &change.requirements,
                     change.updates.clone(),
                 )?;
+                if get_delete_after_commit_enabled(new_metadata.properties()) {
+                    expired_metadata_logs.extend(this_expired);
+                }
                 let new_table_location =
                     Location::from_str(new_metadata.location()).map_err(|e| {
                         ErrorModel::internal(
@@ -1009,6 +1046,21 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         futures::future::try_join_all(write_futures).await?;
 
         transaction.commit().await?;
+
+        // Delete files in parallel - if one delete fails, we still want to delete the rest
+        let _ = futures::future::join_all(
+            expired_metadata_logs
+                .into_iter()
+                .map(|expired_metadata_log| file_io.delete(expired_metadata_log.metadata_file))
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .into_iter()
+        .map(|r| {
+            r.map_err(|e| tracing::warn!("Failed to delete metadata file: {:?}", e))
+                .ok()
+        });
+
         let number_of_events = events.len();
 
         for (event_sequence_number, (body, (table_ident, table_id))) in
@@ -1273,12 +1325,26 @@ pub(crate) fn validate_lowercase_property(prop: &str) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn get_delete_after_commit_enabled(properties: &HashMap<String, String>) -> bool {
+    properties
+        .get(PROPERTY_METADATA_DELETE_AFTER_COMMIT_ENABLED)
+        .map_or(PROPERTY_METADATA_DELETE_AFTER_COMMIT_ENABLED_DEFAULT, |v| {
+            v == "true"
+        })
+}
+
 pub(crate) fn validate_table_properties<'a, I>(properties: I) -> Result<()>
 where
     I: IntoIterator<Item = &'a String>,
 {
     for prop in properties {
-        if (prop.starts_with("write.metadata") && prop != "write.metadata.compression-codec")
+        if (prop.starts_with("write.metadata")
+            && ![
+                PROPERTY_METADATA_PREVIOUS_VERSIONS_MAX,
+                PROPERTY_METADATA_DELETE_AFTER_COMMIT_ENABLED,
+                "write.metadata.compression-codec",
+            ]
+            .contains(&prop.as_str()))
             || prop.starts_with("write.data.path")
         {
             return Err(ErrorModel::conflict(

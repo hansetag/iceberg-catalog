@@ -165,6 +165,10 @@ jobs:
           AWS_S3_SECRET_ACCESS_KEY: ${{ secrets.AWS_S3_SECRET_ACCESS_KEY }}
           AWS_S3_STS_ROLE_ARN: ${{ secrets.AWS_S3_STS_ROLE_ARN }}
 
+          TEST_GCS: ${{ secrets.TEST_GCS }}
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+          GCS_CREDENTIAL: ${{ secrets.GCS_CREDENTIAL }}
+
       - name: Doc Test
         run: cargo test --no-fail-fast --doc --all-features --workspace
         env:
