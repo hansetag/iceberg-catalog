@@ -75,8 +75,8 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         cloud_event_sinks
             .push(Arc::new(nats_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
     }
-    if let Some(kafka_brokers) = &CONFIG.kafka_brokers {
-        let kafka_publisher = build_kafka_producer(kafka_brokers)?;
+    if let Some(kafka_bootstrap_servers) = &CONFIG.kafka_bootstrap_servers {
+        let kafka_publisher = build_kafka_producer(kafka_bootstrap_servers)?;
         cloud_event_sinks
             .push(Arc::new(kafka_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
     }
@@ -169,7 +169,7 @@ async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
     Ok(nats_publisher)
 }
 
-fn build_kafka_producer(kafka_brokers: &[Url]) -> Result<KafkaBackend, Error> {
+fn build_kafka_producer(kafka_brokers: &[SocketAddr]) -> Result<KafkaBackend, Error> {
     let kafka_brokers_csv = itertools::join(kafka_brokers.iter(), ",");
     let kafka_backend = KafkaBackend {
         producer: rdkafka::ClientConfig::new()
