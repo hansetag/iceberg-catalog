@@ -56,7 +56,7 @@ pub(crate) async fn drop_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
 
-    let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
+    let warehouse = C::require_warehouse(warehouse_id, transaction.transaction()).await?;
 
     state
         .v1_state

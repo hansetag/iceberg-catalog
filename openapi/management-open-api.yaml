@@ -5,13 +5,13 @@ info:
     Implementation of the Iceberg REST Catalog server.
   license:
     name: Apache-2.0
-  version: 0.3.0
+  version: 0.4.0
 paths:
   /management/v1/project:
     get:
       tags:
       - management
-      summary: List all existing projects
+      summary: List all projects the requesting user has access to
       operationId: list_projects
       responses:
         '200':
@@ -22,6 +22,88 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ListProjectsResponse'
+    post:
+      tags:
+      - management
+      summary: Create a new project
+      operationId: create_project
+      requestBody:
+        description: ''
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+        required: true
+      responses:
+        '201':
+          description: Project created successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectResponse'
+  /management/v1/project/{project_id}:
+    get:
+      tags:
+      - management
+      summary: Get a Project by ID
+      operationId: get_project
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GetProjectResponse'
+    delete:
+      tags:
+      - management
+      summary: Delete a project by ID
+      description: No warehouses must be present in the project to delete it.
+      operationId: delete_project
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Project deleted successfully
+  /management/v1/project/{project_id}/rename:
+    post:
+      tags:
+      - management
+      summary: Rename a project
+      operationId: rename_project
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        description: ''
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameProjectRequest'
+        required: true
+      responses:
+        '200':
+          description: Project renamed successfully
   /management/v1/warehouse:
     get:
       tags:
@@ -301,6 +383,30 @@ components:
           description: 'The validity of the sas token in seconds. Default: 3600.'
           nullable: true
           minimum: 0
+    CreateProjectRequest:
+      type: object
+      required:
+      - project-name
+      properties:
+        project-id:
+          type: string
+          format: uuid
+          description: |-
+            Request a specific project ID - optional.
+            If not provided, a new project ID will be generated (recommended).
+          nullable: true
+        project-name:
+          type: string
+          description: Name of the project to create.
+    CreateProjectResponse:
+      type: object
+      required:
+      - project-id
+      properties:
+        project-id:
+          type: string
+          format: uuid
+          description: ID of the created project.
     CreateWarehouseRequest:
       type: object
       required:
@@ -384,6 +490,10 @@ components:
     GcsCredential:
       oneOf:
       - type: object
+        description: |-
+          Service Account Key
+
+          The key is the JSON object obtained when creating a service account key in the GCP console.
         required:
         - key
         - credential-type
@@ -394,6 +504,26 @@ components:
             - service-account-key
           key:
             $ref: '#/components/schemas/GcsServiceKey'
+      description: |-
+        GCS Credentials
+
+        Currently only supports Service Account Key
+        Example of a key:
+        ```json
+        {
+        "type": "service_account",
+        "project_id": "example-project-1234",
+        "private_key_id": "....",
+        "private_key": "-----BEGIN PRIVATE KEY-----\n.....\n-----END PRIVATE KEY-----\n",
+        "client_email": "abc@example-project-1234.iam.gserviceaccount.com",
+        "client_id": "123456789012345678901",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/abc%example-project-1234.iam.gserviceaccount.com",
+        "universe_domain": "googleapis.com"
+        }
+        ```
       discriminator:
         propertyName: credential-type
     GcsProfile:
@@ -447,6 +577,19 @@ components:
           type: string
         universe_domain:
           type: string
+    GetProjectResponse:
+      type: object
+      required:
+      - project_id
+      - project_name
+      properties:
+        project_id:
+          type: string
+          format: uuid
+          description: ID of the project.
+        project_name:
+          type: string
+          description: Name of the project
     GetWarehouseResponse:
       type: object
       required:
@@ -493,7 +636,7 @@ components:
         projects:
           type: array
           items:
-            $ref: '#/components/schemas/ProjectResponse'
+            $ref: '#/components/schemas/GetProjectResponse'
           description: List of projects
     ListWarehousesRequest:
       type: object
@@ -524,15 +667,6 @@ components:
           items:
             $ref: '#/components/schemas/GetWarehouseResponse'
           description: List of warehouses in the project.
-    ProjectResponse:
-      type: object
-      required:
-      - project_id
-      properties:
-        project_id:
-          type: string
-          format: uuid
-          description: ID of the project.
     RenameWarehouseRequest:
       type: object
       required:

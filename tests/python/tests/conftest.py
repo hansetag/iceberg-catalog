@@ -169,10 +169,27 @@ class Server:
     management_url: str
     access_token: str
 
+    def create_project(self, name: str) -> uuid.UUID:
+        create_payload = {"project-name": name}
+        project_url = self.project_url
+        response = requests.post(
+            project_url,
+            json=create_payload,
+            headers={"Authorization": f"Bearer {self.access_token}"},
+        )
+        if not response.ok:
+            raise ValueError(
+                f"Failed to create project ({response.status_code}): {response.text}"
+            )
+
+        project_id = response.json()["project-id"]
+        return uuid.UUID(project_id)
+
     def create_warehouse(
         self, name: str, project_id: uuid.UUID, storage_config: dict
     ) -> uuid.UUID:
         """Create a warehouse in this server"""
+
         create_payload = {
             "project-id": str(project_id),
             "warehouse-name": name,
@@ -196,6 +213,10 @@ class Server:
     @property
     def warehouse_url(self) -> str:
         return urllib.parse.urljoin(self.management_url, "v1/warehouse")
+
+    @property
+    def project_url(self) -> str:
+        return urllib.parse.urljoin(self.management_url, "v1/project")
 
 
 @dataclasses.dataclass
@@ -266,17 +287,24 @@ def server(access_token) -> Server:
 
 
 @pytest.fixture(scope="session")
-def warehouse(server: Server, storage_config) -> Warehouse:
-    project_id = uuid.uuid4()
+def project(server: Server) -> uuid.UUID:
+    test_id = uuid.uuid4()
+    project_name = f"project-{test_id}"
+    project_id = server.create_project(project_name)
+    return project_id
+
+
+@pytest.fixture(scope="session")
+def warehouse(server: Server, storage_config, project) -> Warehouse:
     test_id = uuid.uuid4()
     warehouse_name = f"warehouse-{test_id}"
     warehouse_id = server.create_warehouse(
-        warehouse_name, project_id=project_id, storage_config=storage_config
+        warehouse_name, project_id=project, storage_config=storage_config
     )
     return Warehouse(
         access_token=server.access_token,
         server=server,
-        project_id=project_id,
+        project_id=project,
         warehouse_id=warehouse_id,
         warehouse_name=warehouse_name,
     )

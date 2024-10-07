@@ -98,7 +98,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         // Set location if not specified - validate location if specified
 
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+        let warehouse = C::require_warehouse(warehouse_id, t.transaction()).await?;
 
         let mut namespace_props = NamespaceProperties::try_from_maybe_props(properties.clone())
             .map_err(|e| ErrorModel::bad_request(e.to_string(), e.err_type(), None))?;

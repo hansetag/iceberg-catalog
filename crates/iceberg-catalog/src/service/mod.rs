@@ -13,9 +13,9 @@ pub mod token_verification;
 pub use catalog::{
     Catalog, CommitTableResponse, CreateNamespaceRequest, CreateNamespaceResponse,
     CreateTableRequest, CreateTableResponse, DeletionDetails, DropFlags, GetNamespaceResponse,
-    GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse, ListFlags,
-    ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result,
-    TableCommit, TableCreation, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
+    GetProjectResponse, GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse,
+    ListFlags, ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent,
+    Result, TableCommit, TableCreation, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
     UpdateNamespacePropertiesResponse, ViewMetadataWithLocation,
 };
 use std::ops::Deref;

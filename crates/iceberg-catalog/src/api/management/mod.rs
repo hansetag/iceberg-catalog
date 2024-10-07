@@ -1,4 +1,5 @@
 pub mod v1 {
+    pub mod project;
     pub mod warehouse;
     use axum::{Extension, Json, Router};
     use utoipa::OpenApi;
@@ -14,13 +15,17 @@ pub mod v1 {
     use crate::service::{storage::S3Flavor, Catalog, SecretStore, State};
     use axum::extract::{Path, Query, State as AxumState};
     use axum::routing::{get, post};
+    use project::{
+        CreateProjectRequest, CreateProjectResponse, GetProjectResponse, ListProjectsResponse,
+        RenameProjectRequest, Service as _,
+    };
     use serde::Serialize;
     use warehouse::{
         AzCredential, AzdlsProfile, CreateWarehouseRequest, CreateWarehouseResponse, GcsCredential,
-        GcsProfile, GcsServiceKey, GetWarehouseResponse, ListProjectsResponse,
-        ListWarehousesRequest, ListWarehousesResponse, ProjectResponse, RenameWarehouseRequest,
-        S3Credential, S3Profile, Service, StorageCredential, StorageProfile, TabularDeleteProfile,
-        UpdateWarehouseCredentialRequest, UpdateWarehouseStorageRequest, WarehouseStatus,
+        GcsProfile, GcsServiceKey, GetWarehouseResponse, ListWarehousesRequest,
+        ListWarehousesResponse, RenameWarehouseRequest, S3Credential, S3Profile, Service as _,
+        StorageCredential, StorageProfile, TabularDeleteProfile, UpdateWarehouseCredentialRequest,
+        UpdateWarehouseStorageRequest, WarehouseStatus,
     };
 
     #[derive(Debug, OpenApi)]
@@ -30,44 +35,50 @@ pub mod v1 {
         ),
         paths(
             activate_warehouse,
+            create_project,
             create_warehouse,
             deactivate_warehouse,
+            delete_project,
             delete_warehouse,
+            get_project,
             get_warehouse,
+            list_deleted_tabulars,
             list_projects,
             list_warehouses,
+            rename_project,
             rename_warehouse,
             update_storage_credential,
             update_storage_profile,
-            list_deleted_tabulars
         ),
         components(schemas(
             AzCredential,
             AzdlsProfile,
+            CreateProjectRequest,
+            CreateProjectResponse,
             CreateWarehouseRequest,
             CreateWarehouseResponse,
+            DeleteKind,
+            DeletedTabularResponse,
             GcsCredential,
             GcsProfile,
             GcsServiceKey,
             GetWarehouseResponse,
+            ListDeletedTabularsResponse,
             ListProjectsResponse,
             ListWarehousesRequest,
             ListWarehousesResponse,
-            ProjectResponse,
+            GetProjectResponse,
             RenameWarehouseRequest,
             S3Credential,
-            S3Profile,
             S3Flavor,
+            S3Profile,
             StorageCredential,
             StorageProfile,
+            TabularDeleteProfile,
+            TabularType,
             UpdateWarehouseCredentialRequest,
             UpdateWarehouseStorageRequest,
             WarehouseStatus,
-            ListDeletedTabularsResponse,
-            DeletedTabularResponse,
-            TabularType,
-            DeleteKind,
-            TabularDeleteProfile,
         ))
     )]
     pub struct ManagementApiDoc;
@@ -102,7 +113,7 @@ pub mod v1 {
         ApiServer::<C, A, S>::create_warehouse(request, api_context, metadata).await
     }
 
-    /// List all existing projects
+    /// List all projects the requesting user has access to
     #[utoipa::path(
         get,
         tag = "management",
@@ -116,6 +127,78 @@ pub mod v1 {
         Extension(metadata): Extension<RequestMetadata>,
     ) -> Result<ListProjectsResponse> {
         ApiServer::<C, A, S>::list_projects(api_context, metadata).await
+    }
+
+    /// Create a new project
+    #[utoipa::path(
+        post,
+        tag = "management",
+        path = "/management/v1/project",
+        responses(
+            (status = 201, description = "Project created successfully", body = [ProjectResponse])
+        )
+    )]
+    async fn create_project<C: Catalog, A: AuthZHandler, S: SecretStore>(
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+        Json(request): Json<CreateProjectRequest>,
+    ) -> Result<CreateProjectResponse> {
+        ApiServer::<C, A, S>::create_project(request, api_context, metadata).await
+    }
+
+    /// Get a Project by ID
+    #[utoipa::path(
+        get,
+        tag = "management",
+        path = "/management/v1/project/{project_id}",
+        responses(
+            (status = 200, description = "Project details", body = [GetProjectResponse])
+        )
+    )]
+    async fn get_project<C: Catalog, A: AuthZHandler, S: SecretStore>(
+        Path(project_id): Path<uuid::Uuid>,
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<GetProjectResponse> {
+        ApiServer::<C, A, S>::get_project(project_id, api_context, metadata).await
+    }
+
+    /// Delete a project by ID
+    ///
+    /// No warehouses must be present in the project to delete it.
+    #[utoipa::path(
+        delete,
+        tag = "management",
+        path = "/management/v1/project/{project_id}",
+        responses(
+            (status = 200, description = "Project deleted successfully")
+        )
+    )]
+    async fn delete_project<C: Catalog, A: AuthZHandler, S: SecretStore>(
+        Path(project_id): Path<uuid::Uuid>,
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<()> {
+        ApiServer::<C, A, S>::delete_project(project_id, api_context, metadata).await
+    }
+
+    /// Rename a project
+    #[utoipa::path(
+        post,
+        tag = "management",
+        path = "/management/v1/project/{project_id}/rename",
+        responses(
+            (status = 200, description = "Project renamed successfully")
+        )
+    )]
+    async fn rename_project<C: Catalog, A: AuthZHandler, S: SecretStore>(
+        Path(project_id): Path<uuid::Uuid>,
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+        Json(request): Json<RenameProjectRequest>,
+    ) -> Result<()> {
+        ApiServer::<C, A, S>::rename_project(project_id.into(), request, api_context, metadata)
+            .await
     }
 
     /// List all warehouses in a project
@@ -349,6 +432,13 @@ pub mod v1 {
     impl<C: Catalog, A: AuthZHandler, S: SecretStore> ApiServer<C, A, S> {
         pub fn new_v1_router() -> Router<ApiContext<State<A, C, S>>> {
             Router::new()
+                // Create a new project
+                .route("/project", post(create_project))
+                .route(
+                    "/project/:project_id",
+                    get(get_project).delete(delete_project),
+                )
+                .route("/project/:project_id/rename", post(rename_project))
                 // Create a new warehouse
                 .route("/warehouse", post(create_warehouse))
                 // List all projects

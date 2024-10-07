@@ -109,16 +109,10 @@ pub struct RenameWarehouseRequest {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
-pub struct ProjectResponse {
-    /// ID of the project.
-    pub project_id: uuid::Uuid,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
-pub struct ListProjectsResponse {
-    /// List of projects
-    pub projects: Vec<ProjectResponse>,
+pub struct RenameProjectRequest {
+    /// New name for the project.
+    pub new_name: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -160,8 +154,7 @@ impl axum::response::IntoResponse for CreateWarehouseResponse {
 impl<C: Catalog, A: AuthZHandler, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
 
 #[async_trait::async_trait]
-
-pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
+pub(super) trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
     async fn create_warehouse(
         request: CreateWarehouseRequest,
         context: ApiContext<State<A, C, S>>,
@@ -180,6 +173,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         A::check_create_warehouse(&request_metadata, &project_ident, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
+        validate_warehouse_name(&warehouse_name)?;
         storage_profile.normalize()?;
         storage_profile
             .validate_access(storage_credential.as_ref(), None)
@@ -212,36 +206,6 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         Ok(CreateWarehouseResponse {
             warehouse_id: *warehouse_id,
-        })
-    }
-
-    async fn list_projects(
-        context: ApiContext<State<A, C, S>>,
-        request_metadata: RequestMetadata,
-    ) -> Result<ListProjectsResponse> {
-        // ------------------- AuthZ -------------------
-        let projects = A::check_list_projects(&request_metadata, context.v1_state.auth).await?;
-
-        // ------------------- Business Logic -------------------
-        if let Some(projects) = projects {
-            return Ok(ListProjectsResponse {
-                projects: projects
-                    .into_iter()
-                    .map(|project_id| ProjectResponse {
-                        project_id: *project_id,
-                    })
-                    .collect(),
-            });
-        }
-
-        let projects = C::list_projects(context.v1_state.catalog).await?;
-        Ok(ListProjectsResponse {
-            projects: projects
-                .into_iter()
-                .map(|project_id| ProjectResponse {
-                    project_id: *project_id,
-                })
-                .collect(),
         })
     }
 
@@ -294,7 +258,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_read(context.v1_state.catalog).await?;
-        let warehouses = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
+        let warehouses = C::require_warehouse(warehouse_id, transaction.transaction()).await?;
 
         Ok(warehouses.into())
     }
@@ -326,6 +290,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         A::check_rename_warehouse(&request_metadata, warehouse_id, context.v1_state.auth).await?;
 
         // ------------------- Business Logic -------------------
+        validate_warehouse_name(&request.new_name)?;
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
 
         C::rename_warehouse(warehouse_id, &request.new_name, transaction.transaction()).await?;
@@ -403,7 +368,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
             .await?;
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
-        let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
+        let warehouse = C::require_warehouse(warehouse_id, transaction.transaction()).await?;
         warehouse
             .storage_profile
             .can_be_updated_with(&storage_profile)?;
@@ -462,7 +427,7 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         } = request;
 
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
-        let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
+        let warehouse = C::require_warehouse(warehouse_id, transaction.transaction()).await?;
         let old_secret_id = warehouse.storage_secret_id;
         let storage_profile = warehouse.storage_profile;
 
@@ -558,12 +523,6 @@ pub trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
     }
 }
 
-impl axum::response::IntoResponse for ListProjectsResponse {
-    fn into_response(self) -> axum::http::Response<axum::body::Body> {
-        axum::Json(self).into_response()
-    }
-}
-
 impl axum::response::IntoResponse for ListWarehousesResponse {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
         axum::Json(self).into_response()
@@ -586,6 +545,27 @@ impl From<crate::service::GetWarehouseResponse> for GetWarehouseResponse {
             status: warehouse.status,
         }
     }
+}
+
+fn validate_warehouse_name(warehouse_name: &str) -> Result<()> {
+    if warehouse_name.is_empty() {
+        return Err(ErrorModel::bad_request(
+            "Warehouse name cannot be empty",
+            "EmptyWarehouseName",
+            None,
+        )
+        .into());
+    }
+
+    if warehouse_name.len() > 128 {
+        return Err(ErrorModel::bad_request(
+            "Warehouse must be shorter than 128 chars",
+            "WarehouseNameTooLong",
+            None,
+        )
+        .into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
