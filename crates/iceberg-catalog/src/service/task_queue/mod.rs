@@ -307,6 +307,7 @@ mod test {
                 Some(StorageProfile::S3(profile)),
                 None,
                 Some(secret_ident),
+                true,
             )
             .await;
 

@@ -421,7 +421,7 @@ pub(crate) mod tests {
     async fn test_namespace_lifecycle(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None, true).await;
 
         let namespace = NamespaceIdent::from_vec(vec!["test".to_string()]).unwrap();
         let properties = Some(HashMap::from_iter(vec![
@@ -512,7 +512,7 @@ pub(crate) mod tests {
     async fn test_pagination(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None, true).await;
         let namespace = NamespaceIdent::from_vec(vec!["test".to_string()]).unwrap();
         let properties = Some(HashMap::from_iter(vec![
             ("key1".to_string(), "value1".to_string()),
@@ -607,7 +607,7 @@ pub(crate) mod tests {
     async fn test_cannot_drop_nonempty_namespace(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None, true).await;
         let staged = false;
         let table = initialize_table(warehouse_id, state.clone(), staged, None, None).await;
 
@@ -625,7 +625,7 @@ pub(crate) mod tests {
     async fn test_case_insensitive_but_preserve_case(pool: sqlx::PgPool) {
         let state = CatalogState::from_pools(pool.clone(), pool.clone());
 
-        let warehouse_id = initialize_warehouse(state.clone(), None, None, None).await;
+        let warehouse_id = initialize_warehouse(state.clone(), None, None, None, true).await;
         let namespace_1 = NamespaceIdent::from_vec(vec!["Test".to_string()]).unwrap();
         let namespace_2 = NamespaceIdent::from_vec(vec!["test".to_string()]).unwrap();
 

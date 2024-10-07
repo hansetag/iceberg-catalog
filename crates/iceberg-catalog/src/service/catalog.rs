@@ -14,6 +14,7 @@ use crate::SecretIdent;
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use iceberg::spec::{Schema, SortOrder, TableMetadata, UnboundPartitionSpec, ViewMetadata};
+use iceberg_ext::catalog::rest::ErrorModel;
 pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
 use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
@@ -21,11 +22,11 @@ use std::collections::{HashMap, HashSet};
 #[async_trait::async_trait]
 pub trait Transaction<D>
 where
-    Self: Sized + Send + Sync,
+    Self: Sized + Send + Sync + Unpin,
 {
-    type Transaction<'a>
+    type Transaction<'a>: Send + Sync + 'a
     where
-        Self: 'a;
+        Self: 'static;
 
     async fn begin_write(db_state: D) -> Result<Self>;
 
@@ -95,6 +96,14 @@ pub struct GetWarehouseResponse {
     pub status: WarehouseStatus,
     /// Tabular delete profile used for the warehouse.
     pub tabular_delete_profile: TabularDeleteProfile,
+}
+
+#[derive(Debug, Clone)]
+pub struct GetProjectResponse {
+    /// ID of the project.
+    pub project_id: ProjectIdent,
+    /// Name of the project.
+    pub name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -280,8 +289,32 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<WarehouseIdent>;
 
+    /// Create a project
+    async fn create_project<'a>(
+        project_id: ProjectIdent,
+        project_name: String,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
+
+    /// Delete a project
+    async fn delete_project<'a>(
+        project_id: ProjectIdent,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
+
+    /// Get the project metadata
+    async fn get_project<'a>(
+        project_id: ProjectIdent,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<Option<GetProjectResponse>>;
+
     /// Return a list of all project ids in the catalog
-    async fn list_projects(catalog_state: Self::State) -> Result<HashSet<ProjectIdent>>;
+    ///
+    /// If project_ids is None, return all projects, otherwise return only the projects in the set
+    async fn list_projects(
+        project_ids: Option<HashSet<ProjectIdent>>,
+        catalog_state: Self::State,
+    ) -> Result<Vec<GetProjectResponse>>;
 
     /// Return a list of all warehouse in a project
     async fn list_warehouses(
@@ -296,10 +329,27 @@ where
     ) -> Result<Vec<GetWarehouseResponse>>;
 
     /// Get the warehouse metadata - should only return active warehouses.
+    ///
+    /// Return Ok(None) if the warehouse does not exist.
     async fn get_warehouse<'a>(
         warehouse_id: WarehouseIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<GetWarehouseResponse>;
+    ) -> Result<Option<GetWarehouseResponse>>;
+
+    /// Wrapper around get_warehouse that returns a not-found error if the warehouse does not exist.
+    async fn require_warehouse<'a>(
+        warehouse_id: WarehouseIdent,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<GetWarehouseResponse> {
+        Self::get_warehouse(warehouse_id, transaction).await?.ok_or(
+            ErrorModel::not_found(
+                format!("Warehouse {warehouse_id} not found"),
+                "WarehouseNotFound",
+                None,
+            )
+            .into(),
+        )
+    }
 
     /// Delete a warehouse.
     async fn delete_warehouse<'a>(
@@ -310,6 +360,13 @@ where
     /// Rename a warehouse.
     async fn rename_warehouse<'a>(
         warehouse_id: WarehouseIdent,
+        new_name: &str,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<()>;
+
+    /// Rename a project.
+    async fn rename_project<'a>(
+        project_id: ProjectIdent,
         new_name: &str,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;

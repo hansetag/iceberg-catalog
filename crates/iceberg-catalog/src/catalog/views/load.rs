@@ -69,7 +69,7 @@ pub(crate) async fn load_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
         storage_secret_id,
         status,
         tabular_delete_profile: _,
-    } = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
+    } = C::require_warehouse(warehouse_id, transaction.transaction()).await?;
     require_active_warehouse(status)?;
 
     let ViewMetadataWithLocation {

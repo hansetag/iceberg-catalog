@@ -127,7 +127,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
 
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let namespace = C::get_namespace(warehouse_id, &namespace, t.transaction()).await?;
-        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+        let warehouse = C::require_warehouse(warehouse_id, t.transaction()).await?;
         let storage_profile = &warehouse.storage_profile;
         require_active_warehouse(warehouse.status)?;
 
@@ -445,7 +445,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         )
         .await?;
         let previous_table = remove_table(&table_id, &table_ident, &mut previous_table)?;
-        let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+        let warehouse = C::require_warehouse(warehouse_id, t.transaction()).await?;
 
         // Contract verification
         state
@@ -590,7 +590,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let purge = purge_requested.unwrap_or(false);
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
+        let warehouse = C::require_warehouse(warehouse_id, transaction.transaction()).await?;
 
         let table_id = table_id.ok_or_else(|| {
             ErrorModel::not_found(
@@ -922,7 +922,7 @@ impl<C: Catalog, A: AuthZHandler, S: SecretStore>
         let table_ids = require_table_ids(table_ids)?;
 
         let mut transaction = C::Transaction::begin_write(state.v1_state.catalog).await?;
-        let warehouse = C::get_warehouse(warehouse_id, transaction.transaction()).await?;
+        let warehouse = C::require_warehouse(warehouse_id, transaction.transaction()).await?;
 
         // Store data for events before it is moved
         let mut events = vec![];
