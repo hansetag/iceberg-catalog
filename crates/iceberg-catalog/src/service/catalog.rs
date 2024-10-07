@@ -1,11 +1,11 @@
+use super::authz::TableUuid;
 use super::{
     storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent,
     WarehouseStatus,
 };
 pub use crate::api::iceberg::v1::{
-    CreateNamespaceRequest, CreateNamespaceResponse, ListNamespacesQuery, ListNamespacesResponse,
-    NamespaceIdent, Result, TableIdent, UpdateNamespacePropertiesRequest,
-    UpdateNamespacePropertiesResponse,
+    CreateNamespaceRequest, CreateNamespaceResponse, ListNamespacesQuery, NamespaceIdent, Result,
+    TableIdent, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
 };
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::service::health::HealthExt;
@@ -14,7 +14,7 @@ use crate::SecretIdent;
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use iceberg::spec::{Schema, SortOrder, TableMetadata, UnboundPartitionSpec, ViewMetadata};
-use iceberg_ext::catalog::rest::ErrorModel;
+use iceberg_ext::catalog::rest::{CatalogConfig, ErrorModel};
 pub use iceberg_ext::catalog::rest::{CommitTableResponse, CreateTableRequest};
 use iceberg_ext::configs::Location;
 use std::collections::{HashMap, HashSet};
@@ -48,6 +48,12 @@ pub struct GetNamespaceResponse {
     pub properties: Option<std::collections::HashMap<String, String>>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListNamespacesResponse {
+    pub next_page_token: Option<String>,
+    pub namespaces: HashMap<NamespaceIdentUuid, NamespaceIdent>,
+}
+
 #[derive(Debug)]
 pub struct CreateTableResponse {
     pub table_metadata: TableMetadata,
@@ -67,11 +73,18 @@ pub struct LoadTableResponse {
 pub struct GetTableMetadataResponse {
     pub table: TableIdent,
     pub table_id: TableIdentUuid,
+    pub namespace_id: NamespaceIdentUuid,
     pub warehouse_id: WarehouseIdent,
     pub location: String,
     pub metadata_location: Option<String>,
     pub storage_secret_ident: Option<SecretIdent>,
     pub storage_profile: StorageProfile,
+}
+
+impl TableUuid for GetTableMetadataResponse {
+    fn table_uuid(&self) -> TableIdentUuid {
+        self.table_id
+    }
 }
 
 #[derive(Debug)]
@@ -133,11 +146,61 @@ where
     type Transaction: Transaction<Self::State>;
     type State: Clone + Send + Sync + 'static + HealthExt;
 
+    // Should only return a warehouse if the warehouse is active.
+    async fn get_warehouse_by_name(
+        warehouse_name: &str,
+        project_id: ProjectIdent,
+        catalog_state: Self::State,
+    ) -> Result<Option<WarehouseIdent>>;
+
+    /// Wrapper around get_warehouse_by_name that returns
+    /// not found error if the warehouse does not exist.
+    async fn require_warehouse_by_name(
+        warehouse_name: &str,
+        project_id: ProjectIdent,
+        catalog_state: Self::State,
+    ) -> Result<WarehouseIdent> {
+        Self::get_warehouse_by_name(warehouse_name, project_id, catalog_state)
+            .await?
+            .ok_or(
+                ErrorModel::not_found(
+                    format!("Warehouse {warehouse_name} not found"),
+                    "WarehouseNotFound",
+                    None,
+                )
+                .into(),
+            )
+    }
+
+    // Should only return a warehouse if the warehouse is active.
+    async fn get_config_for_warehouse(
+        warehouse_id: WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<Option<CatalogConfig>>;
+
+    /// Wrapper around get_config_for_warehouse that returns
+    /// not found error if the warehouse does not exist.
+    async fn require_config_for_warehouse(
+        warehouse_id: WarehouseIdent,
+        catalog_state: Self::State,
+    ) -> Result<CatalogConfig> {
+        Self::get_config_for_warehouse(warehouse_id, catalog_state)
+            .await?
+            .ok_or(
+                ErrorModel::not_found(
+                    format!("Warehouse {warehouse_id} not found"),
+                    "WarehouseNotFound",
+                    None,
+                )
+                .into(),
+            )
+    }
+
     // Should only return namespaces if the warehouse is active.
-    async fn list_namespaces(
+    async fn list_namespaces<'a>(
         warehouse_id: WarehouseIdent,
         query: &ListNamespacesQuery,
-        catalog_state: Self::State,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ListNamespacesResponse>;
 
     async fn create_namespace<'a>(
@@ -150,7 +213,7 @@ where
     // Should only return a namespace if the warehouse is active.
     async fn get_namespace<'a>(
         warehouse_id: WarehouseIdent,
-        namespace: &NamespaceIdent,
+        namespace_id: NamespaceIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<GetNamespaceResponse>;
 
@@ -159,15 +222,15 @@ where
     ///
     /// We use this function also to handle the `namespace_exists` endpoint.
     /// Also return Ok(false) if the warehouse is not active.
-    async fn namespace_ident_to_id(
+    async fn namespace_to_id<'a>(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
-        catalog_state: Self::State,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Option<NamespaceIdentUuid>>;
 
     async fn drop_namespace<'a>(
         warehouse_id: WarehouseIdent,
-        namespace: &NamespaceIdent,
+        namespace_id: NamespaceIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
 
@@ -177,7 +240,7 @@ where
     /// be persisted as-is in the catalog.
     async fn update_namespace_properties<'a>(
         warehouse_id: WarehouseIdent,
-        namespace: &NamespaceIdent,
+        namespace_id: NamespaceIdentUuid,
         properties: HashMap<String, String>,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
@@ -187,11 +250,11 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateTableResponse>;
 
-    async fn list_tables(
+    async fn list_tables<'a>(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         list_flags: ListFlags,
-        catalog_state: Self::State,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
         pagination_query: PaginationQuery,
     ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>>;
 
@@ -201,11 +264,11 @@ where
     ///
     /// We use this function also to handle the `table_exists` endpoint.
     /// Also return Ok(None) if the warehouse is not active.
-    async fn table_ident_to_id(
+    async fn table_to_id<'a>(
         warehouse_id: WarehouseIdent,
         table: &TableIdent,
         list_flags: ListFlags,
-        catalog_state: Self::State,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Option<TableIdentUuid>>;
 
     /// Same as `table_ident_to_id`, but for multiple tables.
@@ -229,20 +292,22 @@ where
     /// Get table metadata by table id.
     /// If include_staged is true, also return staged tables,
     /// i.e. tables with no metadata file yet.
+    /// Return Ok(None) if the table does not exist.
     async fn get_table_metadata_by_id(
         warehouse_id: WarehouseIdent,
         table: TableIdentUuid,
         list_flags: ListFlags,
         catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResponse>;
+    ) -> Result<Option<GetTableMetadataResponse>>;
 
     /// Get table metadata by location.
+    /// Return Ok(None) if the table does not exist.
     async fn get_table_metadata_by_s3_location(
         warehouse_id: WarehouseIdent,
         location: &Location,
         list_flags: ListFlags,
         catalog_state: Self::State,
-    ) -> Result<GetTableMetadataResponse>;
+    ) -> Result<Option<GetTableMetadataResponse>>;
 
     /// Rename a table. Tables may be moved across namespaces.
     async fn rename_table<'a>(
@@ -322,9 +387,6 @@ where
         // If None, return only active warehouses
         // If Some, return only warehouses with any of the statuses in the set
         include_inactive: Option<Vec<WarehouseStatus>>,
-        // If None, return all warehouses in the project
-        // If Some, return only the warehouses in the set
-        warehouse_id_filter: Option<&HashSet<WarehouseIdent>>,
         catalog_state: Self::State,
     ) -> Result<Vec<GetWarehouseResponse>>;
 
@@ -391,10 +453,10 @@ where
     ///
     /// We use this function also to handle the `view_exists` endpoint.
     /// Also return Ok(None) if the warehouse is not active.
-    async fn view_ident_to_id(
+    async fn view_to_id<'a>(
         warehouse_id: WarehouseIdent,
         view: &TableIdent,
-        catalog_state: Self::State,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Option<TableIdentUuid>>;
 
     async fn create_view<'a>(
@@ -412,11 +474,11 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ViewMetadataWithLocation>;
 
-    async fn list_views(
+    async fn list_views<'a>(
         warehouse_id: WarehouseIdent,
         namespace: &NamespaceIdent,
         include_deleted: bool,
-        catalog_state: Self::State,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
         pagination_query: PaginationQuery,
     ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>>;
 

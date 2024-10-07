@@ -1,12 +1,11 @@
-pub mod auth;
+pub mod authz;
 mod catalog;
-pub mod config;
 pub mod contract_verification;
 pub mod event_publisher;
 pub mod health;
 pub mod secrets;
 pub mod storage;
-pub mod tabular_idents;
+mod tabular_idents;
 pub mod task_queue;
 pub mod token_verification;
 
@@ -19,8 +18,10 @@ pub use catalog::{
     UpdateNamespacePropertiesResponse, ViewMetadataWithLocation,
 };
 use std::ops::Deref;
+pub(crate) use tabular_idents::TabularIdentBorrowed;
+pub use tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 
-use self::auth::AuthZHandler;
+use self::authz::Authorizer;
 use crate::api::iceberg::v1::Prefix;
 use crate::api::ThreadSafe as ServiceState;
 pub use crate::api::{ErrorModel, IcebergErrorResponse};
@@ -31,39 +32,10 @@ use http::StatusCode;
 pub use secrets::{SecretIdent, SecretStore};
 use std::str::FromStr;
 
-#[async_trait::async_trait]
-pub trait NamespaceIdentExt
-where
-    Self: Sized,
-{
-    fn parent(&self) -> Option<NamespaceIdent>;
-}
-
-#[async_trait::async_trait]
-impl NamespaceIdentExt for NamespaceIdent {
-    fn parent(&self) -> Option<Self> {
-        let mut name = self.clone().inner();
-        // The last element is the namespace itself, everything before it the parent.
-        name.pop();
-
-        if name.is_empty() {
-            None
-        } else {
-            match NamespaceIdent::from_vec(name) {
-                Ok(ident) => Some(ident),
-                // This only fails if the vector is empty,
-                // in which case there is no parent, so return None
-                Err(_e) => None,
-            }
-        }
-    }
-}
-
 // ---------------- State ----------------
-
 #[derive(Clone, Debug)]
-pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
-    pub auth: A::State,
+pub struct State<A: Authorizer + Clone, C: Catalog, S: SecretStore> {
+    pub authz: A,
     pub catalog: C::State,
     pub secrets: S,
     pub publisher: CloudEventsPublisher,
@@ -71,14 +43,123 @@ pub struct State<A: AuthZHandler, C: Catalog, S: SecretStore> {
     pub queues: TaskQueues,
 }
 
-impl<A: AuthZHandler, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}
+impl<A: Authorizer + Clone, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
+pub struct ViewIdentUuid(uuid::Uuid);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 pub struct NamespaceIdentUuid(uuid::Uuid);
 
-impl std::default::Default for NamespaceIdentUuid {
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
+pub struct TableIdentUuid(uuid::Uuid);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(feature = "sqlx", sqlx(transparent))]
+pub struct WarehouseIdent(pub(crate) uuid::Uuid);
+
+/// Status of a warehouse
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    strum_macros::Display,
+    serde::Serialize,
+    serde::Deserialize,
+    utoipa::ToSchema,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(
+    feature = "sqlx",
+    sqlx(type_name = "warehouse_status", rename_all = "kebab-case")
+)]
+pub enum WarehouseStatus {
+    /// The warehouse is active and can be used
+    Active,
+    /// The warehouse is inactive and cannot be used.
+    Inactive,
+}
+
+#[derive(
+    Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy,
+)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
+#[cfg_attr(feature = "sqlx", sqlx(transparent))]
+#[serde(transparent)]
+pub struct ProjectIdent(uuid::Uuid);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct RoleIdent(String);
+
+impl FromStr for RoleIdent {
+    type Err = IcebergErrorResponse;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        validate_entity_id(s, "Role")?;
+        Ok(RoleIdent(s.to_string()))
+    }
+}
+
+impl std::fmt::Display for RoleIdent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Deref for RoleIdent {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<RoleIdent> for String {
+    fn from(ident: RoleIdent) -> Self {
+        ident.0
+    }
+}
+
+impl Deref for ViewIdentUuid {
+    type Target = uuid::Uuid;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Default for NamespaceIdentUuid {
     fn default() -> Self {
         Self(uuid::Uuid::now_v7())
+    }
+}
+
+impl std::fmt::Display for ViewIdentUuid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for ViewIdentUuid {
+    type Err = IcebergErrorResponse;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(ViewIdentUuid(uuid::Uuid::from_str(s).map_err(|e| {
+            ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message("Provided view id is not a valid UUID".to_string())
+                .r#type("ViewIDIsNotUUID".to_string())
+                .source(Some(Box::new(e)))
+                .build()
+        })?))
     }
 }
 
@@ -119,10 +200,13 @@ impl From<uuid::Uuid> for NamespaceIdentUuid {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
-pub struct TableIdentUuid(uuid::Uuid);
+impl From<&uuid::Uuid> for NamespaceIdentUuid {
+    fn from(uuid: &uuid::Uuid) -> Self {
+        Self(*uuid)
+    }
+}
 
-impl std::default::Default for TableIdentUuid {
+impl Default for TableIdentUuid {
     fn default() -> Self {
         Self(uuid::Uuid::now_v7())
     }
@@ -170,11 +254,6 @@ impl From<TableIdentUuid> for uuid::Uuid {
 }
 
 // ---------------- Identifier ----------------
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(transparent))]
-// Is UUID here too strict?
-pub struct ProjectIdent(uuid::Uuid);
 
 impl Deref for ProjectIdent {
     type Target = uuid::Uuid;
@@ -204,40 +283,6 @@ impl FromStr for ProjectIdent {
         })?))
     }
 }
-
-/// Status of a warehouse
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    strum_macros::Display,
-    serde::Serialize,
-    serde::Deserialize,
-    utoipa::ToSchema,
-)]
-#[serde(rename_all = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(
-    feature = "sqlx",
-    sqlx(type_name = "warehouse_status", rename_all = "kebab-case")
-)]
-pub enum WarehouseStatus {
-    /// The warehouse is active and can be used
-    Active,
-    /// The warehouse is inactive and cannot be used.
-    Inactive,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
-#[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
-#[cfg_attr(feature = "sqlx", sqlx(transparent))]
-pub struct WarehouseIdent(pub(crate) uuid::Uuid);
 
 impl WarehouseIdent {
     #[must_use]
@@ -309,4 +354,43 @@ impl TryFrom<Prefix> for WarehouseIdent {
         })?;
         Ok(WarehouseIdent(prefix))
     }
+}
+
+pub(crate) fn validate_entity_id(s: &str, entity_name: &str) -> Result<()> {
+    if !s
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(ErrorModel::bad_request(
+            format!("Invalid characters in {entity_name} id"),
+            "InvalidEntityId",
+            None,
+        )
+        .append_detail(format!("{entity_name}: {s}"))
+        .into());
+    }
+
+    // All lowercase
+    if s.to_lowercase() != s {
+        return Err(ErrorModel::bad_request(
+            format!("{entity_name} id must be lowercase"),
+            "InvalidEntityId",
+            None,
+        )
+        .append_detail(format!("{entity_name}: {s}"))
+        .into());
+    }
+
+    // Max length 128
+    if s.len() > 128 {
+        return Err(ErrorModel::bad_request(
+            format!("{entity_name} id must be at most 128 characters"),
+            "InvalidEntityId",
+            None,
+        )
+        .append_detail(format!("{entity_name}: {s}"))
+        .into());
+    }
+
+    Ok(())
 }

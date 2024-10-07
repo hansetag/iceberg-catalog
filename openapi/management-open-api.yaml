@@ -287,7 +287,7 @@ paths:
     post:
       tags:
       - management
-      summary: Update the storage profile of a warehouse
+      summary: Update the storage profile of a warehouse including its storage credential.
       operationId: update_storage_profile
       parameters:
       - name: warehouse_id
@@ -309,7 +309,8 @@ paths:
     post:
       tags:
       - management
-      summary: Update the storage credential of a warehouse
+      summary: Update the storage credential of a warehouse. The storage profile is not modified.
+      description: This can be used to update credentials before expiration.
       operationId: update_storage_credential
       parameters:
       - name: warehouse_id
@@ -411,7 +412,6 @@ components:
       type: object
       required:
       - warehouse-name
-      - project-id
       - storage-profile
       properties:
         delete-profile:
@@ -419,7 +419,10 @@ components:
         project-id:
           type: string
           format: uuid
-          description: Project ID in which to create the warehouse.
+          description: |-
+            Project ID in which to create the warehouse.
+            If no default project is set for this server, this field is required.
+          nullable: true
         storage-credential:
           allOf:
           - $ref: '#/components/schemas/StorageCredential'
@@ -430,7 +433,7 @@ components:
           type: string
           description: |-
             Name of the warehouse to create. Must be unique
-            within a project.
+            within a project and may not contain "/"
     CreateWarehouseResponse:
       type: object
       required:

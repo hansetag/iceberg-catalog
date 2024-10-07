@@ -111,6 +111,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Migrate {}) => {
             print_info();
+            println!("Migrating authorizer...");
+            iceberg_catalog::service::authz::implementations::migrate_default_authorizer().await?;
+            println!("Authorizer migration complete.");
+
             println!("Migrating database...");
             let write_pool = iceberg_catalog::implementations::postgres::get_writer_pool(
                 CONFIG

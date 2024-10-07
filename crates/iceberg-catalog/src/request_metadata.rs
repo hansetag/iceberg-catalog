@@ -1,4 +1,4 @@
-use crate::service::token_verification::AuthDetails;
+use crate::service::token_verification::{Actor, AuthDetails};
 use axum::middleware::Next;
 use axum::response::Response;
 use http::HeaderMap;
@@ -23,6 +23,14 @@ impl RequestMetadata {
             request_id: Uuid::new_v4(),
             auth_details: None,
         }
+    }
+
+    #[must_use]
+    pub fn actor(&self) -> Actor {
+        self.auth_details.as_ref().map_or(
+            Actor::Anonymous,
+            super::service::token_verification::AuthDetails::actor,
+        )
     }
 }
 #[cfg(feature = "router")]

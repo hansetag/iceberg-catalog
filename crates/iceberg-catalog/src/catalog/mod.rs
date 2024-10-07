@@ -9,7 +9,6 @@ mod s3_signer;
 mod tables;
 mod views;
 
-pub use config::Server as ConfigServer;
 use iceberg::spec::{TableMetadata, ViewMetadata};
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
 pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
@@ -17,7 +16,7 @@ pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
 use crate::api::{iceberg::v1::Prefix, ErrorModel, Result};
 use crate::service::storage::StorageCredential;
 use crate::{
-    service::{auth::AuthZHandler, secrets::SecretStore, Catalog},
+    service::{authz::Authorizer, secrets::SecretStore, Catalog},
     WarehouseIdent,
 };
 use std::collections::HashMap;
@@ -41,9 +40,9 @@ impl CommonMetadata for ViewMetadata {
 
 #[derive(Clone, Debug)]
 
-pub struct CatalogServer<C: Catalog, A: AuthZHandler, S: SecretStore> {
+pub struct CatalogServer<C: Catalog, A: Authorizer + Clone, S: SecretStore> {
     auth_handler: PhantomData<A>,
-    config_server: PhantomData<C>,
+    catalog_backend: PhantomData<C>,
     secret_store: PhantomData<S>,
 }
 

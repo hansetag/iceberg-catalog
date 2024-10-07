@@ -4,6 +4,10 @@ FROM rust:1.81-slim-bookworm AS chef
 RUN apt update -q && \
     DEBIAN_FRONTEND=noninteractive apt install -yqq curl libpq-dev pkg-config libssl-dev make perl --no-install-recommends && \
     cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+
+RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v28.2/protoc-28.2-linux-x86_64.zip && \
+    unzip protoc-28.2-linux-x86_64.zip -d /usr/local/ && \
+    rm protoc-28.2-linux-x86_64.zip
 RUN cargo install cargo-chef 
 
 WORKDIR /app
@@ -22,7 +26,6 @@ COPY . .
 
 ENV SQLX_OFFLINE=true
 RUN cargo build --release --bin iceberg-catalog
-RUN ldd target/release/iceberg-catalog > tmp_file
 
 # our final base
 FROM gcr.io/distroless/cc-debian12:nonroot as base
