@@ -4,8 +4,8 @@ use iceberg_catalog::implementations::postgres::{CatalogState, PostgresCatalog, 
 use iceberg_catalog::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
-    CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
-    NatsBackend,
+    CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, KafkaBackend,
+    Message, NatsBackend,
 };
 use iceberg_catalog::service::health::ServiceHealthProvider;
 use iceberg_catalog::service::secrets::Secrets;
@@ -17,6 +17,7 @@ use iceberg_catalog::implementations::postgres::task_queues::{
     TabularExpirationQueue, TabularPurgeQueue,
 };
 use iceberg_catalog::service::task_queue::TaskQueues;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -73,7 +74,14 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         let nats_publisher = build_nats_client(nat_addr).await?;
         cloud_event_sinks
             .push(Arc::new(nats_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
-    } else {
+    }
+    if let Some(kafka_bootstrap_servers) = &CONFIG.kafka_bootstrap_servers {
+        let kafka_publisher = build_kafka_producer(kafka_bootstrap_servers)?;
+        cloud_event_sinks
+            .push(Arc::new(kafka_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
+    }
+
+    if cloud_event_sinks.is_empty() {
         tracing::info!("Running without publisher.");
     };
 
@@ -159,4 +167,22 @@ async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
             .ok_or(anyhow::anyhow!("Missing nats topic."))?,
     };
     Ok(nats_publisher)
+}
+
+fn build_kafka_producer(kafka_brokers: &[SocketAddr]) -> Result<KafkaBackend, Error> {
+    let kafka_brokers_csv = itertools::join(kafka_brokers.iter(), ",");
+    let kafka_backend = KafkaBackend {
+        producer: rdkafka::ClientConfig::new()
+            .set("bootstrap.servers", &kafka_brokers_csv)
+            .create()?,
+        topic: CONFIG
+            .kafka_topic
+            .clone()
+            .ok_or(anyhow::anyhow!("Missing kafka topic."))?,
+    };
+    tracing::info!(
+        "Running with kafka publisher, initial brokers are: {}",
+        &kafka_brokers_csv
+    );
+    Ok(kafka_backend)
 }

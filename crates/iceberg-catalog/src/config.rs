@@ -2,11 +2,13 @@
 use anyhow::anyhow;
 use std::collections::HashSet;
 use std::convert::Infallible;
+use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::str::FromStr;
 use url::Url;
 
+use crate::service::event_publisher::{KafkaSaslMechanisms, KafkaSecurityProtocol};
 use crate::service::task_queue::TaskQueueConfig;
 use crate::WarehouseIdent;
 use itertools::Itertools;
@@ -100,6 +102,15 @@ pub struct DynAppConfig {
     pub nats_password: Option<String>,
     #[redact]
     pub nats_token: Option<String>,
+
+    // ------------- KAFKA CLOUDEVENTS -------------
+    pub kafka_bootstrap_servers: Option<Vec<SocketAddr>>,
+    pub kafka_security_protocol: Option<KafkaSecurityProtocol>,
+    pub kafka_sasl_mechanisms: Option<KafkaSaslMechanisms>,
+    pub kafka_username: Option<String>,
+    #[redact]
+    pub kafka_password: Option<String>,
+    pub kafka_topic: Option<String>,
 
     // ------------- AUTHORIZATION -------------
     pub openid_provider_uri: Option<Url>,
@@ -197,6 +208,12 @@ impl Default for DynAppConfig {
             nats_user: None,
             nats_password: None,
             nats_token: None,
+            kafka_bootstrap_servers: None,
+            kafka_security_protocol: None,
+            kafka_sasl_mechanisms: None,
+            kafka_username: None,
+            kafka_password: None,
+            kafka_topic: None,
             openid_provider_uri: None,
             listen_port: 8080,
             health_check_frequency_seconds: 10,

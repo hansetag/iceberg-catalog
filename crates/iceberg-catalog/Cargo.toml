@@ -12,12 +12,13 @@ Implementation of the Iceberg REST Catalog server.
 """
 
 [features]
-all = ["sqlx-postgres", "s3-signer", "router", "nats"]
+all = ["sqlx-postgres", "s3-signer", "router", "nats", "kafka"]
 sqlx-postgres = ["sqlx"]
 sqlx = ["dep:sqlx"]
 s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]
 router = ["dep:tower-http"]
 nats = ["dep:async-nats"]
+kafka = ["dep:rdkafka"]
 default = ["sqlx-postgres", "s3-signer", "router"]
 
 [dependencies]
@@ -59,6 +60,7 @@ maplit = { workspace = true }
 percent-encoding = { workspace = true }
 rand = "0.8.5"
 reqwest = { workspace = true }
+rdkafka = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
 sqlx = { workspace = true, optional = true, features = ["tls-rustls"] }
@@ -69,9 +71,9 @@ time = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true, optional = true, features = [
-    "default",
-    "request-id",
-    "util",
+  "default",
+  "request-id",
+  "util",
 ] }
 tracing = { workspace = true }
 url = { workspace = true }
