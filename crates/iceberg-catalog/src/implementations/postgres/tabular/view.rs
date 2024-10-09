@@ -10,10 +10,9 @@ use http::StatusCode;
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::implementations::postgres::tabular::{
-    create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed,
+    self, create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed,
     TabularIdentUuid, TabularType,
 };
-use crate::implementations::postgres::{tabular, CatalogState};
 use crate::service::ListFlags;
 pub(crate) use crate::service::ViewMetadataWithLocation;
 use chrono::{DateTime, Utc};
@@ -78,7 +77,7 @@ pub(crate) async fn create_view(
             "InternalServerError",
             None,
         )
-        .append_details(&[location.to_string(), metadata.location.to_string()])
+        .append_details(vec![location.to_string(), metadata.location.to_string()])
         .into());
     }
     let tabular_id = create_tabular(
@@ -439,13 +438,16 @@ pub(crate) async fn set_current_view_metadata_version(
     Ok(())
 }
 
-pub(crate) async fn list_views(
+pub(crate) async fn list_views<'e, 'c: 'e, E>(
     warehouse_id: WarehouseIdent,
     namespace: &NamespaceIdent,
     include_deleted: bool,
-    catalog_state: CatalogState,
+    transaction: E,
     paginate_query: PaginationQuery,
-) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
+) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>>
+where
+    E: 'e + sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
     let page = list_tabulars(
         warehouse_id,
         Some(namespace),
@@ -454,7 +456,7 @@ pub(crate) async fn list_views(
             include_staged: false,
             include_active: true,
         },
-        &catalog_state.read_pool(),
+        transaction,
         Some(TabularType::View),
         paginate_query,
     )
@@ -550,7 +552,7 @@ pub(crate) mod tests {
 
     use crate::api::iceberg::v1::PaginationQuery;
     use crate::implementations::postgres::tabular::mark_tabular_as_deleted;
-    use crate::service::tabular_idents::TabularIdentUuid;
+    use crate::service::TabularIdentUuid;
     use crate::WarehouseIdent;
     use iceberg_ext::configs::Location;
     use serde_json::json;
@@ -737,7 +739,7 @@ pub(crate) mod tests {
             warehouse_id,
             &namespace,
             false,
-            state.clone(),
+            &state.read_pool(),
             PaginationQuery::empty(),
         )
         .await

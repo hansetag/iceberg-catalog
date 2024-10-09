@@ -35,7 +35,9 @@ test: doc-test
 update-rest-openapi:
     # Download from https://raw.githubusercontent.com/apache/iceberg/main/open-api/rest-catalog-open-api.yaml and put into openapi folder
     curl -o openapi/rest-catalog-open-api.yaml https://raw.githubusercontent.com/apache/iceberg/main/open-api/rest-catalog-open-api.yaml
-   
+
+update-openfga:
+    fga model transform --file authz/openfga/v1/schema.fga > authz/openfga/v1/schema.json
 
 update-management-openapi:
     # For rust-server generation only:

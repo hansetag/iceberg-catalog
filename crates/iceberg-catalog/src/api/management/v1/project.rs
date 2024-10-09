@@ -7,7 +7,11 @@ pub use crate::service::storage::{
 };
 
 pub use crate::service::WarehouseStatus;
-use crate::service::{auth::AuthZHandler, secrets::SecretStore, Catalog, State, Transaction};
+use crate::service::{
+    authz::{Authorizer, ListProjectsResponse as AuthZListProjectsResponse},
+    secrets::SecretStore,
+    Catalog, State, Transaction,
+};
 use crate::ProjectIdent;
 use iceberg_ext::catalog::rest::ErrorModel;
 use utoipa::ToSchema;
@@ -63,10 +67,10 @@ impl axum::response::IntoResponse for GetProjectResponse {
     }
 }
 
-impl<C: Catalog, A: AuthZHandler, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
+impl<C: Catalog, A: Authorizer, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
 
 #[async_trait::async_trait]
-pub(super) trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
+pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
     async fn create_project(
         request: CreateProjectRequest,
         context: ApiContext<State<A, C, S>>,
@@ -156,18 +160,21 @@ pub(super) trait Service<C: Catalog, A: AuthZHandler, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<ListProjectsResponse> {
         // ------------------- AuthZ -------------------
-        let projects = A::check_list_projects(&request_metadata, context.v1_state.auth).await?;
+        let authorizer = context.v1_state.authz;
+        let projects = authorizer.list_projects(&request_metadata).await?;
 
         // ------------------- Business Logic -------------------
-
-        let projects = C::list_projects(projects, context.v1_state.catalog).await?;
-
+        let project_id_filter = match projects {
+            AuthZListProjectsResponse::All => None,
+            AuthZListProjectsResponse::Projects(projects) => Some(projects),
+        };
+        let projects = C::list_projects(project_id_filter, context.v1_state.catalog).await?;
         Ok(ListProjectsResponse {
             projects: projects
                 .into_iter()
-                .map(|r| GetProjectResponse {
-                    project_id: *r.project_id,
-                    project_name: r.name,
+                .map(|project| GetProjectResponse {
+                    project_id: *project.project_id,
+                    project_name: project.name,
                 })
                 .collect(),
         })

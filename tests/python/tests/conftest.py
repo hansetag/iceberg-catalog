@@ -186,7 +186,7 @@ class Server:
         return uuid.UUID(project_id)
 
     def create_warehouse(
-        self, name: str, project_id: uuid.UUID, storage_config: dict
+            self, name: str, project_id: uuid.UUID, storage_config: dict
     ) -> uuid.UUID:
         """Create a warehouse in this server"""
 

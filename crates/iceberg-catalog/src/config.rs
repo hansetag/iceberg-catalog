@@ -8,7 +8,7 @@ use std::str::FromStr;
 use url::Url;
 
 use crate::service::task_queue::TaskQueueConfig;
-use crate::WarehouseIdent;
+use crate::{ProjectIdent, WarehouseIdent};
 use itertools::Itertools;
 use serde::{Deserialize, Deserializer, Serialize};
 use veil::Redact;
@@ -19,24 +19,42 @@ const DEFAULT_ENCRYPTION_KEY: &str = "<This is unsafe, please set a proper key>"
 lazy_static::lazy_static! {
     /// Configuration of the service module.
     pub static ref CONFIG: DynAppConfig = {
-        let defaults = figment::providers::Serialized::defaults(DynAppConfig::default());
-        let mut config = figment::Figment::from(defaults)
-            .merge(figment::providers::Env::prefixed("ICEBERG_REST__").split("__"))
-            .extract::<DynAppConfig>()
-            .expect("Valid Configuration");
-
-        config.reserved_namespaces.extend(DEFAULT_RESERVED_NAMESPACES.into_iter().map(str::to_string));
-
-        // Fail early if the base_uri is not a valid URL
-        config.s3_signer_uri_for_warehouse(WarehouseIdent::from(uuid::Uuid::new_v4()));
-        config.base_uri_catalog();
-        config.base_uri_management();
-        if config.secret_backend == SecretBackend::Postgres && config.pg_encryption_key == DEFAULT_ENCRYPTION_KEY {
-            tracing::warn!("THIS IS UNSAFE! Using default encryption key for secrets in postgres, please set a proper key using ICEBERG_REST__PG_ENCRYPTION_KEY environment variable.");
-        }
-
-        config
+        get_config()
     };
+}
+
+fn get_config() -> DynAppConfig {
+    let defaults = figment::providers::Serialized::defaults(DynAppConfig::default());
+
+    #[cfg(not(test))]
+    let prefixes = &["ICEBERG_REST__", "LAKEKEEPER__"];
+    #[cfg(test)]
+    let prefixes = &["LAKEKEEPER_TEST__"];
+
+    let mut config = figment::Figment::from(defaults);
+    for prefix in prefixes {
+        config = config.merge(figment::providers::Env::prefixed(prefix).split("__"));
+    }
+
+    let mut config = config
+        .extract::<DynAppConfig>()
+        .expect("Valid Configuration");
+
+    config
+        .reserved_namespaces
+        .extend(DEFAULT_RESERVED_NAMESPACES.into_iter().map(str::to_string));
+
+    // Fail early if the base_uri is not a valid URL
+    config.s3_signer_uri_for_warehouse(WarehouseIdent::from(uuid::Uuid::new_v4()));
+    config.base_uri_catalog();
+    config.base_uri_management();
+    if config.secret_backend == SecretBackend::Postgres
+        && config.pg_encryption_key == DEFAULT_ENCRYPTION_KEY
+    {
+        tracing::warn!("THIS IS UNSAFE! Using default encryption key for secrets in postgres, please set a proper key using ICEBERG_REST__PG_ENCRYPTION_KEY environment variable.");
+    }
+
+    config
 }
 
 #[derive(Clone, Deserialize, Serialize, PartialEq, Redact)]
@@ -53,7 +71,7 @@ pub struct DynAppConfig {
     /// The default Project ID to use. We recommend setting this
     /// only for singe-project deployments. A single project
     /// can still contain multiple warehouses.
-    pub default_project_id: Option<uuid::Uuid>,
+    pub default_project_id: Option<ProjectIdent>,
     /// Template to obtain the "prefix" for a warehouse,
     /// may contain `{warehouse_id}` placeholder.
     ///
@@ -101,8 +119,17 @@ pub struct DynAppConfig {
     #[redact]
     pub nats_token: Option<String>,
 
-    // ------------- AUTHORIZATION -------------
+    // ------------- AUTHENTICATION -------------
     pub openid_provider_uri: Option<Url>,
+
+    // ------------- AUTHORIZATION - OPENFGA -------------
+    #[serde(default)]
+    pub authz_backend: AuthZBackend,
+    #[serde(
+        deserialize_with = "deserialize_openfga_config",
+        serialize_with = "serialize_openfga_config"
+    )]
+    pub openfga: Option<OpenFGAConfig>,
 
     // ------------- Health -------------
     pub health_check_frequency_seconds: u64,
@@ -118,7 +145,6 @@ pub struct DynAppConfig {
 
     // ------------- Tabular -------------
     /// Delay in seconds after which a tabular will be deleted
-    // TODO: make this an enum?
     #[serde(
         deserialize_with = "seconds_to_duration",
         serialize_with = "duration_to_seconds"
@@ -145,6 +171,49 @@ where
     S: serde::Serializer,
 {
     duration.num_seconds().to_string().serialize(serializer)
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, veil::Redact)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenFGAAuth {
+    Anonymous,
+    ClientCredentials {
+        client_id: String,
+        #[redact]
+        client_secret: String,
+        token_endpoint: String,
+    },
+    #[redact(all)]
+    ApiKey(String),
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+pub struct OpenFGAConfig {
+    /// GRPC Endpoint Url
+    pub endpoint: Url,
+    /// Store Name - if not specified, `lakekeeper` is used.
+    #[serde(default = "default_openfga_store_name")]
+    pub store_name: String,
+    /// Server Name - Top level requests are made for `server:{server_id`}
+    /// If not specified, 00000000-0000-0000-0000-000000000000 is used.
+    #[serde(default = "uuid::Uuid::nil")]
+    pub server_id: uuid::Uuid,
+    /// API-Key. If client-id is specified, this is ignored.
+    pub auth: OpenFGAAuth,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AuthZBackend {
+    #[serde(alias = "allowall", alias = "AllowAll", alias = "ALLOWALL")]
+    AllowAll,
+    #[serde(alias = "openfga", alias = "OpenFGA", alias = "OPENFGA")]
+    OpenFGA,
+}
+
+impl Default for AuthZBackend {
+    fn default() -> Self {
+        Self::AllowAll
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -202,6 +271,8 @@ impl Default for DynAppConfig {
             health_check_frequency_seconds: 10,
             health_check_jitter_millis: 500,
             kv2: None,
+            authz_backend: AuthZBackend::AllowAll,
+            openfga: None,
             secret_backend: SecretBackend::Postgres,
             queue_config: TaskQueueConfig::default(),
             default_tabular_expiration_delay_seconds: chrono::Duration::days(7),
@@ -318,6 +389,115 @@ where
     value.0.iter().join(",").serialize(serializer)
 }
 
+#[derive(Serialize, Deserialize, PartialEq, veil::Redact)]
+struct OpenFGAConfigSerde {
+    /// GRPC Endpoint Url
+    endpoint: Url,
+    /// Store Name - if not specified, `lakekeeper` is used.
+    #[serde(default = "default_openfga_store_name")]
+    store_name: String,
+    /// Server Name - Top level requests are made for `server:{server_id`}
+    /// If not specified, 00000000-0000-0000-0000-000000000000 is used.
+    #[serde(default = "uuid::Uuid::nil")]
+    server_id: uuid::Uuid,
+    /// API-Key. If client-id is specified, this is ignored.
+    api_key: Option<String>,
+    /// Client id
+    client_id: Option<String>,
+    #[redact]
+    /// Client secret
+    client_secret: Option<String>,
+    /// Token Endpoint to use when exchanging client credentials for an access token.
+    token_endpoint: Option<String>,
+}
+
+fn default_openfga_store_name() -> String {
+    "lakekeeper".to_string()
+}
+
+fn deserialize_openfga_config<'de, D>(deserializer: D) -> Result<Option<OpenFGAConfig>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let Some(OpenFGAConfigSerde {
+        client_id,
+        client_secret,
+        token_endpoint,
+        api_key,
+        endpoint,
+        store_name,
+        server_id,
+    }) = Option::<OpenFGAConfigSerde>::deserialize(deserializer)?
+    else {
+        return Ok(None);
+    };
+
+    let auth = if let Some(client_id) = client_id {
+        let client_secret = client_secret.ok_or_else(|| {
+            serde::de::Error::custom(
+                "openfga client_secret is required when client_id is specified",
+            )
+        })?;
+        let token_endpoint = token_endpoint.ok_or_else(|| {
+            serde::de::Error::custom(
+                "openfga token_endpoint is required when client_id is specified",
+            )
+        })?;
+        OpenFGAAuth::ClientCredentials {
+            client_id,
+            client_secret,
+            token_endpoint,
+        }
+    } else {
+        api_key.map_or(OpenFGAAuth::Anonymous, OpenFGAAuth::ApiKey)
+    };
+
+    Ok(Some(OpenFGAConfig {
+        endpoint,
+        store_name,
+        server_id,
+        auth,
+    }))
+}
+
+fn serialize_openfga_config<S>(
+    value: &Option<OpenFGAConfig>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let Some(value) = value else {
+        return None::<OpenFGAConfigSerde>.serialize(serializer);
+    };
+
+    let (client_id, client_secret, token_endpoint, api_key) = match &value.auth {
+        OpenFGAAuth::ClientCredentials {
+            client_id,
+            client_secret,
+            token_endpoint,
+        } => (
+            Some(client_id),
+            Some(client_secret),
+            Some(token_endpoint),
+            None,
+        ),
+        OpenFGAAuth::ApiKey(api_key) => (None, None, None, Some(api_key.clone())),
+        OpenFGAAuth::Anonymous => (None, None, None, None),
+    };
+
+    OpenFGAConfigSerde {
+        client_id: client_id.cloned(),
+        client_secret: client_secret.cloned(),
+        token_endpoint: token_endpoint.cloned(),
+        api_key,
+        endpoint: value.endpoint.clone(),
+        store_name: value.store_name.clone(),
+        server_id: value.server_id,
+    }
+    .serialize(serializer)
+}
+
 #[cfg(test)]
 mod test {
     #[allow(unused_imports)]
@@ -332,5 +512,75 @@ mod test {
     fn reserved_namespaces_should_contains_default_values() {
         assert!(CONFIG.reserved_namespaces.contains("system"));
         assert!(CONFIG.reserved_namespaces.contains("examples"));
+    }
+
+    #[test]
+    fn test_openfga_config_no_auth() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("LAKEKEEPER_TEST__AUTHZ_BACKEND", "openfga");
+            jail.set_env("LAKEKEEPER_TEST__OPENFGA__STORE_NAME", "store_name");
+            let config = get_config();
+            let authz_config = config.openfga.unwrap();
+            assert_eq!(config.authz_backend, AuthZBackend::OpenFGA);
+            assert_eq!(authz_config.store_name, "store_name");
+
+            assert_eq!(authz_config.auth, OpenFGAAuth::Anonymous);
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn test_openfga_config_api_key() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("LAKEKEEPER_TEST__AUTHZ_BACKEND", "openfga");
+            jail.set_env("LAKEKEEPER_TEST__OPENFGA__API_KEY", "api_key");
+            let config = get_config();
+            let authz_config = config.openfga.unwrap();
+            assert_eq!(config.authz_backend, AuthZBackend::OpenFGA);
+            assert_eq!(authz_config.store_name, "lakekeeper");
+
+            assert_eq!(
+                authz_config.auth,
+                OpenFGAAuth::ApiKey("api_key".to_string())
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "openfga client_secret is required when client_id is specified")]
+    fn test_openfga_client_config_fails_without_token() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("LAKEKEEPER_TEST__AUTHZ_BACKEND", "openfga");
+            jail.set_env("LAKEKEEPER_TEST__OPENFGA__CLIENT_ID", "client_id");
+            jail.set_env("LAKEKEEPER_TEST__OPENFGA__STORE_NAME", "store_name");
+            get_config();
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn test_openfga_client_credentials() {
+        figment::Jail::expect_with(|jail| {
+            jail.set_env("LAKEKEEPER_TEST__AUTHZ_BACKEND", "openfga");
+            jail.set_env("LAKEKEEPER_TEST__OPENFGA__CLIENT_ID", "client_id");
+            jail.set_env("LAKEKEEPER_TEST__OPENFGA__CLIENT_SECRET", "client_secret");
+            jail.set_env("LAKEKEEPER_TEST__OPENFGA__TOKEN_ENDPOINT", "token_endpoint");
+            let config = get_config();
+            let authz_config = config.openfga.unwrap();
+            assert_eq!(config.authz_backend, AuthZBackend::OpenFGA);
+            assert_eq!(authz_config.store_name, "lakekeeper");
+
+            assert_eq!(
+                authz_config.auth,
+                OpenFGAAuth::ClientCredentials {
+                    client_id: "client_id".to_string(),
+                    client_secret: "client_secret".to_string(),
+                    token_endpoint: "token_endpoint".to_string()
+                }
+            );
+            Ok(())
+        });
     }
 }

@@ -8,11 +8,7 @@ use crate::service::contract_verification::ContractVerifiers;
 use crate::service::health::ServiceHealthProvider;
 use crate::service::task_queue::TaskQueues;
 use crate::service::token_verification::Verifier;
-use crate::service::{
-    auth::{AuthConfigHandler, AuthZHandler},
-    config::ConfigProvider,
-    Catalog, SecretStore, State,
-};
+use crate::service::{authz::Authorizer, Catalog, SecretStore, State};
 use axum::response::IntoResponse;
 use axum::{routing::get, Json, Router};
 use axum_prometheus::PrometheusMetricLayer;
@@ -25,14 +21,8 @@ use tower_http::{
 use utoipa::OpenApi;
 
 #[allow(clippy::module_name_repetitions, clippy::too_many_arguments)]
-pub fn new_full_router<
-    CP: ConfigProvider<C>,
-    C: Catalog,
-    AH: AuthConfigHandler<A>,
-    A: AuthZHandler,
-    S: SecretStore,
->(
-    auth_state: A::State,
+pub fn new_full_router<C: Catalog, A: Authorizer + Clone, S: SecretStore>(
+    authorizer: A,
     catalog_state: C::State,
     secrets_state: S,
     queues: TaskQueues,
@@ -42,11 +32,7 @@ pub fn new_full_router<
     svhp: ServiceHealthProvider,
     metrics_layer: Option<PrometheusMetricLayer<'static>>,
 ) -> Router {
-    let v1_routes = new_v1_full_router::<
-        crate::catalog::ConfigServer<CP, C, AH, A>,
-        crate::catalog::CatalogServer<C, A, S>,
-        State<A, C, S>,
-    >();
+    let v1_routes = new_v1_full_router::<crate::catalog::CatalogServer<C, A, S>, State<A, C, S>>();
 
     let management_routes = Router::new().merge(ApiServer::new_v1_router());
 
@@ -89,7 +75,7 @@ pub fn new_full_router<
     )
     .with_state(ApiContext {
         v1_state: State {
-            auth: auth_state,
+            authz: authorizer,
             catalog: catalog_state,
             secrets: secrets_state,
             publisher,
@@ -105,7 +91,7 @@ pub fn new_full_router<
     }
 }
 
-fn maybe_add_auth<C: Catalog, A: AuthZHandler, S: SecretStore>(
+fn maybe_add_auth<C: Catalog, A: Authorizer + Clone, S: SecretStore>(
     token_verifier: Option<Verifier>,
     router: Router<ApiContext<State<A, C, S>>>,
 ) -> Router<ApiContext<State<A, C, S>>> {
