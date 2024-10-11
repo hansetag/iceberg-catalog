@@ -199,46 +199,6 @@ pub struct KafkaBackend {
 }
 
 #[cfg(feature = "kafka")]
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-    strum_macros::Display,
-    strum_macros::EnumString,
-)]
-pub enum KafkaSecurityProtocol {
-    #[strum(to_string = "plaintext")]
-    Plaintext,
-    #[strum(to_string = "ssl")]
-    Ssl,
-    #[strum(to_string = "sasl_plaintext")]
-    SaslPlaintext,
-    #[strum(to_string = "sasl_ssl")]
-    SaslSsl,
-}
-
-#[cfg(feature = "kafka")]
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-    strum_macros::Display,
-    strum_macros::EnumString,
-)]
-pub enum KafkaSaslMechanisms {
-    #[strum(to_string = "PLAIN")]
-    Plain,
-}
-
-#[cfg(feature = "kafka")]
 impl std::fmt::Debug for KafkaBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("KafkaBackend")
