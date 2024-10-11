@@ -1,13 +1,14 @@
 use crate::api::iceberg::v1::config::GetConfigQueryParams;
-use crate::api::iceberg::v1::{ApiContext, CatalogConfig, ErrorModel, Result};
+use crate::api::iceberg::v1::{
+    ApiContext, CatalogConfig, ErrorModel, PageToken, PaginationQuery, Result,
+};
+use crate::api::management::v1::user::UserLastUpdatedWith;
 use crate::request_metadata::RequestMetadata;
 use crate::service::authz::{ProjectAction, WarehouseAction};
-use crate::service::token_verification::AuthDetails;
-use std::str::FromStr;
-
-use crate::service::SecretStore;
 use crate::service::{authz::Authorizer, Catalog, ProjectIdent, State};
+use crate::service::{AuthDetails, SecretStore, Transaction};
 use crate::CONFIG;
+use std::str::FromStr;
 
 use super::CatalogServer;
 
@@ -21,14 +22,10 @@ impl<A: Authorizer + Clone, C: Catalog, S: SecretStore>
         request_metadata: RequestMetadata,
     ) -> Result<CatalogConfig> {
         let authorizer = api_context.v1_state.authz;
-        let project_id_from_auth = &request_metadata
-            .auth_details
-            .as_ref()
-            .and_then(AuthDetails::project_id);
-        let warehouse_id_from_auth = &request_metadata
-            .auth_details
-            .as_ref()
-            .and_then(AuthDetails::warehouse_id);
+        let project_id_from_auth = &request_metadata.auth_details.project_id();
+        let warehouse_id_from_auth = &request_metadata.auth_details.warehouse_id();
+
+        maybe_register_user::<C>(&request_metadata, api_context.v1_state.catalog.clone()).await?;
 
         // Arg takes precedence over auth
         let warehouse_id = if let Some(query_warehouse) = query.warehouse {
@@ -111,4 +108,44 @@ fn parse_warehouse_arg(arg: &str) -> (Option<ProjectIdent>, String) {
         // Because of the splitn(2, ..) there can't be more than 2 parts
         _ => unreachable!(),
     }
+}
+
+async fn maybe_register_user<D: Catalog>(
+    request_metadata: &RequestMetadata,
+    state: <D as Catalog>::State,
+) -> Result<()> {
+    let principal = match &request_metadata.auth_details {
+        AuthDetails::Unauthenticated => {
+            tracing::debug!("Got no user_id from request_metadata, not trying to register.");
+            return Ok(());
+        }
+        AuthDetails::Principal(principal) => principal,
+    };
+
+    // principal.get_name() can fail - we can't run it for already registered users
+    let user = D::list_user(
+        Some(vec![principal.user_id().clone()]),
+        None,
+        PaginationQuery {
+            page_token: PageToken::Empty,
+            page_size: Some(1),
+        },
+        state.clone(),
+    )
+    .await?;
+
+    if user.users.is_empty() {
+        // If the user is authenticated, create a user in the catalog
+        let mut t = D::Transaction::begin_write(state).await?;
+        D::create_or_update_user(
+            principal.user_id(),
+            principal.get_name()?,
+            principal.email(),
+            UserLastUpdatedWith::ConfigCallCreation,
+            t.transaction(),
+        )
+        .await?;
+    }
+
+    Ok(())
 }

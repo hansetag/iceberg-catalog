@@ -1,7 +1,7 @@
 use super::authz::TableUuid;
 use super::{
-    storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, TableIdentUuid, WarehouseIdent,
-    WarehouseStatus,
+    storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, RoleId, TableIdentUuid, UserId,
+    WarehouseIdent, WarehouseStatus,
 };
 pub use crate::api::iceberg::v1::{
     CreateNamespaceRequest, CreateNamespaceResponse, ListNamespacesQuery, NamespaceIdent, Result,
@@ -11,6 +11,10 @@ use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::service::health::HealthExt;
 use crate::SecretIdent;
 
+use crate::api::management::v1::role::{ListRolesResponse, Role};
+use crate::api::management::v1::user::{
+    ListUsersResponse, SearchUserResponse, User, UserLastUpdatedWith,
+};
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
 use iceberg::spec::{Schema, SortOrder, TableMetadata, UnboundPartitionSpec, ViewMetadata};
@@ -136,6 +140,12 @@ pub struct TableCreation<'c> {
     pub(crate) table_write_order: Option<SortOrder>,
     pub(crate) table_properties: Option<HashMap<String, String>>,
     pub(crate) metadata_location: Option<&'c Location>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateOrUpdateUserResponse {
+    pub user: User,
+    pub created: bool,
 }
 
 #[async_trait::async_trait]
@@ -341,6 +351,65 @@ where
         commits: impl IntoIterator<Item = TableCommit> + Send,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<()>;
+
+    // ---------------- Role Management API ----------------
+    async fn create_role<'a>(
+        role_id: RoleId,
+        project_id: ProjectIdent,
+        role_name: &str,
+        description: Option<&str>,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<Role>;
+
+    /// Return Ok(None) if the role does not exist.
+    async fn update_role<'a>(
+        role_id: RoleId,
+        role_name: &str,
+        description: Option<&str>,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<Option<Role>>;
+
+    async fn list_roles<'a>(
+        filter_project_id: Option<ProjectIdent>,
+        filter_role_id: Option<Vec<RoleId>>,
+        filter_name: Option<String>,
+        pagination: PaginationQuery,
+        catalog_state: Self::State,
+    ) -> Result<ListRolesResponse>;
+
+    /// Return Ok(None) if the role does not exist.
+    async fn delete_role<'a>(
+        role_id: RoleId,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<Option<()>>;
+
+    // ---------------- User Management API ----------------
+    async fn create_or_update_user<'a>(
+        user_id: &UserId,
+        name: &str,
+        // If None, set the email to None.
+        email: Option<&str>,
+        last_updated_with: UserLastUpdatedWith,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<CreateOrUpdateUserResponse>;
+
+    async fn search_user(
+        search_term: &str,
+        catalog_state: Self::State,
+    ) -> Result<SearchUserResponse>;
+
+    /// Return Ok(vec[]) if the user does not exist.
+    async fn list_user(
+        filter_user_id: Option<Vec<UserId>>,
+        filter_name: Option<String>,
+        pagination: PaginationQuery,
+        catalog_state: Self::State,
+    ) -> Result<ListUsersResponse>;
+
+    async fn delete_user<'a>(
+        user_id: UserId,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<Option<()>>;
 
     // ---------------- Warehouse Management API ----------------
 

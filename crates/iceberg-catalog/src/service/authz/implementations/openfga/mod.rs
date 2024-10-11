@@ -37,11 +37,11 @@ mod service_ext;
 use crate::service::authz::implementations::openfga::service_ext::MAX_TUPLES_PER_WRITE;
 use crate::service::authz::implementations::FgaType;
 use crate::service::authz::{
-    NamespaceParent, NamespaceRelation, ProjectRelation, ServerRelation, TableRelation,
-    ViewRelation, WarehouseRelation,
+    NamespaceParent, NamespaceRelation, ProjectRelation, RoleAction, ServerRelation, TableRelation,
+    UserAction, ViewRelation, WarehouseRelation,
 };
 use crate::service::health::Health;
-use crate::service::ViewIdentUuid;
+use crate::service::{AuthDetails, RoleId, UserId, ViewIdentUuid};
 pub use client::{
     new_authorizer_from_config, BearerOpenFGAAuthorizer, ClientCredentialsOpenFGAAuthorizer,
     UnauthenticatedOpenFGAAuthorizer,
@@ -96,7 +96,7 @@ where
     async fn list_projects(&self, metadata: &RequestMetadata) -> Result<ListProjectsResponse> {
         let actor = metadata.actor();
 
-        let check_actor_fut = self.check_actor(&actor);
+        let check_actor_fut = self.check_actor(actor);
         let list_all_fut = self.check(CheckRequestTupleKey {
             user: metadata.actor().to_openfga()?,
             relation: ServerAction::CanListAllProjects.to_string(),
@@ -135,13 +135,96 @@ where
         Ok(ListProjectsResponse::Projects(projects))
     }
 
+    async fn can_search_users(&self, metadata: &RequestMetadata) -> Result<bool> {
+        let actor = metadata.actor();
+        // Currently all authenticated principals can search users
+        self.check_actor(actor).await?;
+
+        match metadata.auth_details {
+            AuthDetails::Unauthenticated => Ok(false),
+            AuthDetails::Principal(_) => Ok(true),
+        }
+    }
+
+    async fn is_allowed_role_action(
+        &self,
+        metadata: &RequestMetadata,
+        role_id: RoleId,
+        action: &RoleAction,
+    ) -> Result<bool> {
+        let actor = metadata.actor();
+        let check_actor_fut = self.check_actor(actor);
+        let check_fut = self.check(CheckRequestTupleKey {
+            user: actor.to_openfga()?,
+            relation: action.to_string(),
+            object: role_id.to_openfga()?,
+        });
+
+        let (check_actor, check) = futures::join!(check_actor_fut, check_fut);
+        check_actor?;
+        check
+    }
+
+    async fn is_allowed_user_action(
+        &self,
+        metadata: &RequestMetadata,
+        user_id: &UserId,
+        action: &UserAction,
+    ) -> Result<bool> {
+        let actor = metadata.actor();
+        self.check_actor(actor).await?;
+
+        let is_same_user = match actor {
+            Actor::Role {
+                principal,
+                assumed_role: _,
+            }
+            | Actor::Principal(principal) => principal == user_id,
+            Actor::Anonymous => false,
+        };
+
+        if is_same_user {
+            return match action {
+                UserAction::CanRead | UserAction::CanUpdate | UserAction::CanDelete => Ok(true),
+            };
+        }
+
+        let server_id = format!("server:{}", AUTH_CONFIG.server_id);
+        match action {
+            UserAction::CanRead => {
+                self.check(CheckRequestTupleKey {
+                    user: actor.to_openfga()?,
+                    relation: ServerAction::CanListUsers.to_string(),
+                    object: server_id,
+                })
+                .await
+            }
+            UserAction::CanUpdate => {
+                self.check(CheckRequestTupleKey {
+                    user: actor.to_openfga()?,
+                    relation: ServerAction::CanUpdateUsers.to_string(),
+                    object: server_id,
+                })
+                .await
+            }
+            UserAction::CanDelete => {
+                self.check(CheckRequestTupleKey {
+                    user: actor.to_openfga()?,
+                    relation: ServerAction::CanDeleteUsers.to_string(),
+                    object: server_id,
+                })
+                .await
+            }
+        }
+    }
+
     async fn is_allowed_server_action(
         &self,
         metadata: &RequestMetadata,
         action: &ServerAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
-        let check_actor_fut = self.check_actor(&actor);
+        let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
             user: actor.to_openfga()?,
             relation: action.to_string(),
@@ -160,7 +243,7 @@ where
         action: &ProjectAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
-        let check_actor_fut = self.check_actor(&actor);
+        let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
             user: actor.to_openfga()?,
             relation: action.to_string(),
@@ -179,7 +262,7 @@ where
         action: &WarehouseAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
-        let check_actor_fut = self.check_actor(&actor);
+        let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
             user: actor.to_openfga()?,
             relation: action.to_string(),
@@ -200,7 +283,7 @@ where
         action: &NamespaceAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
-        let check_actor_fut = self.check_actor(&actor);
+        let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
             user: actor.to_openfga()?,
             relation: action.to_string(),
@@ -221,7 +304,7 @@ where
         action: &TableAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
-        let check_actor_fut = self.check_actor(&actor);
+        let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
             user: actor.to_openfga()?,
             relation: action.to_string(),
@@ -242,7 +325,7 @@ where
         action: &ViewAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
-        let check_actor_fut = self.check_actor(&actor);
+        let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
             user: actor.to_openfga()?,
             relation: action.to_string(),
@@ -857,9 +940,9 @@ where
             } => {
                 let assume_role_allowed = self
                     .check(CheckRequestTupleKey {
-                        user: Actor::Principal(principal.to_string()).to_openfga()?,
-                        relation: "can_assume".to_string(),
-                        object: actor.to_openfga()?,
+                        user: Actor::Principal(principal.clone()).to_openfga()?,
+                        relation: RoleAction::CanAssume.to_string(),
+                        object: assumed_role.to_openfga()?,
                     })
                     .await?;
 
@@ -898,7 +981,7 @@ mod tests {
         use crate::service::authz::implementations::openfga::client::{
             new_authorizer, new_unauthenticated_client,
         };
-        use crate::service::RoleIdent;
+        use crate::service::RoleId;
         use http::StatusCode;
 
         async fn new_authorizer_in_empty_store() -> OpenFGAAuthorizer<tonic::transport::Channel> {
@@ -1148,13 +1231,13 @@ mod tests {
         #[tokio::test]
         async fn test_delete_user_relations_userset() {
             let authorizer = new_authorizer_in_empty_store().await;
-            let user = RoleIdent::from_str("my_role").unwrap();
+            let user = RoleId::new(uuid::Uuid::nil());
             authorizer.require_no_relations(&user).await.unwrap();
 
             authorizer
                 .write(
                     Some(vec![TupleKey {
-                        user: "role:my_role#assignee".to_string(),
+                        user: format!("{}#assignee", user.to_openfga().unwrap()),
                         relation: "project_admin".to_string(),
                         object: "project:my_project".to_string(),
                         condition: None,

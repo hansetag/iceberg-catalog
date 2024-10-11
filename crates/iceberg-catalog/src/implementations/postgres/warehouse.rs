@@ -19,7 +19,7 @@ pub(super) async fn get_warehouse_by_name(
     let warehouse_id = row_not_found_to_option(
         sqlx::query_scalar!(
             r#"
-        SELECT 
+        SELECT
             warehouse_id
         FROM warehouse
         WHERE warehouse_name = $1 AND project_id = $2
@@ -148,7 +148,16 @@ pub(crate) async fn create_project<'a>(
     )
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|e| e.into_error_model("Error creating Project".into()))?;
+    .map_err(|e| {
+        if let sqlx::Error::Database(db_error) = e {
+            return ErrorModel::conflict(
+                format!("A project with this id already exists: {project_id}").to_string(),
+                "ProjectAlreadyExists".to_string(),
+                Some(Box::new(db_error)),
+            );
+        }
+        e.into_error_model("Error creating Project".into())
+    })?;
 
     Ok(())
 }

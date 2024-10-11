@@ -12,28 +12,100 @@ use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use jwks_client_rs::source::WebSource;
 use jwks_client_rs::{JsonWebKey, JwksClient};
 
+use crate::api::Result;
 use crate::request_metadata::RequestMetadata;
 use axum::Extension;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::fmt::Debug;
 use std::str::FromStr;
+use std::sync::Arc;
 use url::Url;
 
-use super::{ProjectIdent, WarehouseIdent};
+use super::{ProjectIdent, RoleId, WarehouseIdent};
+
+/// Unique identifier of a user in the system.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, utoipa::ToSchema)]
+pub struct UserId(String);
+
+impl<'de> Deserialize<'de> for UserId {
+    fn deserialize<D>(deserializer: D) -> Result<UserId, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        UserId::new(&s)
+            .map_err(|e| serde::de::Error::custom(format!("Invalid UserId: {}", e.error.message)))
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum AuthDetails {
-    JWT(Claims),
+    Principal(Principal),
+    Unauthenticated,
+}
+
+#[derive(Debug, Clone)]
+pub struct Principal {
+    actor: Actor,
+    user_id: UserId,
+    name: Option<String>,
+    display_name: Option<String>,
+    // e.g. client_id in azure, should be there for technical users
+    application_id: Option<String>,
+    issuer: String,
+    email: Option<String>,
+}
+
+impl Principal {
+    /// Best effort to determine the name of this principal from the claims.
+    ///
+    /// # Errors
+    /// - name, display name and email are all missing
+    pub fn get_name(&self) -> Result<&str> {
+        self.display_name().or(self.name()).or(self.email()).ok_or(
+            ErrorModel::bad_request(
+                "Cannot register user without name or display name",
+                "InvalidAccessTokenClaims",
+                None,
+            )
+            .into(),
+        )
+    }
 }
 
 impl AuthDetails {
+    fn try_from_jwt_claims(claims: Claims) -> Result<Self> {
+        let name = claims.name.as_deref().map(String::from).or_else(|| {
+            match (claims.first_name.as_deref(), claims.last_name.as_deref()) {
+                (Some(first), Some(last)) => Some(format!("{first} {last}")),
+                (Some(first), None) => Some(first.to_string()),
+                (None, Some(last)) => Some(last.to_string()),
+                (None, None) => None,
+            }
+        });
+
+        let user_id = UserId::try_from_claims(&claims)?;
+
+        let principal = Principal {
+            actor: Actor::Principal(user_id.clone()),
+            user_id,
+            name: name.clone(),
+            display_name: claims.preferred_username.clone().or(name.clone()),
+            issuer: claims.iss,
+            email: claims.email,
+            application_id: claims.azp,
+        };
+
+        Ok(Self::Principal(principal))
+    }
+
     #[must_use]
-    pub fn actor(&self) -> Actor {
-        // match self {
-        //     Self::JWT(claims) => Actor::Principal(claims.sub.clone()),
-        // }
-        todo!()
+    pub fn actor(&self) -> &Actor {
+        match self {
+            Self::Principal(principal) => &principal.actor,
+            Self::Unauthenticated => &Actor::Anonymous,
+        }
     }
 
     #[must_use]
@@ -47,13 +119,107 @@ impl AuthDetails {
     }
 }
 
+impl Principal {
+    #[must_use]
+    pub fn actor(&self) -> &Actor {
+        &self.actor
+    }
+
+    #[must_use]
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    #[must_use]
+    pub fn app_id(&self) -> Option<&str> {
+        self.application_id.as_deref()
+    }
+
+    #[must_use]
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    #[must_use]
+    pub fn display_name(&self) -> Option<&str> {
+        self.display_name.as_deref()
+    }
+
+    #[must_use]
+    pub fn issuer(&self) -> &str {
+        self.issuer.as_str()
+    }
+
+    #[must_use]
+    pub fn email(&self) -> Option<&str> {
+        self.email.as_deref()
+    }
+}
+
+impl std::fmt::Display for UserId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.as_str())
+    }
+}
+
+impl UserId {
+    pub(crate) fn new(subject: &str) -> Result<Self> {
+        if subject.len() >= 128 {
+            return Err(ErrorModel::bad_request(
+                "user id must be shorter than 128 chars",
+                "UserIdTooLongError",
+                None,
+            )
+            .into());
+        }
+
+        if subject
+            .chars()
+            .any(|c| !(c.is_alphanumeric() || c == '-' || c == '_'))
+        {
+            return Err(ErrorModel::bad_request(
+                "sub or oid claim contain illegal characters. Only alphanumeric + - are legal.",
+                "InvalidUserIdError",
+                None,
+            )
+            .into());
+        }
+
+        // Lowercase all subjects
+        let subject = subject.to_lowercase();
+
+        Ok(Self(subject.to_string()))
+    }
+
+    fn try_from_claims(claims: &Claims) -> Result<Self> {
+        let sub = if let Some(oid) = &claims.oid {
+            oid.as_str()
+        } else {
+            claims.sub.as_str()
+        };
+
+        Self::new(sub)
+    }
+
+    #[must_use]
+    pub fn inner(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl From<UserId> for String {
+    fn from(user_id: UserId) -> Self {
+        user_id.0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Actor {
     Anonymous,
-    Principal(String),
+    Principal(UserId),
     Role {
-        principal: String,
-        assumed_role: String,
+        principal: UserId,
+        assumed_role: RoleId,
     },
 }
 
@@ -64,6 +230,50 @@ pub struct Claims {
     pub aud: Aud,
     pub exp: usize,
     pub iat: usize,
+    // Azure Entra ID uses this as a globally unique identifier
+    pub oid: Option<String>,
+
+    #[serde(alias = "client_id")]
+    // Identifier of the client using the token, e.g. the client id in azure
+    pub azp: Option<String>,
+
+    pub name: Option<String>,
+    #[serde(
+        alias = "given_name",
+        alias = "given-name",
+        alias = "givenName",
+        alias = "firstName",
+        alias = "first-name"
+    )]
+    pub first_name: Option<String>,
+    #[serde(
+        alias = "family_name",
+        alias = "family-name",
+        alias = "familyName",
+        alias = "lastName",
+        alias = "last-name"
+    )]
+    pub last_name: Option<String>,
+    #[serde(
+        // azure calls this app_displayname
+        alias = "app_displayname",
+        alias = "app-displayname",
+        alias = "app_display_name",
+        alias = "appDisplayName",
+        // keycloak calls this preferred_username
+        alias = "preferred_username",
+        alias = "preferred-username",
+        alias = "preferredUsername"
+    )]
+    pub preferred_username: Option<String>,
+    // TODO: what happens if things clash here?
+    #[serde(
+        alias = "email-address",
+        alias = "emailAddress",
+        alias = "email_address",
+        alias = "upn"
+    )]
+    pub email: Option<String>,
     #[serde(flatten)]
     pub other: serde_json::Value,
 }
@@ -79,19 +289,25 @@ pub(crate) async fn auth_middleware_fn(
     State(verifier): State<Verifier>,
     authorization: Option<TypedHeader<Authorization<Bearer>>>,
     Extension(mut metadata): Extension<RequestMetadata>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     if let Some(authorization) = authorization {
         match verifier.decode::<Claims>(authorization.token()).await {
             Ok(val) => {
-                metadata.auth_details = Some(AuthDetails::JWT(val));
+                match AuthDetails::try_from_jwt_claims(val) {
+                    Ok(details) => {
+                        metadata.auth_details = details;
+                    }
+                    Err(err) => return err.into_response(),
+                }
+                request.extensions_mut().insert(metadata);
             }
             Err(err) => {
                 tracing::debug!("Failed to verify token: {:?}", err);
                 return IcebergErrorResponse::from(err).into_response();
             }
-        }
+        };
     } else {
         return IcebergErrorResponse::from(
             ErrorModel::builder()
@@ -114,7 +330,6 @@ pub struct Verifier {
 
 impl Verifier {
     const WELL_KNOWN_CONFIG: &'static str = ".well-known/openid-configuration";
-
     /// Create a new verifier with the given openid configuration url and audience.
     ///
     /// # Errors
@@ -126,17 +341,19 @@ impl Verifier {
         if !url.path().ends_with('/') {
             url.set_path(&format!("{}/", url.path()));
         }
-        let config = reqwest::get(url.join(Self::WELL_KNOWN_CONFIG)?)
-            .await
-            .context("Failed to fetch openid configuration")?
-            .json::<WellKnownConfig>()
-            .await
-            .context("Failed to parse openid configuration")?;
-        let source = WebSource::builder().build(config.jwks_uri)?;
+        let config = Arc::new(
+            reqwest::get(url.join(Self::WELL_KNOWN_CONFIG)?)
+                .await
+                .context("Failed to fetch openid configuration")?
+                .json::<WellKnownConfig>()
+                .await
+                .context("Failed to parse openid configuration")?,
+        );
+        let source = WebSource::builder().build(config.jwks_uri.clone())?;
         let client = JwksClient::builder().build(source);
         Ok(Self {
             client,
-            issuer: config.issuer,
+            issuer: config.issuer.clone(),
         })
     }
 
@@ -251,12 +468,14 @@ impl Debug for Verifier {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct WellKnownConfig {
     #[serde(flatten)]
     pub other: serde_json::Value,
     pub jwks_uri: Url,
     pub issuer: String,
+    pub userinfo_endpoint: Option<Url>,
+    pub token_endpoint: Url,
 }
 
 #[cfg(test)]

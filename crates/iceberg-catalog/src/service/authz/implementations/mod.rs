@@ -1,5 +1,5 @@
-use crate::service::authz::NamespaceParent;
-use crate::service::ViewIdentUuid;
+use crate::service::authz::{NamespaceParent, RoleAction, UserAction};
+use crate::service::{RoleId, UserId, ViewIdentUuid};
 use crate::{
     request_metadata::RequestMetadata,
     service::{
@@ -111,6 +111,75 @@ impl super::Authorizer for Authorizers {
             Self::OpenFGAUnauthorized(authorizer) => authorizer.list_projects(metadata).await,
             Self::OpenFGABearer(authorizer) => authorizer.list_projects(metadata).await,
             Self::OpenFGAClientCreds(authorizer) => authorizer.list_projects(metadata).await,
+        }
+    }
+
+    async fn can_search_users(&self, metadata: &RequestMetadata) -> Result<bool> {
+        match self {
+            Self::AllowAll(authorizer) => authorizer.can_search_users(metadata).await,
+            Self::OpenFGAUnauthorized(authorizer) => authorizer.can_search_users(metadata).await,
+            Self::OpenFGABearer(authorizer) => authorizer.can_search_users(metadata).await,
+            Self::OpenFGAClientCreds(authorizer) => authorizer.can_search_users(metadata).await,
+        }
+    }
+
+    async fn is_allowed_role_action(
+        &self,
+        metadata: &RequestMetadata,
+        role_id: RoleId,
+        action: &RoleAction,
+    ) -> Result<bool> {
+        match self {
+            Self::AllowAll(authorizer) => {
+                authorizer
+                    .is_allowed_role_action(metadata, role_id, action)
+                    .await
+            }
+            Self::OpenFGAUnauthorized(authorizer) => {
+                authorizer
+                    .is_allowed_role_action(metadata, role_id, action)
+                    .await
+            }
+            Self::OpenFGABearer(authorizer) => {
+                authorizer
+                    .is_allowed_role_action(metadata, role_id, action)
+                    .await
+            }
+            Self::OpenFGAClientCreds(authorizer) => {
+                authorizer
+                    .is_allowed_role_action(metadata, role_id, action)
+                    .await
+            }
+        }
+    }
+
+    async fn is_allowed_user_action(
+        &self,
+        metadata: &RequestMetadata,
+        user_id: &UserId,
+        action: &UserAction,
+    ) -> Result<bool> {
+        match self {
+            Self::AllowAll(authorizer) => {
+                authorizer
+                    .is_allowed_user_action(metadata, user_id, action)
+                    .await
+            }
+            Self::OpenFGAUnauthorized(authorizer) => {
+                authorizer
+                    .is_allowed_user_action(metadata, user_id, action)
+                    .await
+            }
+            Self::OpenFGABearer(authorizer) => {
+                authorizer
+                    .is_allowed_user_action(metadata, user_id, action)
+                    .await
+            }
+            Self::OpenFGAClientCreds(authorizer) => {
+                authorizer
+                    .is_allowed_user_action(metadata, user_id, action)
+                    .await
+            }
         }
     }
 

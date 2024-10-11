@@ -3,6 +3,7 @@ use super::{
         create_namespace, drop_namespace, get_namespace, list_namespaces, namespace_to_id,
         update_namespace_properties,
     },
+    role::{create_role, delete_role, list_roles, update_role},
     tabular::table::{
         commit_table_transaction, create_table, drop_table, get_table_metadata_by_id,
         get_table_metadata_by_s3_location, list_tables, load_tables, rename_table,
@@ -16,11 +17,19 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
+use crate::api::management::v1::role::{ListRolesResponse, Role};
+use crate::api::management::v1::user::{
+    ListUsersResponse, SearchUserResponse, UserLastUpdatedWith,
+};
 use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_deleted};
+use crate::implementations::postgres::user::{
+    create_or_update_user, delete_user, list_users, search_user,
+};
 use crate::service::{
-    CreateNamespaceRequest, CreateNamespaceResponse, DeletionDetails, GetProjectResponse,
-    GetWarehouseResponse, ListFlags, ListNamespacesQuery, ListNamespacesResponse, NamespaceIdent,
-    Result, TableCreation, TableIdent, WarehouseStatus,
+    CreateNamespaceRequest, CreateNamespaceResponse, CreateOrUpdateUserResponse, DeletionDetails,
+    GetProjectResponse, GetWarehouseResponse, ListFlags, ListNamespacesQuery,
+    ListNamespacesResponse, NamespaceIdent, Result, RoleId, TableCreation, TableIdent, UserId,
+    WarehouseStatus,
 };
 use crate::{
     api::iceberg::v1::{PaginatedTabulars, PaginationQuery},
@@ -49,6 +58,98 @@ use std::collections::{HashMap, HashSet};
 impl Catalog for super::PostgresCatalog {
     type Transaction = PostgresTransaction;
     type State = CatalogState;
+
+    // ---------------- Role Management API ----------------
+    async fn create_role<'a>(
+        role_id: RoleId,
+        project_id: ProjectIdent,
+        role_name: &str,
+        description: Option<&str>,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<Role> {
+        create_role(
+            role_id,
+            project_id,
+            role_name,
+            description,
+            &mut **transaction,
+        )
+        .await
+    }
+
+    async fn update_role<'a>(
+        role_id: RoleId,
+        role_name: &str,
+        description: Option<&str>,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<Option<Role>> {
+        update_role(role_id, role_name, description, &mut **transaction).await
+    }
+
+    async fn list_roles<'a>(
+        filter_project_id: Option<ProjectIdent>,
+        filter_role_id: Option<Vec<RoleId>>,
+        filter_name: Option<String>,
+        pagination: PaginationQuery,
+        catalog_state: Self::State,
+    ) -> Result<ListRolesResponse> {
+        list_roles(
+            filter_project_id,
+            filter_role_id,
+            filter_name,
+            pagination,
+            &catalog_state.read_pool(),
+        )
+        .await
+    }
+
+    async fn delete_role<'a>(
+        role_id: RoleId,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<Option<()>> {
+        delete_role(role_id, &mut **transaction).await
+    }
+
+    // ---------------- User Management API ----------------
+    async fn create_or_update_user<'a>(
+        user_id: &UserId,
+        name: &str,
+        email: Option<&str>,
+        last_updated_with: UserLastUpdatedWith,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<CreateOrUpdateUserResponse> {
+        create_or_update_user(user_id, name, email, last_updated_with, &mut **transaction).await
+    }
+
+    async fn search_user(
+        search_term: &str,
+        catalog_state: Self::State,
+    ) -> Result<SearchUserResponse> {
+        search_user(search_term, &catalog_state.read_pool()).await
+    }
+
+    /// Return Ok(vec[]) if the user does not exist.
+    async fn list_user(
+        filter_user_id: Option<Vec<UserId>>,
+        filter_name: Option<String>,
+        pagination: PaginationQuery,
+        catalog_state: Self::State,
+    ) -> Result<ListUsersResponse> {
+        list_users(
+            filter_user_id,
+            filter_name,
+            pagination,
+            &catalog_state.read_pool(),
+        )
+        .await
+    }
+
+    async fn delete_user<'a>(
+        user_id: UserId,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<Option<()>> {
+        delete_user(user_id, &mut **transaction).await
+    }
 
     async fn get_warehouse_by_name(
         warehouse_name: &str,
@@ -151,7 +252,7 @@ impl Catalog for super::PostgresCatalog {
     async fn table_idents_to_ids(
         warehouse_id: WarehouseIdent,
         tables: HashSet<&TableIdent>,
-        list_flags: crate::service::ListFlags,
+        list_flags: ListFlags,
         catalog_state: Self::State,
     ) -> Result<HashMap<TableIdent, Option<TableIdentUuid>>> {
         table_idents_to_ids(warehouse_id, tables, list_flags, &catalog_state.read_pool()).await
@@ -170,7 +271,7 @@ impl Catalog for super::PostgresCatalog {
     async fn get_table_metadata_by_id(
         warehouse_id: WarehouseIdent,
         table: TableIdentUuid,
-        list_flags: crate::service::ListFlags,
+        list_flags: ListFlags,
         catalog_state: Self::State,
     ) -> Result<Option<GetTableMetadataResponse>> {
         get_table_metadata_by_id(warehouse_id, table, list_flags, catalog_state).await
@@ -179,7 +280,7 @@ impl Catalog for super::PostgresCatalog {
     async fn get_table_metadata_by_s3_location(
         warehouse_id: WarehouseIdent,
         location: &Location,
-        list_flags: crate::service::ListFlags,
+        list_flags: ListFlags,
         catalog_state: Self::State,
     ) -> Result<Option<GetTableMetadataResponse>> {
         get_table_metadata_by_s3_location(warehouse_id, location, list_flags, catalog_state).await

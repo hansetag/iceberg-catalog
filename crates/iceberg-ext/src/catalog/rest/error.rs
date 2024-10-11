@@ -1,9 +1,9 @@
-use std::error::Error as StdError;
-use std::fmt::{Display, Formatter};
 // macro to implement IntoResponse
 use http::StatusCode;
 pub use iceberg::Error;
 use serde::{Deserialize, Serialize};
+use std::error::Error as StdError;
+use std::fmt::{Display, Formatter};
 
 #[cfg(feature = "axum")]
 macro_rules! impl_into_response {

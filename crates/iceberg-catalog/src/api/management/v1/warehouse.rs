@@ -92,7 +92,7 @@ pub struct UpdateWarehouseStorageRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
 pub struct ListWarehousesRequest {
     /// Optional filter to return only warehouses
     /// with the specified status.

@@ -3,12 +3,12 @@ use async_trait::async_trait;
 use crate::api::iceberg::v1::Result;
 use crate::request_metadata::RequestMetadata;
 use crate::service::authz::{
-    Authorizer, ListProjectsResponse, NamespaceAction, NamespaceParent, ProjectAction,
-    ServerAction, TableAction, ViewAction, WarehouseAction,
+    Authorizer, ListProjectsResponse, NamespaceAction, NamespaceParent, ProjectAction, RoleAction,
+    ServerAction, TableAction, UserAction, ViewAction, WarehouseAction,
 };
 use crate::service::health::{Health, HealthExt};
 use crate::service::{
-    NamespaceIdentUuid, ProjectIdent, TableIdentUuid, ViewIdentUuid, WarehouseIdent,
+    NamespaceIdentUuid, ProjectIdent, RoleId, TableIdentUuid, UserId, ViewIdentUuid, WarehouseIdent,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -28,6 +28,28 @@ impl HealthExt for AllowAllAuthorizer {
 impl Authorizer for AllowAllAuthorizer {
     async fn list_projects(&self, _metadata: &RequestMetadata) -> Result<ListProjectsResponse> {
         Ok(ListProjectsResponse::All)
+    }
+
+    async fn can_search_users(&self, _metadata: &RequestMetadata) -> Result<bool> {
+        Ok(true)
+    }
+
+    async fn is_allowed_role_action(
+        &self,
+        _metadata: &RequestMetadata,
+        _role_id: RoleId,
+        _action: &RoleAction,
+    ) -> Result<bool> {
+        Ok(true)
+    }
+
+    async fn is_allowed_user_action(
+        &self,
+        _metadata: &RequestMetadata,
+        _user_id: &UserId,
+        _action: &UserAction,
+    ) -> Result<bool> {
+        Ok(true)
     }
 
     async fn is_allowed_server_action(

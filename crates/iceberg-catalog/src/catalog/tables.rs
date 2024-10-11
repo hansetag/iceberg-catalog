@@ -70,7 +70,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
             .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
             .await?;
         let mut t: <C as Catalog>::Transaction =
-            C::Transaction::begin_read(state.v1_state.catalog).await?;
+            Transaction::begin_read(state.v1_state.catalog).await?;
         let namespace_id = C::namespace_to_id(warehouse_id, &namespace, t.transaction()).await; // We can't fail before AuthZ.
 
         authorizer

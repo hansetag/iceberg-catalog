@@ -11,15 +11,17 @@ pub mod token_verification;
 
 pub use catalog::{
     Catalog, CommitTableResponse, CreateNamespaceRequest, CreateNamespaceResponse,
-    CreateTableRequest, CreateTableResponse, DeletionDetails, DropFlags, GetNamespaceResponse,
-    GetProjectResponse, GetStorageConfigResponse, GetTableMetadataResponse, GetWarehouseResponse,
-    ListFlags, ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent,
-    Result, TableCommit, TableCreation, TableIdent, Transaction, UpdateNamespacePropertiesRequest,
-    UpdateNamespacePropertiesResponse, ViewMetadataWithLocation,
+    CreateOrUpdateUserResponse, CreateTableRequest, CreateTableResponse, DeletionDetails,
+    DropFlags, GetNamespaceResponse, GetProjectResponse, GetStorageConfigResponse,
+    GetTableMetadataResponse, GetWarehouseResponse, ListFlags, ListNamespacesQuery,
+    ListNamespacesResponse, LoadTableResponse, NamespaceIdent, Result, TableCommit, TableCreation,
+    TableIdent, Transaction, UpdateNamespacePropertiesRequest, UpdateNamespacePropertiesResponse,
+    ViewMetadataWithLocation,
 };
 use std::ops::Deref;
 pub(crate) use tabular_idents::TabularIdentBorrowed;
 pub use tabular_idents::{TabularIdentOwned, TabularIdentUuid};
+pub use token_verification::{Actor, AuthDetails, UserId};
 
 use self::authz::Authorizer;
 use crate::api::iceberg::v1::Prefix;
@@ -96,34 +98,75 @@ pub enum WarehouseStatus {
 #[serde(transparent)]
 pub struct ProjectIdent(uuid::Uuid);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct RoleIdent(String);
-
-impl FromStr for RoleIdent {
-    type Err = IcebergErrorResponse;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        validate_entity_id(s, "Role")?;
-        Ok(RoleIdent(s.to_string()))
+impl Default for ProjectIdent {
+    fn default() -> Self {
+        Self(uuid::Uuid::now_v7())
+    }
+}
+impl From<ProjectIdent> for uuid::Uuid {
+    fn from(ident: ProjectIdent) -> Self {
+        ident.0
     }
 }
 
-impl std::fmt::Display for RoleIdent {
+#[derive(Debug, serde::Serialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
+#[serde(transparent)]
+pub struct RoleId(uuid::Uuid);
+
+impl<'de> serde::Deserialize<'de> for RoleId {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<RoleId, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        RoleId::from_str(&s).map_err(|e| serde::de::Error::custom(e.error.message))
+    }
+}
+
+impl RoleId {
+    #[must_use]
+    pub fn new(id: uuid::Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl Default for RoleId {
+    fn default() -> Self {
+        Self(uuid::Uuid::now_v7())
+    }
+}
+
+impl FromStr for RoleId {
+    type Err = IcebergErrorResponse;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(RoleId(uuid::Uuid::from_str(s).map_err(|e| {
+            ErrorModel::builder()
+                .code(StatusCode::BAD_REQUEST.into())
+                .message("Provided role id is not a valid UUID".to_string())
+                .r#type("RoleIDIsNotUUID".to_string())
+                .source(Some(Box::new(e)))
+                .build()
+        })?))
+    }
+}
+
+impl std::fmt::Display for RoleId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl Deref for RoleIdent {
-    type Target = str;
+impl Deref for RoleId {
+    type Target = uuid::Uuid;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<RoleIdent> for String {
-    fn from(ident: RoleIdent) -> Self {
+impl From<RoleId> for uuid::Uuid {
+    fn from(ident: RoleId) -> Self {
         ident.0
     }
 }
@@ -354,43 +397,4 @@ impl TryFrom<Prefix> for WarehouseIdent {
         })?;
         Ok(WarehouseIdent(prefix))
     }
-}
-
-pub(crate) fn validate_entity_id(s: &str, entity_name: &str) -> Result<()> {
-    if !s
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err(ErrorModel::bad_request(
-            format!("Invalid characters in {entity_name} id"),
-            "InvalidEntityId",
-            None,
-        )
-        .append_detail(format!("{entity_name}: {s}"))
-        .into());
-    }
-
-    // All lowercase
-    if s.to_lowercase() != s {
-        return Err(ErrorModel::bad_request(
-            format!("{entity_name} id must be lowercase"),
-            "InvalidEntityId",
-            None,
-        )
-        .append_detail(format!("{entity_name}: {s}"))
-        .into());
-    }
-
-    // Max length 128
-    if s.len() > 128 {
-        return Err(ErrorModel::bad_request(
-            format!("{entity_name} id must be at most 128 characters"),
-            "InvalidEntityId",
-            None,
-        )
-        .append_detail(format!("{entity_name}: {s}"))
-        .into());
-    }
-
-    Ok(())
 }

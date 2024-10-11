@@ -1,5 +1,7 @@
 use super::health::HealthExt;
-use super::{NamespaceIdentUuid, ProjectIdent, TableIdentUuid, ViewIdentUuid, WarehouseIdent};
+use super::{
+    NamespaceIdentUuid, ProjectIdent, RoleId, TableIdentUuid, UserId, ViewIdentUuid, WarehouseIdent,
+};
 use crate::api::iceberg::v1::Result;
 use crate::request_metadata::RequestMetadata;
 use std::collections::HashSet;
@@ -11,12 +13,29 @@ pub use implementations::allow_all::AllowAllAuthorizer;
 
 #[derive(Debug, Clone, strum_macros::Display)]
 #[strum(serialize_all = "snake_case")]
+pub enum UserAction {
+    /// Can get all details of the user given its id
+    CanRead,
+    /// Can update the user.
+    CanUpdate,
+    /// Can delete this user
+    CanDelete,
+}
+
+#[derive(Debug, Clone, strum_macros::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum ServerAction {
     /// Can create items inside the server (can create Warehouses).
     CanCreate,
     /// List projects on this server. Returned projects
     /// are filtered by the user's permissions (`CanShowInList`)
     CanListAllProjects,
+    /// Can update all users on this server.
+    CanUpdateUsers,
+    /// Can delete all users on this server.
+    CanDeleteUsers,
+    /// Can List all users on this server.
+    CanListUsers,
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
@@ -28,6 +47,19 @@ pub enum ProjectAction {
     CanGetMetadata,
     CanListWarehouses,
     CanShowInList,
+    CanCreateRole,
+    CanListRoles,
+}
+
+#[derive(Debug, Clone, strum_macros::Display)]
+#[strum(serialize_all = "snake_case")]
+pub enum RoleAction {
+    CanAssume,
+    CanDelete,
+    CanUpdate,
+    CanAddAssignee,
+    CanRemoveAssignee,
+    CanRead,
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
@@ -191,9 +223,29 @@ pub trait Authorizer
 where
     Self: Send + Sync + 'static + HealthExt + Clone,
 {
+    /// Return Err only for internal errors.
+    async fn list_projects(&self, metadata: &RequestMetadata) -> Result<ListProjectsResponse>;
+
+    /// Search users
+    async fn can_search_users(&self, metadata: &RequestMetadata) -> Result<bool>;
+
     /// Return Ok(true) if the action is allowed, otherwise return Ok(false).
     /// Return Err for internal errors.
-    async fn list_projects(&self, metadata: &RequestMetadata) -> Result<ListProjectsResponse>;
+    async fn is_allowed_user_action(
+        &self,
+        metadata: &RequestMetadata,
+        user_id: &UserId,
+        action: &UserAction,
+    ) -> Result<bool>;
+
+    /// Return Ok(true) if the action is allowed, otherwise return Ok(false).
+    /// Return Err for internal errors.
+    async fn is_allowed_role_action(
+        &self,
+        metadata: &RequestMetadata,
+        role_id: RoleId,
+        action: &RoleAction,
+    ) -> Result<bool>;
 
     /// Return Ok(true) if the action is allowed, otherwise return Ok(false).
     /// Return Err for internal errors.
@@ -330,6 +382,61 @@ where
     /// Hook that is called when a view is deleted.
     /// This is used to clean up permissions for the view.
     async fn delete_view(&self, metadata: &RequestMetadata, view_id: ViewIdentUuid) -> Result<()>;
+
+    async fn require_search_users(&self, metadata: &RequestMetadata) -> Result<()> {
+        if self.can_search_users(metadata).await? {
+            Ok(())
+        } else {
+            Err(ErrorModel::forbidden(
+                "Forbidden action search_users",
+                "SearchUsersForbidden",
+                None,
+            )
+            .into())
+        }
+    }
+
+    async fn require_user_action(
+        &self,
+        metadata: &RequestMetadata,
+        user_id: &UserId,
+        action: &UserAction,
+    ) -> Result<()> {
+        if self
+            .is_allowed_user_action(metadata, user_id, action)
+            .await?
+        {
+            Ok(())
+        } else {
+            Err(ErrorModel::forbidden(
+                format!("Forbidden action {action} on user {user_id}"),
+                "UserActionForbidden",
+                None,
+            )
+            .into())
+        }
+    }
+
+    async fn require_role_action(
+        &self,
+        metadata: &RequestMetadata,
+        role_id: RoleId,
+        action: &RoleAction,
+    ) -> Result<()> {
+        if self
+            .is_allowed_role_action(metadata, role_id, action)
+            .await?
+        {
+            Ok(())
+        } else {
+            Err(ErrorModel::forbidden(
+                format!("Forbidden action {action} on role {role_id}"),
+                "RoleActionForbidden",
+                None,
+            )
+            .into())
+        }
+    }
 
     async fn require_server_action(
         &self,
