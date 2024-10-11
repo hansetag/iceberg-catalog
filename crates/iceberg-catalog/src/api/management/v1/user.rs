@@ -82,7 +82,7 @@ pub struct SearchUserResponse {
     pub users: Vec<SearchUser>,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct ListUsersQuery {
     /// Search for a specific username
@@ -92,7 +92,7 @@ pub struct ListUsersQuery {
     // without breaking OpenAPI?
     /// Next page token
     #[serde(skip_serializing_if = "PageToken::skip_serialize")]
-    #[into_params(value_type=String)]
+    #[param(value_type=String)]
     pub page_token: PageToken,
     /// Signals an upper bound of the number of results that a client will receive.
     #[serde(skip_serializing_if = "Option::is_none")]

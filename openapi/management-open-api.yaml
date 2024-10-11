@@ -7,6 +7,54 @@ info:
     name: Apache-2.0
   version: 0.4.0
 paths:
+  /management/v1/bootstrap:
+    post:
+      tags:
+      - server
+      summary: Creates the user in the catalog if it does not exist.
+      description: |-
+        If the user exists, it updates the users' metadata from the token.
+        The token sent to this endpoint should have "profile" and "email" scopes.
+      operationId: bootstrap
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BootstrapRequest'
+        required: true
+      responses:
+        '200':
+          description: Server bootstrapped successfully
+  /management/v1/info:
+    get:
+      tags:
+      - server
+      summary: Get information about the server
+      operationId: get_server_info
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServerInfo'
+  /management/v1/my-user:
+    get:
+      tags:
+      - user
+      summary: Get my user
+      operationId: get_my_user
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
   /management/v1/project:
     get:
       tags:
@@ -123,7 +171,7 @@ paths:
         description: Next page token
         required: false
         schema:
-          $ref: '#/components/schemas/PageToken'
+          type: string
       - name: pageSize
         in: query
         description: Signals an upper bound of the number of results that a client will receive.
@@ -140,9 +188,8 @@ paths:
           users token and no default project is set.
         required: false
         schema:
-          allOf:
-          - $ref: '#/components/schemas/ProjectIdent'
-          nullable: true
+          type: string
+          format: uuid
       responses:
         '200':
           description: List of roles
@@ -256,7 +303,7 @@ paths:
         description: Next page token
         required: false
         schema:
-          $ref: '#/components/schemas/PageToken'
+          type: string
       - name: pageSize
         in: query
         description: Signals an upper bound of the number of results that a client will receive.
@@ -284,7 +331,6 @@ paths:
         The token sent to this endpoint should have "profile" and "email" scopes.
       operationId: create_user
       requestBody:
-        description: ''
         content:
           application/json:
             schema:
@@ -495,7 +541,7 @@ paths:
         description: Next page token
         required: false
         schema:
-          $ref: '#/components/schemas/PageToken'
+          type: string
       - name: pageSize
         in: query
         description: Signals an upper bound of the number of results that a client will receive.
@@ -642,6 +688,14 @@ components:
           description: 'The validity of the sas token in seconds. Default: 3600.'
           nullable: true
           minimum: 0
+    BootstrapRequest:
+      type: object
+      required:
+      - accept-terms-of-use
+      properties:
+        accept-terms-of-use:
+          type: boolean
+          description: Set to true if you accept LAKEKEEPER terms of use.
     CreateProjectRequest:
       type: object
       required:
@@ -958,20 +1012,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Role'
-    ListUsersQuery:
-      type: object
-      properties:
-        name:
-          type: string
-          description: Search for a specific username
-          nullable: true
-        pageSize:
-          type: integer
-          format: int32
-          description: Signals an upper bound of the number of results that a client will receive.
-          nullable: true
-        pageToken:
-          $ref: '#/components/schemas/PageToken'
     ListUsersResponse:
       type: object
       required:
@@ -1184,6 +1224,23 @@ components:
           items:
             $ref: '#/components/schemas/SearchUser'
           description: List of users matching the search criteria
+    ServerInfo:
+      type: object
+      required:
+      - version
+      - bootstrapped
+      - server-id
+      properties:
+        bootstrapped:
+          type: boolean
+          description: Whether the catalog has been bootstrapped.
+        server-id:
+          type: string
+          format: uuid
+          description: ID of the server.
+        version:
+          type: string
+          description: Version of the server.
     StorageCredential:
       oneOf:
       - allOf:
@@ -1367,6 +1424,8 @@ components:
       - active
       - inactive
 tags:
+- name: server
+  description: Manage Server
 - name: project
   description: Manage Projects
 - name: warehouse

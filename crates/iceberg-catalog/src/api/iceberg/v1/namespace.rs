@@ -258,7 +258,7 @@ pub struct ListNamespacesQuery {
 pub struct PaginationQuery {
     /// Next page token
     #[serde(skip_serializing_if = "PageToken::skip_serialize")]
-    #[into_params(value_type=String)]
+    #[param(value_type=String)]
     pub page_token: PageToken,
     /// Signals an upper bound of the number of results that a client will receive.
     #[serde(skip_serializing_if = "Option::is_none")]

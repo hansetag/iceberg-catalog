@@ -87,7 +87,7 @@ pub struct SearchRoleRequest {
     pub project_id: Option<ProjectIdent>,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct ListRolesQuery {
     /// Search for a specific role name
@@ -97,7 +97,7 @@ pub struct ListRolesQuery {
     // without breaking OpenAPI?
     /// Next page token
     #[serde(skip_serializing_if = "PageToken::skip_serialize")]
-    #[into_params(value_type=String)]
+    #[param(value_type=String)]
     pub page_token: PageToken,
     /// Signals an upper bound of the number of results that a client will receive.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,7 +107,7 @@ pub struct ListRolesQuery {
     /// Only required if the project ID cannot be inferred from the
     /// users token and no default project is set.
     #[serde(default)]
-    #[into_params(value_type=uuid::Uuid)]
+    #[param(value_type=uuid::Uuid)]
     pub project_id: Option<ProjectIdent>,
 }
 

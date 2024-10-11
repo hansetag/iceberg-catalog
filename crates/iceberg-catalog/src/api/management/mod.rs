@@ -57,6 +57,7 @@ pub mod v1 {
         ),
         paths(
             activate_warehouse,
+            bootstrap,
             create_project,
             create_role,
             create_user,
@@ -67,8 +68,10 @@ pub mod v1 {
             delete_user,
             delete_warehouse,
             get_my_user,
+            get_my_user,
             get_project,
             get_role,
+            get_server_info,
             get_user,
             get_warehouse,
             list_deleted_tabulars,
@@ -106,7 +109,6 @@ pub mod v1 {
             ListDeletedTabularsResponse,
             ListProjectsResponse,
             ListRolesResponse,
-            ListUsersQuery,
             ListUsersResponse,
             ListWarehousesRequest,
             ListWarehousesResponse,
@@ -252,7 +254,7 @@ pub mod v1 {
     #[utoipa::path(
         get,
         tag = "user",
-        path = "/management/v1/user",
+        path = "/management/v1/my-user",
         responses(
             (status = 200, description = "User details", body = [User]),
         )
@@ -818,7 +820,7 @@ pub mod v1 {
                 )
                 .route("/search/role", post(search_role))
                 // User management
-                .route("/user", get(get_my_user).post(create_user))
+                .route("/my-user", get(get_my_user).post(create_user))
                 .route("/search/user", post(search_user))
                 .route(
                     "/user/:user_id",
