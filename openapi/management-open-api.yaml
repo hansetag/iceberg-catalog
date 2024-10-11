@@ -104,6 +104,118 @@ paths:
       responses:
         '200':
           description: Project renamed successfully
+  /management/v1/role:
+    get:
+      tags:
+      - role
+      summary: List roles in a project
+      operationId: list_roles
+      parameters:
+      - name: name
+        in: query
+        description: Search for a specific role name
+        required: false
+        schema:
+          type: string
+          nullable: true
+      - name: pageToken
+        in: query
+        description: Next page token
+        required: false
+        schema:
+          $ref: '#/components/schemas/PageToken'
+      - name: pageSize
+        in: query
+        description: Signals an upper bound of the number of results that a client will receive.
+        required: false
+        schema:
+          type: integer
+          format: int32
+          nullable: true
+      - name: projectId
+        in: query
+        description: |-
+          Project ID from which roles should be listed
+          Only required if the project ID cannot be inferred from the
+          users token and no default project is set.
+        required: false
+        schema:
+          allOf:
+          - $ref: '#/components/schemas/ProjectIdent'
+          nullable: true
+      responses:
+        '200':
+          description: List of roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ListRolesResponse'
+    post:
+      tags:
+      - role
+      summary: Create a new role
+      operationId: create_role
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoleRequest'
+        required: true
+      responses:
+        '201':
+          description: Role successfully created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+  /management/v1/role/{id}:
+    get:
+      tags:
+      - role
+      summary: Get a role
+      operationId: get_role
+      responses:
+        '200':
+          description: Role details
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+    post:
+      tags:
+      - role
+      summary: Update a role
+      operationId: update_role
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+        required: true
+      responses:
+        '200':
+          description: Role updated successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+    delete:
+      tags:
+      - role
+      summary: Delete role
+      description: All permissions of the role are permanently removed.
+      operationId: delete_role
+      responses:
+        '200':
+          description: Role deleted successfully
   /management/v1/search/user:
     post:
       tags:
@@ -170,7 +282,14 @@ paths:
       description: |-
         If the user exists, it updates the users' metadata from the token.
         The token sent to this endpoint should have "profile" and "email" scopes.
-      operationId: create_or_update_user_from_token
+      operationId: create_user
+      requestBody:
+        description: ''
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+        required: true
       responses:
         '200':
           description: User updated
@@ -547,6 +666,53 @@ components:
           type: string
           format: uuid
           description: ID of the created project.
+    CreateRoleRequest:
+      type: object
+      required:
+      - name
+      properties:
+        description:
+          type: string
+          description: Description of the role
+          nullable: true
+        name:
+          type: string
+          description: Name of the role to create
+        project-id:
+          type: string
+          format: uuid
+          description: |-
+            Project ID in which the role is created.
+            Only required if the project ID cannot be inferred from the
+            users token and no default project is set.
+    CreateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          description: |-
+            Email of the user. If id is not specified, the email is extracted
+            from the provided token.
+          nullable: true
+        id:
+          type: string
+          description: |-
+            Subject id of the user - allows user provisioning.
+            The id must be identical to the subject in JWT tokens.
+            To create users in self-service manner, do not set the id.
+            The id is then extracted from the passed JWT token.
+          nullable: true
+        name:
+          type: string
+          description: |-
+            Name of the user. If id is not specified, the name is extracted
+            from the provided token.
+          nullable: true
+        update-if-exists:
+          type: boolean
+          description: |-
+            Update the user if it already exists
+            Default: false
     CreateWarehouseRequest:
       type: object
       required:
@@ -780,6 +946,18 @@ components:
           items:
             $ref: '#/components/schemas/GetProjectResponse'
           description: List of projects
+    ListRolesResponse:
+      type: object
+      required:
+      - roles
+      properties:
+        next_page_token:
+          type: string
+          nullable: true
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
     ListUsersQuery:
       type: object
       properties:
@@ -810,11 +988,8 @@ components:
       type: object
       properties:
         projectId:
-          type: string
-          format: uuid
-          description: |-
-            The project ID to list warehouses for.
-            Setting a warehouse is required.
+          allOf:
+          - $ref: '#/components/schemas/ProjectIdent'
           nullable: true
         warehouseStatus:
           type: array
@@ -851,6 +1026,38 @@ components:
         new-name:
           type: string
           description: New name for the warehouse.
+    Role:
+      type: object
+      required:
+      - id
+      - name
+      - project-id
+      - created-at
+      properties:
+        created-at:
+          type: string
+          format: date-time
+          description: Timestamp when the role was created
+        description:
+          type: string
+          description: Description of the role
+          nullable: true
+        id:
+          type: string
+          format: uuid
+          description: Globally unique id of this role
+        name:
+          type: string
+          description: Name of the role
+        project-id:
+          type: string
+          format: uuid
+          description: Project ID in which the role is created.
+        updated-at:
+          type: string
+          format: date-time
+          description: Timestamp when the role was last updated
+          nullable: true
     S3Credential:
       oneOf:
       - type: object
@@ -920,6 +1127,30 @@ components:
           type: string
           description: Optional role ARN to assume for sts vended-credentials
           nullable: true
+    SearchRoleRequest:
+      type: object
+      required:
+      - search
+      properties:
+        project-id:
+          allOf:
+          - $ref: '#/components/schemas/ProjectIdent'
+          nullable: true
+        search:
+          type: string
+          description: |-
+            Search string for fuzzy search.
+            Length is truncated to 64 characters.
+    SearchRoleResponse:
+      type: object
+      required:
+      - roles
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+          description: List of users matching the search criteria
     SearchUser:
       type: object
       required:
@@ -1052,6 +1283,18 @@ components:
       enum:
       - table
       - view
+    UpdateRoleRequest:
+      type: object
+      required:
+      - name
+      properties:
+        description:
+          type: string
+          description: Description of the role. If not set, the description will be removed.
+          nullable: true
+        name:
+          type: string
+          description: Name of the role to create
     UpdateUserRequest:
       type: object
       required:
@@ -1086,10 +1329,10 @@ components:
       required:
       - name
       - id
-      - last_updated_with
-      - created_at
+      - last-updated-with
+      - created-at
       properties:
-        created_at:
+        created-at:
           type: string
           format: date-time
           description: Timestamp when the user was created
@@ -1100,12 +1343,12 @@ components:
         id:
           type: string
           description: The user's ID
-        last_updated_with:
+        last-updated-with:
           $ref: '#/components/schemas/UserLastUpdatedWith'
         name:
           type: string
           description: Name of the user
-        updated_at:
+        updated-at:
           type: string
           format: date-time
           description: Timestamp when the user was last updated
@@ -1114,7 +1357,7 @@ components:
       type: string
       description: How the user was last updated
       enum:
-      - update-from-token
+      - create-endpoint
       - config-call-creation
       - update-endpoint
     WarehouseStatus:
@@ -1130,4 +1373,6 @@ tags:
   description: Manage Warehouses
 - name: user
   description: Manage Users
+- name: role
+  description: Manage Roles
 

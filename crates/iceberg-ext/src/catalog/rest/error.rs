@@ -178,6 +178,14 @@ impl ErrorModel {
         )
     }
 
+    pub fn unauthorized(
+        message: impl Into<String>,
+        r#type: impl Into<String>,
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    ) -> Self {
+        Self::new(message, r#type, StatusCode::UNAUTHORIZED.as_u16(), source)
+    }
+
     pub fn forbidden(
         message: impl Into<String>,
         r#type: impl Into<String>,

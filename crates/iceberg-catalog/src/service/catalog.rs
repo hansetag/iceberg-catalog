@@ -1,7 +1,7 @@
 use super::authz::TableUuid;
 use super::{
     storage::StorageProfile, NamespaceIdentUuid, ProjectIdent, RoleId, TableIdentUuid, UserId,
-    WarehouseIdent, WarehouseStatus,
+    ViewIdentUuid, WarehouseIdent, WarehouseStatus,
 };
 pub use crate::api::iceberg::v1::{
     CreateNamespaceRequest, CreateNamespaceResponse, ListNamespacesQuery, NamespaceIdent, Result,
@@ -531,7 +531,7 @@ where
         warehouse_id: WarehouseIdent,
         view: &TableIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<Option<TableIdentUuid>>;
+    ) -> Result<Option<ViewIdentUuid>>;
 
     async fn create_view<'a>(
         namespace_id: NamespaceIdentUuid,
@@ -543,7 +543,7 @@ where
     ) -> Result<()>;
 
     async fn load_view<'a>(
-        view_id: TableIdentUuid,
+        view_id: ViewIdentUuid,
         include_deleted: bool,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<ViewMetadataWithLocation>;
@@ -554,11 +554,11 @@ where
         include_deleted: bool,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
         pagination_query: PaginationQuery,
-    ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>>;
+    ) -> Result<PaginatedTabulars<ViewIdentUuid, TableIdent>>;
 
     async fn update_view_metadata(
         namespace_id: NamespaceIdentUuid,
-        view_id: TableIdentUuid,
+        view_id: ViewIdentUuid,
         view: &TableIdent,
         metadata_location: &Location,
         metadata: ViewMetadata,
@@ -566,14 +566,16 @@ where
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,
     ) -> Result<()>;
 
+    /// Returns location of the dropped view.
+    /// Used for cleanup
     async fn drop_view<'a>(
-        view_id: TableIdentUuid,
+        view_id: ViewIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<String>;
 
     async fn rename_view(
         warehouse_id: WarehouseIdent,
-        source_id: TableIdentUuid,
+        source_id: ViewIdentUuid,
         source: &TableIdent,
         destination: &TableIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,

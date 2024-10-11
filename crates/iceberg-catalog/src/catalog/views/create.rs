@@ -13,9 +13,9 @@ use crate::request_metadata::RequestMetadata;
 use crate::service::authz::{Authorizer, NamespaceAction, WarehouseAction};
 use crate::service::event_publisher::EventMetadata;
 use crate::service::storage::{StorageLocations as _, StoragePermissions};
-use crate::service::Result;
 use crate::service::TabularIdentUuid;
 use crate::service::{Catalog, SecretStore, State, Transaction};
+use crate::service::{Result, ViewIdentUuid};
 use iceberg::spec::ViewMetadataBuilder;
 use iceberg::{TableIdent, ViewCreation};
 use iceberg_ext::catalog::rest::{CreateViewRequest, ErrorModel, LoadViewResult};
@@ -143,8 +143,15 @@ pub(crate) async fn create_view<C: Catalog, A: Authorizer + Clone, S: SecretStor
             &data_access,
             storage_secret.as_ref(),
             &view_location,
-            // TODO: This should be a permission based on authz
-            StoragePermissions::ReadWriteDelete,
+            StoragePermissions::Read,
+        )
+        .await?;
+
+    authorizer
+        .create_view(
+            &request_metadata,
+            ViewIdentUuid::from(metadata.view_uuid),
+            namespace_id,
         )
         .await?;
 

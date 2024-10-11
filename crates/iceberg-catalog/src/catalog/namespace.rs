@@ -6,7 +6,7 @@ use crate::api::iceberg::v1::{
 };
 use crate::api::set_not_found_status_code;
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{NamespaceAction, WarehouseAction};
+use crate::service::authz::{NamespaceAction, NamespaceParent, WarehouseAction};
 use crate::service::{authz::Authorizer, secrets::SecretStore, Catalog, State, Transaction as _};
 use crate::service::{GetWarehouseResponse, NamespaceIdentUuid};
 use crate::CONFIG;
@@ -147,6 +147,13 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         request.properties = Some(namespace_props.into());
 
         let r = C::create_namespace(warehouse_id, namespace_id, request, t.transaction()).await?;
+        authorizer
+            .create_namespace(
+                &request_metadata,
+                namespace_id,
+                NamespaceParent::Warehouse(warehouse_id),
+            )
+            .await?;
         t.commit().await?;
         Ok(r)
     }
@@ -263,9 +270,12 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
             .await?;
 
         //  ------------------- BUSINESS LOGIC -------------------
-        let r = C::drop_namespace(warehouse_id, namespace_id, t.transaction()).await?;
+        C::drop_namespace(warehouse_id, namespace_id, t.transaction()).await?;
+        authorizer
+            .delete_namespace(&request_metadata, namespace_id)
+            .await?;
         t.commit().await?;
-        Ok(r)
+        Ok(())
     }
 
     /// Set or remove properties on a namespace

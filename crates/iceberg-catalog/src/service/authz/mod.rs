@@ -319,7 +319,7 @@ where
         &self,
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
-        view_id: TableIdentUuid,
+        view_id: ViewIdentUuid,
         action: &ViewAction,
     ) -> Result<bool>;
 
@@ -400,11 +400,7 @@ where
 
     /// Hook that is called when a table is deleted.
     /// This is used to clean up permissions for the table.
-    async fn delete_table(
-        &self,
-        metadata: &RequestMetadata,
-        table_id: TableIdentUuid,
-    ) -> Result<()>;
+    async fn delete_table(&self, table_id: TableIdentUuid) -> Result<()>;
 
     /// Hook that is called when a new view is created.
     /// This is used to set up the initial permissions for the view.
@@ -417,7 +413,7 @@ where
 
     /// Hook that is called when a view is deleted.
     /// This is used to clean up permissions for the view.
-    async fn delete_view(&self, metadata: &RequestMetadata, view_id: ViewIdentUuid) -> Result<()>;
+    async fn delete_view(&self, view_id: ViewIdentUuid) -> Result<()>;
 
     async fn require_search_users(&self, metadata: &RequestMetadata) -> Result<()> {
         if self.can_search_users(metadata).await? {
@@ -602,9 +598,9 @@ where
         &self,
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
-        view_id: Result<Option<TableIdentUuid>>,
+        view_id: Result<Option<ViewIdentUuid>>,
         action: &ViewAction,
-    ) -> Result<TableIdentUuid> {
+    ) -> Result<ViewIdentUuid> {
         let msg = format!("View action {action} forbidden");
         let typ = "ViewActionForbidden";
 
@@ -628,49 +624,6 @@ where
         }
     }
 }
-
-// // Contains non-object safe methods
-// #[async_trait::async_trait]
-// pub(crate) trait AuthorizerExt
-// where
-//     Self: Authorizer,
-// {
-//     async fn require_table_action_generic<T: TableUuid + Send>(
-//         &self,
-//         metadata: &RequestMetadata,
-//         warehouse_id: WarehouseIdent,
-//         table: Result<Option<T>>,
-//         action: &TableAction,
-//     ) -> Result<T> {
-//         let (return_value, table_id) = match table {
-//             Ok(Some(table)) => {
-//                 let table_id = table.table_uuid().clone();
-//                 (Ok(table), Ok(Some(table_id)))
-//             }
-//             Ok(None) => (
-//                 Err(ErrorModel::internal(
-//                     "Unexpected response from require_table_action",
-//                     "RequireTableActionGeneric",
-//                     None,
-//                 )),
-//                 Ok(None),
-//             ),
-//             Err(e) => (
-//                 Err(ErrorModel::internal(
-//                     "Unexpected response from require_table_action",
-//                     "RequireTableActionGeneric",
-//                     None,
-//                 )),
-//                 Err(e),
-//             ),
-//         };
-//         self.require_table_action(metadata, warehouse_id, table_id, action)
-//             .await?;
-//         return_value.map_err(Into::into)
-//     }
-// }
-
-// impl<T> AuthorizerExt for T where T: Authorizer {}
 
 #[cfg(test)]
 mod tests {

@@ -17,7 +17,6 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
-use crate::api::management::v1::role::{ListRolesResponse, Role, SearchRoleResponse};
 use crate::api::management::v1::user::{
     ListUsersResponse, SearchUserResponse, UserLastUpdatedWith,
 };
@@ -27,14 +26,21 @@ use crate::implementations::postgres::user::{
     create_or_update_user, delete_user, list_users, search_user,
 };
 use crate::service::{
-    CreateNamespaceRequest, CreateNamespaceResponse, CreateOrUpdateUserResponse, DeletionDetails,
-    GetProjectResponse, GetWarehouseResponse, ListFlags, ListNamespacesQuery,
-    ListNamespacesResponse, NamespaceIdent, Result, RoleId, TableCreation, TableIdent, UserId,
-    WarehouseStatus,
+    storage::StorageProfile, Catalog, CreateNamespaceRequest, CreateNamespaceResponse,
+    CreateOrUpdateUserResponse, CreateTableResponse, DeletionDetails, GetNamespaceResponse,
+    GetProjectResponse, GetTableMetadataResponse, GetWarehouseResponse, ListFlags,
+    ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent,
+    NamespaceIdentUuid, ProjectIdent, Result, RoleId, TableCreation, TableIdent, TableIdentUuid,
+    Transaction, UserId, WarehouseIdent, WarehouseStatus,
 };
+use crate::SecretIdent;
 use crate::{
     api::iceberg::v1::{PaginatedTabulars, PaginationQuery},
     service::TableCommit,
+};
+use crate::{
+    api::management::v1::role::{ListRolesResponse, Role, SearchRoleResponse},
+    service::ViewIdentUuid,
 };
 use crate::{api::management::v1::warehouse::TabularDeleteProfile, service::TabularIdentUuid};
 use crate::{
@@ -42,14 +48,6 @@ use crate::{
         create_view, drop_view, list_views, load_view, rename_view, view_ident_to_id,
     },
     service::TabularIdentOwned,
-};
-use crate::{
-    service::{
-        storage::StorageProfile, Catalog, CreateTableResponse, GetNamespaceResponse,
-        GetTableMetadataResponse, LoadTableResponse, NamespaceIdentUuid, ProjectIdent,
-        TableIdentUuid, Transaction, WarehouseIdent,
-    },
-    SecretIdent,
 };
 use iceberg::spec::ViewMetadata;
 use iceberg_ext::{catalog::rest::CatalogConfig, configs::Location};
@@ -442,7 +440,7 @@ impl Catalog for super::PostgresCatalog {
         warehouse_id: WarehouseIdent,
         view: &TableIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
-    ) -> Result<Option<TableIdentUuid>> {
+    ) -> Result<Option<ViewIdentUuid>> {
         view_ident_to_id(warehouse_id, view, false, &mut **transaction).await
     }
 
@@ -466,7 +464,7 @@ impl Catalog for super::PostgresCatalog {
     }
 
     async fn load_view<'a>(
-        view_id: TableIdentUuid,
+        view_id: ViewIdentUuid,
         include_deleted: bool,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<crate::implementations::postgres::tabular::view::ViewMetadataWithLocation> {
@@ -479,7 +477,7 @@ impl Catalog for super::PostgresCatalog {
         include_deleted: bool,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
         pagination_query: PaginationQuery,
-    ) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>> {
+    ) -> Result<PaginatedTabulars<ViewIdentUuid, TableIdent>> {
         list_views(
             warehouse_id,
             namespace,
@@ -492,7 +490,7 @@ impl Catalog for super::PostgresCatalog {
 
     async fn update_view_metadata(
         namespace_id: NamespaceIdentUuid,
-        view_id: TableIdentUuid,
+        view_id: ViewIdentUuid,
         view: &TableIdent,
         metadata_location: &Location,
         metadata: ViewMetadata,
@@ -512,15 +510,15 @@ impl Catalog for super::PostgresCatalog {
     }
 
     async fn drop_view<'a>(
-        table_id: TableIdentUuid,
+        view_id: ViewIdentUuid,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<String> {
-        drop_view(table_id, transaction).await
+        drop_view(view_id, transaction).await
     }
 
     async fn rename_view(
         warehouse_id: WarehouseIdent,
-        source_id: TableIdentUuid,
+        source_id: ViewIdentUuid,
         source: &TableIdent,
         destination: &TableIdent,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'_>,

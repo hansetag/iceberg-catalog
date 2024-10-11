@@ -11,9 +11,9 @@ use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;
 use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
 use crate::service::task_queue::tabular_purge_queue::TabularPurgeInput;
-use crate::service::Result;
 use crate::service::TabularIdentUuid;
 use crate::service::{Catalog, SecretStore, State, Transaction};
+use crate::service::{Result, ViewIdentUuid};
 use uuid::Uuid;
 
 pub(crate) async fn drop_view<C: Catalog, A: Authorizer + Clone, S: SecretStore>(
@@ -35,7 +35,7 @@ pub(crate) async fn drop_view<C: Catalog, A: Authorizer + Clone, S: SecretStore>
     let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
     let view_id = C::view_to_id(warehouse_id, &view, t.transaction()).await; // Can't fail before authz
 
-    let view_id = authorizer
+    let view_id: ViewIdentUuid = authorizer
         .require_view_action(
             &request_metadata,
             warehouse_id,
@@ -78,7 +78,9 @@ pub(crate) async fn drop_view<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                         parent_id: None,
                     })
                     .await?;
+                tracing::debug!("Queued purge task for dropped view '{view_id}'.");
             }
+            authorizer.delete_view(view_id).await?;
         }
         TabularDeleteProfile::Soft { expiration_seconds } => {
             C::mark_tabular_as_deleted(TabularIdentUuid::View(*view_id), t.transaction()).await?;
@@ -95,6 +97,7 @@ pub(crate) async fn drop_view<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                     expire_at: chrono::Utc::now() + expiration_seconds,
                 })
                 .await?;
+            tracing::debug!("Queued expiration task for dropped view '{view_id}'.");
         }
     }
 

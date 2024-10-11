@@ -330,7 +330,7 @@ impl super::Authorizer for Authorizers {
         &self,
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
-        view_id: TableIdentUuid,
+        view_id: ViewIdentUuid,
         action: &ViewAction,
     ) -> Result<bool> {
         match self {
@@ -565,20 +565,12 @@ impl super::Authorizer for Authorizers {
         }
     }
 
-    async fn delete_table(
-        &self,
-        metadata: &RequestMetadata,
-        table_id: TableIdentUuid,
-    ) -> Result<()> {
+    async fn delete_table(&self, table_id: TableIdentUuid) -> Result<()> {
         match self {
-            Self::AllowAll(authorizer) => authorizer.delete_table(metadata, table_id).await,
-            Self::OpenFGAUnauthorized(authorizer) => {
-                authorizer.delete_table(metadata, table_id).await
-            }
-            Self::OpenFGABearer(authorizer) => authorizer.delete_table(metadata, table_id).await,
-            Self::OpenFGAClientCreds(authorizer) => {
-                authorizer.delete_table(metadata, table_id).await
-            }
+            Self::AllowAll(authorizer) => authorizer.delete_table(table_id).await,
+            Self::OpenFGAUnauthorized(authorizer) => authorizer.delete_table(table_id).await,
+            Self::OpenFGABearer(authorizer) => authorizer.delete_table(table_id).await,
+            Self::OpenFGAClientCreds(authorizer) => authorizer.delete_table(table_id).await,
         }
     }
 
@@ -602,14 +594,12 @@ impl super::Authorizer for Authorizers {
         }
     }
 
-    async fn delete_view(&self, metadata: &RequestMetadata, view_id: ViewIdentUuid) -> Result<()> {
+    async fn delete_view(&self, view_id: ViewIdentUuid) -> Result<()> {
         match self {
-            Self::AllowAll(authorizer) => authorizer.delete_view(metadata, view_id).await,
-            Self::OpenFGAUnauthorized(authorizer) => {
-                authorizer.delete_view(metadata, view_id).await
-            }
-            Self::OpenFGABearer(authorizer) => authorizer.delete_view(metadata, view_id).await,
-            Self::OpenFGAClientCreds(authorizer) => authorizer.delete_view(metadata, view_id).await,
+            Self::AllowAll(authorizer) => authorizer.delete_view(view_id).await,
+            Self::OpenFGAUnauthorized(authorizer) => authorizer.delete_view(view_id).await,
+            Self::OpenFGABearer(authorizer) => authorizer.delete_view(view_id).await,
+            Self::OpenFGAClientCreds(authorizer) => authorizer.delete_view(view_id).await,
         }
     }
 }

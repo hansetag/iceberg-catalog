@@ -1,8 +1,10 @@
 pub mod v1 {
+    pub mod bootstrap;
     pub mod project;
     pub mod role;
     pub mod user;
     pub mod warehouse;
+
     use axum::{Extension, Json, Router};
     use utoipa::OpenApi;
 
@@ -14,13 +16,14 @@ pub mod v1 {
 
     use crate::api::management::v1::user::{ListUsersQuery, ListUsersResponse};
     use crate::service::{
-        authz::Authorizer, storage::S3Flavor, Catalog, RoleId, SecretStore, State,
+        authz::Authorizer, storage::S3Flavor, Actor, Catalog, RoleId, SecretStore, State,
         TabularIdentUuid, UserId,
     };
     use axum::extract::{Path, Query, State as AxumState};
     use axum::response::{IntoResponse, Response};
     use axum::routing::{get, post};
     use http::StatusCode;
+    use iceberg_ext::catalog::rest::ErrorModel;
     use project::{
         CreateProjectRequest, CreateProjectResponse, GetProjectResponse, ListProjectsResponse,
         RenameProjectRequest, Service as _,
@@ -47,35 +50,37 @@ pub mod v1 {
         tags(
             (name = "project", description = "Manage Projects"),
             (name = "warehouse", description = "Manage Warehouses"),
-            (name = "user", description = "Manage Users")
+            (name = "user", description = "Manage Users"),
+            (name = "role", description = "Manage Roles")
         ),
         paths(
             activate_warehouse,
             create_project,
+            create_role,
+            create_user,
             create_warehouse,
             deactivate_warehouse,
             delete_project,
+            delete_role,
+            delete_user,
             delete_warehouse,
+            get_my_user,
             get_project,
+            get_role,
+            get_user,
             get_warehouse,
             list_deleted_tabulars,
             list_projects,
+            list_roles,
+            list_user,
             list_warehouses,
             rename_project,
             rename_warehouse,
+            search_user,
+            update_role,
             update_storage_credential,
             update_storage_profile,
-            create_user,
-            search_user,
-            get_user,
             update_user,
-            list_user,
-            delete_user,
-            create_role,
-            list_roles,
-            get_role,
-            update_role,
-            delete_role
         ),
         components(schemas(
             AzCredential,
@@ -195,6 +200,36 @@ pub mod v1 {
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
     ) -> Result<(StatusCode, Json<User>)> {
+        ApiServer::<C, A, S>::get_user(api_context, metadata, id)
+            .await
+            .map(|user| (StatusCode::OK, Json(user)))
+    }
+
+    /// Get my user
+    #[utoipa::path(
+        get,
+        tag = "user",
+        path = "/management/v1/user",
+        responses(
+            (status = 200, description = "User details", body = [User]),
+        )
+    )]
+    async fn get_my_user<C: Catalog, A: Authorizer, S: SecretStore>(
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<(StatusCode, Json<User>)> {
+        let id = match metadata.actor() {
+            Actor::Role { principal, .. } | Actor::Principal(principal) => principal.clone(),
+            Actor::Anonymous => {
+                return Err(ErrorModel::unauthorized(
+                    "No token provided",
+                    "GetMyUserWithoutToken",
+                    None,
+                )
+                .into())
+            }
+        };
+
         ApiServer::<C, A, S>::get_user(api_context, metadata, id)
             .await
             .map(|user| (StatusCode::OK, Json(user)))
@@ -737,7 +772,7 @@ pub mod v1 {
                 )
                 .route("/search/role", post(search_role))
                 // User management
-                .route("/user", post(create_user))
+                .route("/user", get(get_my_user).post(create_user))
                 .route("/search/user", post(search_user))
                 .route(
                     "/user/:user_id",

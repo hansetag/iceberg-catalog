@@ -181,7 +181,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         let metadata_location = if request.stage_create.unwrap_or(false) {
             None
         } else {
-            let metadata_id = uuid::Uuid::now_v7();
+            let metadata_id = Uuid::now_v7();
             Some(storage_profile.default_metadata_location(
                 &table_location,
                 &CompressionCodec::try_from_maybe_properties(request.properties.as_ref())?,
@@ -260,6 +260,19 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
             metadata: table_metadata,
             config: Some(config.into()),
         };
+
+        // Tables are the odd one out: If a staged table was created before,
+        // we must be able to overwrite it.
+        authorizer
+            .delete_table(TableIdentUuid::from(*table_id))
+            .await?;
+        authorizer
+            .create_table(
+                &request_metadata,
+                TableIdentUuid::from(*table_id),
+                namespace_id,
+            )
+            .await?;
 
         // Metadata file written, now we can commit the transaction
         t.commit().await?;
@@ -677,9 +690,10 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                             parent_id: None,
                         })
                         .await?;
-                }
 
-                tracing::debug!("Queued purge task for dropped table '{table_id}'.");
+                    tracing::debug!("Queued purge task for dropped table '{table_id}'.");
+                }
+                authorizer.delete_table(table_id).await?;
             }
             TabularDeleteProfile::Soft { expiration_seconds } => {
                 C::mark_tabular_as_deleted(TabularIdentUuid::Table(*table_id), t.transaction())

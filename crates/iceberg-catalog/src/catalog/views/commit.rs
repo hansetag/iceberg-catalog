@@ -15,11 +15,11 @@ use crate::service::authz::{ViewAction, WarehouseAction};
 use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;
 use crate::service::storage::{StorageLocations as _, StoragePermissions};
-use crate::service::TabularIdentUuid;
 use crate::service::{
-    authz::Authorizer, secrets::SecretStore, Catalog, GetWarehouseResponse, State, TableIdentUuid,
-    Transaction, ViewMetadataWithLocation,
+    authz::Authorizer, secrets::SecretStore, Catalog, GetWarehouseResponse, State, Transaction,
+    ViewMetadataWithLocation,
 };
+use crate::service::{TabularIdentUuid, ViewIdentUuid};
 use http::StatusCode;
 use iceberg::spec::{AppendViewVersion, ViewMetadata, ViewMetadataBuilder};
 use iceberg_ext::catalog::rest::ViewUpdate;
@@ -197,7 +197,7 @@ pub(crate) async fn commit_view<C: Catalog, A: Authorizer + Clone, S: SecretStor
 
 fn check_asserts(
     requirements: &Option<Vec<ViewRequirement>>,
-    view_id: TableIdentUuid,
+    view_id: ViewIdentUuid,
 ) -> Result<()> {
     for assertion in requirements.as_deref().unwrap_or_default() {
         match assertion {

@@ -321,7 +321,7 @@ where
         &self,
         metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
-        view_id: TableIdentUuid,
+        view_id: ViewIdentUuid,
         action: &ViewAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
@@ -349,7 +349,8 @@ where
     ) -> Result<()> {
         let actor = metadata.actor();
 
-        self.require_no_relations(&role_id).await?;
+        self.require_no_relations(&role_id, ConsistencyPreference::MinimizeLatency)
+            .await?;
         let parent_id = parent_project_id.to_openfga()?;
         let this_id = role_id.to_openfga()?;
         self.write(
@@ -384,7 +385,8 @@ where
     ) -> Result<()> {
         let actor = metadata.actor();
 
-        self.require_no_relations(&project_id).await?;
+        self.require_no_relations(&project_id, ConsistencyPreference::MinimizeLatency)
+            .await?;
         let server = format!("server:{}", AUTH_CONFIG.server_id);
         let this_id = project_id.to_openfga()?;
         self.write(
@@ -430,7 +432,8 @@ where
     ) -> Result<()> {
         let actor = metadata.actor();
 
-        self.require_no_relations(&warehouse_id).await?;
+        self.require_no_relations(&warehouse_id, ConsistencyPreference::MinimizeLatency)
+            .await?;
         let project_id = parent_project_id.to_openfga()?;
         let this_id = warehouse_id.to_openfga()?;
         self.write(
@@ -476,7 +479,8 @@ where
     ) -> Result<()> {
         let actor = metadata.actor();
 
-        self.require_no_relations(&namespace_id).await?;
+        self.require_no_relations(&namespace_id, ConsistencyPreference::MinimizeLatency)
+            .await?;
 
         let (parent_id, parent_child_relation) = match parent {
             NamespaceParent::Warehouse(warehouse_id) => (
@@ -535,7 +539,10 @@ where
         let parent_id = parent.to_openfga()?;
         let this_id = table_id.to_openfga()?;
 
-        self.require_no_relations(&table_id).await?;
+        // Higher consistency as for stage create overwrites old relations are deleted
+        // immediately before
+        self.require_no_relations(&table_id, ConsistencyPreference::HigherConsistency)
+            .await?;
 
         self.write(
             Some(vec![
@@ -564,11 +571,7 @@ where
         .map_err(Into::into)
     }
 
-    async fn delete_table(
-        &self,
-        _metadata: &RequestMetadata,
-        table_id: TableIdentUuid,
-    ) -> Result<()> {
+    async fn delete_table(&self, table_id: TableIdentUuid) -> Result<()> {
         self.delete_all_relations(&table_id).await
     }
 
@@ -582,7 +585,8 @@ where
         let parent_id = parent.to_openfga()?;
         let this_id = view_id.to_openfga()?;
 
-        self.require_no_relations(&view_id).await?;
+        self.require_no_relations(&view_id, ConsistencyPreference::MinimizeLatency)
+            .await?;
 
         self.write(
             Some(vec![
@@ -611,7 +615,7 @@ where
         .map_err(Into::into)
     }
 
-    async fn delete_view(&self, _metadata: &RequestMetadata, view_id: ViewIdentUuid) -> Result<()> {
+    async fn delete_view(&self, view_id: ViewIdentUuid) -> Result<()> {
         self.delete_all_relations(&view_id).await
     }
 }
@@ -677,13 +681,14 @@ where
         page_size: i32,
         tuple_key: ReadRequestTupleKey,
         continuation_token: Option<String>,
+        consistency: ConsistencyPreference,
     ) -> OpenFGAResult<ReadResponse> {
         let read_request = ReadRequest {
             store_id: self.store_id.clone(),
             page_size: Some(page_size),
             continuation_token: continuation_token.unwrap_or_default(),
             tuple_key: Some(tuple_key),
-            consistency: ConsistencyPreference::MinimizeLatency.into(),
+            consistency: consistency.into(),
         };
         self.client
             .clone()
@@ -726,7 +731,11 @@ where
     }
 
     /// Returns Ok(()) only if not tuples are associated in any relation with the given object.
-    async fn require_no_relations(&self, object: &impl OpenFgaEntity) -> Result<()> {
+    async fn require_no_relations(
+        &self,
+        object: &impl OpenFgaEntity,
+        consistency: ConsistencyPreference,
+    ) -> Result<()> {
         let openfga_tpye = object.openfga_type().clone();
         let fga_object = object.to_openfga()?;
         let objects = openfga_tpye.user_of();
@@ -742,6 +751,7 @@ where
                     object: fga_object.clone(),
                 },
                 None,
+                consistency,
             )
             .await?
             .tuples;
@@ -774,6 +784,7 @@ where
                                 object: format!("{o}:"),
                             },
                             None,
+                            consistency,
                         )
                         .await?;
 
@@ -834,6 +845,7 @@ where
                                     object: format!("{o}:"),
                                 },
                                 continuation_token.clone(),
+                                ConsistencyPreference::HigherConsistency,
                             )
                             .await?;
                         continuation_token = Some(response.continuation_token);
@@ -882,6 +894,7 @@ where
                         object: fga_object.clone(),
                     },
                     continuation_token.clone(),
+                    ConsistencyPreference::HigherConsistency,
                 ).await?;
                 continuation_token = Some(response.continuation_token);
                 let keys = response.tuples.into_iter().filter_map(|t| t.key).filter(|k| !seen.contains(&(k.user.clone(), k.relation.clone()))).collect::<Vec<_>>();
@@ -1024,6 +1037,8 @@ mod tests {
         use crate::service::RoleId;
         use http::StatusCode;
 
+        const TEST_CONSISTENCY: ConsistencyPreference = ConsistencyPreference::HigherConsistency;
+
         async fn new_authorizer_in_empty_store() -> OpenFGAAuthorizer<tonic::transport::Channel> {
             let mut client = new_unauthenticated_client(AUTH_CONFIG.endpoint.clone())
                 .await
@@ -1041,13 +1056,16 @@ mod tests {
             let authorizer = new_authorizer_in_empty_store().await;
 
             let project_id = ProjectIdent::from(uuid::Uuid::now_v7());
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
 
             authorizer
                 .write(
                     Some(vec![TupleKey {
                         user: "user:this_user".to_string(),
-                        relation: "project_admin".to_string(),
+                        relation: ProjectRelation::ProjectAdmin.to_string(),
                         object: project_id.to_openfga().unwrap(),
                         condition: None,
                     }]),
@@ -1057,7 +1075,7 @@ mod tests {
                 .unwrap();
 
             let err = authorizer
-                .require_no_relations(&project_id)
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
                 .await
                 .unwrap_err();
             assert_eq!(err.error.code, StatusCode::CONFLICT.as_u16());
@@ -1068,13 +1086,16 @@ mod tests {
         async fn test_require_no_relations_used_in_other_relations() {
             let authorizer = new_authorizer_in_empty_store().await;
             let project_id = ProjectIdent::from(uuid::Uuid::now_v7());
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
 
             authorizer
                 .write(
                     Some(vec![TupleKey {
                         user: project_id.to_openfga().unwrap(),
-                        relation: "child".to_string(),
+                        relation: ServerRelation::Project.to_string(),
                         object: "server:this_server".to_string(),
                         condition: None,
                     }]),
@@ -1084,7 +1105,7 @@ mod tests {
                 .unwrap();
 
             let err = authorizer
-                .require_no_relations(&project_id)
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
                 .await
                 .unwrap_err();
             assert_eq!(err.error.code, StatusCode::CONFLICT.as_u16());
@@ -1095,13 +1116,16 @@ mod tests {
         async fn test_delete_own_relations_direct() {
             let authorizer = new_authorizer_in_empty_store().await;
             let project_id = ProjectIdent::from(uuid::Uuid::now_v7());
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
 
             authorizer
                 .write(
                     Some(vec![TupleKey {
                         user: "user:my_user".to_string(),
-                        relation: "project_admin".to_string(),
+                        relation: ProjectRelation::ProjectAdmin.to_string(),
                         object: project_id.to_openfga().unwrap(),
                         condition: None,
                     }]),
@@ -1111,24 +1135,30 @@ mod tests {
                 .unwrap();
 
             authorizer
-                .require_no_relations(&project_id)
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
                 .await
                 .unwrap_err();
             authorizer.delete_own_relations(&project_id).await.unwrap();
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
         async fn test_delete_own_relations_usersets() {
             let authorizer = new_authorizer_in_empty_store().await;
             let project_id = ProjectIdent::from(uuid::Uuid::now_v7());
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
 
             authorizer
                 .write(
                     Some(vec![TupleKey {
                         user: "role:my_role#assignee".to_string(),
-                        relation: "project_admin".to_string(),
+                        relation: ProjectRelation::ProjectAdmin.to_string(),
                         object: project_id.to_openfga().unwrap(),
                         condition: None,
                     }]),
@@ -1138,18 +1168,24 @@ mod tests {
                 .unwrap();
 
             authorizer
-                .require_no_relations(&project_id)
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
                 .await
                 .unwrap_err();
             authorizer.delete_own_relations(&project_id).await.unwrap();
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
         async fn test_delete_own_relations_many() {
             let authorizer = new_authorizer_in_empty_store().await;
             let project_id = ProjectIdent::from(uuid::Uuid::now_v7());
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
 
             for i in 0..502 {
                 authorizer
@@ -1157,13 +1193,13 @@ mod tests {
                         Some(vec![
                             TupleKey {
                                 user: format!("user:user{i}"),
-                                relation: "project_admin".to_string(),
+                                relation: ProjectRelation::ProjectAdmin.to_string(),
                                 object: project_id.to_openfga().unwrap(),
                                 condition: None,
                             },
                             TupleKey {
                                 user: format!("warehouse:warehouse_{i}"),
-                                relation: "child".to_string(),
+                                relation: ProjectRelation::Warehouse.to_string(),
                                 object: project_id.to_openfga().unwrap(),
                                 condition: None,
                             },
@@ -1175,28 +1211,40 @@ mod tests {
             }
 
             authorizer
-                .require_no_relations(&project_id)
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
                 .await
                 .unwrap_err();
             authorizer.delete_own_relations(&project_id).await.unwrap();
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
         async fn test_delete_own_relations_empty() {
             let authorizer = new_authorizer_in_empty_store().await;
             let project_id = ProjectIdent::from(uuid::Uuid::now_v7());
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
 
             authorizer.delete_own_relations(&project_id).await.unwrap();
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
         async fn test_delete_user_relations() {
             let authorizer = new_authorizer_in_empty_store().await;
             let project_id = ProjectIdent::from(uuid::Uuid::now_v7());
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
 
             let project_id = ProjectIdent::from(uuid::Uuid::now_v7());
 
@@ -1204,7 +1252,7 @@ mod tests {
                 .write(
                     Some(vec![TupleKey {
                         user: project_id.to_openfga().unwrap(),
-                        relation: "parent".to_string(),
+                        relation: WarehouseRelation::Project.to_string(),
                         object: "warehouse:my_warehouse".to_string(),
                         condition: None,
                     }]),
@@ -1214,28 +1262,39 @@ mod tests {
                 .unwrap();
 
             authorizer
-                .require_no_relations(&project_id)
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
                 .await
                 .unwrap_err();
             authorizer.delete_user_relations(&project_id).await.unwrap();
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
         async fn test_delete_user_relations_empty() {
             let authorizer = new_authorizer_in_empty_store().await;
             let project_id = ProjectIdent::from(uuid::Uuid::now_v7());
-            authorizer.require_no_relations(&project_id).await.unwrap();
-
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
             authorizer.delete_user_relations(&project_id).await.unwrap();
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
         async fn test_delete_user_relations_many() {
             let authorizer = new_authorizer_in_empty_store().await;
             let project_id = ProjectIdent::from(uuid::Uuid::now_v7());
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
 
             for i in 0..502 {
                 authorizer
@@ -1243,13 +1302,13 @@ mod tests {
                         Some(vec![
                             TupleKey {
                                 user: project_id.to_openfga().unwrap(),
-                                relation: "parent".to_string(),
+                                relation: WarehouseRelation::Project.to_string(),
                                 object: format!("warehouse:warehouse_{i}"),
                                 condition: None,
                             },
                             TupleKey {
                                 user: project_id.to_openfga().unwrap(),
-                                relation: "child".to_string(),
+                                relation: ServerRelation::Project.to_string(),
                                 object: format!("server:server_{i}"),
                                 condition: None,
                             },
@@ -1261,24 +1320,30 @@ mod tests {
             }
 
             authorizer
-                .require_no_relations(&project_id)
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
                 .await
                 .unwrap_err();
             authorizer.delete_user_relations(&project_id).await.unwrap();
-            authorizer.require_no_relations(&project_id).await.unwrap();
+            authorizer
+                .require_no_relations(&project_id, TEST_CONSISTENCY)
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
         async fn test_delete_user_relations_userset() {
             let authorizer = new_authorizer_in_empty_store().await;
             let user = RoleId::new(uuid::Uuid::nil());
-            authorizer.require_no_relations(&user).await.unwrap();
+            authorizer
+                .require_no_relations(&user, TEST_CONSISTENCY)
+                .await
+                .unwrap();
 
             authorizer
                 .write(
                     Some(vec![TupleKey {
                         user: format!("{}#assignee", user.to_openfga().unwrap()),
-                        relation: "project_admin".to_string(),
+                        relation: ProjectRelation::ProjectAdmin.to_string(),
                         object: "project:my_project".to_string(),
                         condition: None,
                     }]),
@@ -1287,9 +1352,15 @@ mod tests {
                 .await
                 .unwrap();
 
-            authorizer.require_no_relations(&user).await.unwrap_err();
+            authorizer
+                .require_no_relations(&user, TEST_CONSISTENCY)
+                .await
+                .unwrap_err();
             authorizer.delete_user_relations(&user).await.unwrap();
-            authorizer.require_no_relations(&user).await.unwrap();
+            authorizer
+                .require_no_relations(&user, TEST_CONSISTENCY)
+                .await
+                .unwrap();
         }
     }
 }

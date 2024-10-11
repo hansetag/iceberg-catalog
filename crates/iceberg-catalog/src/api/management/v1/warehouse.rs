@@ -91,6 +91,7 @@ pub struct UpdateWarehouseStorageRequest {
     #[serde(default)]
     pub storage_credential: Option<StorageCredential>,
 }
+
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct ListWarehousesRequest {

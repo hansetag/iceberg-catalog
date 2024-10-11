@@ -10,6 +10,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use uuid::Uuid;
 
+use super::authz::Authorizer;
+
 pub mod tabular_expiration_queue;
 pub mod tabular_purge_queue;
 
@@ -47,20 +49,23 @@ impl TaskQueues {
         self.tabular_purge.enqueue(task).await
     }
 
-    pub async fn spawn_queues<C, S>(
+    pub async fn spawn_queues<C, S, A>(
         &self,
         catalog_state: C::State,
         secret_store: S,
+        authorizer: A,
     ) -> Result<(), anyhow::Error>
     where
         C: Catalog,
         S: SecretStore,
+        A: Authorizer,
     {
         let expiration_queue_handler =
-            tokio::task::spawn(tabular_expiration_queue::tabular_expiration_task::<C>(
+            tokio::task::spawn(tabular_expiration_queue::tabular_expiration_task::<C, A>(
                 self.tabular_expiration.clone(),
                 self.tabular_purge.clone(),
                 catalog_state.clone(),
+                authorizer.clone(),
             ));
 
         let purge_queue_handler = tokio::task::spawn(tabular_purge_queue::purge_task::<C, S>(

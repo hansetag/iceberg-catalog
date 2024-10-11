@@ -2,7 +2,7 @@ mod load;
 
 use crate::implementations::postgres::dbutils::DBErrorHandler as _;
 use crate::{
-    service::{ErrorModel, NamespaceIdentUuid, Result, TableIdent, TableIdentUuid},
+    service::{ErrorModel, ListFlags, NamespaceIdentUuid, Result, TableIdent, ViewIdentUuid},
     WarehouseIdent,
 };
 
@@ -13,7 +13,6 @@ use crate::implementations::postgres::tabular::{
     self, create_tabular, drop_tabular, list_tabulars, CreateTabular, TabularIdentBorrowed,
     TabularIdentUuid, TabularType,
 };
-use crate::service::ListFlags;
 pub(crate) use crate::service::ViewMetadataWithLocation;
 use chrono::{DateTime, Utc};
 use iceberg::spec::{SchemaRef, ViewMetadata, ViewRepresentation, ViewVersionId, ViewVersionRef};
@@ -31,7 +30,7 @@ pub(crate) async fn view_ident_to_id<'e, 'c: 'e, E>(
     table: &TableIdent,
     include_deleted: bool,
     catalog_state: E,
-) -> Result<Option<TableIdentUuid>>
+) -> Result<Option<ViewIdentUuid>>
 where
     E: 'e + sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -158,7 +157,7 @@ pub(crate) async fn create_view(
 }
 
 pub(crate) async fn drop_view<'a>(
-    view_id: TableIdentUuid,
+    view_id: ViewIdentUuid,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<String> {
     let _ = sqlx::query!(
@@ -191,7 +190,7 @@ pub(crate) async fn drop_view<'a>(
 /// Rename a table. Tables may be moved across namespaces.
 pub(crate) async fn rename_view(
     warehouse_id: WarehouseIdent,
-    source_id: TableIdentUuid,
+    source_id: ViewIdentUuid,
     source: &TableIdent,
     destination: &TableIdent,
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -444,7 +443,7 @@ pub(crate) async fn list_views<'e, 'c: 'e, E>(
     include_deleted: bool,
     transaction: E,
     paginate_query: PaginationQuery,
-) -> Result<PaginatedTabulars<TableIdentUuid, TableIdent>>
+) -> Result<PaginatedTabulars<ViewIdentUuid, TableIdent>>
 where
     E: 'e + sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -472,9 +471,9 @@ where
                 .r#type("InternalDatabaseError".to_string())
                 .build()
                 .into()),
-            TabularIdentUuid::View(t) => Ok((TableIdentUuid::from(t), v.into_inner())),
+            TabularIdentUuid::View(t) => Ok((ViewIdentUuid::from(t), v.into_inner())),
         })
-        .collect::<Result<HashMap<TableIdentUuid, TableIdent>>>();
+        .collect::<Result<HashMap<ViewIdentUuid, TableIdent>>>();
     Ok(PaginatedTabulars {
         tabulars: views?,
         next_page_token,
@@ -545,7 +544,7 @@ pub(crate) mod tests {
     use crate::implementations::postgres::warehouse::test::initialize_warehouse;
     use crate::implementations::postgres::CatalogState;
 
-    use crate::service::TableIdentUuid;
+    use crate::service::ViewIdentUuid;
 
     use iceberg::spec::{ViewMetadata, ViewMetadataBuilder};
     use iceberg::{NamespaceIdent, TableIdent};
@@ -666,7 +665,7 @@ pub(crate) mod tests {
                 &namespace,
             )
             .await;
-        let view_uuid = TableIdentUuid::from(Uuid::now_v7());
+        let view_uuid = ViewIdentUuid::from(Uuid::now_v7());
         let location = "s3://my_bucket/my_table/metadata/bar"
             .parse::<Location>()
             .unwrap();

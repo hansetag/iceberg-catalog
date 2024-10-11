@@ -102,7 +102,7 @@ impl Authorizer for AllowAllAuthorizer {
         &self,
         _metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
-        _view_id: TableIdentUuid,
+        _view_id: ViewIdentUuid,
         _action: &ViewAction,
     ) -> Result<bool> {
         Ok(true)
@@ -184,11 +184,7 @@ impl Authorizer for AllowAllAuthorizer {
         Ok(())
     }
 
-    async fn delete_table(
-        &self,
-        _metadata: &RequestMetadata,
-        _table_id: TableIdentUuid,
-    ) -> Result<()> {
+    async fn delete_table(&self, _table_id: TableIdentUuid) -> Result<()> {
         Ok(())
     }
 
@@ -201,11 +197,7 @@ impl Authorizer for AllowAllAuthorizer {
         Ok(())
     }
 
-    async fn delete_view(
-        &self,
-        _metadata: &RequestMetadata,
-        _view_id: ViewIdentUuid,
-    ) -> Result<()> {
+    async fn delete_view(&self, _view_id: ViewIdentUuid) -> Result<()> {
         Ok(())
     }
 }
