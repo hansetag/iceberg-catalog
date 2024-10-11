@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub enum UserLastUpdatedWith {
     /// The user was updated or created by the `/management/v1/user/update-from-token` - typically via the UI
-    UpdateFromToken,
+    CreateEndpoint,
     /// The user was created by the `/catalog/v1/config` endpoint
     ConfigCallCreation,
     /// The user was updated by one of the dedicated update endpoints
@@ -50,6 +50,29 @@ pub struct SearchUser {
     pub name: String,
     /// ID of the user
     pub id: String,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct CreateUserRequest {
+    /// Update the user if it already exists
+    /// Default: false
+    #[serde(default)]
+    pub update_if_exists: bool,
+    /// Name of the user. If id is not specified, the name is extracted
+    /// from the provided token.
+    pub name: Option<String>,
+    /// Email of the user. If id is not specified, the email is extracted
+    /// from the provided token.
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Subject id of the user - allows user provisioning.
+    /// The id must be identical to the subject in JWT tokens.
+    /// To create users in self-service manner, do not set the id.
+    /// The id is then extracted from the passed JWT token.
+    #[serde(default)]
+    #[schema(value_type=Option<String>)]
+    pub id: Option<UserId>,
 }
 
 /// Search result for users
@@ -105,22 +128,11 @@ impl IntoResponse for SearchUserResponse {
     }
 }
 
-#[derive(Debug, utoipa::ToSchema)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct SearchUserRequest {
     /// Search string for fuzzy search.
     /// Length is truncated to 64 characters.
     pub search: String,
-}
-
-impl<'de> Deserialize<'de> for SearchUserRequest {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<SearchUserRequest, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let search = String::deserialize(deserializer)?;
-        let search = search.chars().take(64).collect();
-        Ok(SearchUserRequest { search })
-    }
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -134,34 +146,104 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore> Service<C, A, S> for Api
 
 #[async_trait::async_trait]
 pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
-    async fn create_or_update_user_from_token(
+    async fn create_user(
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
+        request: CreateUserRequest,
     ) -> Result<CreateOrUpdateUserResponse> {
-        let principal = match request_metadata.auth_details {
-            AuthDetails::Principal(principal) => principal,
-            AuthDetails::Unauthenticated => {
-                return Err(ErrorModel::bad_request(
-                    "Cannot register user without authentication",
-                    "UnauthenticatedUserRegistration",
-                    None,
-                )
-                .into())
-            }
+        let CreateUserRequest {
+            update_if_exists,
+            name,
+            email,
+            id,
+        } = request;
+        let email = email.filter(|e| !e.is_empty());
+        let name = name.filter(|n| !n.is_empty());
+        // ------------------- AuthZ -------------------
+        let authorizer = context.v1_state.authz;
+
+        let principal = match request_metadata.auth_details.clone() {
+            AuthDetails::Unauthenticated => None,
+            AuthDetails::Principal(principal) => Some(principal),
+        };
+        let acting_user_id = principal.as_ref().map(|p| p.user_id().clone());
+
+        // Everything else is self-registration
+        let self_provision = if acting_user_id.is_none() || (id != acting_user_id) {
+            authorizer
+                .require_server_action(&request_metadata, &ServerAction::CanProvisionUsers)
+                .await?;
+            false
+        } else {
+            true
         };
 
-        let name = principal.get_name()?;
+        // ------------------- Business Logic -------------------
+        let id = id
+            .or_else(|| acting_user_id.clone())
+            .ok_or(ErrorModel::bad_request(
+                "User ID could not be extracted from the token and must be provided.",
+                "MissingUserId",
+                None,
+            ))?;
 
-        // No authz required, as the user is only updating themselves
+        let name = if let Some(name) = name {
+            name
+        } else {
+            if !self_provision {
+                return Err(ErrorModel::bad_request(
+                    "Name must be provided for user provisioning",
+                    "MissingName",
+                    None,
+                )
+                .into());
+            }
+
+            principal
+                .as_ref()
+                .map(|p| p.get_name().map(ToString::to_string))
+                .transpose()?
+                .ok_or(ErrorModel::bad_request(
+                    "User name could not be extracted from the token and must be provided",
+                    "MissingUserName",
+                    None,
+                ))?
+        };
+
+        if name.is_empty() {
+            return Err(ErrorModel::bad_request("Name cannot be empty", "EmptyName", None).into());
+        }
+
+        let email = email.or_else(|| {
+            if self_provision {
+                principal
+                    .as_ref()
+                    .and_then(|p| p.email().map(ToString::to_string))
+            } else {
+                None
+            }
+        });
+
         let mut t = C::Transaction::begin_write(context.v1_state.catalog).await?;
         let user = C::create_or_update_user(
-            principal.user_id(),
-            name,
-            principal.email(),
-            UserLastUpdatedWith::UpdateFromToken,
+            &id,
+            &name,
+            email.as_deref(),
+            UserLastUpdatedWith::CreateEndpoint,
             t.transaction(),
         )
         .await?;
+
+        if !user.created && !update_if_exists {
+            t.rollback().await?;
+            return Err(ErrorModel::conflict(
+                format!("User with id {id} already exists."),
+                "UserAlreadyExists",
+                None,
+            )
+            .into());
+        }
+
         t.commit().await?;
 
         Ok(user)
@@ -177,7 +259,8 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         authorizer.require_search_users(&request_metadata).await?;
 
         // ------------------- Business Logic -------------------
-        let SearchUserRequest { search } = request;
+        let SearchUserRequest { mut search } = request;
+        search.truncate(64);
         C::search_user(&search, context.v1_state.catalog).await
     }
 
@@ -290,12 +373,13 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         let deleted = C::delete_user(user_id.clone(), t.transaction()).await?;
         if deleted.is_none() {
             return Err(ErrorModel::not_found(
-                format!("User with id {user_id} not found."),
+                format!("User with id {} not found.", user_id.clone()),
                 "UserNotFound",
                 None,
             )
             .into());
         }
+        authorizer.delete_user(&request_metadata, user_id).await?;
         t.commit().await
     }
 }

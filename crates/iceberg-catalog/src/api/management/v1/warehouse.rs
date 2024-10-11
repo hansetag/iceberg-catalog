@@ -9,6 +9,8 @@ pub use crate::service::storage::{
 
 use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 
+use super::TabularType;
+use crate::api::management::v1::role::require_project_id;
 pub use crate::service::WarehouseStatus;
 use crate::service::{
     authz::Authorizer, secrets::SecretStore, Catalog, ListFlags, State, Transaction,
@@ -17,8 +19,6 @@ use crate::{ProjectIdent, WarehouseIdent, CONFIG};
 use iceberg_ext::catalog::rest::ErrorModel;
 use serde::Deserialize;
 use utoipa::ToSchema;
-
-use super::TabularType;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -88,9 +88,9 @@ pub struct UpdateWarehouseStorageRequest {
     /// Optional storage credential to use for the warehouse.
     /// The existing credential is not re-used. If no credential is
     /// provided, we assume that this storage does not require credentials.
+    #[serde(default)]
     pub storage_credential: Option<StorageCredential>,
 }
-
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct ListWarehousesRequest {
@@ -102,7 +102,8 @@ pub struct ListWarehousesRequest {
     /// The project ID to list warehouses for.
     /// Setting a warehouse is required.
     #[serde(default)]
-    pub project_id: Option<uuid::Uuid>,
+    #[param(value_type=Option::<uuid::Uuid>)]
+    pub project_id: Option<ProjectIdent>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
@@ -171,7 +172,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             storage_credential,
             delete_profile,
         } = request;
-        let project_ident = project_id
+        let project_id = project_id
             .map(ProjectIdent::from)
             .or(CONFIG.default_project_id)
             .ok_or(ErrorModel::bad_request(
@@ -185,7 +186,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         authorizer
             .require_project_action(
                 &request_metadata,
-                project_ident,
+                project_id,
                 &ProjectAction::CanCreateWarehouse,
             )
             .await?;
@@ -212,13 +213,16 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
 
         let warehouse_id = C::create_warehouse(
             warehouse_name,
-            project_ident,
+            project_id,
             storage_profile,
             delete_profile,
             secret_id,
             transaction.transaction(),
         )
         .await?;
+        authorizer
+            .create_warehouse(&request_metadata, warehouse_id, project_id)
+            .await?;
 
         transaction.commit().await?;
 
@@ -233,15 +237,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         request_metadata: RequestMetadata,
     ) -> Result<ListWarehousesResponse> {
         // ------------------- AuthZ -------------------
-        let project_id = request
-            .project_id
-            .map(ProjectIdent::from)
-            .or(CONFIG.default_project_id)
-            .ok_or(ErrorModel::bad_request(
-                "project_id must be specified",
-                "ListWarehousesProjectIdMissing",
-                None,
-            ))?;
+        let project_id = require_project_id(request.project_id, &request_metadata)?;
 
         let authorizer = context.v1_state.authz;
         authorizer
@@ -264,7 +260,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             authorizer.is_allowed_warehouse_action(
                 &request_metadata,
                 w.id,
-                &WarehouseAction::CanShowInList,
+                &WarehouseAction::CanIncludeInList,
             )
         }))
         .await?
@@ -317,9 +313,10 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
-
         C::delete_warehouse(warehouse_id, transaction.transaction()).await?;
-
+        authorizer
+            .delete_warehouse(&request_metadata, warehouse_id)
+            .await?;
         transaction.commit().await?;
 
         Ok(())
@@ -603,13 +600,13 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
                 &request_metadata,
                 warehouse_id,
                 t.id.into(),
-                &crate::service::authz::ViewAction::CanShowInList,
+                &crate::service::authz::ViewAction::CanIncludeInList,
             ),
             TabularType::Table => authorizer.is_allowed_table_action(
                 &request_metadata,
                 warehouse_id,
                 t.id.into(),
-                &crate::service::authz::TableAction::CanShowInList,
+                &crate::service::authz::TableAction::CanIncludeInList,
             ),
         }))
         .await?

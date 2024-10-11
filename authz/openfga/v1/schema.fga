@@ -31,7 +31,7 @@ type role
 type server
   relations
     # Relation Hierarchies
-    define child: [project]
+    define project: [project]
 
     # ------------------ Built-in Roles ------------------
     define global_admin: [user, role#assignee]
@@ -39,12 +39,12 @@ type server
     # ------------------ Actions ------------------
     define can_create_project: global_admin
 
-    # ------------------ Assignable Privileges ------------------
     # Anyone can list projects, they are however filtered by can_include_in_list of the project.
     # Only global_admin can list all projects.
     define can_list_all_projects: global_admin
     define can_list_users: global_admin
-    define can_edit_users: global_admin
+    define can_provision_users: global_admin
+    define can_update_users: global_admin
     define can_delete_users: global_admin
 
     # GRANT Permissions
@@ -53,14 +53,14 @@ type server
 type project
   relations
     # Relation Hierarchies
-    define child: [warehouse]
-    define parent: [server]
+    define warehouse: [warehouse]
+    define server: [server]
 
     # ------------------ Built-in Roles ------------------
     # Project Admin has two purposes:
     # 1. Lock-out protection: Checked to never be empty
     # 2. Granting new privileges, such as billing, which might require separate permissions / admin roles
-    define project_admin: [user, role#assignee] or global_admin from parent
+    define project_admin: [user, role#assignee] or global_admin from server
     # Security Admins can manage all security aspects (grants, ownership) but not modify, create or access objects
     define security_admin: [user, role#assignee] or project_admin
     # Warehouse Admins can manage all warehouse aspects but not grant privileges
@@ -80,14 +80,15 @@ type project
     define can_create_warehouse: create
     # Drop this project
     define can_delete: modify
-    define can_get_metadata: describe or can_get_metadata from child
+    define can_rename: modify
+    define can_get_metadata: describe or can_get_metadata from warehouse
     # Can list elements in this projects - will be filtered subsequently
     define can_list_warehouses: can_get_metadata
     define can_include_in_list: can_get_metadata
-    define can_rename: modify
-    # Roles
+        # Roles
     define can_create_role: role_creator
     define can_list_roles: can_get_metadata
+    define can_search_roles: can_list_roles
 
     # GRANT Permissions
     define can_grant_create: security_admin
@@ -101,8 +102,8 @@ type project
 type warehouse
   relations
     # ------------------ Relation Hierarchies ------------------
-    define parent: [project]
-    define child: [namespace]
+    define project: [project]
+    define namespace: [namespace]
 
     # ------------------ Special roles ------------------
     define ownership: [user, role#assignee]
@@ -111,11 +112,11 @@ type warehouse
 
     # ------------------ Assignable Privileges ------------------
     define pass_grants: [role#assignee]
-    define manage_grants: [role#assignee] or ownership or security_admin from parent
-    define describe: [role#assignee] or ownership or select or create or describe from parent
-    define select: [role#assignee] or ownership or modify or select from parent
-    define create: [role#assignee] or ownership or create from parent
-    define modify: [role#assignee] or ownership or modify from parent or warehouse_admin from parent
+    define manage_grants: [role#assignee] or ownership or security_admin from project
+    define describe: [role#assignee] or ownership or select or create or describe from project
+    define select: [role#assignee] or ownership or modify or select from project
+    define create: [role#assignee] or ownership or create from project
+    define modify: [role#assignee] or ownership or modify from project or warehouse_admin from project
 
     # ------------------ Actions ------------------
     define can_create_namespace: create
@@ -123,7 +124,7 @@ type warehouse
     define can_delete: modify
     define can_modify_storage: modify
     define can_modify_storage_credential: modify
-    define can_get_metadata: describe or can_get_metadata from child
+    define can_get_metadata: describe or can_get_metadata from namespace
     define can_get_config: can_get_metadata
     # Can list elements in this warehouse - will be filtered subsequently
     define can_list_namespaces: can_get_metadata

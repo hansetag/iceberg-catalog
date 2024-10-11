@@ -107,7 +107,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 *t.0,
-                &TableAction::CanShowInList,
+                &TableAction::CanIncludeInList,
             )
         }))
         .await?

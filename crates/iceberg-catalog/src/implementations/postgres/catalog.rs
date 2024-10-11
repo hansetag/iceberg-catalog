@@ -17,10 +17,11 @@ use super::{
     },
     CatalogState, PostgresTransaction,
 };
-use crate::api::management::v1::role::{ListRolesResponse, Role};
+use crate::api::management::v1::role::{ListRolesResponse, Role, SearchRoleResponse};
 use crate::api::management::v1::user::{
     ListUsersResponse, SearchUserResponse, UserLastUpdatedWith,
 };
+use crate::implementations::postgres::role::search_role;
 use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_deleted};
 use crate::implementations::postgres::user::{
     create_or_update_user, delete_user, list_users, search_user,
@@ -84,6 +85,13 @@ impl Catalog for super::PostgresCatalog {
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Option<Role>> {
         update_role(role_id, role_name, description, &mut **transaction).await
+    }
+
+    async fn search_role(
+        search_term: &str,
+        catalog_state: Self::State,
+    ) -> Result<SearchRoleResponse> {
+        search_role(search_term, &catalog_state.read_pool()).await
     }
 
     async fn list_roles<'a>(

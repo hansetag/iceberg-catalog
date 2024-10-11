@@ -37,8 +37,8 @@ mod service_ext;
 use crate::service::authz::implementations::openfga::service_ext::MAX_TUPLES_PER_WRITE;
 use crate::service::authz::implementations::FgaType;
 use crate::service::authz::{
-    NamespaceParent, NamespaceRelation, ProjectRelation, RoleAction, ServerRelation, TableRelation,
-    UserAction, ViewRelation, WarehouseRelation,
+    NamespaceParent, NamespaceRelation, ProjectRelation, RoleAction, RoleRelation, ServerRelation,
+    TableRelation, UserAction, ViewRelation, WarehouseRelation,
 };
 use crate::service::health::Health;
 use crate::service::{AuthDetails, RoleId, UserId, ViewIdentUuid};
@@ -114,7 +114,7 @@ where
         let projects = self
             .list_objects(
                 "project",
-                ProjectAction::CanShowInList.to_string(),
+                ProjectAction::CanIncludeInList.to_string(),
                 actor.to_openfga()?,
             )
             .await?
@@ -337,6 +337,46 @@ where
         check
     }
 
+    async fn delete_user(&self, _metadata: &RequestMetadata, user_id: UserId) -> Result<()> {
+        self.delete_all_relations(&user_id).await
+    }
+
+    async fn create_role(
+        &self,
+        metadata: &RequestMetadata,
+        role_id: RoleId,
+        parent_project_id: ProjectIdent,
+    ) -> Result<()> {
+        let actor = metadata.actor();
+
+        self.require_no_relations(&role_id).await?;
+        let parent_id = parent_project_id.to_openfga()?;
+        let this_id = role_id.to_openfga()?;
+        self.write(
+            Some(vec![
+                TupleKey {
+                    user: actor.to_openfga()?,
+                    relation: RoleRelation::Ownership.to_string(),
+                    object: this_id.clone(),
+                    condition: None,
+                },
+                TupleKey {
+                    user: parent_id.clone(),
+                    relation: RoleRelation::Project.to_string(),
+                    object: this_id.clone(),
+                    condition: None,
+                },
+            ]),
+            None,
+        )
+        .await
+        .map_err(Into::into)
+    }
+
+    async fn delete_role(&self, _metadata: &RequestMetadata, role_id: RoleId) -> Result<()> {
+        self.delete_all_relations(&role_id).await
+    }
+
     async fn create_project(
         &self,
         metadata: &RequestMetadata,
@@ -345,7 +385,7 @@ where
         let actor = metadata.actor();
 
         self.require_no_relations(&project_id).await?;
-        let parent_id = format!("server:{}", AUTH_CONFIG.server_id);
+        let server = format!("server:{}", AUTH_CONFIG.server_id);
         let this_id = project_id.to_openfga()?;
         self.write(
             Some(vec![
@@ -356,15 +396,15 @@ where
                     condition: None,
                 },
                 TupleKey {
-                    user: parent_id.clone(),
-                    relation: ProjectRelation::Parent.to_string(),
+                    user: server.clone(),
+                    relation: ProjectRelation::Server.to_string(),
                     object: this_id.clone(),
                     condition: None,
                 },
                 TupleKey {
                     user: this_id,
-                    relation: ServerRelation::Child.to_string(),
-                    object: parent_id,
+                    relation: ServerRelation::Project.to_string(),
+                    object: server,
                     condition: None,
                 },
             ]),
@@ -391,7 +431,7 @@ where
         let actor = metadata.actor();
 
         self.require_no_relations(&warehouse_id).await?;
-        let parent_id = parent_project_id.to_openfga()?;
+        let project_id = parent_project_id.to_openfga()?;
         let this_id = warehouse_id.to_openfga()?;
         self.write(
             Some(vec![
@@ -402,15 +442,15 @@ where
                     condition: None,
                 },
                 TupleKey {
-                    user: parent_id.clone(),
-                    relation: WarehouseRelation::Parent.to_string(),
+                    user: project_id.clone(),
+                    relation: WarehouseRelation::Project.to_string(),
                     object: this_id.clone(),
                     condition: None,
                 },
                 TupleKey {
                     user: this_id.clone(),
-                    relation: ProjectRelation::Child.to_string(),
-                    object: parent_id.clone(),
+                    relation: ProjectRelation::Warehouse.to_string(),
+                    object: project_id.clone(),
                     condition: None,
                 },
             ]),
@@ -441,7 +481,7 @@ where
         let (parent_id, parent_child_relation) = match parent {
             NamespaceParent::Warehouse(warehouse_id) => (
                 warehouse_id.to_openfga()?,
-                WarehouseRelation::Child.to_string(),
+                WarehouseRelation::Namespace.to_string(),
             ),
             NamespaceParent::Namespace(parent_namespace_id) => (
                 parent_namespace_id.to_openfga()?,

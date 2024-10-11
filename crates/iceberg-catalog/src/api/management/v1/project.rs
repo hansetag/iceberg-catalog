@@ -6,6 +6,7 @@ pub use crate::service::storage::{
     StorageCredential, StorageProfile,
 };
 
+use crate::service::authz::{ProjectAction, ServerAction};
 pub use crate::service::WarehouseStatus;
 use crate::service::{
     authz::{Authorizer, ListProjectsResponse as AuthZListProjectsResponse},
@@ -74,10 +75,13 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
     async fn create_project(
         request: CreateProjectRequest,
         context: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        request_metadata: RequestMetadata,
     ) -> Result<CreateProjectResponse> {
         // ------------------- AuthZ -------------------
-        // Todo: AuthZ
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_server_action(&request_metadata, &ServerAction::CanCreateProject)
+            .await?;
 
         // ------------------- Business Logic -------------------
         let CreateProjectRequest {
@@ -88,6 +92,9 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         let mut t = C::Transaction::begin_write(context.v1_state.catalog).await?;
         let project_id: ProjectIdent = project_id.unwrap_or(uuid::Uuid::now_v7()).into();
         C::create_project(project_id, project_name, t.transaction()).await?;
+        authorizer
+            .create_project(&request_metadata, project_id)
+            .await?;
         t.commit().await?;
 
         Ok(CreateProjectResponse {
@@ -96,18 +103,21 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
     }
 
     async fn rename_project(
-        warehouse_id: ProjectIdent,
+        project_id: ProjectIdent,
         request: RenameProjectRequest,
         context: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        // ToDo AuthZ
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_project_action(&request_metadata, project_id, &ProjectAction::CanRename)
+            .await?;
 
         // ------------------- Business Logic -------------------
         validate_project_name(&request.new_name)?;
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
-        C::rename_project(warehouse_id, &request.new_name, transaction.transaction()).await?;
+        C::rename_project(project_id, &request.new_name, transaction.transaction()).await?;
         transaction.commit().await?;
 
         Ok(())
@@ -116,10 +126,17 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
     async fn get_project(
         project_id: uuid::Uuid,
         context: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        request_metadata: RequestMetadata,
     ) -> Result<GetProjectResponse> {
         // ------------------- AuthZ -------------------
-        // Todo: AuthZ
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_project_action(
+                &request_metadata,
+                project_id.into(),
+                &ProjectAction::CanGetMetadata,
+            )
+            .await?;
 
         // ------------------- Business Logic -------------------
         let mut t = C::Transaction::begin_read(context.v1_state.catalog).await?;
@@ -138,18 +155,23 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
     }
 
     async fn delete_project(
-        project_id: uuid::Uuid,
+        project_id: ProjectIdent,
         context: ApiContext<State<A, C, S>>,
-        _request_metadata: RequestMetadata,
+        request_metadata: RequestMetadata,
     ) -> Result<()> {
         // ------------------- AuthZ -------------------
-        // Todo: AuthZ
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_project_action(&request_metadata, project_id, &ProjectAction::CanDelete)
+            .await?;
 
         // ------------------- Business Logic -------------------
         let mut transaction = C::Transaction::begin_write(context.v1_state.catalog).await?;
 
-        C::delete_project(project_id.into(), transaction.transaction()).await?;
-
+        C::delete_project(project_id, transaction.transaction()).await?;
+        authorizer
+            .delete_project(&request_metadata, project_id)
+            .await?;
         transaction.commit().await?;
 
         Ok(())

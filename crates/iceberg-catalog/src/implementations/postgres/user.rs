@@ -9,7 +9,7 @@ use itertools::Itertools;
 #[derive(sqlx::Type, Debug, Clone, Copy)]
 #[sqlx(rename_all = "kebab-case", type_name = "user_last_updated_with")]
 enum DbUserLastUpdatedWith {
-    UpdateFromToken,
+    CreateEndpoint,
     ConfigCallCreation,
     UpdateEndpoint,
 }
@@ -40,7 +40,7 @@ impl From<UserRow> for User {
             name,
             email,
             last_updated_with: match last_updated_with {
-                DbUserLastUpdatedWith::UpdateFromToken => UserLastUpdatedWith::UpdateFromToken,
+                DbUserLastUpdatedWith::CreateEndpoint => UserLastUpdatedWith::CreateEndpoint,
                 DbUserLastUpdatedWith::ConfigCallCreation => {
                     UserLastUpdatedWith::ConfigCallCreation
                 }
@@ -135,7 +135,7 @@ pub(crate) async fn create_or_update_user<
     connection: E,
 ) -> Result<CreateOrUpdateUserResponse> {
     let db_last_updated_with = match last_updated_with {
-        UserLastUpdatedWith::UpdateFromToken => DbUserLastUpdatedWith::UpdateFromToken,
+        UserLastUpdatedWith::CreateEndpoint => DbUserLastUpdatedWith::CreateEndpoint,
         UserLastUpdatedWith::ConfigCallCreation => DbUserLastUpdatedWith::ConfigCallCreation,
         UserLastUpdatedWith::UpdateEndpoint => DbUserLastUpdatedWith::UpdateEndpoint,
     };
@@ -217,7 +217,7 @@ mod test {
             &user_id,
             user_name,
             None,
-            UserLastUpdatedWith::UpdateFromToken,
+            UserLastUpdatedWith::CreateEndpoint,
             &state.read_write.write_pool,
         )
         .await
@@ -246,7 +246,7 @@ mod test {
             &user_id,
             user_name,
             None,
-            UserLastUpdatedWith::UpdateFromToken,
+            UserLastUpdatedWith::CreateEndpoint,
             &state.read_write.write_pool,
         )
         .await
@@ -281,7 +281,7 @@ mod test {
             &user_id,
             user_name,
             None,
-            UserLastUpdatedWith::UpdateFromToken,
+            UserLastUpdatedWith::UpdateEndpoint,
             &state.read_write.write_pool,
         )
         .await
@@ -306,7 +306,7 @@ mod test {
             &user_id,
             user_name,
             None,
-            UserLastUpdatedWith::UpdateFromToken,
+            UserLastUpdatedWith::ConfigCallCreation,
             &state.read_write.write_pool,
         )
         .await

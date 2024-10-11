@@ -1,6 +1,6 @@
 use crate::service::authz::implementations::FgaType;
 use crate::service::token_verification::Actor;
-use crate::service::{NamespaceIdentUuid, RoleId, TableIdentUuid, ViewIdentUuid};
+use crate::service::{NamespaceIdentUuid, RoleId, TableIdentUuid, UserId, ViewIdentUuid};
 use crate::{ProjectIdent, WarehouseIdent};
 
 pub(super) trait OpenFgaEntity {
@@ -16,6 +16,16 @@ impl OpenFgaEntity for RoleId {
 
     fn openfga_type(&self) -> FgaType {
         FgaType::Role
+    }
+}
+
+impl OpenFgaEntity for UserId {
+    fn to_openfga(&self) -> crate::api::Result<String> {
+        Ok(format!("user:{self}"))
+    }
+
+    fn openfga_type(&self) -> FgaType {
+        FgaType::User
     }
 }
 

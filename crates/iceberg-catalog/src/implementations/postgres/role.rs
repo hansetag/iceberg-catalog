@@ -1,5 +1,5 @@
 use crate::api::iceberg::v1::PaginationQuery;
-use crate::api::management::v1::role::{ListRolesResponse, Role};
+use crate::api::management::v1::role::{ListRolesResponse, Role, SearchRoleResponse};
 use crate::implementations::postgres::dbutils::DBErrorHandler;
 use crate::service::{Result, RoleId};
 use crate::ProjectIdent;
@@ -114,6 +114,30 @@ pub(crate) async fn update_role<'e, 'c: 'e, E: sqlx::Executor<'c, Database = sql
         Err(e) => Err(e.into_error_model("Error updating Role".to_string()).into()),
         Ok(role) => Ok(Some(Role::from(role))),
     }
+}
+
+pub(crate) async fn search_role<'e, 'c: 'e, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    search_term: &str,
+    connection: E,
+) -> Result<SearchRoleResponse> {
+    let roles = sqlx::query_as!(
+        RoleRow,
+        r#"
+        SELECT id, name, description, project_id, created_at, updated_at
+        FROM role
+        ORDER BY name <-> $1 ASC
+        LIMIT 10
+        "#,
+        search_term,
+    )
+    .fetch_all(connection)
+    .await
+    .map_err(|e| e.into_error_model("Error searching role".to_string()))?
+    .into_iter()
+    .map(Into::into)
+    .collect();
+
+    Ok(SearchRoleResponse { roles })
 }
 
 pub(crate) async fn list_roles<'e, 'c: 'e, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
@@ -417,5 +441,40 @@ mod test {
         .unwrap();
 
         assert_eq!(roles.roles.len(), 0);
+    }
+
+    #[sqlx::test]
+    async fn test_search_role(pool: sqlx::PgPool) {
+        let state = CatalogState::from_pools(pool.clone(), pool.clone());
+        let project_id = Uuid::now_v7().into();
+        let role_id = RoleId::default();
+        let role_name = "Role 1";
+
+        let mut t = PostgresTransaction::begin_write(state.clone())
+            .await
+            .unwrap();
+        PostgresCatalog::create_project(
+            project_id,
+            format!("Project {project_id}"),
+            t.transaction(),
+        )
+        .await
+        .unwrap();
+
+        t.commit().await.unwrap();
+
+        create_role(
+            role_id,
+            project_id,
+            role_name,
+            Some("Role 1 description"),
+            &state.write_pool(),
+        )
+        .await
+        .unwrap();
+
+        let search_result = search_role("ro 1", &state.read_pool()).await.unwrap();
+        assert_eq!(search_result.roles.len(), 1);
+        assert_eq!(search_result.roles[0].name, role_name);
     }
 }

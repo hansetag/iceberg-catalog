@@ -11,7 +11,7 @@ use crate::api::iceberg::v1::{PaginatedTabulars, PaginationQuery};
 use crate::service::health::HealthExt;
 use crate::SecretIdent;
 
-use crate::api::management::v1::role::{ListRolesResponse, Role};
+use crate::api::management::v1::role::{ListRolesResponse, Role, SearchRoleResponse};
 use crate::api::management::v1::user::{
     ListUsersResponse, SearchUserResponse, User, UserLastUpdatedWith,
 };
@@ -382,6 +382,11 @@ where
         role_id: RoleId,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<Option<()>>;
+
+    async fn search_role(
+        search_term: &str,
+        catalog_state: Self::State,
+    ) -> Result<SearchRoleResponse>;
 
     // ---------------- User Management API ----------------
     async fn create_or_update_user<'a>(

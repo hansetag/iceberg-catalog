@@ -26,12 +26,13 @@ pub mod v1 {
         RenameProjectRequest, Service as _,
     };
     use role::{
-        CreateRoleRequest, ListRolesQuery, ListRolesResponse, Role, Service as _, UpdateRoleRequest,
+        CreateRoleRequest, ListRolesQuery, ListRolesResponse, Role, SearchRoleRequest,
+        SearchRoleResponse, Service as _, UpdateRoleRequest,
     };
     use serde::Serialize;
     use user::{
-        SearchUser, SearchUserRequest, SearchUserResponse, Service as _, UpdateUserRequest, User,
-        UserLastUpdatedWith,
+        CreateUserRequest, SearchUser, SearchUserRequest, SearchUserResponse, Service as _,
+        UpdateUserRequest, User, UserLastUpdatedWith,
     };
     use warehouse::{
         AzCredential, AzdlsProfile, CreateWarehouseRequest, CreateWarehouseResponse, GcsCredential,
@@ -64,12 +65,17 @@ pub mod v1 {
             rename_warehouse,
             update_storage_credential,
             update_storage_profile,
-            create_or_update_user_from_token,
+            create_user,
             search_user,
             get_user,
             update_user,
             list_user,
-            delete_user
+            delete_user,
+            create_role,
+            list_roles,
+            get_role,
+            update_role,
+            delete_role
         ),
         components(schemas(
             AzCredential,
@@ -78,6 +84,8 @@ pub mod v1 {
             CreateProjectResponse,
             CreateRoleRequest,
             CreateRoleRequest,
+            CreateRoleRequest,
+            CreateUserRequest,
             CreateWarehouseRequest,
             CreateWarehouseResponse,
             DeleteKind,
@@ -90,7 +98,6 @@ pub mod v1 {
             ListDeletedTabularsResponse,
             ListProjectsResponse,
             ListRolesResponse,
-            ListRolesResponse,
             ListUsersQuery,
             ListUsersResponse,
             ListWarehousesRequest,
@@ -101,6 +108,8 @@ pub mod v1 {
             S3Credential,
             S3Flavor,
             S3Profile,
+            SearchRoleRequest,
+            SearchRoleResponse,
             SearchUser,
             SearchUserRequest,
             SearchUserResponse,
@@ -108,6 +117,7 @@ pub mod v1 {
             StorageProfile,
             TabularDeleteProfile,
             TabularType,
+            UpdateRoleRequest,
             UpdateUserRequest,
             UpdateWarehouseCredentialRequest,
             UpdateWarehouseStorageRequest,
@@ -137,11 +147,12 @@ pub mod v1 {
             (status = 201, description = "User created", body = [User]),
         )
     )]
-    async fn create_or_update_user_from_token<C: Catalog, A: Authorizer, S: SecretStore>(
+    async fn create_user<C: Catalog, A: Authorizer, S: SecretStore>(
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
+        Json(request): Json<CreateUserRequest>,
     ) -> Result<(StatusCode, Json<User>)> {
-        ApiServer::<C, A, S>::create_or_update_user_from_token(api_context, metadata)
+        ApiServer::<C, A, S>::create_user(api_context, metadata, request)
             .await
             .map(|r| {
                 if r.created {
@@ -254,7 +265,7 @@ pub mod v1 {
     /// Create a new role
     #[utoipa::path(
         post,
-        tag = "management",
+        tag = "role",
         path = "/management/v1/role",
         request_body = CreateRoleRequest,
         responses(
@@ -272,10 +283,28 @@ pub mod v1 {
         }
     }
 
+    /// Search for roles (Fuzzy)
+    #[utoipa::path(
+        post,
+        tag = "role",
+        path = "/management/v1/search/role",
+        request_body = SearchRoleRequest,
+        responses(
+            (status = 200, description = "List of users", body = [SearchRoleResponse]),
+        )
+    )]
+    async fn search_role<C: Catalog, A: Authorizer, S: SecretStore>(
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+        Json(request): Json<SearchRoleRequest>,
+    ) -> Result<SearchRoleResponse> {
+        ApiServer::<C, A, S>::search_role(api_context, metadata, request).await
+    }
+
     /// List roles in a project
     #[utoipa::path(
         get,
-        tag = "management",
+        tag = "role",
         path = "/management/v1/role",
         params(ListRolesQuery),
         responses(
@@ -295,7 +324,7 @@ pub mod v1 {
     /// All permissions of the role are permanently removed.
     #[utoipa::path(
         delete,
-        tag = "user",
+        tag = "role",
         path = "/management/v1/role/{id}",
         responses(
             (status = 200, description = "Role deleted successfully"),
@@ -314,7 +343,7 @@ pub mod v1 {
     /// Get a role
     #[utoipa::path(
         get,
-        tag = "user",
+        tag = "role",
         path = "/management/v1/role/{id}",
         responses(
             (status = 200, description = "Role details", body = [Role]),
@@ -333,7 +362,7 @@ pub mod v1 {
     /// Update a role
     #[utoipa::path(
         post,
-        tag = "user",
+        tag = "role",
         path = "/management/v1/role/{id}",
         request_body = UpdateRoleRequest,
         responses(
@@ -439,7 +468,7 @@ pub mod v1 {
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
     ) -> Result<()> {
-        ApiServer::<C, A, S>::delete_project(project_id, api_context, metadata).await
+        ApiServer::<C, A, S>::delete_project(project_id.into(), api_context, metadata).await
     }
 
     /// Rename a project
@@ -706,8 +735,9 @@ pub mod v1 {
                     "/role/:id",
                     get(get_role).post(update_role).delete(delete_role),
                 )
+                .route("/search/role", post(search_role))
                 // User management
-                .route("/user/from-token", post(create_or_update_user_from_token))
+                .route("/user", post(create_user))
                 .route("/search/user", post(search_user))
                 .route(
                     "/user/:user_id",

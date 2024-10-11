@@ -26,9 +26,9 @@ pub enum UserAction {
 #[strum(serialize_all = "snake_case")]
 pub enum ServerAction {
     /// Can create items inside the server (can create Warehouses).
-    CanCreate,
+    CanCreateProject,
     /// List projects on this server. Returned projects
-    /// are filtered by the user's permissions (`CanShowInList`)
+    /// are filtered by the user's permissions (`CanIncludeInList`)
     CanListAllProjects,
     /// Can update all users on this server.
     CanUpdateUsers,
@@ -36,6 +36,10 @@ pub enum ServerAction {
     CanDeleteUsers,
     /// Can List all users on this server.
     CanListUsers,
+    /// Can grant global Admin
+    CanGrantGlobalAdmin,
+    /// Can provision user
+    CanProvisionUsers,
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
@@ -46,9 +50,17 @@ pub enum ProjectAction {
     CanRename,
     CanGetMetadata,
     CanListWarehouses,
-    CanShowInList,
+    CanIncludeInList,
     CanCreateRole,
     CanListRoles,
+    CanSearchRoles,
+    CanGrantCreate,
+    CanGrantDescribe,
+    CanGrantModify,
+    CanGrantSelect,
+    CanGrantProjectAdmin,
+    CanGrantSecurityAdmin,
+    CanGrantWarehouseAdmin,
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
@@ -76,7 +88,7 @@ pub enum WarehouseAction {
     /// Base permission to use any endpoint prefixed with `/api/v1/warehouse/{warehouse_id}`.
     /// This is used to pre-check endpoints for which the actual object id must be looked up.
     CanUse,
-    CanShowInList,
+    CanIncludeInList,
     CanDeactivate,
     CanActivate,
     CanRename,
@@ -106,7 +118,7 @@ pub enum TableAction {
     CanGetMetadata,
     CanCommit,
     CanRename,
-    CanShowInList,
+    CanIncludeInList,
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
@@ -115,22 +127,30 @@ pub enum ViewAction {
     CanDrop,
     CanGetMetadata,
     CanCommit,
-    CanShowInList,
+    CanIncludeInList,
     CanRename,
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
 #[strum(serialize_all = "snake_case")]
+pub enum RoleRelation {
+    Project,
+    Assignee,
+    Ownership,
+}
+
+#[derive(Debug, Clone, strum_macros::Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum ServerRelation {
-    Child,
+    Project,
     GlobalAdmin,
 }
 
 #[derive(Debug, Clone, strum_macros::Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum ProjectRelation {
-    Parent,
-    Child,
+    Server,
+    Warehouse,
     ProjectAdmin,
     SecurityAdmin,
     WarehouseAdmin,
@@ -143,8 +163,8 @@ pub enum ProjectRelation {
 #[derive(Debug, Clone, strum_macros::Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum WarehouseRelation {
-    Parent,
-    Child,
+    Project,
+    Namespace,
     Ownership,
     ManagedAccess,
     PassGrants,
@@ -302,6 +322,22 @@ where
         view_id: TableIdentUuid,
         action: &ViewAction,
     ) -> Result<bool>;
+
+    /// Hook that is called when a user is deleted.
+    async fn delete_user(&self, metadata: &RequestMetadata, user_id: UserId) -> Result<()>;
+
+    /// Hook that is called when a new project is created.
+    /// This is used to set up the initial permissions for the project.
+    async fn create_role(
+        &self,
+        metadata: &RequestMetadata,
+        role_id: RoleId,
+        parent_project_id: ProjectIdent,
+    ) -> Result<()>;
+
+    /// Hook that is called when a role is deleted.
+    /// This is used to clean up permissions for the role.
+    async fn delete_role(&self, metadata: &RequestMetadata, role_id: RoleId) -> Result<()>;
 
     /// Hook that is called when a new project is created.
     /// This is used to set up the initial permissions for the project.

@@ -123,36 +123,6 @@ impl super::Authorizer for Authorizers {
         }
     }
 
-    async fn is_allowed_role_action(
-        &self,
-        metadata: &RequestMetadata,
-        role_id: RoleId,
-        action: &RoleAction,
-    ) -> Result<bool> {
-        match self {
-            Self::AllowAll(authorizer) => {
-                authorizer
-                    .is_allowed_role_action(metadata, role_id, action)
-                    .await
-            }
-            Self::OpenFGAUnauthorized(authorizer) => {
-                authorizer
-                    .is_allowed_role_action(metadata, role_id, action)
-                    .await
-            }
-            Self::OpenFGABearer(authorizer) => {
-                authorizer
-                    .is_allowed_role_action(metadata, role_id, action)
-                    .await
-            }
-            Self::OpenFGAClientCreds(authorizer) => {
-                authorizer
-                    .is_allowed_role_action(metadata, role_id, action)
-                    .await
-            }
-        }
-    }
-
     async fn is_allowed_user_action(
         &self,
         metadata: &RequestMetadata,
@@ -178,6 +148,36 @@ impl super::Authorizer for Authorizers {
             Self::OpenFGAClientCreds(authorizer) => {
                 authorizer
                     .is_allowed_user_action(metadata, user_id, action)
+                    .await
+            }
+        }
+    }
+
+    async fn is_allowed_role_action(
+        &self,
+        metadata: &RequestMetadata,
+        role_id: RoleId,
+        action: &RoleAction,
+    ) -> Result<bool> {
+        match self {
+            Self::AllowAll(authorizer) => {
+                authorizer
+                    .is_allowed_role_action(metadata, role_id, action)
+                    .await
+            }
+            Self::OpenFGAUnauthorized(authorizer) => {
+                authorizer
+                    .is_allowed_role_action(metadata, role_id, action)
+                    .await
+            }
+            Self::OpenFGABearer(authorizer) => {
+                authorizer
+                    .is_allowed_role_action(metadata, role_id, action)
+                    .await
+            }
+            Self::OpenFGAClientCreds(authorizer) => {
+                authorizer
+                    .is_allowed_role_action(metadata, role_id, action)
                     .await
             }
         }
@@ -354,6 +354,58 @@ impl super::Authorizer for Authorizers {
                     .is_allowed_view_action(metadata, warehouse_id, view_id, action)
                     .await
             }
+        }
+    }
+
+    async fn delete_user(&self, metadata: &RequestMetadata, user_id: UserId) -> Result<()> {
+        match self {
+            Self::AllowAll(authorizer) => authorizer.delete_user(metadata, user_id).await,
+            Self::OpenFGAUnauthorized(authorizer) => {
+                authorizer.delete_user(metadata, user_id).await
+            }
+            Self::OpenFGABearer(authorizer) => authorizer.delete_user(metadata, user_id).await,
+            Self::OpenFGAClientCreds(authorizer) => authorizer.delete_user(metadata, user_id).await,
+        }
+    }
+
+    async fn create_role(
+        &self,
+        metadata: &RequestMetadata,
+        role_id: RoleId,
+        parent_project_id: ProjectIdent,
+    ) -> Result<()> {
+        match self {
+            Self::AllowAll(authorizer) => {
+                authorizer
+                    .create_role(metadata, role_id, parent_project_id)
+                    .await
+            }
+            Self::OpenFGAUnauthorized(authorizer) => {
+                authorizer
+                    .create_role(metadata, role_id, parent_project_id)
+                    .await
+            }
+            Self::OpenFGABearer(authorizer) => {
+                authorizer
+                    .create_role(metadata, role_id, parent_project_id)
+                    .await
+            }
+            Self::OpenFGAClientCreds(authorizer) => {
+                authorizer
+                    .create_role(metadata, role_id, parent_project_id)
+                    .await
+            }
+        }
+    }
+
+    async fn delete_role(&self, metadata: &RequestMetadata, role_id: RoleId) -> Result<()> {
+        match self {
+            Self::AllowAll(authorizer) => authorizer.delete_role(metadata, role_id).await,
+            Self::OpenFGAUnauthorized(authorizer) => {
+                authorizer.delete_role(metadata, role_id).await
+            }
+            Self::OpenFGABearer(authorizer) => authorizer.delete_role(metadata, role_id).await,
+            Self::OpenFGAClientCreds(authorizer) => authorizer.delete_role(metadata, role_id).await,
         }
     }
 

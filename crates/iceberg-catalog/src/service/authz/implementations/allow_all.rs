@@ -34,20 +34,20 @@ impl Authorizer for AllowAllAuthorizer {
         Ok(true)
     }
 
-    async fn is_allowed_role_action(
-        &self,
-        _metadata: &RequestMetadata,
-        _role_id: RoleId,
-        _action: &RoleAction,
-    ) -> Result<bool> {
-        Ok(true)
-    }
-
     async fn is_allowed_user_action(
         &self,
         _metadata: &RequestMetadata,
         _user_id: &UserId,
         _action: &UserAction,
+    ) -> Result<bool> {
+        Ok(true)
+    }
+
+    async fn is_allowed_role_action(
+        &self,
+        _metadata: &RequestMetadata,
+        _role_id: RoleId,
+        _action: &RoleAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -106,6 +106,23 @@ impl Authorizer for AllowAllAuthorizer {
         _action: &ViewAction,
     ) -> Result<bool> {
         Ok(true)
+    }
+
+    async fn delete_user(&self, _metadata: &RequestMetadata, _user_id: UserId) -> Result<()> {
+        Ok(())
+    }
+
+    async fn create_role(
+        &self,
+        _metadata: &RequestMetadata,
+        _role_id: RoleId,
+        _parent_project_id: ProjectIdent,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    async fn delete_role(&self, _metadata: &RequestMetadata, _role_id: RoleId) -> Result<()> {
+        Ok(())
     }
 
     async fn create_project(

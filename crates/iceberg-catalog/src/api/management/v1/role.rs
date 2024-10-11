@@ -46,6 +46,12 @@ pub struct Role {
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct SearchRoleResponse {
+    /// List of users matching the search criteria
+    pub roles: Vec<Role>,
+}
+
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct UpdateRoleRequest {
@@ -66,6 +72,19 @@ impl IntoResponse for ListRolesResponse {
     fn into_response(self) -> axum::response::Response {
         (http::StatusCode::OK, Json(self)).into_response()
     }
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub struct SearchRoleRequest {
+    /// Search string for fuzzy search.
+    /// Length is truncated to 64 characters.
+    pub search: String,
+    /// Project ID in which the role is created.
+    /// Only required if the project ID cannot be inferred from the
+    /// users token and no default project is set.
+    #[serde(default)]
+    pub project_id: Option<ProjectIdent>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
@@ -99,6 +118,12 @@ impl ListRolesQuery {
             page_token: self.page_token.clone(),
             page_size: self.page_size,
         }
+    }
+}
+
+impl IntoResponse for SearchRoleResponse {
+    fn into_response(self) -> axum::response::Response {
+        (http::StatusCode::OK, Json(self)).into_response()
     }
 }
 
@@ -141,6 +166,9 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             t.transaction(),
         )
         .await?;
+        authorizer
+            .create_role(&request_metadata, role_id, project_id)
+            .await?;
         t.commit().await?;
         Ok(user)
     }
@@ -205,6 +233,32 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         Ok(role)
     }
 
+    async fn search_role(
+        context: ApiContext<State<A, C, S>>,
+        request_metadata: RequestMetadata,
+        request: SearchRoleRequest,
+    ) -> Result<SearchRoleResponse> {
+        let SearchRoleRequest {
+            mut search,
+            project_id,
+        } = request;
+        let project_id = require_project_id(project_id, &request_metadata)?;
+
+        // ------------------- AuthZ -------------------
+        let authorizer = context.v1_state.authz;
+        authorizer
+            .require_project_action(
+                &request_metadata,
+                project_id,
+                &ProjectAction::CanSearchRoles,
+            )
+            .await?;
+
+        // ------------------- Business Logic -------------------
+        search.truncate(64);
+        C::search_role(&search, context.v1_state.catalog).await
+    }
+
     async fn delete_role(
         context: ApiContext<State<A, C, S>>,
         request_metadata: RequestMetadata,
@@ -226,7 +280,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             )
             .into());
         }
-
+        authorizer.delete_role(&request_metadata, role_id).await?;
         t.commit().await
     }
 
@@ -278,7 +332,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
     }
 }
 
-fn require_project_id(
+pub(super) fn require_project_id(
     specified_project_id: Option<ProjectIdent>,
     request_metadata: &RequestMetadata,
 ) -> Result<ProjectIdent> {

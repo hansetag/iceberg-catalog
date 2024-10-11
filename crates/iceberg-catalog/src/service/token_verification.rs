@@ -16,7 +16,7 @@ use crate::api::Result;
 use crate::request_metadata::RequestMetadata;
 use axum::Extension;
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -25,7 +25,8 @@ use url::Url;
 use super::{ProjectIdent, RoleId, WarehouseIdent};
 
 /// Unique identifier of a user in the system.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, PartialOrd, utoipa::ToSchema)]
+#[serde(transparent)]
 pub struct UserId(String);
 
 impl<'de> Deserialize<'de> for UserId {

@@ -1,7 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 
-create type user_last_updated_with as enum ('update-from-token', 'config-call-creation', 'update-endpoint');
+create type user_last_updated_with as enum ('create-endpoint', 'config-call-creation', 'update-endpoint');
 
 create table users
 (
