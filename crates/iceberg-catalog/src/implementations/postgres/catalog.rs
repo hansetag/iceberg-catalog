@@ -1,4 +1,5 @@
 use super::{
+    bootstrap::{bootstrap, get_validation_data},
     namespace::{
         create_namespace, drop_namespace, get_namespace, list_namespaces, namespace_to_id,
         update_namespace_properties,
@@ -30,8 +31,8 @@ use crate::service::{
     CreateOrUpdateUserResponse, CreateTableResponse, DeletionDetails, GetNamespaceResponse,
     GetProjectResponse, GetTableMetadataResponse, GetWarehouseResponse, ListFlags,
     ListNamespacesQuery, ListNamespacesResponse, LoadTableResponse, NamespaceIdent,
-    NamespaceIdentUuid, ProjectIdent, Result, RoleId, TableCreation, TableIdent, TableIdentUuid,
-    Transaction, UserId, WarehouseIdent, WarehouseStatus,
+    NamespaceIdentUuid, ProjectIdent, Result, RoleId, StartupValidationData, TableCreation,
+    TableIdent, TableIdentUuid, Transaction, UserId, WarehouseIdent, WarehouseStatus,
 };
 use crate::SecretIdent;
 use crate::{
@@ -50,6 +51,7 @@ use crate::{
     service::TabularIdentOwned,
 };
 use iceberg::spec::ViewMetadata;
+use iceberg_ext::catalog::rest::ErrorModel;
 use iceberg_ext::{catalog::rest::CatalogConfig, configs::Location};
 use std::collections::{HashMap, HashSet};
 
@@ -57,6 +59,20 @@ use std::collections::{HashMap, HashSet};
 impl Catalog for super::PostgresCatalog {
     type Transaction = PostgresTransaction;
     type State = CatalogState;
+
+    // ---------------- Bootstrap ----------------
+    async fn bootstrap<'a>(
+        terms_accepted: bool,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<bool> {
+        bootstrap(terms_accepted, &mut **transaction).await
+    }
+
+    async fn get_server_info(
+        catalog_state: Self::State,
+    ) -> std::result::Result<StartupValidationData, ErrorModel> {
+        get_validation_data(&catalog_state.read_pool()).await
+    }
 
     // ---------------- Role Management API ----------------
     async fn create_role<'a>(

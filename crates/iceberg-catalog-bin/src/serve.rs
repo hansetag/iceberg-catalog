@@ -10,6 +10,7 @@ use iceberg_catalog::service::event_publisher::{
 };
 use iceberg_catalog::service::health::ServiceHealthProvider;
 use iceberg_catalog::service::token_verification::Verifier;
+use iceberg_catalog::service::{Catalog, StartupValidationData};
 use iceberg_catalog::{SecretBackend, CONFIG};
 use reqwest::Url;
 
@@ -26,6 +27,30 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         iceberg_catalog::implementations::postgres::get_writer_pool(CONFIG.to_pool_opts()).await?;
 
     let catalog_state = CatalogState::from_pools(read_pool.clone(), write_pool.clone());
+
+    let validation_data = PostgresCatalog::get_server_info(catalog_state.clone()).await?;
+    match validation_data {
+        StartupValidationData::NotBootstrapped => {
+            tracing::info!("The catalog is not bootstrapped. Bootstrapping sets the initial administrator. Please run open the Web-UI after startup or call the bootstrap endpoint directly.");
+        }
+        StartupValidationData::Bootstrapped {
+            server_id,
+            terms_accepted,
+        } => {
+            if !terms_accepted {
+                return Err(anyhow!(
+                    "The terms of service have not been accepted on bootstrap."
+                ));
+            }
+            if server_id != CONFIG.server_id {
+                return Err(anyhow!(
+                    "The server ID during bootstrap {} does not match the server ID in the configuration {}.", server_id, CONFIG.server_id
+                ));
+            }
+            tracing::info!("The catalog is bootstrapped. Server ID: {server_id}");
+        }
+    }
+
     let secrets_state: Secrets = match CONFIG.secret_backend {
         SecretBackend::KV2 => iceberg_catalog::implementations::kv2::SecretsState::from_config(
             CONFIG

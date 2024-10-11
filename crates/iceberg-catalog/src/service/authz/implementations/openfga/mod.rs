@@ -58,8 +58,10 @@ use tokio::sync::RwLock;
 
 lazy_static::lazy_static! {
     static ref AUTH_CONFIG: crate::config::OpenFGAConfig = {
-
         CONFIG.openfga.clone().expect("OpenFGAConfig not found")
+    };
+    static ref SERVER: String = {
+        format!("server:{}", CONFIG.server_id)
     };
 }
 
@@ -93,6 +95,51 @@ where
         http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
     >>::Future: Send,
 {
+    async fn can_bootstrap(&self, metadata: &RequestMetadata) -> Result<()> {
+        let actor = metadata.actor();
+        // We don't check the actor as assumed roles are irrelevant for bootstrapping.
+        // The principal is the only relevant actor.
+        if &Actor::Anonymous == actor {
+            return Err(ErrorModel::unauthorized(
+                "Anonymous users cannot bootstrap the catalog",
+                "AnonymousBootstrap",
+                None,
+            )
+            .into());
+        }
+        Ok(())
+    }
+
+    async fn bootstrap(&self, metadata: &RequestMetadata) -> Result<()> {
+        let actor = metadata.actor();
+        // We don't check the actor as assumed roles are irrelevant for bootstrapping.
+        // The principal is the only relevant actor.
+        let user = match actor {
+            Actor::Principal(principal) | Actor::Role { principal, .. } => principal,
+            Actor::Anonymous => {
+                return Err(ErrorModel::internal(
+                    "can_bootstrap should be called before bootstrap",
+                    "AnonymousBootstrap",
+                    None,
+                )
+                .into())
+            }
+        };
+
+        self.write(
+            Some(vec![TupleKey {
+                user: user.to_openfga()?,
+                relation: ServerRelation::GlobalAdmin.to_string(),
+                object: SERVER.clone(),
+                condition: None,
+            }]),
+            None,
+        )
+        .await?;
+
+        Ok(())
+    }
+
     async fn list_projects(&self, metadata: &RequestMetadata) -> Result<ListProjectsResponse> {
         let actor = metadata.actor();
 
@@ -100,7 +147,7 @@ where
         let list_all_fut = self.check(CheckRequestTupleKey {
             user: metadata.actor().to_openfga()?,
             relation: ServerAction::CanListAllProjects.to_string(),
-            object: format!("server:{}", AUTH_CONFIG.server_id),
+            object: format!("server:{}", SERVER.clone()),
         });
 
         let (check_actor, list_all) = futures::join!(check_actor_fut, list_all_fut);
@@ -189,7 +236,7 @@ where
             };
         }
 
-        let server_id = format!("server:{}", AUTH_CONFIG.server_id);
+        let server_id = format!("server:{}", SERVER.clone());
         match action {
             UserAction::CanRead => {
                 self.check(CheckRequestTupleKey {
@@ -224,11 +271,16 @@ where
         action: &ServerAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
+
+        if action == &ServerAction::CanReadServerInfo {
+            return Ok(true);
+        }
+
         let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
             user: actor.to_openfga()?,
             relation: action.to_string(),
-            object: format!("server:{}", AUTH_CONFIG.server_id),
+            object: format!("server:{}", SERVER.clone()),
         });
 
         let (check_actor, check) = futures::join!(check_actor_fut, check_fut);
@@ -387,7 +439,7 @@ where
 
         self.require_no_relations(&project_id, ConsistencyPreference::MinimizeLatency)
             .await?;
-        let server = format!("server:{}", AUTH_CONFIG.server_id);
+        let server = format!("server:{}", SERVER.clone());
         let this_id = project_id.to_openfga()?;
         self.write(
             Some(vec![

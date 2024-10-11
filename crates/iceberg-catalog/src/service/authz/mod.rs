@@ -11,7 +11,7 @@ pub mod implementations;
 use iceberg_ext::catalog::rest::ErrorModel;
 pub use implementations::allow_all::AllowAllAuthorizer;
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum UserAction {
     /// Can get all details of the user given its id
@@ -22,7 +22,7 @@ pub enum UserAction {
     CanDelete,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum ServerAction {
     /// Can create items inside the server (can create Warehouses).
@@ -40,9 +40,11 @@ pub enum ServerAction {
     CanGrantGlobalAdmin,
     /// Can provision user
     CanProvisionUsers,
+    /// Can read server info
+    CanReadServerInfo,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum ProjectAction {
     CanCreateWarehouse,
@@ -63,7 +65,7 @@ pub enum ProjectAction {
     CanGrantWarehouseAdmin,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum RoleAction {
     CanAssume,
@@ -74,7 +76,7 @@ pub enum RoleAction {
     CanRead,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum WarehouseAction {
     CanCreateNamespace,
@@ -95,7 +97,7 @@ pub enum WarehouseAction {
     CanListDeletedTabulars,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum NamespaceAction {
     CanCreateTable,
@@ -109,7 +111,7 @@ pub enum NamespaceAction {
     CanListNamespaces,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum TableAction {
     CanDrop,
@@ -121,7 +123,7 @@ pub enum TableAction {
     CanIncludeInList,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum ViewAction {
     CanDrop,
@@ -131,7 +133,7 @@ pub enum ViewAction {
     CanRename,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum RoleRelation {
     Project,
@@ -139,14 +141,14 @@ pub enum RoleRelation {
     Ownership,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum ServerRelation {
     Project,
     GlobalAdmin,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum ProjectRelation {
     Server,
@@ -160,7 +162,7 @@ pub enum ProjectRelation {
     Modify,
 }
 
-#[derive(Debug, Clone, strum_macros::Display)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub enum WarehouseRelation {
     Project,
@@ -243,6 +245,12 @@ pub trait Authorizer
 where
     Self: Send + Sync + 'static + HealthExt + Clone,
 {
+    /// Check if this server can be bootstrapped.
+    async fn can_bootstrap(&self, metadata: &RequestMetadata) -> Result<()>;
+
+    /// Perform bootstrapping, including granting the provided user the highest level of access.
+    async fn bootstrap(&self, metadata: &RequestMetadata) -> Result<()>;
+
     /// Return Err only for internal errors.
     async fn list_projects(&self, metadata: &RequestMetadata) -> Result<ListProjectsResponse>;
 

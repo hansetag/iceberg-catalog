@@ -1,3 +1,4 @@
+mod bootstrap;
 mod catalog;
 pub(crate) mod dbutils;
 pub(crate) mod namespace;

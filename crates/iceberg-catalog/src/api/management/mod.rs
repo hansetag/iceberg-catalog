@@ -22,6 +22,7 @@ pub mod v1 {
     use axum::extract::{Path, Query, State as AxumState};
     use axum::response::{IntoResponse, Response};
     use axum::routing::{get, post};
+    use bootstrap::{BootstrapRequest, ServerInfo, Service as _};
     use http::StatusCode;
     use iceberg_ext::catalog::rest::ErrorModel;
     use project::{
@@ -48,6 +49,7 @@ pub mod v1 {
     #[derive(Debug, OpenApi)]
     #[openapi(
         tags(
+            (name = "server", description = "Manage Server"),
             (name = "project", description = "Manage Projects"),
             (name = "warehouse", description = "Manage Warehouses"),
             (name = "user", description = "Manage Users"),
@@ -85,6 +87,7 @@ pub mod v1 {
         components(schemas(
             AzCredential,
             AzdlsProfile,
+            BootstrapRequest,
             CreateProjectRequest,
             CreateProjectResponse,
             CreateRoleRequest,
@@ -118,6 +121,7 @@ pub mod v1 {
             SearchUser,
             SearchUserRequest,
             SearchUserResponse,
+            ServerInfo,
             StorageCredential,
             StorageProfile,
             TabularDeleteProfile,
@@ -140,6 +144,44 @@ pub mod v1 {
         secret_store: PhantomData<S>,
     }
 
+    /// Get information about the server
+    #[utoipa::path(
+        get,
+        tag = "server",
+        path = "/management/v1/info",
+        responses(
+            (status = 200, description = "User details", body = [ServerInfo]),
+        )
+    )]
+    async fn get_server_info<C: Catalog, A: Authorizer, S: SecretStore>(
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<(StatusCode, Json<ServerInfo>)> {
+        ApiServer::<C, A, S>::server_info(api_context, metadata)
+            .await
+            .map(|user| (StatusCode::OK, Json(user)))
+    }
+
+    /// Creates the user in the catalog if it does not exist.
+    /// If the user exists, it updates the users' metadata from the token.
+    /// The token sent to this endpoint should have "profile" and "email" scopes.
+    #[utoipa::path(
+        post,
+        tag = "server",
+        path = "/management/v1/bootstrap",
+        request_body = BootstrapRequest,
+        responses(
+            (status = 200, description = "Server bootstrapped successfully"),
+        )
+    )]
+    async fn bootstrap<C: Catalog, A: Authorizer, S: SecretStore>(
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+        Json(request): Json<BootstrapRequest>,
+    ) -> Result<()> {
+        ApiServer::<C, A, S>::bootstrap(api_context, metadata, request).await
+    }
+
     /// Creates the user in the catalog if it does not exist.
     /// If the user exists, it updates the users' metadata from the token.
     /// The token sent to this endpoint should have "profile" and "email" scopes.
@@ -147,6 +189,7 @@ pub mod v1 {
         post,
         tag = "user",
         path = "/management/v1/user/from-token",
+        request_body = CreateUserRequest,
         responses(
             (status = 200, description = "User updated", body = [User]),
             (status = 201, description = "User created", body = [User]),
@@ -763,6 +806,9 @@ pub mod v1 {
     impl<C: Catalog, A: Authorizer + Clone, S: SecretStore> ApiServer<C, A, S> {
         pub fn new_v1_router() -> Router<ApiContext<State<A, C, S>>> {
             Router::new()
+                // Server
+                .route("/info", get(get_server_info))
+                .route("/bootstrap", post(bootstrap))
                 // Role management
                 .route("/role", post(create_role))
                 .route("/role", get(list_roles))

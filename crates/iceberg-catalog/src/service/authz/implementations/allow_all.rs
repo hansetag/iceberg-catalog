@@ -26,6 +26,14 @@ impl HealthExt for AllowAllAuthorizer {
 
 #[async_trait]
 impl Authorizer for AllowAllAuthorizer {
+    async fn can_bootstrap(&self, _metadata: &RequestMetadata) -> Result<()> {
+        Ok(())
+    }
+
+    async fn bootstrap(&self, _metadata: &RequestMetadata) -> Result<()> {
+        Ok(())
+    }
+
     async fn list_projects(&self, _metadata: &RequestMetadata) -> Result<ListProjectsResponse> {
         Ok(ListProjectsResponse::All)
     }

@@ -150,6 +150,14 @@ pub struct DynAppConfig {
         serialize_with = "duration_to_seconds"
     )]
     pub default_tabular_expiration_delay_seconds: chrono::Duration,
+
+    // ------------- Internal -------------
+    /// Optional server id. We recommend to not change this unless multiple catalogs
+    /// are sharing the same Authorization system.
+    /// If not specified, 00000000-0000-0000-0000-000000000000 is used.
+    /// This ID may not be changed after start!
+    #[serde(default = "uuid::Uuid::nil")]
+    pub server_id: uuid::Uuid,
 }
 
 pub(crate) fn seconds_to_duration<'de, D>(deserializer: D) -> Result<chrono::Duration, D::Error>
@@ -194,10 +202,6 @@ pub struct OpenFGAConfig {
     /// Store Name - if not specified, `lakekeeper` is used.
     #[serde(default = "default_openfga_store_name")]
     pub store_name: String,
-    /// Server Name - Top level requests are made for `server:{server_id`}
-    /// If not specified, 00000000-0000-0000-0000-000000000000 is used.
-    #[serde(default = "uuid::Uuid::nil")]
-    pub server_id: uuid::Uuid,
     /// API-Key. If client-id is specified, this is ignored.
     pub auth: OpenFGAAuth,
 }
@@ -276,6 +280,7 @@ impl Default for DynAppConfig {
             secret_backend: SecretBackend::Postgres,
             queue_config: TaskQueueConfig::default(),
             default_tabular_expiration_delay_seconds: chrono::Duration::days(7),
+            server_id: uuid::Uuid::nil(),
         }
     }
 }
@@ -396,10 +401,6 @@ struct OpenFGAConfigSerde {
     /// Store Name - if not specified, `lakekeeper` is used.
     #[serde(default = "default_openfga_store_name")]
     store_name: String,
-    /// Server Name - Top level requests are made for `server:{server_id`}
-    /// If not specified, 00000000-0000-0000-0000-000000000000 is used.
-    #[serde(default = "uuid::Uuid::nil")]
-    server_id: uuid::Uuid,
     /// API-Key. If client-id is specified, this is ignored.
     api_key: Option<String>,
     /// Client id
@@ -426,7 +427,6 @@ where
         api_key,
         endpoint,
         store_name,
-        server_id,
     }) = Option::<OpenFGAConfigSerde>::deserialize(deserializer)?
     else {
         return Ok(None);
@@ -455,7 +455,6 @@ where
     Ok(Some(OpenFGAConfig {
         endpoint,
         store_name,
-        server_id,
         auth,
     }))
 }
@@ -493,7 +492,6 @@ where
         api_key,
         endpoint: value.endpoint.clone(),
         store_name: value.store_name.clone(),
-        server_id: value.server_id,
     }
     .serialize(serializer)
 }

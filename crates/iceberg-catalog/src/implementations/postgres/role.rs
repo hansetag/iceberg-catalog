@@ -82,7 +82,7 @@ pub(crate) async fn create_role<'e, 'c: 'e, E: sqlx::Executor<'c, Database = sql
                 )
             }
         }
-        _ => e.into_error_model("Error creating Namespace".into()),
+        _ => e.into_error_model("Error creating Role".into()),
     })?;
 
     Ok(Role::from(role))

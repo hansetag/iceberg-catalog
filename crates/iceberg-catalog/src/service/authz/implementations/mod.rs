@@ -105,6 +105,24 @@ impl From<openfga::ClientCredentialsOpenFGAAuthorizer> for Authorizers {
 
 #[async_trait::async_trait]
 impl super::Authorizer for Authorizers {
+    async fn can_bootstrap(&self, metadata: &RequestMetadata) -> Result<()> {
+        match self {
+            Self::AllowAll(authorizer) => authorizer.can_bootstrap(metadata).await,
+            Self::OpenFGAUnauthorized(authorizer) => authorizer.can_bootstrap(metadata).await,
+            Self::OpenFGABearer(authorizer) => authorizer.can_bootstrap(metadata).await,
+            Self::OpenFGAClientCreds(authorizer) => authorizer.can_bootstrap(metadata).await,
+        }
+    }
+
+    async fn bootstrap(&self, metadata: &RequestMetadata) -> Result<()> {
+        match self {
+            Self::AllowAll(authorizer) => authorizer.bootstrap(metadata).await,
+            Self::OpenFGAUnauthorized(authorizer) => authorizer.bootstrap(metadata).await,
+            Self::OpenFGABearer(authorizer) => authorizer.bootstrap(metadata).await,
+            Self::OpenFGAClientCreds(authorizer) => authorizer.bootstrap(metadata).await,
+        }
+    }
+
     async fn list_projects(&self, metadata: &RequestMetadata) -> Result<ListProjectsResponse> {
         match self {
             Self::AllowAll(authorizer) => authorizer.list_projects(metadata).await,

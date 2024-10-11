@@ -16,7 +16,7 @@ pub struct ApiContext<S: ThreadSafe> {
 
 pub type Result<T, E = IcebergErrorResponse> = std::result::Result<T, E>;
 
-/// This function will wait for a signal to shutdown the service.
+/// This function will wait for a signal to shut down the service.
 /// It will wait for either a Ctrl+C signal or a SIGTERM signal.
 ///
 /// # Panics

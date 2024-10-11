@@ -214,7 +214,7 @@ impl From<UserId> for String {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Actor {
     Anonymous,
     Principal(UserId),

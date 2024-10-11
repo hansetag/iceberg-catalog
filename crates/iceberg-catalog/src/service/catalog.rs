@@ -148,6 +148,19 @@ pub struct CreateOrUpdateUserResponse {
     pub created: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartupValidationData {
+    /// Catalog is not bootstrapped
+    NotBootstrapped,
+    /// Catalog is bootstrapped
+    Bootstrapped {
+        /// Server ID of the catalog at the time of bootstrapping
+        server_id: uuid::Uuid,
+        /// Whether the terms have been accepted
+        terms_accepted: bool,
+    },
+}
+
 #[async_trait::async_trait]
 pub trait Catalog
 where
@@ -155,6 +168,21 @@ where
 {
     type Transaction: Transaction<Self::State>;
     type State: Clone + Send + Sync + 'static + HealthExt;
+
+    /// Get data required for startup validations and server info endpoint
+    async fn get_server_info(
+        catalog_state: Self::State,
+    ) -> std::result::Result<StartupValidationData, ErrorModel>;
+
+    /// Bootstrap the catalog.
+    /// Use this hook to store the current `CONFIG.server_id`.
+    /// Must not update anything if the catalog is already bootstrapped.
+    /// If bootstrapped succeeded, return Ok(true).
+    /// If the catalog is already bootstrapped, return Ok(false).
+    async fn bootstrap<'a>(
+        terms_accepted: bool,
+        transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
+    ) -> Result<bool>;
 
     // Should only return a warehouse if the warehouse is active.
     async fn get_warehouse_by_name(
