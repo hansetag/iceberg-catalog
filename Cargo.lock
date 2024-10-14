@@ -2996,6 +2996,7 @@ dependencies = [
  "iceberg-catalog",
  "reqwest 0.12.8",
  "tokio",
+ "tower-http 0.6.1",
  "tracing",
  "tracing-subscriber",
  "utoipa",
