@@ -70,7 +70,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
+      openfga:
+        image: openfga/openfga:v1.6
+        ports:
+          - 35081:8081
+        options: >-
+          --health-cmd "/usr/local/bin/grpc_health_probe -addr=localhost:8081"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       postgres:
         image: postgres:16
         env:
@@ -149,6 +157,9 @@ jobs:
           ICEBERG_REST_TEST_S3_ACCESS_KEY: minio-root-user
           ICEBERG_REST_TEST_S3_SECRET_KEY: minio-root-password
           ICEBERG_REST_TEST_S3_ENDPOINT: http://localhost:9000
+
+          TEST_OPENFGA: 1
+          LAKEKEEPER_TEST__OPENFGA__ENDPOINT: http://localhost:35081
 
           TEST_AZURE: ${{ secrets.TEST_AZURE }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
