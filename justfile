@@ -32,9 +32,12 @@ unit-test: doc-test
 test: doc-test
 	cargo test --no-fail-fast --all-targets --all-features --workspace
 
-update-openapi:
+update-rest-openapi:
     # Download from https://raw.githubusercontent.com/apache/iceberg/main/open-api/rest-catalog-open-api.yaml and put into openapi folder
     curl -o openapi/rest-catalog-open-api.yaml https://raw.githubusercontent.com/apache/iceberg/main/open-api/rest-catalog-open-api.yaml
+   
+
+update-management-openapi:
     # For rust-server generation only:
     # Fix until https://github.com/OpenAPITools/openapi-generator/issues/7802 is resolved:
     # Parse the donwloaded yaml. Then set the for the existing object components.schemas.Namespace properties.length.type to integer

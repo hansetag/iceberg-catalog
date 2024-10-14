@@ -69,7 +69,7 @@ pub(crate) async fn create_view<C: Catalog, A: AuthZHandler, S: SecretStore>(
 
     let mut t = C::Transaction::begin_write(state.v1_state.catalog.clone()).await?;
     let namespace = C::get_namespace(warehouse_id, &namespace, t.transaction()).await?;
-    let warehouse = C::get_warehouse(warehouse_id, t.transaction()).await?;
+    let warehouse = C::require_warehouse(warehouse_id, t.transaction()).await?;
     let storage_profile = warehouse.storage_profile;
     require_active_warehouse(warehouse.status)?;
 

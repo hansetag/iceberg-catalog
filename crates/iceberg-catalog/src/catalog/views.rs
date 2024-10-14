@@ -166,6 +166,7 @@ mod test {
             Some(StorageProfile::Test(TestProfile)),
             None,
             None,
+            true,
         )
         .await;
 

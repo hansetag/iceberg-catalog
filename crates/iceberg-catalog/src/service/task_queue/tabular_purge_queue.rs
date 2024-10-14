@@ -102,7 +102,7 @@ where
             e
         })?;
 
-    let warehouse = C::get_warehouse(*warehouse_ident, trx.transaction())
+    let warehouse = C::require_warehouse(*warehouse_ident, trx.transaction())
         .await
         .map_err(|e| {
             tracing::error!("Failed to get warehouse: {:?}", e);

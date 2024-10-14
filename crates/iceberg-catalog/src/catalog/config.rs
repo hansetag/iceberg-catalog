@@ -86,7 +86,7 @@ impl<
             })?;
 
         let warehouse_id = if let Some(warehouse_from_arg) = warehouse_from_arg {
-            C::get_warehouse_by_name(
+            C::require_warehouse_by_name(
                 &warehouse_from_arg,
                 project_id,
                 api_context.v1_state.catalog.clone(),
@@ -112,7 +112,7 @@ impl<
         .await?;
 
         // Get config from DB and new token from AuthHandler simultaneously
-        let config = C::get_config_for_warehouse(warehouse_id, api_context.v1_state.catalog);
+        let config = C::require_config_for_warehouse(warehouse_id, api_context.v1_state.catalog);
 
         // Give the auth-handler a chance to exchange / enrich the token
         let new_token = T::exchange_token_for_warehouse(
