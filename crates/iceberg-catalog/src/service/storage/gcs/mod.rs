@@ -192,7 +192,7 @@ impl GcsProfile {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_millis()
-                        + expiry as u128)
+                        + (expiry * 1000) as u128)
                         .to_string(),
                 ));
             }
