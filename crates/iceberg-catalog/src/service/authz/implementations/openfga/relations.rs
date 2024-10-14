@@ -1117,7 +1117,7 @@ impl Assignment for ViewAssignment {
 }
 
 #[derive(Copy, Debug, Clone, PartialEq, Serialize, ToSchema, EnumIter)]
-#[schema(as=APIViewAction)]
+#[schema(as=ViewAction)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum APIViewAction {
     Drop,

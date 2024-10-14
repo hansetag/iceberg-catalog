@@ -32,7 +32,7 @@ use crate::service::event_publisher::CloudEventsPublisher;
 use crate::service::task_queue::TaskQueues;
 use http::StatusCode;
 pub use secrets::{SecretIdent, SecretStore};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 // ---------------- State ----------------
@@ -126,7 +126,7 @@ impl From<ProjectIdent> for uuid::Uuid {
     }
 }
 
-#[derive(Debug, serde::Serialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
+#[derive(Debug, Serialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 #[serde(transparent)]
 pub struct RoleId(uuid::Uuid);
 

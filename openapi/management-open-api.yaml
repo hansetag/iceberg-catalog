@@ -59,7 +59,7 @@ paths:
     get:
       tags:
       - permissions
-      summary: Get a users or roles access to a namespace
+      summary: Get my access to a namespace
       operationId: get_namespace_access_by_id
       parameters: []
       responses:
@@ -76,7 +76,7 @@ paths:
       tags:
       - permissions
       summary: Get user and role assignments for a namespace
-      operationId: get_namespace_assignments
+      operationId: get_namespace_assignments_by_id
       parameters:
       - name: relations
         in: query
@@ -89,7 +89,7 @@ paths:
           nullable: true
       responses:
         '200':
-          description: Namespace Relations
+          description: ''
           content:
             application/json:
               schema:
@@ -100,7 +100,7 @@ paths:
     get:
       tags:
       - permissions
-      summary: Get a users or roles access to the default project
+      summary: Get my access to the default project
       operationId: get_project_access
       parameters: []
       responses:
@@ -130,7 +130,7 @@ paths:
           nullable: true
       responses:
         '200':
-          description: Project Relations
+          description: ''
           content:
             application/json:
               schema:
@@ -141,7 +141,7 @@ paths:
     get:
       tags:
       - permissions
-      summary: Get a users or roles access to the default project
+      summary: Get my access to the default project
       operationId: get_project_access_by_id
       parameters: []
       responses:
@@ -171,7 +171,48 @@ paths:
           nullable: true
       responses:
         '200':
-          description: Project Relations
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GetProjectAssignmentsResponse'
+  /management/v1/permissions/role/by-id/{role_id}/access:
+    get:
+      tags:
+      - permissions
+      summary: Get my access to the default project
+      operationId: get_role_access_by_id
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GetRoleAccessResponse'
+  /management/v1/permissions/role/by-id/{role_id}/assignments:
+    get:
+      tags:
+      - permissions
+      summary: Get user and role assignments to the current project
+      operationId: get_role_assignments_by_id
+      parameters:
+      - name: relations
+        in: path
+        description: Relations to be loaded. If not specified, all relations are returned.
+        required: true
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectRelation'
+          nullable: true
+      responses:
+        '200':
+          description: ''
           content:
             application/json:
               schema:
@@ -182,7 +223,7 @@ paths:
     get:
       tags:
       - permissions
-      summary: Get a users or roles access to the server
+      summary: Get my access to the server
       operationId: get_server_access
       parameters: []
       responses:
@@ -212,7 +253,7 @@ paths:
           nullable: true
       responses:
         '200':
-          description: Project Relations
+          description: ''
           content:
             application/json:
               schema:
@@ -224,7 +265,7 @@ paths:
       tags:
       - permissions
       summary: Get user and role assignments for a view
-      operationId: get_view_assignments
+      operationId: get_view_assignments_by_id
       parameters:
       - name: relations
         in: query
@@ -237,7 +278,7 @@ paths:
           nullable: true
       responses:
         '200':
-          description: View Relations
+          description: ''
           content:
             application/json:
               schema:
@@ -248,8 +289,8 @@ paths:
     get:
       tags:
       - permissions
-      summary: Get a users or roles access to a table
-      operationId: get_table_access
+      summary: Get my access to a table
+      operationId: get_table_access_by_id
       parameters: []
       responses:
         '200':
@@ -264,24 +305,40 @@ paths:
     get:
       tags:
       - permissions
-      summary: Get a users or roles access to a view
-      operationId: get_view_access
+      summary: Get my access to a view
+      operationId: get_view_access_by_id
       parameters: []
       responses:
         '200':
-          description: Server Relations
+          description: ''
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/GetViewAccessResponse'
+  /management/v1/permissions/warehouse/by-id/{namespace_id}/access:
+    get:
+      tags:
+      - permissions
+      summary: Get my access to a warehouse
+      operationId: get_warehouse_access_by_id
+      parameters: []
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GetNamespaceAccessResponse'
   /management/v1/permissions/warehouse/by-id/{warehouse_id}/assignments:
     get:
       tags:
       - permissions
       summary: Get user and role assignments for a warehouse
-      operationId: get_warehouse_assignments
+      operationId: get_warehouse_assignments_by_id
       parameters:
       - name: relations
         in: query
@@ -294,7 +351,7 @@ paths:
           nullable: true
       responses:
         '200':
-          description: Warehouse Relations
+          description: ''
           content:
             application/json:
               schema:
@@ -901,19 +958,6 @@ paths:
           description: Storage credential updated successfully
 components:
   schemas:
-    APIViewAction:
-      type: string
-      enum:
-      - drop
-      - commit
-      - get_metadata
-      - rename
-      - read_assignments
-      - grant_pass_grants
-      - grant_manage_grants
-      - grant_describe
-      - grant_modify
-      - change_ownership
     AzCredential:
       oneOf:
       - type: object
@@ -1267,6 +1311,15 @@ components:
         project-name:
           type: string
           description: Name of the project
+    GetRoleAccessResponse:
+      type: object
+      required:
+      - allowed-actions
+      properties:
+        allowed-actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleAction'
     GetServerAccessResponse:
       type: object
       required:
@@ -1726,6 +1779,16 @@ components:
           format: date-time
           description: Timestamp when the role was last updated
           nullable: true
+    RoleAction:
+      type: string
+      enum:
+      - assume
+      - add_assignee
+      - remove_assignee
+      - delete
+      - update
+      - read
+      - read_assignments
     S3Credential:
       oneOf:
       - type: object
@@ -2188,6 +2251,19 @@ components:
           role:
             type: string
             format: uuid
+    ViewAction:
+      type: string
+      enum:
+      - drop
+      - commit
+      - get_metadata
+      - rename
+      - read_assignments
+      - grant_pass_grants
+      - grant_manage_grants
+      - grant_describe
+      - grant_modify
+      - change_ownership
     ViewAssignment:
       oneOf:
       - allOf:
@@ -2383,6 +2459,72 @@ components:
       enum:
       - active
       - inactive
+    WriteNamespaceAssignmentsRequest:
+      type: object
+      properties:
+        deletes:
+          type: array
+          items:
+            $ref: '#/components/schemas/NamespaceAssignment'
+        writes:
+          type: array
+          items:
+            $ref: '#/components/schemas/NamespaceAssignment'
+    WriteProjectAssignmentsRequest:
+      type: object
+      properties:
+        deletes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectAssignment'
+        writes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectAssignment'
+    WriteServerAssignmentsRequest:
+      type: object
+      properties:
+        deletes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServerAssignment'
+        writes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServerAssignment'
+    WriteTableAssignmentsRequest:
+      type: object
+      properties:
+        deletes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TableAssignment'
+        writes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TableAssignment'
+    WriteViewAssignmentsRequest:
+      type: object
+      properties:
+        deletes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ViewAssignment'
+        writes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ViewAssignment'
+    WriteWarehouseAssignmentsRequest:
+      type: object
+      properties:
+        deletes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WarehouseAssignment'
+        writes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WarehouseAssignment'
 tags:
 - name: server
   description: Manage Server

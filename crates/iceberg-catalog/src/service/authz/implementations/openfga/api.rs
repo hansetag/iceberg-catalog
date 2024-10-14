@@ -1,14 +1,16 @@
 use super::relations::{
     APINamespaceAction as NamespaceAction, APINamespaceRelation as NamespaceRelation,
     APIProjectAction as ProjectAction, APIProjectRelation as ProjectRelation,
-    APIServerAction as ServerAction, APIServerRelation as ServerRelation,
-    APITableAction as TableAction, APITableRelation as TableRelation, APIViewAction as ViewAction,
+    APIRoleAction as RoleAction, APIRoleRelation as RoleRelation, APIServerAction as ServerAction,
+    APIServerRelation as ServerRelation, APITableAction as TableAction,
+    APITableRelation as TableRelation, APIViewAction as ViewAction,
     APIViewRelation as ViewRelation, APIWarehouseAction as WarehouseAction,
     APIWarehouseRelation as WarehouseRelation, Assignment, NamespaceAssignment,
     NamespaceRelation as AllNamespaceRelations, ProjectAssignment,
-    ProjectRelation as AllProjectRelations, ReducedRelation, ServerAssignment,
-    ServerRelation as AllServerAction, TableAssignment, TableRelation as AllTableRelations,
-    UserOrRole, ViewAssignment, ViewRelation as AllViewRelations, WarehouseAssignment,
+    ProjectRelation as AllProjectRelations, ReducedRelation, RoleAssignment,
+    RoleRelation as AllRoleRelations, ServerAssignment, ServerRelation as AllServerAction,
+    TableAssignment, TableRelation as AllTableRelations, UserOrRole, ViewAssignment,
+    ViewRelation as AllViewRelations, WarehouseAssignment,
     WarehouseRelation as AllWarehouseRelation,
 };
 use super::OPENFGA_SERVER;
@@ -19,7 +21,8 @@ use crate::service::authz::implementations::openfga::{
     OpenFGAAuthorizer, OpenFGAError, OpenFGAResult,
 };
 use crate::service::{
-    Actor, Catalog, NamespaceIdentUuid, Result, SecretStore, State, TableIdentUuid, ViewIdentUuid,
+    Actor, Catalog, NamespaceIdentUuid, Result, RoleId, SecretStore, State, TableIdentUuid,
+    ViewIdentUuid,
 };
 use crate::{ProjectIdent, WarehouseIdent, CONFIG};
 use axum::body::Bytes;
@@ -42,6 +45,12 @@ struct GetAccessQuery {
     // /// If not specified, shows access for the current user.
     // #[serde(default)]
     // principal: Option<UserOrRole>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+struct GetRoleAccessResponse {
+    allowed_actions: Vec<RoleAction>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
@@ -78,6 +87,20 @@ struct GetTableAccessResponse {
 #[serde(rename_all = "kebab-case")]
 struct GetViewAccessResponse {
     allowed_actions: Vec<ViewAction>,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+struct GetRoleAssignmentsQuery {
+    /// Relations to be loaded. If not specified, all relations are returned.
+    #[serde(default)]
+    relations: Option<Vec<RoleRelation>>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+struct GetRoleAssignmentsResponse {
+    assignments: Vec<RoleAssignment>,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -164,7 +187,98 @@ struct GetViewAssignmentsResponse {
     assignments: Vec<ViewAssignment>,
 }
 
-/// Get a users or roles access to the server
+#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+struct WriteServerAssignmentsRequest {
+    #[serde(default)]
+    writes: Vec<ServerAssignment>,
+    #[serde(default)]
+    deletes: Vec<ServerAssignment>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+struct WriteProjectAssignmentsRequest {
+    #[serde(default)]
+    writes: Vec<ProjectAssignment>,
+    #[serde(default)]
+    deletes: Vec<ProjectAssignment>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+struct WriteWarehouseAssignmentsRequest {
+    #[serde(default)]
+    writes: Vec<WarehouseAssignment>,
+    #[serde(default)]
+    deletes: Vec<WarehouseAssignment>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+struct WriteNamespaceAssignmentsRequest {
+    #[serde(default)]
+    writes: Vec<NamespaceAssignment>,
+    #[serde(default)]
+    deletes: Vec<NamespaceAssignment>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+struct WriteTableAssignmentsRequest {
+    #[serde(default)]
+    writes: Vec<TableAssignment>,
+    #[serde(default)]
+    deletes: Vec<TableAssignment>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+struct WriteViewAssignmentsRequest {
+    #[serde(default)]
+    writes: Vec<ViewAssignment>,
+    #[serde(default)]
+    deletes: Vec<ViewAssignment>,
+}
+
+/// Get my access to the default project
+#[utoipa::path(
+    get,
+    tag = "permissions",
+    path = "/management/v1/permissions/role/by-id/{role_id}/access",
+    params(GetAccessQuery),
+    responses(
+            (status = 200, body = [GetRoleAccessResponse]),
+    )
+)]
+async fn get_role_access_by_id<T, C: Catalog, S: SecretStore>(
+    Path(role_id): Path<RoleId>,
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Query(_query): Query<GetAccessQuery>,
+) -> Result<(StatusCode, Json<GetRoleAccessResponse>)>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    let relations = get_allowed_actions(authorizer, &metadata, &role_id.to_openfga()).await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(GetRoleAccessResponse {
+            allowed_actions: relations,
+        }),
+    ))
+}
+
+/// Get my access to the server
 #[utoipa::path(
     get,
     tag = "permissions",
@@ -200,7 +314,7 @@ where
     ))
 }
 
-/// Get a users or roles access to the default project
+/// Get my access to the default project
 #[utoipa::path(
     get,
     tag = "permissions",
@@ -241,7 +355,7 @@ where
     ))
 }
 
-/// Get a users or roles access to the default project
+/// Get my access to the default project
 #[utoipa::path(
     get,
     tag = "permissions",
@@ -278,7 +392,44 @@ where
     ))
 }
 
-/// Get a users or roles access to a namespace
+/// Get my access to a warehouse
+#[utoipa::path(
+    get,
+    tag = "permissions",
+    path = "/management/v1/permissions/warehouse/by-id/{namespace_id}/access",
+    params(GetAccessQuery),
+    responses(
+            (status = 200, body = [GetNamespaceAccessResponse]),
+    )
+)]
+async fn get_warehouse_access_by_id<T, C: Catalog, S: SecretStore>(
+    Path(warehouse_id): Path<WarehouseIdent>,
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Query(_query): Query<GetAccessQuery>,
+) -> Result<(StatusCode, Json<GetWarehouseAccessResponse>)>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    let relations = get_allowed_actions(authorizer, &metadata, &warehouse_id.to_openfga()).await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(GetWarehouseAccessResponse {
+            allowed_actions: relations,
+        }),
+    ))
+}
+
+/// Get my access to a namespace
 #[utoipa::path(
     get,
     tag = "permissions",
@@ -315,7 +466,7 @@ where
     ))
 }
 
-/// Get a users or roles access to a table
+/// Get my access to a table
 #[utoipa::path(
     get,
     tag = "permissions",
@@ -325,7 +476,7 @@ where
             (status = 200, description = "Server Relations", body = [GetTableAccessResponse]),
     )
 )]
-async fn get_table_access<T, C: Catalog, S: SecretStore>(
+async fn get_table_access_by_id<T, C: Catalog, S: SecretStore>(
     Path(table_id): Path<TableIdentUuid>,
     AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
     Extension(metadata): Extension<RequestMetadata>,
@@ -352,17 +503,17 @@ where
     ))
 }
 
-/// Get a users or roles access to a view
+/// Get my access to a view
 #[utoipa::path(
     get,
     tag = "permissions",
     path = "/management/v1/permissions/view/by-id/{table_id}/access",
     params(GetAccessQuery),
     responses(
-            (status = 200, description = "Server Relations", body = [GetViewAccessResponse]),
+            (status = 200, body = [GetViewAccessResponse]),
     )
 )]
-async fn get_view_access<T, C: Catalog, S: SecretStore>(
+async fn get_view_access_by_id<T, C: Catalog, S: SecretStore>(
     Path(view_id): Path<ViewIdentUuid>,
     AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
     Extension(metadata): Extension<RequestMetadata>,
@@ -393,10 +544,52 @@ where
 #[utoipa::path(
     get,
     tag = "permissions",
+    path = "/management/v1/permissions/role/by-id/{role_id}/assignments",
+    params(GetProjectAssignmentsQuery),
+    responses(
+            (status = 200, body = [GetProjectAssignmentsResponse]),
+    )
+)]
+async fn get_role_assignments_by_id<T, C: Catalog, S: SecretStore>(
+    Path(role_id): Path<RoleId>,
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Query(query): Query<GetRoleAssignmentsQuery>,
+) -> Result<(StatusCode, Json<GetRoleAssignmentsResponse>)>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    authorizer
+        .require_action(
+            &metadata,
+            AllRoleRelations::CanReadAssignments,
+            &role_id.to_openfga(),
+        )
+        .await?;
+    let assignments = get_relations(authorizer, query.relations, &role_id.to_openfga()).await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(GetRoleAssignmentsResponse { assignments }),
+    ))
+}
+
+/// Get user and role assignments to the current project
+#[utoipa::path(
+    get,
+    tag = "permissions",
     path = "/management/v1/permissions/server/assignments",
     params(GetServerAssignmentsQuery),
     responses(
-            (status = 200, description = "Project Relations", body = [GetServerAssignmentsResponse]),
+            (status = 200, body = [GetServerAssignmentsResponse]),
     )
 )]
 async fn get_server_assignments<T, C: Catalog, S: SecretStore>(
@@ -437,7 +630,7 @@ where
     path = "/management/v1/permissions/project/assignments",
     params(GetProjectAssignmentsQuery),
     responses(
-            (status = 200, description = "Project Relations", body = [GetProjectAssignmentsResponse]),
+            (status = 200, body = [GetProjectAssignmentsResponse]),
     )
 )]
 async fn get_project_assignments<T, C: Catalog, S: SecretStore>(
@@ -483,7 +676,7 @@ where
     path = "/management/v1/permissions/project/by-id/{project_id}/assignments",
     params(GetProjectAssignmentsQuery),
     responses(
-            (status = 200, description = "Project Relations", body = [GetProjectAssignmentsResponse]),
+            (status = 200, body = [GetProjectAssignmentsResponse]),
     )
 )]
 async fn get_project_assignments_by_id<T, C: Catalog, S: SecretStore>(
@@ -525,10 +718,10 @@ where
     path = "/management/v1/permissions/warehouse/by-id/{warehouse_id}/assignments",
     params(GetWarehouseAssignmentsQuery),
     responses(
-            (status = 200, description = "Warehouse Relations", body = [GetWarehouseAssignmentsResponse]),
+            (status = 200, body = [GetWarehouseAssignmentsResponse]),
     )
 )]
-async fn get_warehouse_assignments<T, C: Catalog, S: SecretStore>(
+async fn get_warehouse_assignments_by_id<T, C: Catalog, S: SecretStore>(
     Path(warehouse_id): Path<WarehouseIdent>,
     AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
     Extension(metadata): Extension<RequestMetadata>,
@@ -564,10 +757,10 @@ where
     path = "/management/v1/permissions/namespace/by-id/{namespace_id}/assignments",
     params(GetNamespaceAssignmentsQuery),
     responses(
-            (status = 200, description = "Namespace Relations", body = [GetNamespaceAssignmentsResponse]),
+            (status = 200, body = [GetNamespaceAssignmentsResponse]),
     )
 )]
-async fn get_namespace_assignments<T, C: Catalog, S: SecretStore>(
+async fn get_namespace_assignments_by_id<T, C: Catalog, S: SecretStore>(
     Path(namespace_id): Path<NamespaceIdentUuid>,
     AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
     Extension(metadata): Extension<RequestMetadata>,
@@ -607,10 +800,10 @@ where
     path = "/management/v1/permissions/table/by-id/{namespace_id}/assignments",
     params(GetTableAssignmentsQuery),
     responses(
-            (status = 200, description = "Table Relations", body = [GetTableAssignmentsResponse]),
+            (status = 200, body = [GetTableAssignmentsResponse]),
     )
 )]
-async fn get_table_assignments<T, C: Catalog, S: SecretStore>(
+async fn get_table_assignments_by_id<T, C: Catalog, S: SecretStore>(
     Path(table_id): Path<TableIdentUuid>,
     AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
     Extension(metadata): Extension<RequestMetadata>,
@@ -646,10 +839,10 @@ where
     path = "/management/v1/permissions/table/by-id/{namespace_id}/assignments",
     params(GetViewAssignmentsQuery),
     responses(
-            (status = 200, description = "View Relations", body = [GetViewAssignmentsResponse]),
+            (status = 200, body = [GetViewAssignmentsResponse]),
     )
 )]
-async fn get_view_assignments<T, C: Catalog, S: SecretStore>(
+async fn get_view_assignments_by_id<T, C: Catalog, S: SecretStore>(
     Path(view_id): Path<ViewIdentUuid>,
     AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
     Extension(metadata): Extension<RequestMetadata>,
@@ -685,31 +878,35 @@ where
     ),
     paths(
         get_namespace_access_by_id,
-        get_namespace_assignments,
+        get_namespace_assignments_by_id,
         get_project_access,
         get_project_access_by_id,
         get_project_assignments,
         get_project_assignments_by_id,
+        get_role_access_by_id,
+        get_role_assignments_by_id,
         get_server_access,
         get_server_assignments,
-        get_table_access,
-        get_table_assignments,
-        get_view_access,
-        get_view_assignments,
-        get_warehouse_assignments,
+        get_table_access_by_id,
+        get_table_assignments_by_id,
+        get_view_access_by_id,
+        get_view_assignments_by_id,
+        get_warehouse_access_by_id,
+        get_warehouse_assignments_by_id,
     ),
     components(schemas(
         GetNamespaceAccessResponse,
+        GetNamespaceAssignmentsResponse,
         GetProjectAccessResponse,
         GetProjectAssignmentsResponse,
+        GetRoleAccessResponse,
         GetServerAccessResponse,
         GetServerAssignmentsResponse,
         GetTableAccessResponse,
-        GetViewAccessResponse,
-        GetWarehouseAccessResponse,
-        GetNamespaceAssignmentsResponse,
         GetTableAssignmentsResponse,
+        GetViewAccessResponse,
         GetViewAssignmentsResponse,
+        GetWarehouseAccessResponse,
         GetWarehouseAssignmentsResponse,
         NamespaceAction,
         NamespaceAssignment,
@@ -717,6 +914,7 @@ where
         ProjectAction,
         ProjectAssignment,
         ProjectRelation,
+        RoleAction,
         ServerAction,
         ServerAssignment,
         ServerRelation,
@@ -730,6 +928,12 @@ where
         WarehouseAction,
         WarehouseAssignment,
         WarehouseRelation,
+        WriteNamespaceAssignmentsRequest,
+        WriteProjectAssignmentsRequest,
+        WriteServerAssignmentsRequest,
+        WriteTableAssignmentsRequest,
+        WriteViewAssignmentsRequest,
+        WriteWarehouseAssignmentsRequest,
     ))
 )]
 pub(crate) struct ApiDoc;
@@ -747,8 +951,16 @@ where
     >>::Future: Send,
 {
     Router::new()
+        .route(
+            "/permissions/role/by-id/{role_id}/access",
+            get(get_role_access_by_id),
+        )
         .route("/permissions/server/access", get(get_server_access))
         .route("/permissions/project/access", get(get_project_access))
+        .route(
+            "/permissions/warehouse/by-id/{warehouse_id}/access",
+            get(get_warehouse_access_by_id),
+        )
         .route(
             "/permissions/project/by-id/{project_id}/access",
             get(get_project_access_by_id),
@@ -759,11 +971,15 @@ where
         )
         .route(
             "/permissions/table/by-id/{table_id}/access",
-            get(get_table_access),
+            get(get_table_access_by_id),
         )
         .route(
             "/permissions/view/by-id/{table_id}/access",
-            get(get_view_access),
+            get(get_view_access_by_id),
+        )
+        .route(
+            "/permissions/role/by-id/{role_id}/assignments",
+            get(get_role_assignments_by_id),
         )
         .route(
             "/permissions/server/assignments",
@@ -779,19 +995,19 @@ where
         )
         .route(
             "/permissions/warehouse/by-id/{warehouse_id}/assignments",
-            get(get_warehouse_assignments),
+            get(get_warehouse_assignments_by_id),
         )
         .route(
             "/permissions/namespace/by-id/{namespace_id}/assignments",
-            get(get_namespace_assignments),
+            get(get_namespace_assignments_by_id),
         )
         .route(
             "/permissions/table/by-id/{table_id}/assignments",
-            get(get_table_assignments),
+            get(get_table_assignments_by_id),
         )
         .route(
             "/permissions/view/by-id/{table_id}/assignments",
-            get(get_view_assignments),
+            get(get_view_assignments_by_id),
         )
 }
 
