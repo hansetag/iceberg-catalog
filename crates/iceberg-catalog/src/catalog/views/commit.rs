@@ -11,7 +11,7 @@ use crate::catalog::tables::{
 };
 use crate::catalog::views::{parse_view_location, validate_view_updates};
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{ViewAction, WarehouseAction};
+use crate::service::authz::{CatalogViewAction, CatalogWarehouseAction};
 use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;
 use crate::service::storage::{StorageLocations as _, StoragePermissions};
@@ -51,7 +51,11 @@ pub(crate) async fn commit_view<C: Catalog, A: Authorizer + Clone, S: SecretStor
     // ------------------- AUTHZ -------------------
     let authorizer = state.v1_state.authz;
     authorizer
-        .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+        .require_warehouse_action(
+            &request_metadata,
+            warehouse_id,
+            &CatalogWarehouseAction::CanUse,
+        )
         .await?;
     let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
     let view_id = C::view_to_id(warehouse_id, &identifier, t.transaction()).await; // We can't fail before AuthZ;
@@ -61,7 +65,7 @@ pub(crate) async fn commit_view<C: Catalog, A: Authorizer + Clone, S: SecretStor
             &request_metadata,
             warehouse_id,
             view_id,
-            &ViewAction::CanCommit,
+            &CatalogViewAction::CanCommit,
         )
         .await?;
 

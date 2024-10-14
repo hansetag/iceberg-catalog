@@ -6,7 +6,7 @@ use crate::api::iceberg::v1::{
 };
 use crate::api::set_not_found_status_code;
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{NamespaceAction, NamespaceParent, WarehouseAction};
+use crate::service::authz::{CatalogNamespaceAction, CatalogWarehouseAction, NamespaceParent};
 use crate::service::{authz::Authorizer, secrets::SecretStore, Catalog, State, Transaction as _};
 use crate::service::{GetWarehouseResponse, NamespaceIdentUuid};
 use crate::CONFIG;
@@ -21,6 +21,7 @@ pub const UNSUPPORTED_NAMESPACE_PROPERTIES: &[&str] = &[];
 // If this is increased, we need to modify namespace creation and deletion
 // to take care of the hierarchical structure.
 pub const MAX_NAMESPACE_DEPTH: i32 = 1;
+pub const NAMESPACE_ID_PROPERTY: &str = "namespace_id";
 
 #[async_trait::async_trait]
 impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
@@ -47,7 +48,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                &WarehouseAction::CanListNamespaces,
+                &CatalogWarehouseAction::CanListNamespaces,
             )
             .await?;
 
@@ -59,7 +60,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                     &request_metadata,
                     warehouse_id,
                     namespace_id,
-                    &NamespaceAction::CanListNamespaces,
+                    &CatalogNamespaceAction::CanListNamespaces,
                 )
                 .await?;
             t
@@ -76,7 +77,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                     &request_metadata,
                     warehouse_id,
                     *n.0,
-                    &NamespaceAction::CanGetMetadata,
+                    &CatalogNamespaceAction::CanGetMetadata,
                 )
             }))
             .await?
@@ -128,7 +129,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                &WarehouseAction::CanCreateNamespace,
+                &CatalogWarehouseAction::CanCreateNamespace,
             )
             .await?;
 
@@ -171,7 +172,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
 
         let mut t = C::Transaction::begin_read(state.v1_state.catalog).await?;
@@ -183,13 +188,16 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 namespace_id,
-                &NamespaceAction::CanGetMetadata,
+                &CatalogNamespaceAction::CanGetMetadata,
             )
             .await
             .map_err(set_not_found_status_code)?;
 
         // ------------------- BUSINESS LOGIC -------------------
-        let r = C::get_namespace(warehouse_id, namespace_id, t.transaction()).await?;
+        let mut r = C::get_namespace(warehouse_id, namespace_id, t.transaction()).await?;
+        r.properties
+            .as_mut()
+            .map(|p| p.insert(NAMESPACE_ID_PROPERTY.to_string(), namespace_id.to_string()));
         t.commit().await?;
         Ok(GetNamespaceResponse {
             properties: r.properties,
@@ -210,7 +218,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         //  ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
 
         //  ------------------- BUSINESS LOGIC -------------------
@@ -222,7 +234,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 namespace_id,
-                &NamespaceAction::CanGetMetadata,
+                &CatalogNamespaceAction::CanGetMetadata,
             )
             .await
             .map_err(set_not_found_status_code)?;
@@ -254,7 +266,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         //  ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let namespace_id =
@@ -265,7 +281,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 namespace_id,
-                &NamespaceAction::CanDelete,
+                &CatalogNamespaceAction::CanDelete,
             )
             .await?;
 
@@ -304,7 +320,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         //  ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let namespace_id =
@@ -315,7 +335,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 namespace_id,
-                &NamespaceAction::CanUpdateProperties,
+                &CatalogNamespaceAction::CanUpdateProperties,
             )
             .await?;
 
@@ -461,6 +481,9 @@ fn update_namespace_properties(
             changes_updated.push(key);
         }
     }
+
+    // Remove managed property namespace_id
+    properties.remove(NAMESPACE_ID_PROPERTY);
 
     (
         properties,

@@ -27,6 +27,8 @@ type role
     define can_update: can_add_assignee
     # Can get name and description of this role
     define can_read: can_list_roles from project
+    # get assignments to this role
+    define can_read_assignments: can_read
 
 type server
   relations
@@ -46,6 +48,7 @@ type server
     define can_provision_users: global_admin
     define can_update_users: global_admin
     define can_delete_users: global_admin
+    define can_read_assignments: global_admin
 
     # GRANT Permissions
     define can_grant_global_admin: global_admin
@@ -85,12 +88,15 @@ type project
     # Can list elements in this projects - will be filtered subsequently
     define can_list_warehouses: can_get_metadata
     define can_include_in_list: can_get_metadata
-        # Roles
+    # Roles
     define can_create_role: role_creator
     define can_list_roles: can_get_metadata
     define can_search_roles: can_list_roles
+    # Only if we can GRANT a privilege, we can LIST them for now
+    define can_read_assignments: security_admin or project_admin
 
     # GRANT Permissions
+    define can_grant_role_creator: security_admin
     define can_grant_create: security_admin
     define can_grant_describe: security_admin
     define can_grant_modify: security_admin
@@ -122,8 +128,8 @@ type warehouse
     define can_create_namespace: create
     # Delete this warehouse premanently
     define can_delete: modify
-    define can_modify_storage: modify
-    define can_modify_storage_credential: modify
+    define can_update_storage: modify
+    define can_update_storage_credential: modify
     define can_get_metadata: describe or can_get_metadata from namespace
     define can_get_config: can_get_metadata
     # Can list elements in this warehouse - will be filtered subsequently
@@ -134,7 +140,8 @@ type warehouse
     define can_activate: modify
     define can_rename: modify
     define can_list_deleted_tabulars: can_get_metadata
-
+    # Only if we can GRANT a privilege, we can LIST them for now
+    define can_read_assignments: can_grant_create or can_grant_describe or can_grant_modify or can_grant_select or can_grant_pass_grants or can_grant_manage_grants or can_change_ownership
     # GRANT Permissions
     define can_grant_create: manage_grants or (create and pass_grants)
     define can_grant_describe: manage_grants or (describe and pass_grants)
@@ -174,7 +181,7 @@ type namespace
     define can_list_views: can_get_metadata
     define can_list_namespaces: can_get_metadata
     define can_include_in_list: can_get_metadata
-
+    define can_read_assignments: can_grant_create or can_grant_describe or can_grant_modify or can_grant_select or can_grant_pass_grants or can_grant_manage_grants or can_change_ownership
     # GRANT Permissions
     define can_grant_create: manage_grants or (create and pass_grants)
     define can_grant_describe: manage_grants or (describe and pass_grants)
@@ -207,6 +214,7 @@ type table
     define can_commit: modify
     define can_rename: modify
     define can_include_in_list: can_get_metadata
+    define can_read_assignments: can_grant_pass_grants or can_grant_manage_grants or can_grant_describe or can_grant_select or can_grant_modify or can_change_ownership
 
     # GRANT Permissions
     define can_grant_pass_grants: manage_grants
@@ -236,7 +244,7 @@ type view
     define can_get_metadata: describe
     define can_rename: modify
     define can_include_in_list: can_get_metadata
-
+    define can_read_assignments: can_grant_pass_grants or can_grant_manage_grants or can_grant_describe or can_grant_modify or can_change_ownership
 
     # GRANT Permissions
     define can_grant_pass_grants: manage_grants

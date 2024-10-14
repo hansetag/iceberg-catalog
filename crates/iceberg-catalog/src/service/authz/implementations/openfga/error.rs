@@ -4,7 +4,8 @@ use iceberg_ext::catalog::rest::{ErrorModel, IcebergErrorResponse};
 use openfga_rs::tonic::metadata::errors::InvalidMetadataValue;
 use openfga_rs::tonic::{self, Code};
 use openfga_rs::{
-    authentication::CredentialRefreshError, ReadRequest, ReadRequestTupleKey, WriteRequest,
+    authentication::CredentialRefreshError, CheckRequest, ReadRequest, ReadRequestTupleKey,
+    WriteRequest,
 };
 
 pub type OpenFGAResult<T> = Result<T, OpenFGAError>;
@@ -13,21 +14,26 @@ pub type OpenFGAResult<T> = Result<T, OpenFGAError>;
 pub enum OpenFGAError {
     #[error("Authorization Model ID failed: {reason}")]
     AuthorizationModelIdFailed { reason: String },
-    #[error("Client Credential failed: {0}")]
+    #[error("Client Credential refresh failed")]
     ClientCredentialFailed(#[from] CredentialRefreshError),
-    #[error("Connection to OpenFGA failed: {0}")]
+    #[error("Connection to OpenFGA failed")]
     ConnectionFailed(#[from] tonic::transport::Error),
-    #[error("Internal OpenFGA Error: {0}")]
+    #[error("Internal Authorization Error")]
     Internal(tonic::Status),
     #[error("Invalid Bearer Token for OpenFGA: {0}")]
     InvalidBearerToken(InvalidMetadataValue),
-    #[error("Listing authentication models failed: {0}")]
+    #[error("Listing authentication models failed")]
     ListAuthenticationModelsFailed(tonic::Status),
-    #[error("Listing stores failed: {0}")]
+    #[error("Listing stores failed")]
     ListStoresFailed(tonic::Status),
-    #[error("Reading tuples failed: {source}")]
+    #[error("Reading tuples failed")]
     ReadFailed {
         read_request: ReadRequest,
+        source: tonic::Status,
+    },
+    #[error("Authorization check failed")]
+    CheckFailed {
+        check_request: CheckRequest,
         source: tonic::Status,
     },
     #[error("Store creation failed: {0}")]
@@ -41,21 +47,29 @@ pub enum OpenFGAError {
         max_pages: u32,
         tuple: ReadRequestTupleKey,
     },
-    #[error("Unauthenticated: {0}")]
+    #[error("Authentication to Authorization system failed")]
     Unauthenticated(tonic::Status),
-    #[error("Unexpected entity for type {r#type}: {value}")]
-    UnexpectedEntity { r#type: FgaType, value: String },
-    #[error("Unknown model version currently applied {0}")]
+    #[error("Unexpected entity for type {r#type:?}: {value}")]
+    UnexpectedEntity { r#type: Vec<FgaType>, value: String },
+    #[error("Unknown type: {0}")]
+    UnknownType(String),
+    #[error("Invalid entity string: {0}")]
+    InvalidEntity(String),
+    #[error("Unknown model version currently applied")]
     UnknownModelVersionApplied(i32),
     #[error("Failed to write Authorization model: {0}")]
     WriteAuthorizationModelFailed(tonic::Status),
-    #[error("Failed to write Authorization tuples: {source}")]
+    #[error("Failed to write Authorization tuples")]
     WriteFailed {
         write_request: WriteRequest,
         source: tonic::Status,
     },
     #[error("Too many writes and deletes in single Authorization transaction (actual) {actual} > {max} (max)")]
     TooManyWrites { actual: i32, max: i32 },
+    #[error("Project ID could not be inferred from request. Please specify it explicitly.")]
+    NoProjectId,
+    #[error("Authentication required")]
+    AuthenticationRequired,
 }
 
 impl OpenFGAError {
@@ -67,36 +81,51 @@ impl OpenFGAError {
         }
     }
 
-    pub fn store_creation(status: tonic::Status) -> Self {
+    pub(crate) fn store_creation(status: tonic::Status) -> Self {
         Self::known_status(&status).unwrap_or(OpenFGAError::StoreCreationFailed(status))
     }
 
-    pub fn list_stores(status: tonic::Status) -> Self {
+    pub(crate) fn list_stores(status: tonic::Status) -> Self {
         Self::known_status(&status).unwrap_or(OpenFGAError::ListStoresFailed(status))
     }
 
-    pub fn list_authentication_models(status: tonic::Status) -> Self {
+    #[cfg(test)]
+    pub(crate) fn list_authentication_models(status: tonic::Status) -> Self {
         Self::known_status(&status).unwrap_or(OpenFGAError::ListAuthenticationModelsFailed(status))
     }
 
     #[must_use]
-    pub fn bearer_token(invalid: InvalidMetadataValue) -> Self {
+    pub(crate) fn bearer_token(invalid: InvalidMetadataValue) -> Self {
         OpenFGAError::InvalidBearerToken(invalid)
     }
 
-    pub fn write_authorization_model(status: tonic::Status) -> Self {
+    pub(crate) fn write_authorization_model(status: tonic::Status) -> Self {
         Self::known_status(&status).unwrap_or(OpenFGAError::WriteAuthorizationModelFailed(status))
+    }
+
+    pub(crate) fn unexpected_entity(r#type: Vec<FgaType>, value: String) -> Self {
+        OpenFGAError::UnexpectedEntity { r#type, value }
     }
 }
 
 impl From<OpenFGAError> for ErrorModel {
     fn from(err: OpenFGAError) -> Self {
-        ErrorModel::new(
-            err.to_string(),
-            "AuthorizationError",
-            StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
-            Some(Box::new(err)),
-        )
+        match err {
+            OpenFGAError::NoProjectId => ErrorModel::bad_request(
+                "Project ID could not be inferred from request. Please specify it explicitly.",
+                "NoProjectId",
+                None,
+            ),
+            OpenFGAError::AuthenticationRequired => {
+                ErrorModel::unauthorized("Authentication required", "AuthenticationRequired", None)
+            }
+            _ => ErrorModel::new(
+                err.to_string(),
+                "AuthorizationError",
+                StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                Some(Box::new(err)),
+            ),
+        }
     }
 }
 

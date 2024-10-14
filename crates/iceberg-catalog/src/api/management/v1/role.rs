@@ -1,9 +1,10 @@
+use super::default_page_size;
 use crate::api::iceberg::types::PageToken;
 use crate::api::iceberg::v1::PaginationQuery;
 use crate::api::management::v1::ApiServer;
 use crate::api::ApiContext;
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{Authorizer, ProjectAction, RoleAction};
+use crate::service::authz::{Authorizer, CatalogProjectAction, CatalogRoleAction};
 use crate::service::{Catalog, Result, RoleId, SecretStore, State, Transaction};
 use crate::{ProjectIdent, CONFIG};
 use axum::response::IntoResponse;
@@ -20,8 +21,7 @@ pub struct CreateRoleRequest {
     #[serde(default)]
     pub description: Option<String>,
     /// Project ID in which the role is created.
-    /// Only required if the project ID cannot be inferred from the
-    /// users token and no default project is set.
+    /// Only required if the project ID cannot be inferred and no default project is set.
     #[serde(default)]
     #[schema(value_type=uuid::Uuid)]
     pub project_id: Option<ProjectIdent>,
@@ -93,16 +93,13 @@ pub struct ListRolesQuery {
     /// Search for a specific role name
     #[serde(default)]
     pub name: Option<String>,
-    // Can we find a way to use PaginationQuery diectly with #[serde(flatten)]
-    // without breaking OpenAPI?
     /// Next page token
-    #[serde(skip_serializing_if = "PageToken::skip_serialize")]
-    #[param(value_type=String)]
-    pub page_token: PageToken,
-    /// Signals an upper bound of the number of results that a client will receive.
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    pub page_size: Option<i32>,
+    pub page_token: Option<String>,
+    /// Signals an upper bound of the number of results that a client will receive.
+    /// Default: 100
+    #[serde(default = "default_page_size")]
+    pub page_size: i32,
     /// Project ID from which roles should be listed
     /// Only required if the project ID cannot be inferred from the
     /// users token and no default project is set.
@@ -115,8 +112,11 @@ impl ListRolesQuery {
     #[must_use]
     pub fn pagination_query(&self) -> PaginationQuery {
         PaginationQuery {
-            page_token: self.page_token.clone(),
-            page_size: self.page_size,
+            page_token: self
+                .page_token
+                .clone()
+                .map_or(PageToken::Empty, PageToken::Present),
+            page_size: Some(self.page_size),
         }
     }
 }
@@ -151,7 +151,11 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // -------------------- AUTHZ --------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_project_action(&request_metadata, project_id, &ProjectAction::CanCreateRole)
+            .require_project_action(
+                &request_metadata,
+                project_id,
+                &CatalogProjectAction::CanCreateRole,
+            )
             .await?;
 
         // -------------------- Business Logic --------------------
@@ -184,7 +188,11 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // -------------------- AUTHZ --------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_project_action(&request_metadata, project_id, &ProjectAction::CanListRoles)
+            .require_project_action(
+                &request_metadata,
+                project_id,
+                &CatalogProjectAction::CanListRoles,
+            )
             .await?;
 
         // -------------------- Business Logic --------------------
@@ -208,7 +216,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // -------------------- AUTHZ --------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_role_action(&request_metadata, role_id, &RoleAction::CanRead)
+            .require_role_action(&request_metadata, role_id, &CatalogRoleAction::CanRead)
             .await?;
 
         // -------------------- Business Logic --------------------
@@ -250,7 +258,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_project_action(
                 &request_metadata,
                 project_id,
-                &ProjectAction::CanSearchRoles,
+                &CatalogProjectAction::CanSearchRoles,
             )
             .await?;
 
@@ -266,7 +274,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
     ) -> Result<()> {
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_role_action(&request_metadata, role_id, &RoleAction::CanDelete)
+            .require_role_action(&request_metadata, role_id, &CatalogRoleAction::CanDelete)
             .await?;
 
         // ------------------- Business Logic -------------------
@@ -303,7 +311,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // -------------------- AUTHZ --------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_role_action(&request_metadata, role_id, &RoleAction::CanUpdate)
+            .require_role_action(&request_metadata, role_id, &CatalogRoleAction::CanUpdate)
             .await?;
 
         // -------------------- Business Logic --------------------

@@ -10,7 +10,7 @@ use crate::catalog::tables::{
 use crate::catalog::views::validate_view_properties;
 use crate::catalog::{maybe_get_secret, require_warehouse_id};
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{Authorizer, NamespaceAction, WarehouseAction};
+use crate::service::authz::{Authorizer, CatalogNamespaceAction, CatalogWarehouseAction};
 use crate::service::event_publisher::EventMetadata;
 use crate::service::storage::{StorageLocations as _, StoragePermissions};
 use crate::service::TabularIdentUuid;
@@ -51,7 +51,11 @@ pub(crate) async fn create_view<C: Catalog, A: Authorizer + Clone, S: SecretStor
     // ------------------- AUTHZ -------------------
     let authorizer = &state.v1_state.authz;
     authorizer
-        .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+        .require_warehouse_action(
+            &request_metadata,
+            warehouse_id,
+            &CatalogWarehouseAction::CanUse,
+        )
         .await?;
     let mut t = C::Transaction::begin_write(state.v1_state.catalog.clone()).await?;
     let namespace_id = C::namespace_to_id(warehouse_id, &namespace, t.transaction()).await; // Cannot fail before authz;
@@ -60,7 +64,7 @@ pub(crate) async fn create_view<C: Catalog, A: Authorizer + Clone, S: SecretStor
             &request_metadata,
             warehouse_id,
             namespace_id,
-            &NamespaceAction::CanCreateView,
+            &CatalogNamespaceAction::CanCreateView,
         )
         .await?;
 

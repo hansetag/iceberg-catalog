@@ -10,7 +10,7 @@ lazy_static::lazy_static! {
     };
 }
 
-pub trait OpenFgaType {
+pub(crate) trait OpenFgaType {
     fn user_of(&self) -> &[FgaType];
 
     fn usersets(&self) -> &'static [&'static str];
@@ -53,13 +53,13 @@ impl OpenFgaType for FgaType {
 }
 
 #[derive(Debug)]
-pub struct CollaborationModels {
+pub(crate) struct CollaborationModels {
     v1: AuthorizationModel,
 }
 
 impl CollaborationModels {
     #[must_use]
-    pub fn get_model(&self, version: &ModelVersion) -> &AuthorizationModel {
+    pub(crate) fn get_model(&self, version: &ModelVersion) -> &AuthorizationModel {
         match version {
             ModelVersion::V1 => &self.v1,
         }
@@ -70,31 +70,32 @@ impl CollaborationModels {
     Debug, Clone, PartialEq, strum_macros::EnumString, strum_macros::Display, strum_macros::EnumIter,
 )]
 #[strum(serialize_all = "lowercase")]
-pub enum ModelVersion {
+pub(crate) enum ModelVersion {
     V1,
 }
 
 impl ModelVersion {
     #[must_use]
-    pub fn active() -> Self {
+    pub(crate) fn active() -> Self {
         ModelVersion::V1
     }
     #[must_use]
-    pub fn get_model(&self) -> AuthorizationModel {
+    pub(crate) fn get_model(&self) -> AuthorizationModel {
         MODEL.get_model(self).clone()
     }
-    #[must_use]
-    pub fn get_model_ref(&self) -> &AuthorizationModel {
+
+    #[cfg(test)]
+    pub(crate) fn get_model_ref(&self) -> &AuthorizationModel {
         MODEL.get_model(self)
     }
     #[must_use]
-    pub fn as_monotonic_int(&self) -> i32 {
+    pub(crate) fn as_monotonic_int(&self) -> i32 {
         match self {
             ModelVersion::V1 => 1,
         }
     }
     #[must_use]
-    pub fn from_monotonic_int(value: i32) -> Option<Self> {
+    pub(crate) fn from_monotonic_int(value: i32) -> Option<Self> {
         match value {
             1 => Some(ModelVersion::V1),
             _ => None,
@@ -110,14 +111,14 @@ impl PartialOrd for ModelVersion {
 
 #[derive(Debug, serde::Deserialize, Clone, PartialEq)]
 #[serde(from = "ser_de::AuthorizationModel")]
-pub struct AuthorizationModel {
-    pub type_definitions: Vec<TypeDefinition>,
-    pub schema_version: String,
-    pub conditions: Option<HashMap<String, Condition>>,
+pub(crate) struct AuthorizationModel {
+    pub(crate) type_definitions: Vec<TypeDefinition>,
+    pub(crate) schema_version: String,
+    pub(crate) conditions: Option<HashMap<String, Condition>>,
 }
 
 impl AuthorizationModel {
-    pub fn into_write_request(
+    pub(crate) fn into_write_request(
         self,
         store_id: String,
     ) -> openfga_rs::WriteAuthorizationModelRequest {
@@ -206,7 +207,7 @@ mod ser_de {
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
-    pub struct TypeDefinition {
+    pub(crate) struct TypeDefinition {
         #[serde(rename = "type")]
         r#type: String,
         #[serde(rename = "relations", skip_serializing_if = "Option::is_none")]
@@ -267,27 +268,27 @@ mod ser_de {
     }
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-    pub struct Condition {
+    pub(crate) struct Condition {
         #[serde(rename = "name")]
-        pub name: String,
+        pub(crate) name: String,
         /// A Google CEL expression, expressed as a string.
         #[serde(rename = "expression")]
-        pub expression: String,
+        pub(crate) expression: String,
         /// A map of parameter names to the parameter's defined type reference.
         #[serde(rename = "parameters", skip_serializing_if = "Option::is_none")]
-        pub parameters: Option<HashMap<String, ConditionParamTypeRef>>,
+        pub(crate) parameters: Option<HashMap<String, ConditionParamTypeRef>>,
     }
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-    pub struct ConditionParamTypeRef {
+    pub(crate) struct ConditionParamTypeRef {
         #[serde(rename = "type_name")]
-        pub type_name: TypeName,
+        pub(crate) type_name: TypeName,
         #[serde(rename = "generic_types", skip_serializing_if = "Option::is_none")]
-        pub generic_types: Option<Vec<ConditionParamTypeRef>>,
+        pub(crate) generic_types: Option<Vec<ConditionParamTypeRef>>,
     }
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-    pub enum TypeName {
+    pub(crate) enum TypeName {
         #[serde(rename = "TYPE_NAME_UNSPECIFIED")]
         Unspecified,
         #[serde(rename = "TYPE_NAME_ANY")]

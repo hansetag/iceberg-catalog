@@ -19,7 +19,7 @@ use crate::api::management::v1::TabularType;
 use crate::api::set_not_found_status_code;
 use crate::catalog::compression_codec::CompressionCodec;
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{NamespaceAction, TableAction, WarehouseAction};
+use crate::service::authz::{CatalogNamespaceAction, CatalogTableAction, CatalogWarehouseAction};
 use crate::service::contract_verification::{ContractVerification, ContractVerificationOutcome};
 use crate::service::event_publisher::{CloudEventsPublisher, EventMetadata};
 use crate::service::storage::{StorageLocations as _, StoragePermissions, StorageProfile};
@@ -67,7 +67,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
         let mut t: <C as Catalog>::Transaction =
             Transaction::begin_read(state.v1_state.catalog).await?;
@@ -78,7 +82,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 namespace_id,
-                &NamespaceAction::CanListTables,
+                &CatalogNamespaceAction::CanListTables,
             )
             .await?;
 
@@ -107,7 +111,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 *t.0,
-                &TableAction::CanIncludeInList,
+                &CatalogTableAction::CanIncludeInList,
             )
         }))
         .await?
@@ -145,7 +149,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let namespace_id = C::namespace_to_id(warehouse_id, &namespace, t.transaction()).await; // We can't fail before AuthZ.
@@ -154,7 +162,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 namespace_id,
-                &NamespaceAction::CanCreateTable,
+                &CatalogNamespaceAction::CanCreateTable,
             )
             .await?;
 
@@ -341,7 +349,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
         let include_staged: bool = false;
         let include_deleted = false;
@@ -364,7 +376,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 table_id,
-                &TableAction::CanGetMetadata,
+                &CatalogTableAction::CanGetMetadata,
             )
             .await
             .map_err(set_not_found_status_code)?;
@@ -374,13 +386,13 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 table_id,
-                &TableAction::CanReadData,
+                &CatalogTableAction::CanReadData,
             ),
             authorizer.is_allowed_table_action(
                 &request_metadata,
                 warehouse_id,
                 table_id,
-                &TableAction::CanWriteData,
+                &CatalogTableAction::CanWriteData,
             ),
         )?;
 
@@ -468,7 +480,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
 
         let include_staged = true;
@@ -492,7 +508,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 table_id,
-                &TableAction::CanCommit,
+                &CatalogTableAction::CanCommit,
             )
             .await?;
 
@@ -629,7 +645,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
 
         let include_staged = true;
@@ -654,7 +674,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 table_id,
-                &TableAction::CanDrop,
+                &CatalogTableAction::CanDrop,
             )
             .await?;
 
@@ -751,7 +771,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
 
         let include_staged = false;
@@ -775,7 +799,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 table_id,
-                &TableAction::CanGetMetadata,
+                &CatalogTableAction::CanGetMetadata,
             )
             .await
             .map_err(set_not_found_status_code)?;
@@ -804,7 +828,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
 
         let include_staged = false;
@@ -828,7 +856,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 source_table_id,
-                &TableAction::CanRename,
+                &CatalogTableAction::CanRename,
             )
             .await?;
         let namespace_id =
@@ -840,7 +868,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                 &request_metadata,
                 warehouse_id,
                 namespace_id,
-                &NamespaceAction::CanCreateTable,
+                &CatalogNamespaceAction::CanCreateTable,
             )
             .await?;
 
@@ -922,7 +950,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         // ------------------- AUTHZ -------------------
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
 
         let include_staged = true;
@@ -959,7 +991,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                     &request_metadata,
                     warehouse_id,
                     Ok(*table_id),
-                    &TableAction::CanCommit,
+                    &CatalogTableAction::CanCommit,
                 )
             })
             .collect::<Vec<_>>();

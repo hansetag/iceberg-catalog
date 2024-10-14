@@ -1,8 +1,7 @@
 use crate::service::event_publisher::CloudEventsPublisher;
 use crate::tracing::{MakeRequestUuid7, RestMakeSpan};
 
-use super::management::v1::ManagementApiDoc;
-use crate::api::management::v1::ApiServer;
+use crate::api::management::v1::{api_doc as v1_api_doc, ApiServer};
 use crate::api::{iceberg::v1::new_v1_full_router, shutdown_signal, ApiContext};
 use crate::service::contract_verification::ContractVerifiers;
 use crate::service::health::ServiceHealthProvider;
@@ -18,7 +17,6 @@ use tower_http::{
     sensitive_headers::SetSensitiveHeadersLayer, timeout::TimeoutLayer, trace, trace::TraceLayer,
     ServiceBuilderExt,
 };
-use utoipa::OpenApi;
 
 #[allow(clippy::module_name_repetitions, clippy::too_many_arguments)]
 pub fn new_full_router<C: Catalog, A: Authorizer + Clone, S: SecretStore>(
@@ -34,7 +32,7 @@ pub fn new_full_router<C: Catalog, A: Authorizer + Clone, S: SecretStore>(
 ) -> Router {
     let v1_routes = new_v1_full_router::<crate::catalog::CatalogServer<C, A, S>, State<A, C, S>>();
 
-    let management_routes = Router::new().merge(ApiServer::new_v1_router());
+    let management_routes = Router::new().merge(ApiServer::new_v1_router(&authorizer));
 
     let router = maybe_add_auth(
         token_verifier,
@@ -49,10 +47,10 @@ pub fn new_full_router<C: Catalog, A: Authorizer + Clone, S: SecretStore>(
             Json(health).into_response()
         }),
     )
-    .merge(utoipa_swagger_ui::SwaggerUi::new("/swagger-ui").url(
-        "/api-docs/management/v1/openapi.json",
-        ManagementApiDoc::openapi(),
-    ))
+    .merge(
+        utoipa_swagger_ui::SwaggerUi::new("/swagger-ui")
+            .url("/api-docs/management/v1/openapi.json", v1_api_doc::<A>()),
+    )
     .layer(axum::middleware::from_fn(
         crate::request_metadata::create_request_metadata_with_trace_id_fn,
     ))

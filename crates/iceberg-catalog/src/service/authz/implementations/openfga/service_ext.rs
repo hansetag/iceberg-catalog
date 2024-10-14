@@ -15,7 +15,7 @@ const PAGE_SIZE: i16 = 100;
 pub(crate) const MAX_TUPLES_PER_WRITE: i32 = 100;
 
 #[async_trait::async_trait]
-pub trait ClientHelper {
+pub(crate) trait ClientHelper {
     async fn get_store_by_name(&mut self, store_name: &str) -> OpenFGAResult<Option<Store>>;
 
     async fn get_or_create_store(&mut self, store_name: &str) -> OpenFGAResult<Store>;

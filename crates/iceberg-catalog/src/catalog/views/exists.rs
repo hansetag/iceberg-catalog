@@ -3,7 +3,7 @@ use crate::api::{set_not_found_status_code, ApiContext};
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::validate_table_or_view_ident;
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{Authorizer, ViewAction, WarehouseAction};
+use crate::service::authz::{Authorizer, CatalogViewAction, CatalogWarehouseAction};
 use crate::service::Result;
 use crate::service::{Catalog, SecretStore, State, Transaction};
 
@@ -20,7 +20,11 @@ pub(crate) async fn view_exists<C: Catalog, A: Authorizer + Clone, S: SecretStor
     // ------------------- BUSINESS LOGIC -------------------
     let authorizer = state.v1_state.authz;
     authorizer
-        .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+        .require_warehouse_action(
+            &request_metadata,
+            warehouse_id,
+            &CatalogWarehouseAction::CanUse,
+        )
         .await?;
     let mut t = C::Transaction::begin_read(state.v1_state.catalog).await?;
     let view_id = C::view_to_id(warehouse_id, &view, t.transaction()).await; // Can't fail before authz
@@ -30,7 +34,7 @@ pub(crate) async fn view_exists<C: Catalog, A: Authorizer + Clone, S: SecretStor
             &request_metadata,
             warehouse_id,
             view_id,
-            &ViewAction::CanGetMetadata,
+            &CatalogViewAction::CanGetMetadata,
         )
         .await
         .map_err(set_not_found_status_code)?;

@@ -6,7 +6,7 @@ use std::vec;
 use crate::api::iceberg::types::Prefix;
 use crate::api::{ApiContext, Result};
 use crate::api::{ErrorModel, IcebergErrorResponse, S3SignRequest, S3SignResponse};
-use crate::service::authz::{TableAction, WarehouseAction};
+use crate::service::authz::{CatalogTableAction, CatalogWarehouseAction};
 use aws_sigv4::http_request::{sign as aws_sign, SignableBody, SignableRequest, SigningSettings};
 use aws_sigv4::sign::v4;
 use aws_sigv4::{self};
@@ -49,7 +49,11 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
         let warehouse_id = require_warehouse_id(prefix.clone())?;
         let authorizer = state.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanUse,
+            )
             .await?;
 
         let S3SignRequest {
@@ -99,7 +103,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                     &request_metadata,
                     warehouse_id,
                     metadata,
-                    &TableAction::CanGetMetadata,
+                    &CatalogTableAction::CanGetMetadata,
                 )
                 .await?
         } else {
@@ -122,7 +126,7 @@ impl<C: Catalog, A: Authorizer + Clone, S: SecretStore>
                     &request_metadata,
                     warehouse_id,
                     metadata,
-                    &TableAction::CanGetMetadata,
+                    &CatalogTableAction::CanGetMetadata,
                 )
                 .await?
         };
@@ -355,7 +359,7 @@ async fn validate_table_method<A: Authorizer>(
                 metadata,
                 warehouse_id,
                 Ok(Some(table_id)),
-                &TableAction::CanWriteData,
+                &CatalogTableAction::CanWriteData,
             )
             .await?;
     } else if READ_METHODS.contains(&method.as_str()) {
@@ -364,7 +368,7 @@ async fn validate_table_method<A: Authorizer>(
                 metadata,
                 warehouse_id,
                 Ok(Some(table_id)),
-                &TableAction::CanReadData,
+                &CatalogTableAction::CanReadData,
             )
             .await?;
     } else {

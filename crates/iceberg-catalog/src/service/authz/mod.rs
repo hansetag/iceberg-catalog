@@ -1,19 +1,23 @@
 use super::health::HealthExt;
 use super::{
-    NamespaceIdentUuid, ProjectIdent, RoleId, TableIdentUuid, UserId, ViewIdentUuid, WarehouseIdent,
+    Catalog, NamespaceIdentUuid, ProjectIdent, RoleId, SecretStore, State, TableIdentUuid, UserId,
+    ViewIdentUuid, WarehouseIdent,
 };
 use crate::api::iceberg::v1::Result;
 use crate::request_metadata::RequestMetadata;
+use axum::Router;
 use std::collections::HashSet;
+use strum::EnumIter;
 
 pub mod implementations;
 
+use crate::api::ApiContext;
 use iceberg_ext::catalog::rest::ErrorModel;
 pub use implementations::allow_all::AllowAllAuthorizer;
 
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
-pub enum UserAction {
+pub enum CatalogUserAction {
     /// Can get all details of the user given its id
     CanRead,
     /// Can update the user.
@@ -22,31 +26,24 @@ pub enum UserAction {
     CanDelete,
 }
 
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
-pub enum ServerAction {
+pub enum CatalogServerAction {
     /// Can create items inside the server (can create Warehouses).
     CanCreateProject,
-    /// List projects on this server. Returned projects
-    /// are filtered by the user's permissions (`CanIncludeInList`)
-    CanListAllProjects,
     /// Can update all users on this server.
     CanUpdateUsers,
     /// Can delete all users on this server.
     CanDeleteUsers,
     /// Can List all users on this server.
     CanListUsers,
-    /// Can grant global Admin
-    CanGrantGlobalAdmin,
     /// Can provision user
     CanProvisionUsers,
-    /// Can read server info
-    CanReadServerInfo,
 }
 
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
-pub enum ProjectAction {
+pub enum CatalogProjectAction {
     CanCreateWarehouse,
     CanDelete,
     CanRename,
@@ -56,39 +53,26 @@ pub enum ProjectAction {
     CanCreateRole,
     CanListRoles,
     CanSearchRoles,
-    CanGrantCreate,
-    CanGrantDescribe,
-    CanGrantModify,
-    CanGrantSelect,
-    CanGrantProjectAdmin,
-    CanGrantSecurityAdmin,
-    CanGrantWarehouseAdmin,
 }
 
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
-pub enum RoleAction {
-    CanAssume,
+pub enum CatalogRoleAction {
     CanDelete,
     CanUpdate,
-    CanAddAssignee,
-    CanRemoveAssignee,
     CanRead,
 }
 
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
-pub enum WarehouseAction {
+pub enum CatalogWarehouseAction {
     CanCreateNamespace,
-    /// Can delete this warehouse permanently.
     CanDelete,
     CanUpdateStorage,
     CanUpdateStorageCredential,
     CanGetMetadata,
     CanGetConfig,
     CanListNamespaces,
-    /// Base permission to use any endpoint prefixed with `/api/v1/warehouse/{warehouse_id}`.
-    /// This is used to pre-check endpoints for which the actual object id must be looked up.
     CanUse,
     CanIncludeInList,
     CanDeactivate,
@@ -97,9 +81,9 @@ pub enum WarehouseAction {
     CanListDeletedTabulars,
 }
 
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
-pub enum NamespaceAction {
+pub enum CatalogNamespaceAction {
     CanCreateTable,
     CanCreateView,
     CanCreateNamespace,
@@ -111,9 +95,9 @@ pub enum NamespaceAction {
     CanListNamespaces,
 }
 
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
-pub enum TableAction {
+pub enum CatalogTableAction {
     CanDrop,
     CanWriteData,
     CanReadData,
@@ -123,96 +107,14 @@ pub enum TableAction {
     CanIncludeInList,
 }
 
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
-pub enum ViewAction {
+pub enum CatalogViewAction {
     CanDrop,
     CanGetMetadata,
     CanCommit,
     CanIncludeInList,
     CanRename,
-}
-
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
-#[strum(serialize_all = "snake_case")]
-pub enum RoleRelation {
-    Project,
-    Assignee,
-    Ownership,
-}
-
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
-#[strum(serialize_all = "snake_case")]
-pub enum ServerRelation {
-    Project,
-    GlobalAdmin,
-}
-
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
-#[strum(serialize_all = "snake_case")]
-pub enum ProjectRelation {
-    Server,
-    Warehouse,
-    ProjectAdmin,
-    SecurityAdmin,
-    WarehouseAdmin,
-    Describe,
-    Select,
-    Create,
-    Modify,
-}
-
-#[derive(Debug, Clone, strum_macros::Display, PartialEq)]
-#[strum(serialize_all = "snake_case")]
-pub enum WarehouseRelation {
-    Project,
-    Namespace,
-    Ownership,
-    ManagedAccess,
-    PassGrants,
-    ManageGrants,
-    Describe,
-    Select,
-    Create,
-    Modify,
-}
-
-#[derive(Debug, Clone, strum_macros::Display)]
-#[strum(serialize_all = "snake_case")]
-pub enum NamespaceRelation {
-    Parent,
-    Child,
-    Ownership,
-    ManagedAccess,
-    PassGrants,
-    ManageGrants,
-    Describe,
-    Select,
-    Create,
-    Modify,
-}
-
-#[derive(Debug, Clone, strum_macros::Display)]
-#[strum(serialize_all = "snake_case")]
-pub enum TableRelation {
-    Parent,
-    Ownership,
-    PassGrants,
-    ManageGrants,
-    Describe,
-    Select,
-    Modify,
-}
-
-#[derive(Debug, Clone, strum_macros::Display)]
-#[strum(serialize_all = "snake_case")]
-pub enum ViewRelation {
-    Parent,
-    Ownership,
-    PassGrants,
-    ManageGrants,
-    Describe,
-    Modify,
 }
 
 pub trait TableUuid {
@@ -245,6 +147,12 @@ pub trait Authorizer
 where
     Self: Send + Sync + 'static + HealthExt + Clone,
 {
+    /// API Doc
+    fn api_doc() -> utoipa::openapi::OpenApi;
+
+    /// Router for the API
+    fn new_router<C: Catalog, S: SecretStore>(&self) -> Router<ApiContext<State<Self, C, S>>>;
+
     /// Check if this server can be bootstrapped.
     async fn can_bootstrap(&self, metadata: &RequestMetadata) -> Result<()>;
 
@@ -263,7 +171,7 @@ where
         &self,
         metadata: &RequestMetadata,
         user_id: &UserId,
-        action: &UserAction,
+        action: &CatalogUserAction,
     ) -> Result<bool>;
 
     /// Return Ok(true) if the action is allowed, otherwise return Ok(false).
@@ -272,7 +180,7 @@ where
         &self,
         metadata: &RequestMetadata,
         role_id: RoleId,
-        action: &RoleAction,
+        action: &CatalogRoleAction,
     ) -> Result<bool>;
 
     /// Return Ok(true) if the action is allowed, otherwise return Ok(false).
@@ -280,7 +188,7 @@ where
     async fn is_allowed_server_action(
         &self,
         metadata: &RequestMetadata,
-        action: &ServerAction,
+        action: &CatalogServerAction,
     ) -> Result<bool>;
 
     /// Return Ok(true) if the action is allowed, otherwise return Ok(false).
@@ -289,7 +197,7 @@ where
         &self,
         metadata: &RequestMetadata,
         project_id: ProjectIdent,
-        action: &ProjectAction,
+        action: &CatalogProjectAction,
     ) -> Result<bool>;
 
     /// Return Ok(true) if the action is allowed, otherwise return Ok(false).
@@ -298,7 +206,7 @@ where
         &self,
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
-        action: &WarehouseAction,
+        action: &CatalogWarehouseAction,
     ) -> Result<bool>;
 
     /// Return Ok(true) if the action is allowed, otherwise return Ok(false).
@@ -308,7 +216,7 @@ where
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
         namespace_id: NamespaceIdentUuid,
-        action: &NamespaceAction,
+        action: &CatalogNamespaceAction,
     ) -> Result<bool>;
 
     /// Return Ok(true) if the action is allowed, otherwise return Ok(false).
@@ -318,7 +226,7 @@ where
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
         table_id: TableIdentUuid,
-        action: &TableAction,
+        action: &CatalogTableAction,
     ) -> Result<bool>;
 
     /// Return Ok(true) if the action is allowed, otherwise return Ok(false).
@@ -328,7 +236,7 @@ where
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
         view_id: ViewIdentUuid,
-        action: &ViewAction,
+        action: &CatalogViewAction,
     ) -> Result<bool>;
 
     /// Hook that is called when a user is deleted.
@@ -440,7 +348,7 @@ where
         &self,
         metadata: &RequestMetadata,
         user_id: &UserId,
-        action: &UserAction,
+        action: &CatalogUserAction,
     ) -> Result<()> {
         if self
             .is_allowed_user_action(metadata, user_id, action)
@@ -461,7 +369,7 @@ where
         &self,
         metadata: &RequestMetadata,
         role_id: RoleId,
-        action: &RoleAction,
+        action: &CatalogRoleAction,
     ) -> Result<()> {
         if self
             .is_allowed_role_action(metadata, role_id, action)
@@ -481,7 +389,7 @@ where
     async fn require_server_action(
         &self,
         metadata: &RequestMetadata,
-        action: &ServerAction,
+        action: &CatalogServerAction,
     ) -> Result<()> {
         if self.is_allowed_server_action(metadata, action).await? {
             Ok(())
@@ -499,7 +407,7 @@ where
         &self,
         metadata: &RequestMetadata,
         project_id: ProjectIdent,
-        action: &ProjectAction,
+        action: &CatalogProjectAction,
     ) -> Result<()> {
         if self
             .is_allowed_project_action(metadata, project_id, action)
@@ -520,7 +428,7 @@ where
         &self,
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
-        action: &WarehouseAction,
+        action: &CatalogWarehouseAction,
     ) -> Result<()> {
         if self
             .is_allowed_warehouse_action(metadata, warehouse_id, action)
@@ -545,7 +453,7 @@ where
         // Ok(None): Namespace does not exist.
         // Ok(Some(namespace_id)): Namespace exists.
         namespace_id: Result<Option<NamespaceIdentUuid>>,
-        action: &NamespaceAction,
+        action: &CatalogNamespaceAction,
     ) -> Result<NamespaceIdentUuid> {
         // It is important to throw the same error if the namespace does not exist (None) or if the action is not allowed,
         // to avoid leaking information about the existence of the namespace.
@@ -577,7 +485,7 @@ where
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
         table_id: Result<Option<T>>,
-        action: &TableAction,
+        action: &CatalogTableAction,
     ) -> Result<T> {
         let msg = format!("Table action {action} forbidden");
         let typ = "TableActionForbidden";
@@ -607,7 +515,7 @@ where
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
         view_id: Result<Option<ViewIdentUuid>>,
-        action: &ViewAction,
+        action: &CatalogViewAction,
     ) -> Result<ViewIdentUuid> {
         let msg = format!("View action {action} forbidden");
         let typ = "ViewActionForbidden";
@@ -640,7 +548,7 @@ mod tests {
     #[test]
     fn test_namespace_action() {
         assert_eq!(
-            NamespaceAction::CanCreateTable.to_string(),
+            CatalogNamespaceAction::CanCreateTable.to_string(),
             "can_create_table"
         );
     }

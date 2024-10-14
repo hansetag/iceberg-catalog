@@ -3,7 +3,9 @@ use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::{maybe_body_to_json, validate_table_or_view_ident};
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{Authorizer, NamespaceAction, ViewAction, WarehouseAction};
+use crate::service::authz::{
+    Authorizer, CatalogNamespaceAction, CatalogViewAction, CatalogWarehouseAction,
+};
 use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;
 use crate::service::Result;
@@ -31,7 +33,11 @@ pub(crate) async fn rename_view<C: Catalog, A: Authorizer + Clone, S: SecretStor
     // ------------------- AUTHZ -------------------
     let authorizer = state.v1_state.authz;
     authorizer
-        .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+        .require_warehouse_action(
+            &request_metadata,
+            warehouse_id,
+            &CatalogWarehouseAction::CanUse,
+        )
         .await?;
     let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
 
@@ -41,7 +47,7 @@ pub(crate) async fn rename_view<C: Catalog, A: Authorizer + Clone, S: SecretStor
             &request_metadata,
             warehouse_id,
             source_id,
-            &ViewAction::CanRename,
+            &CatalogViewAction::CanRename,
         )
         .await
         .map_err(|mut e| {
@@ -56,7 +62,7 @@ pub(crate) async fn rename_view<C: Catalog, A: Authorizer + Clone, S: SecretStor
             &request_metadata,
             warehouse_id,
             namespace_id,
-            &NamespaceAction::CanCreateTable,
+            &CatalogNamespaceAction::CanCreateTable,
         )
         .await?;
 

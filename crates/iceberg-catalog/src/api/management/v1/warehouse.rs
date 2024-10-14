@@ -1,7 +1,7 @@
 use crate::api::management::v1::{ApiServer, DeletedTabularResponse, ListDeletedTabularsResponse};
 use crate::api::{ApiContext, Result};
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{ProjectAction, WarehouseAction};
+use crate::service::authz::{CatalogProjectAction, CatalogWarehouseAction};
 pub use crate::service::storage::{
     AzCredential, AzdlsProfile, GcsCredential, GcsProfile, GcsServiceKey, S3Credential, S3Profile,
     StorageCredential, StorageProfile,
@@ -107,21 +107,21 @@ pub struct ListWarehousesRequest {
     pub project_id: Option<ProjectIdent>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(Debug, Clone, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct RenameWarehouseRequest {
     /// New name for the warehouse.
     pub new_name: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(Debug, Clone, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct RenameProjectRequest {
     /// New name for the project.
     pub new_name: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct GetWarehouseResponse {
     /// ID of the warehouse.
@@ -136,14 +136,14 @@ pub struct GetWarehouseResponse {
     pub status: WarehouseStatus,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(Debug, Clone, serde::Serialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct ListWarehousesResponse {
     /// List of warehouses in the project.
     pub warehouses: Vec<GetWarehouseResponse>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(Debug, Clone, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct UpdateWarehouseCredentialRequest {
     /// New storage credential to use for the warehouse.
@@ -188,7 +188,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_project_action(
                 &request_metadata,
                 project_id,
-                &ProjectAction::CanCreateWarehouse,
+                &CatalogProjectAction::CanCreateWarehouse,
             )
             .await?;
 
@@ -245,7 +245,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_project_action(
                 &request_metadata,
                 project_id,
-                &ProjectAction::CanListWarehouses,
+                &CatalogProjectAction::CanListWarehouses,
             )
             .await?;
 
@@ -261,7 +261,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             authorizer.is_allowed_warehouse_action(
                 &request_metadata,
                 w.id,
-                &WarehouseAction::CanIncludeInList,
+                &CatalogWarehouseAction::CanIncludeInList,
             )
         }))
         .await?
@@ -290,7 +290,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                &WarehouseAction::CanGetMetadata,
+                &CatalogWarehouseAction::CanGetMetadata,
             )
             .await?;
 
@@ -309,7 +309,11 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // ------------------- AuthZ -------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanDelete)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanDelete,
+            )
             .await?;
 
         // ------------------- Business Logic -------------------
@@ -331,7 +335,11 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // ------------------- AuthZ -------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanRename)
+            .require_warehouse_action(
+                &request_metadata,
+                warehouse_id,
+                &CatalogWarehouseAction::CanRename,
+            )
             .await?;
 
         // ------------------- Business Logic -------------------
@@ -356,7 +364,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                &WarehouseAction::CanDeactivate,
+                &CatalogWarehouseAction::CanDeactivate,
             )
             .await?;
 
@@ -386,7 +394,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                &WarehouseAction::CanActivate,
+                &CatalogWarehouseAction::CanActivate,
             )
             .await?;
 
@@ -417,7 +425,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                &WarehouseAction::CanUpdateStorage,
+                &CatalogWarehouseAction::CanUpdateStorage,
             )
             .await?;
 
@@ -489,7 +497,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                &WarehouseAction::CanUpdateStorageCredential,
+                &CatalogWarehouseAction::CanUpdateStorageCredential,
             )
             .await?;
 
@@ -557,7 +565,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                &WarehouseAction::CanListDeletedTabulars,
+                &CatalogWarehouseAction::CanListDeletedTabulars,
             )
             .await?;
 
@@ -601,13 +609,13 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
                 &request_metadata,
                 warehouse_id,
                 t.id.into(),
-                &crate::service::authz::ViewAction::CanIncludeInList,
+                &crate::service::authz::CatalogViewAction::CanIncludeInList,
             ),
             TabularType::Table => authorizer.is_allowed_table_action(
                 &request_metadata,
                 warehouse_id,
                 t.id.into(),
-                &crate::service::authz::TableAction::CanIncludeInList,
+                &crate::service::authz::CatalogTableAction::CanIncludeInList,
             ),
         }))
         .await?

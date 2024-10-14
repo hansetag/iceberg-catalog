@@ -4,7 +4,7 @@ use crate::api::iceberg::v1::{
 };
 use crate::api::management::v1::user::UserLastUpdatedWith;
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{ProjectAction, WarehouseAction};
+use crate::service::authz::{CatalogProjectAction, CatalogWarehouseAction};
 use crate::service::{authz::Authorizer, Catalog, ProjectIdent, State};
 use crate::service::{AuthDetails, SecretStore, Transaction};
 use crate::CONFIG;
@@ -43,7 +43,7 @@ impl<A: Authorizer + Clone, C: Catalog, S: SecretStore>
                 .require_project_action(
                     &request_metadata,
                     project_id,
-                    &ProjectAction::CanListWarehouses,
+                    &CatalogProjectAction::CanListWarehouses,
                 )
                 .await?;
             C::require_warehouse_by_name(
@@ -62,7 +62,7 @@ impl<A: Authorizer + Clone, C: Catalog, S: SecretStore>
             .require_warehouse_action(
                 &request_metadata,
                 warehouse_id,
-                &WarehouseAction::CanGetConfig,
+                &CatalogWarehouseAction::CanGetConfig,
             )
             .await?;
 

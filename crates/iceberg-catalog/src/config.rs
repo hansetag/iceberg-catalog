@@ -195,6 +195,12 @@ pub enum OpenFGAAuth {
     ApiKey(String),
 }
 
+impl Default for OpenFGAAuth {
+    fn default() -> Self {
+        Self::Anonymous
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct OpenFGAConfig {
     /// GRPC Endpoint Url
@@ -202,7 +208,8 @@ pub struct OpenFGAConfig {
     /// Store Name - if not specified, `lakekeeper` is used.
     #[serde(default = "default_openfga_store_name")]
     pub store_name: String,
-    /// API-Key. If client-id is specified, this is ignored.
+    /// Authentication configuration
+    #[serde(default)]
     pub auth: OpenFGAAuth,
 }
 

@@ -32,6 +32,7 @@ use crate::service::event_publisher::CloudEventsPublisher;
 use crate::service::task_queue::TaskQueues;
 use http::StatusCode;
 pub use secrets::{SecretIdent, SecretStore};
+use serde::Deserialize;
 use std::str::FromStr;
 
 // ---------------- State ----------------
@@ -47,9 +48,10 @@ pub struct State<A: Authorizer + Clone, C: Catalog, S: SecretStore> {
 
 impl<A: Authorizer + Clone, C: Catalog, S: SecretStore> ServiceState for State<A, C, S> {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
+#[serde(transparent)]
 pub struct ViewIdentUuid(uuid::Uuid);
 
 impl From<uuid::Uuid> for ViewIdentUuid {
@@ -58,19 +60,22 @@ impl From<uuid::Uuid> for ViewIdentUuid {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
+#[serde(transparent)]
 pub struct NamespaceIdentUuid(uuid::Uuid);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
+#[serde(transparent)]
 pub struct TableIdentUuid(uuid::Uuid);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord, Copy)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
+#[serde(transparent)]
 pub struct WarehouseIdent(pub(crate) uuid::Uuid);
 
 /// Status of a warehouse

@@ -2,7 +2,10 @@ use anyhow::{anyhow, Error};
 use iceberg_catalog::api::router::{new_full_router, serve as service_serve};
 use iceberg_catalog::implementations::postgres::{CatalogState, PostgresCatalog, ReadWrite};
 use iceberg_catalog::implementations::Secrets;
-use iceberg_catalog::service::authz::implementations::get_default_authorizer_from_config;
+use iceberg_catalog::service::authz::implementations::{
+    get_default_authorizer_from_config, Authorizers,
+};
+use iceberg_catalog::service::authz::Authorizer;
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
     CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
@@ -92,6 +95,69 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         )?),
     );
 
+    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+
+    match authorizer {
+        Authorizers::AllowAll(a) => {
+            serve_inner(
+                a,
+                catalog_state,
+                secrets_state,
+                queues,
+                health_provider,
+                listener,
+            )
+            .await?
+        }
+        Authorizers::OpenFGAUnauthorized(a) => {
+            serve_inner(
+                a,
+                catalog_state,
+                secrets_state,
+                queues,
+                health_provider,
+                listener,
+            )
+            .await?
+        }
+        Authorizers::OpenFGABearer(a) => {
+            serve_inner(
+                a,
+                catalog_state,
+                secrets_state,
+                queues,
+                health_provider,
+                listener,
+            )
+            .await?
+        }
+        Authorizers::OpenFGAClientCreds(a) => {
+            serve_inner(
+                a,
+                catalog_state,
+                secrets_state,
+                queues,
+                health_provider,
+                listener,
+            )
+            .await?
+        }
+    }
+
+    Ok(())
+}
+
+/// Helper function to remove redundant code from matching different implementations
+async fn serve_inner<A: Authorizer>(
+    authorizer: A,
+    catalog_state: CatalogState,
+    secrets_state: Secrets,
+    queues: TaskQueues,
+    health_provider: ServiceHealthProvider,
+    listener: tokio::net::TcpListener,
+) -> Result<(), anyhow::Error> {
+    let (tx, rx) = tokio::sync::mpsc::channel(1000);
+
     let mut cloud_event_sinks = vec![];
 
     if let Some(nat_addr) = &CONFIG.nats_address {
@@ -102,16 +168,10 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         tracing::info!("Running without publisher.");
     };
 
-    let (tx, rx) = tokio::sync::mpsc::channel(1000);
-
-    let x = CloudEventsPublisherBackgroundTask {
+    let x: CloudEventsPublisherBackgroundTask = CloudEventsPublisherBackgroundTask {
         source: rx,
         sinks: cloud_event_sinks,
     };
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-
-    let metrics_layer =
-        iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?;
 
     let router = new_full_router::<PostgresCatalog, _, Secrets>(
         authorizer.clone(),
@@ -126,7 +186,7 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
             None
         },
         health_provider,
-        Some(metrics_layer),
+        Some(iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?),
     );
 
     let publisher_handle = tokio::task::spawn(async move {

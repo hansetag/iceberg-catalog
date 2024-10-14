@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
-use iceberg_catalog::api::management::v1::ManagementApiDoc;
-use iceberg_catalog::CONFIG;
+use iceberg_catalog::api::management::v1::api_doc as v1_api_doc;
+use iceberg_catalog::service::authz::implementations::openfga::UnauthenticatedOpenFGAAuthorizer;
+use iceberg_catalog::service::authz::AllowAllAuthorizer;
+use iceberg_catalog::{AuthZBackend, CONFIG};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -147,8 +149,11 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", env!("CARGO_PKG_VERSION"));
         }
         Some(Commands::ManagementOpenapi {}) => {
-            use utoipa::OpenApi;
-            println!("{}", ManagementApiDoc::openapi().to_yaml()?)
+            let doc = match CONFIG.authz_backend {
+                AuthZBackend::AllowAll => v1_api_doc::<AllowAllAuthorizer>(),
+                AuthZBackend::OpenFGA => v1_api_doc::<UnauthenticatedOpenFGAAuthorizer>(),
+            };
+            println!("{}", doc.to_yaml()?);
         }
         None => {
             // Error out if no subcommand is provided.

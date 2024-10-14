@@ -6,7 +6,7 @@ use crate::api::ApiContext;
 use crate::catalog::require_warehouse_id;
 use crate::catalog::tables::validate_table_or_view_ident;
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{Authorizer, ViewAction, WarehouseAction};
+use crate::service::authz::{Authorizer, CatalogViewAction, CatalogWarehouseAction};
 use crate::service::contract_verification::ContractVerification;
 use crate::service::event_publisher::EventMetadata;
 use crate::service::task_queue::tabular_expiration_queue::TabularExpirationInput;
@@ -30,7 +30,11 @@ pub(crate) async fn drop_view<C: Catalog, A: Authorizer + Clone, S: SecretStore>
     // ------------------- AUTHZ -------------------
     let authorizer = state.v1_state.authz;
     authorizer
-        .require_warehouse_action(&request_metadata, warehouse_id, &WarehouseAction::CanUse)
+        .require_warehouse_action(
+            &request_metadata,
+            warehouse_id,
+            &CatalogWarehouseAction::CanUse,
+        )
         .await?;
     let mut t = C::Transaction::begin_write(state.v1_state.catalog).await?;
     let view_id = C::view_to_id(warehouse_id, &view, t.transaction()).await; // Can't fail before authz
@@ -40,7 +44,7 @@ pub(crate) async fn drop_view<C: Catalog, A: Authorizer + Clone, S: SecretStore>
             &request_metadata,
             warehouse_id,
             view_id,
-            &ViewAction::CanDrop,
+            &CatalogViewAction::CanDrop,
         )
         .await?;
 

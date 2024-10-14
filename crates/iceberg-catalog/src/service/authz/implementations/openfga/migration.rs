@@ -29,7 +29,7 @@ const MODEL_VERSION_EXISTS_RELATION: &str = "exists";
 /// - Failed to read existing models
 /// - Failed to write new model
 /// - Failed to write new version tuples
-pub async fn migrate<T>(
+pub(crate) async fn migrate<T>(
     client: &mut OpenFgaServiceClient<T>,
     store_name: Option<String>,
 ) -> OpenFGAResult<()>
@@ -203,17 +203,14 @@ fn parse_existing_models(models: impl IntoIterator<Item = Tuple>) -> OpenFGAResu
 fn parse_model_version_from_str(model: &str) -> OpenFGAResult<i32> {
     model
         .strip_prefix(&format!("{MODEL_VERSION_TYPE}:"))
-        .ok_or(OpenFGAError::UnexpectedEntity {
-            r#type: FgaType::ModelVersion,
-            value: model.to_string(),
-        })
+        .ok_or(OpenFGAError::unexpected_entity(
+            vec![FgaType::ModelVersion],
+            model.to_string(),
+        ))
         .and_then(|version| {
-            version
-                .parse::<i32>()
-                .map_err(|_e| OpenFGAError::UnexpectedEntity {
-                    r#type: FgaType::ModelVersion,
-                    value: model.to_string(),
-                })
+            version.parse::<i32>().map_err(|_e| {
+                OpenFGAError::unexpected_entity(vec![FgaType::ModelVersion], model.to_string())
+            })
         })
 }
 
@@ -230,10 +227,10 @@ fn parse_applied_model_versions(
             parse_model_version_from_str(&t.object).and_then(|v| {
                 t.user
                     .strip_prefix(&format!("{AUTH_MODEL_ID_TYPE}:"))
-                    .ok_or(OpenFGAError::UnexpectedEntity {
-                        r#type: FgaType::AuthModelId,
-                        value: t.user.clone(),
-                    })
+                    .ok_or(OpenFGAError::unexpected_entity(
+                        vec![FgaType::AuthModelId],
+                        t.user.clone(),
+                    ))
                     .map(|s| (v, s.to_string()))
             })
         })

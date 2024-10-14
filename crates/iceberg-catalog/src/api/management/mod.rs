@@ -19,6 +19,7 @@ pub mod v1 {
         authz::Authorizer, storage::S3Flavor, Actor, Catalog, RoleId, SecretStore, State,
         TabularIdentUuid, UserId,
     };
+    use crate::ProjectIdent;
     use axum::extract::{Path, Query, State as AxumState};
     use axum::response::{IntoResponse, Response};
     use axum::routing::{get, post};
@@ -46,6 +47,10 @@ pub mod v1 {
         UpdateWarehouseStorageRequest, WarehouseStatus,
     };
 
+    pub(crate) fn default_page_size() -> i32 {
+        100
+    }
+
     #[derive(Debug, OpenApi)]
     #[openapi(
         tags(
@@ -64,12 +69,14 @@ pub mod v1 {
             create_warehouse,
             deactivate_warehouse,
             delete_project,
+            delete_project_by_id,
             delete_role,
             delete_user,
             delete_warehouse,
             get_my_user,
             get_my_user,
             get_project,
+            get_project_by_id,
             get_role,
             get_server_info,
             get_user,
@@ -80,6 +87,7 @@ pub mod v1 {
             list_user,
             list_warehouses,
             rename_project,
+            rename_project_by_id,
             rename_warehouse,
             search_user,
             update_role,
@@ -137,7 +145,7 @@ pub mod v1 {
             WarehouseStatus,
         ))
     )]
-    pub struct ManagementApiDoc;
+    struct ManagementApiDoc;
 
     #[derive(Clone, Debug)]
     pub struct ApiServer<C: Catalog, A: Authorizer + Clone, S: SecretStore> {
@@ -486,7 +494,7 @@ pub mod v1 {
     #[utoipa::path(
         get,
         tag = "warehouse",
-        path = "/management/v1/project",
+        path = "/management/v1/project-list",
         responses(
             (status = 200, description = "List of projects", body = [ListProjectsResponse])
         )
@@ -515,59 +523,105 @@ pub mod v1 {
         ApiServer::<C, A, S>::create_project(request, api_context, metadata).await
     }
 
-    /// Get a Project by ID
+    /// Get the default project
     #[utoipa::path(
         get,
         tag = "project",
-        path = "/management/v1/project/{project_id}",
+        path = "/management/v1/project",
         responses(
             (status = 200, description = "Project details", body = [GetProjectResponse])
         )
     )]
     async fn get_project<C: Catalog, A: Authorizer, S: SecretStore>(
-        Path(project_id): Path<uuid::Uuid>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
     ) -> Result<GetProjectResponse> {
-        ApiServer::<C, A, S>::get_project(project_id, api_context, metadata).await
+        ApiServer::<C, A, S>::get_project(None, api_context, metadata).await
     }
 
-    /// Delete a project by ID
-    ///
-    /// No warehouses must be present in the project to delete it.
+    /// Get a specific project by id
+    #[utoipa::path(
+        get,
+        tag = "project",
+        path = "/management/v1/project/by-id/{project_id}",
+        responses(
+            (status = 200, description = "Project details", body = [GetProjectResponse])
+        )
+    )]
+    async fn get_project_by_id<C: Catalog, A: Authorizer, S: SecretStore>(
+        Path(project_id): Path<ProjectIdent>,
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<GetProjectResponse> {
+        ApiServer::<C, A, S>::get_project(Some(project_id), api_context, metadata).await
+    }
+
+    /// Delete the default project
     #[utoipa::path(
         delete,
         tag = "project",
-        path = "/management/v1/project/{project_id}",
+        path = "/management/v1/project",
         responses(
             (status = 200, description = "Project deleted successfully")
         )
     )]
     async fn delete_project<C: Catalog, A: Authorizer, S: SecretStore>(
-        Path(project_id): Path<uuid::Uuid>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
     ) -> Result<()> {
-        ApiServer::<C, A, S>::delete_project(project_id.into(), api_context, metadata).await
+        ApiServer::<C, A, S>::delete_project(None, api_context, metadata).await
     }
 
-    /// Rename a project
+    /// Delete the default project
+    #[utoipa::path(
+        delete,
+        tag = "project",
+        path = "/management/v1/project/by-id/{project_id}",
+        responses(
+            (status = 200, description = "Project deleted successfully")
+        )
+    )]
+    async fn delete_project_by_id<C: Catalog, A: Authorizer, S: SecretStore>(
+        Path(project_id): Path<ProjectIdent>,
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+    ) -> Result<()> {
+        ApiServer::<C, A, S>::delete_project(Some(project_id), api_context, metadata).await
+    }
+
+    /// Rename the default project
     #[utoipa::path(
         post,
         tag = "project",
-        path = "/management/v1/project/{project_id}/rename",
+        path = "/management/v1/project/rename",
         responses(
             (status = 200, description = "Project renamed successfully")
         )
     )]
     async fn rename_project<C: Catalog, A: Authorizer, S: SecretStore>(
-        Path(project_id): Path<uuid::Uuid>,
         AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
         Extension(metadata): Extension<RequestMetadata>,
         Json(request): Json<RenameProjectRequest>,
     ) -> Result<()> {
-        ApiServer::<C, A, S>::rename_project(project_id.into(), request, api_context, metadata)
-            .await
+        ApiServer::<C, A, S>::rename_project(None, request, api_context, metadata).await
+    }
+
+    /// Rename project by id
+    #[utoipa::path(
+        post,
+        tag = "project",
+        path = "/management/v1/project/by-id/{project_id}/rename",
+        responses(
+            (status = 200, description = "Project renamed successfully")
+        )
+    )]
+    async fn rename_project_by_id<C: Catalog, A: Authorizer, S: SecretStore>(
+        Path(project_id): Path<ProjectIdent>,
+        AxumState(api_context): AxumState<ApiContext<State<A, C, S>>>,
+        Extension(metadata): Extension<RequestMetadata>,
+        Json(request): Json<RenameProjectRequest>,
+    ) -> Result<()> {
+        ApiServer::<C, A, S>::rename_project(Some(project_id), request, api_context, metadata).await
     }
 
     /// List all warehouses in a project
@@ -805,15 +859,21 @@ pub mod v1 {
         Purge,
     }
 
-    impl<C: Catalog, A: Authorizer + Clone, S: SecretStore> ApiServer<C, A, S> {
-        pub fn new_v1_router() -> Router<ApiContext<State<A, C, S>>> {
+    #[must_use]
+    pub fn api_doc<A: Authorizer>() -> utoipa::openapi::OpenApi {
+        let mut doc = ManagementApiDoc::openapi();
+        doc.merge(A::api_doc());
+        doc
+    }
+
+    impl<C: Catalog, A: Authorizer, S: SecretStore> ApiServer<C, A, S> {
+        pub fn new_v1_router(authorizer: &A) -> Router<ApiContext<State<A, C, S>>> {
             Router::new()
                 // Server
                 .route("/info", get(get_server_info))
                 .route("/bootstrap", post(bootstrap))
                 // Role management
-                .route("/role", post(create_role))
-                .route("/role", get(list_roles))
+                .route("/role", get(list_roles).post(create_role))
                 .route(
                     "/role/:id",
                     get(get_role).post(update_role).delete(delete_role),
@@ -828,16 +888,23 @@ pub mod v1 {
                 )
                 .route("/user", get(list_user))
                 // Create a new project
-                .route("/project", post(create_project))
                 .route(
-                    "/project/:project_id",
-                    get(get_project).delete(delete_project),
+                    "/project",
+                    post(create_project).get(get_project).delete(delete_project),
                 )
-                .route("/project/:project_id/rename", post(rename_project))
+                .route("/project/rename", post(rename_project))
+                .route(
+                    "/project/by-id/:project_id",
+                    get(get_project_by_id).delete(delete_project_by_id),
+                )
+                .route(
+                    "/project/by-id/:project_id/rename",
+                    post(rename_project_by_id),
+                )
                 // Create a new warehouse
                 .route("/warehouse", post(create_warehouse))
                 // List all projects
-                .route("/project", get(list_projects))
+                .route("/project-list", get(list_projects))
                 .route(
                     "/warehouse",
                     // List all warehouses within a project
@@ -874,6 +941,7 @@ pub mod v1 {
                     "/warehouse/:warehouse_id/deleted_tabulars",
                     get(list_deleted_tabulars),
                 )
+                .merge(authorizer.new_router())
         }
     }
 }

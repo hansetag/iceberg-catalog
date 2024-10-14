@@ -1,8 +1,9 @@
+use super::default_page_size;
 use crate::api::iceberg::v1::{PageToken, PaginationQuery};
 use crate::api::management::v1::ApiServer;
 use crate::api::ApiContext;
 use crate::request_metadata::RequestMetadata;
-use crate::service::authz::{Authorizer, ServerAction, UserAction};
+use crate::service::authz::{Authorizer, CatalogServerAction, CatalogUserAction};
 use crate::service::{
     AuthDetails, Catalog, CreateOrUpdateUserResponse, Result, SecretStore, State, Transaction,
     UserId,
@@ -88,24 +89,24 @@ pub struct ListUsersQuery {
     /// Search for a specific username
     #[serde(default)]
     pub name: Option<String>,
-    // Can we find a way to use PaginationQuery diectly with #[serde(flatten)]
-    // without breaking OpenAPI?
     /// Next page token
-    #[serde(skip_serializing_if = "PageToken::skip_serialize")]
-    #[param(value_type=String)]
-    pub page_token: PageToken,
-    /// Signals an upper bound of the number of results that a client will receive.
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    pub page_size: Option<i32>,
+    pub page_token: Option<String>,
+    /// Signals an upper bound of the number of results that a client will receive.
+    /// Default: 100
+    #[serde(default = "default_page_size")]
+    pub page_size: i32,
 }
 
 impl ListUsersQuery {
     #[must_use]
     pub fn pagination_query(&self) -> PaginationQuery {
         PaginationQuery {
-            page_token: self.page_token.clone(),
-            page_size: self.page_size,
+            page_token: self
+                .page_token
+                .clone()
+                .map_or(PageToken::Empty, PageToken::Present),
+            page_size: Some(self.page_size),
         }
     }
 }
@@ -171,7 +172,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // Everything else is self-registration
         let self_provision = if acting_user_id.is_none() || (id != acting_user_id) {
             authorizer
-                .require_server_action(&request_metadata, &ServerAction::CanProvisionUsers)
+                .require_server_action(&request_metadata, &CatalogServerAction::CanProvisionUsers)
                 .await?;
             false
         } else {
@@ -272,7 +273,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // ------------------- AuthZ -------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_user_action(&request_metadata, &user_id, &UserAction::CanRead)
+            .require_user_action(&request_metadata, &user_id, &CatalogUserAction::CanRead)
             .await?;
 
         // ------------------- Business Logic -------------------
@@ -306,7 +307,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // ------------------- AuthZ -------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_server_action(&request_metadata, &ServerAction::CanListUsers)
+            .require_server_action(&request_metadata, &CatalogServerAction::CanListUsers)
             .await?;
 
         // ------------------- Business Logic -------------------
@@ -335,7 +336,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // ------------------- AuthZ -------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_user_action(&request_metadata, &user_id, &UserAction::CanUpdate)
+            .require_user_action(&request_metadata, &user_id, &CatalogUserAction::CanUpdate)
             .await?;
 
         // ------------------- Business Logic -------------------
@@ -365,7 +366,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
         // ------------------- AuthZ -------------------
         let authorizer = context.v1_state.authz;
         authorizer
-            .require_user_action(&request_metadata, &user_id, &UserAction::CanDelete)
+            .require_user_action(&request_metadata, &user_id, &CatalogUserAction::CanDelete)
             .await?;
 
         // ------------------- Business Logic -------------------

@@ -11,7 +11,7 @@ mod views;
 
 use iceberg::spec::{TableMetadata, ViewMetadata};
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
-pub use namespace::{MAX_NAMESPACE_DEPTH, UNSUPPORTED_NAMESPACE_PROPERTIES};
+pub use namespace::{MAX_NAMESPACE_DEPTH, NAMESPACE_ID_PROPERTY, UNSUPPORTED_NAMESPACE_PROPERTIES};
 
 use crate::api::{iceberg::v1::Prefix, ErrorModel, Result};
 use crate::service::storage::StorageCredential;

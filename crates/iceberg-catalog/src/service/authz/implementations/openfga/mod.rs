@@ -2,8 +2,9 @@ use crate::{
     request_metadata::RequestMetadata,
     service::{
         authz::{
-            Authorizer, ErrorModel, ListProjectsResponse, NamespaceAction, ProjectAction, Result,
-            ServerAction, TableAction, ViewAction, WarehouseAction,
+            Authorizer, CatalogNamespaceAction, CatalogProjectAction, CatalogServerAction,
+            CatalogTableAction, CatalogViewAction, CatalogWarehouseAction, ErrorModel,
+            ListProjectsResponse, Result,
         },
         token_verification::Actor,
         NamespaceIdentUuid, TableIdentUuid,
@@ -12,6 +13,7 @@ use crate::{
 };
 use async_stream::__private::AsyncStream;
 use async_stream::stream;
+use axum::Router;
 use futures::{pin_mut, StreamExt};
 use openfga_rs::open_fga_service_client::OpenFgaServiceClient;
 use openfga_rs::{
@@ -20,28 +22,28 @@ use openfga_rs::{
         codegen::{Body, Bytes, StdError},
     },
     CheckRequest, CheckRequestTupleKey, ConsistencyPreference, ListObjectsRequest, ReadRequest,
-    ReadRequestTupleKey, ReadResponse, TupleKey, TupleKeyWithoutCondition, WriteRequest,
+    ReadRequestTupleKey, ReadResponse, Tuple, TupleKey, TupleKeyWithoutCondition, WriteRequest,
     WriteRequestDeletes, WriteRequestWrites,
 };
 use std::sync::Arc;
 use std::{collections::HashSet, str::FromStr};
-
+pub(super) mod api;
 mod client;
 mod entities;
 mod error;
 mod health;
 mod migration;
 mod models;
+mod relations;
+
 mod service_ext;
 
-use crate::service::authz::implementations::openfga::service_ext::MAX_TUPLES_PER_WRITE;
+use crate::api::ApiContext;
+use crate::service::authz::implementations::openfga::relations::OpenFgaRelation;
 use crate::service::authz::implementations::FgaType;
-use crate::service::authz::{
-    NamespaceParent, NamespaceRelation, ProjectRelation, RoleAction, RoleRelation, ServerRelation,
-    TableRelation, UserAction, ViewRelation, WarehouseRelation,
-};
+use crate::service::authz::{CatalogRoleAction, CatalogUserAction, NamespaceParent};
 use crate::service::health::Health;
-use crate::service::{AuthDetails, RoleId, UserId, ViewIdentUuid};
+use crate::service::{AuthDetails, Catalog, RoleId, SecretStore, State, UserId, ViewIdentUuid};
 pub use client::{
     new_authorizer_from_config, BearerOpenFGAAuthorizer, ClientCredentialsOpenFGAAuthorizer,
     UnauthenticatedOpenFGAAuthorizer,
@@ -50,17 +52,22 @@ pub(crate) use client::{new_client_from_config, Clients};
 use entities::OpenFgaEntity;
 pub use error::{OpenFGAError, OpenFGAResult};
 use iceberg_ext::catalog::rest::IcebergErrorResponse;
-pub use migration::migrate;
-pub use models::{CollaborationModels, ModelVersion, OpenFgaType};
-pub use openfga_rs::authentication::ClientCredentials;
-pub use service_ext::ClientHelper;
+pub(crate) use migration::migrate;
+pub(crate) use models::{ModelVersion, OpenFgaType};
+use relations::{
+    NamespaceRelation, ProjectRelation, RoleRelation, ServerRelation, TableRelation, ViewRelation,
+    WarehouseRelation,
+};
+pub(crate) use service_ext::ClientHelper;
+use service_ext::MAX_TUPLES_PER_WRITE;
 use tokio::sync::RwLock;
+use utoipa::OpenApi;
 
 lazy_static::lazy_static! {
     static ref AUTH_CONFIG: crate::config::OpenFGAConfig = {
         CONFIG.openfga.clone().expect("OpenFGAConfig not found")
     };
-    static ref SERVER: String = {
+    pub(crate) static ref OPENFGA_SERVER: String = {
         format!("server:{}", CONFIG.server_id)
     };
 }
@@ -95,6 +102,14 @@ where
         http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
     >>::Future: Send,
 {
+    fn api_doc() -> utoipa::openapi::OpenApi {
+        api::ApiDoc::openapi()
+    }
+
+    fn new_router<C: Catalog, S: SecretStore>(&self) -> Router<ApiContext<State<Self, C, S>>> {
+        api::new_v1_router()
+    }
+
     async fn can_bootstrap(&self, metadata: &RequestMetadata) -> Result<()> {
         let actor = metadata.actor();
         // We don't check the actor as assumed roles are irrelevant for bootstrapping.
@@ -128,9 +143,9 @@ where
 
         self.write(
             Some(vec![TupleKey {
-                user: user.to_openfga()?,
+                user: user.to_openfga(),
                 relation: ServerRelation::GlobalAdmin.to_string(),
-                object: SERVER.clone(),
+                object: OPENFGA_SERVER.clone(),
                 condition: None,
             }]),
             None,
@@ -145,9 +160,9 @@ where
 
         let check_actor_fut = self.check_actor(actor);
         let list_all_fut = self.check(CheckRequestTupleKey {
-            user: metadata.actor().to_openfga()?,
-            relation: ServerAction::CanListAllProjects.to_string(),
-            object: format!("server:{}", SERVER.clone()),
+            user: metadata.actor().to_openfga(),
+            relation: relations::ServerRelation::CanListAllProjects.to_string(),
+            object: OPENFGA_SERVER.clone(),
         });
 
         let (check_actor, list_all) = futures::join!(check_actor_fut, list_all_fut);
@@ -160,9 +175,9 @@ where
 
         let projects = self
             .list_objects(
-                "project",
-                ProjectAction::CanIncludeInList.to_string(),
-                actor.to_openfga()?,
+                FgaType::Project.to_string(),
+                CatalogProjectAction::CanIncludeInList.to_string(),
+                actor.to_openfga(),
             )
             .await?
             .iter()
@@ -197,26 +212,26 @@ where
         &self,
         metadata: &RequestMetadata,
         role_id: RoleId,
-        action: &RoleAction,
+        action: &CatalogRoleAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
         let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
-            user: actor.to_openfga()?,
+            user: actor.to_openfga(),
             relation: action.to_string(),
-            object: role_id.to_openfga()?,
+            object: role_id.to_openfga(),
         });
 
         let (check_actor, check) = futures::join!(check_actor_fut, check_fut);
         check_actor?;
-        check
+        check.map_err(Into::into)
     }
 
     async fn is_allowed_user_action(
         &self,
         metadata: &RequestMetadata,
         user_id: &UserId,
-        action: &UserAction,
+        action: &CatalogUserAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
         self.check_actor(actor).await?;
@@ -232,98 +247,96 @@ where
 
         if is_same_user {
             return match action {
-                UserAction::CanRead | UserAction::CanUpdate | UserAction::CanDelete => Ok(true),
+                CatalogUserAction::CanRead
+                | CatalogUserAction::CanUpdate
+                | CatalogUserAction::CanDelete => Ok(true),
             };
         }
 
-        let server_id = format!("server:{}", SERVER.clone());
+        let server_id = OPENFGA_SERVER.clone();
         match action {
-            UserAction::CanRead => {
+            CatalogUserAction::CanRead => {
                 self.check(CheckRequestTupleKey {
-                    user: actor.to_openfga()?,
-                    relation: ServerAction::CanListUsers.to_string(),
+                    user: actor.to_openfga(),
+                    relation: CatalogServerAction::CanListUsers.to_string(),
                     object: server_id,
                 })
                 .await
             }
-            UserAction::CanUpdate => {
+            CatalogUserAction::CanUpdate => {
                 self.check(CheckRequestTupleKey {
-                    user: actor.to_openfga()?,
-                    relation: ServerAction::CanUpdateUsers.to_string(),
+                    user: actor.to_openfga(),
+                    relation: CatalogServerAction::CanUpdateUsers.to_string(),
                     object: server_id,
                 })
                 .await
             }
-            UserAction::CanDelete => {
+            CatalogUserAction::CanDelete => {
                 self.check(CheckRequestTupleKey {
-                    user: actor.to_openfga()?,
-                    relation: ServerAction::CanDeleteUsers.to_string(),
+                    user: actor.to_openfga(),
+                    relation: CatalogServerAction::CanDeleteUsers.to_string(),
                     object: server_id,
                 })
                 .await
             }
         }
+        .map_err(Into::into)
     }
 
     async fn is_allowed_server_action(
         &self,
         metadata: &RequestMetadata,
-        action: &ServerAction,
+        action: &CatalogServerAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
-
-        if action == &ServerAction::CanReadServerInfo {
-            return Ok(true);
-        }
-
         let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
-            user: actor.to_openfga()?,
+            user: actor.to_openfga(),
             relation: action.to_string(),
-            object: format!("server:{}", SERVER.clone()),
+            object: OPENFGA_SERVER.clone(),
         });
 
         let (check_actor, check) = futures::join!(check_actor_fut, check_fut);
         check_actor?;
-        check
+        check.map_err(Into::into)
     }
 
     async fn is_allowed_project_action(
         &self,
         metadata: &RequestMetadata,
         project_id: ProjectIdent,
-        action: &ProjectAction,
+        action: &CatalogProjectAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
         let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
-            user: actor.to_openfga()?,
+            user: actor.to_openfga(),
             relation: action.to_string(),
             object: format!("project:{project_id}"),
         });
 
         let (check_actor, check) = futures::join!(check_actor_fut, check_fut);
         check_actor?;
-        check
+        check.map_err(Into::into)
     }
 
     async fn is_allowed_warehouse_action(
         &self,
         metadata: &RequestMetadata,
         warehouse_id: WarehouseIdent,
-        action: &WarehouseAction,
+        action: &CatalogWarehouseAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
         let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
-            user: actor.to_openfga()?,
+            user: actor.to_openfga(),
             relation: action.to_string(),
             object: format!("warehouse:{warehouse_id}"),
         });
 
         let (check_actor, check) = futures::join!(check_actor_fut, check_fut);
         check_actor?;
-        check
+        check.map_err(Into::into)
     }
 
     /// Return the namespace_id if the action is allowed, otherwise return None.
@@ -332,19 +345,19 @@ where
         metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
         namespace_id: NamespaceIdentUuid,
-        action: &NamespaceAction,
+        action: &CatalogNamespaceAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
         let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
-            user: actor.to_openfga()?,
+            user: actor.to_openfga(),
             relation: action.to_string(),
             object: format!("namespace:{namespace_id}"),
         });
 
         let (check_actor, check) = futures::join!(check_actor_fut, check_fut);
         check_actor?;
-        check
+        check.map_err(Into::into)
     }
 
     /// Return the table_id if the action is allowed, otherwise return None.
@@ -353,19 +366,19 @@ where
         metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
         table_id: TableIdentUuid,
-        action: &TableAction,
+        action: &CatalogTableAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
         let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
-            user: actor.to_openfga()?,
+            user: actor.to_openfga(),
             relation: action.to_string(),
             object: format!("table:{table_id}"),
         });
 
         let (check_actor, check) = futures::join!(check_actor_fut, check_fut);
         check_actor?;
-        check
+        check.map_err(Into::into)
     }
 
     /// Return the view_id if the action is allowed, otherwise return None.
@@ -374,19 +387,19 @@ where
         metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
         view_id: ViewIdentUuid,
-        action: &ViewAction,
+        action: &CatalogViewAction,
     ) -> Result<bool> {
         let actor = metadata.actor();
         let check_actor_fut = self.check_actor(actor);
         let check_fut = self.check(CheckRequestTupleKey {
-            user: actor.to_openfga()?,
+            user: actor.to_openfga(),
             relation: action.to_string(),
             object: format!("view:{view_id}"),
         });
 
         let (check_actor, check) = futures::join!(check_actor_fut, check_fut);
         check_actor?;
-        check
+        check.map_err(Into::into)
     }
 
     async fn delete_user(&self, _metadata: &RequestMetadata, user_id: UserId) -> Result<()> {
@@ -403,12 +416,12 @@ where
 
         self.require_no_relations(&role_id, ConsistencyPreference::MinimizeLatency)
             .await?;
-        let parent_id = parent_project_id.to_openfga()?;
-        let this_id = role_id.to_openfga()?;
+        let parent_id = parent_project_id.to_openfga();
+        let this_id = role_id.to_openfga();
         self.write(
             Some(vec![
                 TupleKey {
-                    user: actor.to_openfga()?,
+                    user: actor.to_openfga(),
                     relation: RoleRelation::Ownership.to_string(),
                     object: this_id.clone(),
                     condition: None,
@@ -439,12 +452,12 @@ where
 
         self.require_no_relations(&project_id, ConsistencyPreference::MinimizeLatency)
             .await?;
-        let server = format!("server:{}", SERVER.clone());
-        let this_id = project_id.to_openfga()?;
+        let server = OPENFGA_SERVER.clone();
+        let this_id = project_id.to_openfga();
         self.write(
             Some(vec![
                 TupleKey {
-                    user: actor.to_openfga()?,
+                    user: actor.to_openfga(),
                     relation: ProjectRelation::ProjectAdmin.to_string(),
                     object: this_id.clone(),
                     condition: None,
@@ -486,12 +499,12 @@ where
 
         self.require_no_relations(&warehouse_id, ConsistencyPreference::MinimizeLatency)
             .await?;
-        let project_id = parent_project_id.to_openfga()?;
-        let this_id = warehouse_id.to_openfga()?;
+        let project_id = parent_project_id.to_openfga();
+        let this_id = warehouse_id.to_openfga();
         self.write(
             Some(vec![
                 TupleKey {
-                    user: actor.to_openfga()?,
+                    user: actor.to_openfga(),
                     relation: WarehouseRelation::Ownership.to_string(),
                     object: this_id.clone(),
                     condition: None,
@@ -536,20 +549,20 @@ where
 
         let (parent_id, parent_child_relation) = match parent {
             NamespaceParent::Warehouse(warehouse_id) => (
-                warehouse_id.to_openfga()?,
+                warehouse_id.to_openfga(),
                 WarehouseRelation::Namespace.to_string(),
             ),
             NamespaceParent::Namespace(parent_namespace_id) => (
-                parent_namespace_id.to_openfga()?,
+                parent_namespace_id.to_openfga(),
                 NamespaceRelation::Child.to_string(),
             ),
         };
-        let this_id = namespace_id.to_openfga()?;
+        let this_id = namespace_id.to_openfga();
 
         self.write(
             Some(vec![
                 TupleKey {
-                    user: actor.to_openfga()?,
+                    user: actor.to_openfga(),
                     relation: NamespaceRelation::Ownership.to_string(),
                     object: this_id.clone(),
                     condition: None,
@@ -588,8 +601,8 @@ where
         parent: NamespaceIdentUuid,
     ) -> Result<()> {
         let actor = metadata.actor();
-        let parent_id = parent.to_openfga()?;
-        let this_id = table_id.to_openfga()?;
+        let parent_id = parent.to_openfga();
+        let this_id = table_id.to_openfga();
 
         // Higher consistency as for stage create overwrites old relations are deleted
         // immediately before
@@ -599,7 +612,7 @@ where
         self.write(
             Some(vec![
                 TupleKey {
-                    user: actor.to_openfga()?,
+                    user: actor.to_openfga(),
                     relation: TableRelation::Ownership.to_string(),
                     object: this_id.clone(),
                     condition: None,
@@ -634,8 +647,8 @@ where
         parent: NamespaceIdentUuid,
     ) -> Result<()> {
         let actor = metadata.actor();
-        let parent_id = parent.to_openfga()?;
-        let this_id = view_id.to_openfga()?;
+        let parent_id = parent.to_openfga();
+        let this_id = view_id.to_openfga();
 
         self.require_no_relations(&view_id, ConsistencyPreference::MinimizeLatency)
             .await?;
@@ -643,7 +656,7 @@ where
         self.write(
             Some(vec![
                 TupleKey {
-                    user: actor.to_openfga()?,
+                    user: actor.to_openfga(),
                     relation: ViewRelation::Ownership.to_string(),
                     object: this_id.clone(),
                     condition: None,
@@ -753,33 +766,63 @@ where
             .map(tonic::Response::into_inner)
     }
 
-    /// A convenience wrapper around check
-    async fn check(&self, tuple_key: CheckRequestTupleKey) -> Result<bool> {
+    /// Read all tuples for a given request
+    async fn read_all(&self, tuple_key: ReadRequestTupleKey) -> OpenFGAResult<Vec<Tuple>> {
         self.client
             .clone()
-            .check(CheckRequest {
-                tuple_key: Some(tuple_key),
-                store_id: self.store_id.clone(),
-                authorization_model_id: self.authorization_model_id.clone(),
-                contextual_tuples: None,
-                trace: false,
-                context: None,
-                consistency: ConsistencyPreference::MinimizeLatency.into(),
-            })
+            .read_all_pages(&self.store_id, tuple_key)
             .await
-            .map_err(|e| {
-                let msg = e.message().to_string();
-                let code = e.code().to_string();
-                ErrorModel::internal(
-                    "Failed to check authorization",
-                    "AuthorizationCheckFailed",
-                    Some(Box::new(e)),
-                )
-                .append_detail(msg)
-                .append_detail(format!("Tonic code: {code}"))
-                .into()
+    }
+
+    /// A convenience wrapper around check
+    async fn check(&self, tuple_key: CheckRequestTupleKey) -> OpenFGAResult<bool> {
+        let check_request = CheckRequest {
+            tuple_key: Some(tuple_key),
+            store_id: self.store_id.clone(),
+            authorization_model_id: self.authorization_model_id.clone(),
+            contextual_tuples: None,
+            trace: false,
+            context: None,
+            consistency: ConsistencyPreference::MinimizeLatency.into(),
+        };
+
+        self.client
+            .clone()
+            .check(check_request.clone())
+            .await
+            .map_err(|source| OpenFGAError::CheckFailed {
+                check_request,
+                source,
             })
             .map(|response| response.get_ref().allowed)
+    }
+
+    async fn require_action(
+        &self,
+        metadata: &RequestMetadata,
+        action: impl OpenFgaRelation,
+        object: &str,
+    ) -> Result<()> {
+        let actor = metadata.actor();
+        let check_actor_fut = self.check_actor(actor);
+        let check_fut = self.check(CheckRequestTupleKey {
+            user: actor.to_openfga(),
+            relation: action.to_string(),
+            object: object.to_string(),
+        });
+
+        let (check_actor, check) = futures::join!(check_actor_fut, check_fut);
+        check_actor?;
+        let allowed = check?;
+        if !allowed {
+            return Err(ErrorModel::forbidden(
+                format!("Action {action} not allowed for object {object}"),
+                "ActionForbidden",
+                None,
+            )
+            .into());
+        }
+        Ok(())
     }
 
     /// Returns Ok(()) only if not tuples are associated in any relation with the given object.
@@ -789,7 +832,7 @@ where
         consistency: ConsistencyPreference,
     ) -> Result<()> {
         let openfga_tpye = object.openfga_type().clone();
-        let fga_object = object.to_openfga()?;
+        let fga_object = object.to_openfga();
         let objects = openfga_tpye.user_of();
         let fga_object_str = fga_object.as_str();
 
@@ -874,7 +917,7 @@ where
 
     async fn delete_user_relations(&self, user: &impl OpenFgaEntity) -> Result<()> {
         let user_type = user.openfga_type().clone();
-        let fga_user = user.to_openfga()?;
+        let fga_user = user.to_openfga();
         let objects = user_type.user_of();
         let fga_user_str = fga_user.as_str();
 
@@ -932,7 +975,7 @@ where
     }
 
     async fn delete_own_relations(&self, object: &impl OpenFgaEntity) -> Result<()> {
-        let fga_object = object.to_openfga()?;
+        let fga_object = object.to_openfga();
 
         let read_stream: AsyncStream<_, _> = stream! {
             let mut continuation_token = None;
@@ -1019,8 +1062,8 @@ where
                 let msg = e.message().to_string();
                 let code = e.code().to_string();
                 ErrorModel::internal(
-                    "Failed to expand authorization",
-                    "AuthorizationExpandFailed",
+                    "Failed to list authorization objects",
+                    "AuthorizationListObjectsFailed",
                     Some(Box::new(e)),
                 )
                 .append_detail(msg)
@@ -1045,9 +1088,9 @@ where
             } => {
                 let assume_role_allowed = self
                     .check(CheckRequestTupleKey {
-                        user: Actor::Principal(principal.clone()).to_openfga()?,
-                        relation: RoleAction::CanAssume.to_string(),
-                        object: assumed_role.to_openfga()?,
+                        user: Actor::Principal(principal.clone()).to_openfga(),
+                        relation: relations::RoleRelation::CanAssume.to_string(),
+                        object: assumed_role.to_openfga(),
                     })
                     .await?;
 
@@ -1118,7 +1161,7 @@ mod tests {
                     Some(vec![TupleKey {
                         user: "user:this_user".to_string(),
                         relation: ProjectRelation::ProjectAdmin.to_string(),
-                        object: project_id.to_openfga().unwrap(),
+                        object: project_id.to_openfga(),
                         condition: None,
                     }]),
                     None,
@@ -1146,7 +1189,7 @@ mod tests {
             authorizer
                 .write(
                     Some(vec![TupleKey {
-                        user: project_id.to_openfga().unwrap(),
+                        user: project_id.to_openfga(),
                         relation: ServerRelation::Project.to_string(),
                         object: "server:this_server".to_string(),
                         condition: None,
@@ -1178,7 +1221,7 @@ mod tests {
                     Some(vec![TupleKey {
                         user: "user:my_user".to_string(),
                         relation: ProjectRelation::ProjectAdmin.to_string(),
-                        object: project_id.to_openfga().unwrap(),
+                        object: project_id.to_openfga(),
                         condition: None,
                     }]),
                     None,
@@ -1211,7 +1254,7 @@ mod tests {
                     Some(vec![TupleKey {
                         user: "role:my_role#assignee".to_string(),
                         relation: ProjectRelation::ProjectAdmin.to_string(),
-                        object: project_id.to_openfga().unwrap(),
+                        object: project_id.to_openfga(),
                         condition: None,
                     }]),
                     None,
@@ -1246,13 +1289,13 @@ mod tests {
                             TupleKey {
                                 user: format!("user:user{i}"),
                                 relation: ProjectRelation::ProjectAdmin.to_string(),
-                                object: project_id.to_openfga().unwrap(),
+                                object: project_id.to_openfga(),
                                 condition: None,
                             },
                             TupleKey {
                                 user: format!("warehouse:warehouse_{i}"),
                                 relation: ProjectRelation::Warehouse.to_string(),
-                                object: project_id.to_openfga().unwrap(),
+                                object: project_id.to_openfga(),
                                 condition: None,
                             },
                         ]),
@@ -1303,7 +1346,7 @@ mod tests {
             authorizer
                 .write(
                     Some(vec![TupleKey {
-                        user: project_id.to_openfga().unwrap(),
+                        user: project_id.to_openfga(),
                         relation: WarehouseRelation::Project.to_string(),
                         object: "warehouse:my_warehouse".to_string(),
                         condition: None,
@@ -1353,13 +1396,13 @@ mod tests {
                     .write(
                         Some(vec![
                             TupleKey {
-                                user: project_id.to_openfga().unwrap(),
+                                user: project_id.to_openfga(),
                                 relation: WarehouseRelation::Project.to_string(),
                                 object: format!("warehouse:warehouse_{i}"),
                                 condition: None,
                             },
                             TupleKey {
-                                user: project_id.to_openfga().unwrap(),
+                                user: project_id.to_openfga(),
                                 relation: ServerRelation::Project.to_string(),
                                 object: format!("server:server_{i}"),
                                 condition: None,
@@ -1394,7 +1437,7 @@ mod tests {
             authorizer
                 .write(
                     Some(vec![TupleKey {
-                        user: format!("{}#assignee", user.to_openfga().unwrap()),
+                        user: format!("{}#assignee", user.to_openfga()),
                         relation: ProjectRelation::ProjectAdmin.to_string(),
                         object: "project:my_project".to_string(),
                         condition: None,

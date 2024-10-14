@@ -1,15 +1,19 @@
-use async_trait::async_trait;
-
 use crate::api::iceberg::v1::Result;
+use crate::api::ApiContext;
 use crate::request_metadata::RequestMetadata;
 use crate::service::authz::{
-    Authorizer, ListProjectsResponse, NamespaceAction, NamespaceParent, ProjectAction, RoleAction,
-    ServerAction, TableAction, UserAction, ViewAction, WarehouseAction,
+    Authorizer, CatalogNamespaceAction, CatalogProjectAction, CatalogRoleAction,
+    CatalogServerAction, CatalogTableAction, CatalogUserAction, CatalogViewAction,
+    CatalogWarehouseAction, ListProjectsResponse, NamespaceParent,
 };
 use crate::service::health::{Health, HealthExt};
 use crate::service::{
-    NamespaceIdentUuid, ProjectIdent, RoleId, TableIdentUuid, UserId, ViewIdentUuid, WarehouseIdent,
+    Catalog, NamespaceIdentUuid, ProjectIdent, RoleId, SecretStore, State, TableIdentUuid, UserId,
+    ViewIdentUuid, WarehouseIdent,
 };
+use async_trait::async_trait;
+use axum::Router;
+use utoipa::OpenApi;
 
 #[derive(Clone, Debug, Default)]
 pub struct AllowAllAuthorizer;
@@ -24,8 +28,20 @@ impl HealthExt for AllowAllAuthorizer {
     }
 }
 
+#[derive(Debug, OpenApi)]
+#[openapi()]
+pub(super) struct ApiDoc;
+
 #[async_trait]
 impl Authorizer for AllowAllAuthorizer {
+    fn api_doc() -> utoipa::openapi::OpenApi {
+        ApiDoc::openapi()
+    }
+
+    fn new_router<C: Catalog, S: SecretStore>(&self) -> Router<ApiContext<State<Self, C, S>>> {
+        Router::new()
+    }
+
     async fn can_bootstrap(&self, _metadata: &RequestMetadata) -> Result<()> {
         Ok(())
     }
@@ -46,7 +62,7 @@ impl Authorizer for AllowAllAuthorizer {
         &self,
         _metadata: &RequestMetadata,
         _user_id: &UserId,
-        _action: &UserAction,
+        _action: &CatalogUserAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -55,7 +71,7 @@ impl Authorizer for AllowAllAuthorizer {
         &self,
         _metadata: &RequestMetadata,
         _role_id: RoleId,
-        _action: &RoleAction,
+        _action: &CatalogRoleAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -63,7 +79,7 @@ impl Authorizer for AllowAllAuthorizer {
     async fn is_allowed_server_action(
         &self,
         _metadata: &RequestMetadata,
-        _action: &ServerAction,
+        _action: &CatalogServerAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -72,7 +88,7 @@ impl Authorizer for AllowAllAuthorizer {
         &self,
         _metadata: &RequestMetadata,
         _project_id: ProjectIdent,
-        _action: &ProjectAction,
+        _action: &CatalogProjectAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -81,7 +97,7 @@ impl Authorizer for AllowAllAuthorizer {
         &self,
         _metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
-        _action: &WarehouseAction,
+        _action: &CatalogWarehouseAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -91,7 +107,7 @@ impl Authorizer for AllowAllAuthorizer {
         _metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
         _namespace_id: NamespaceIdentUuid,
-        _action: &NamespaceAction,
+        _action: &CatalogNamespaceAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -101,7 +117,7 @@ impl Authorizer for AllowAllAuthorizer {
         _metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
         _table_id: TableIdentUuid,
-        _action: &TableAction,
+        _action: &CatalogTableAction,
     ) -> Result<bool> {
         Ok(true)
     }
@@ -111,7 +127,7 @@ impl Authorizer for AllowAllAuthorizer {
         _metadata: &RequestMetadata,
         _warehouse_id: WarehouseIdent,
         _view_id: ViewIdentUuid,
-        _action: &ViewAction,
+        _action: &CatalogViewAction,
     ) -> Result<bool> {
         Ok(true)
     }
