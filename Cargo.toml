@@ -105,7 +105,7 @@ tower-http = { version = "^0.5", features = [
 tracing = { version = "^0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
 urlencoding = "^2.1"
-utoipa = { version = "4.2.3", features = [
+utoipa = { version = "5.0.0", features = [
     "axum_extras",
     "chrono",
     "url",
