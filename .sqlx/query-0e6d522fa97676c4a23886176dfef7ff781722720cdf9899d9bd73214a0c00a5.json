@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO users (id, name, email, last_updated_with)\n        VALUES ($1, $2, $3, $4)\n        ON CONFLICT (id)\n        DO UPDATE SET name = $2, email = $3, last_updated_with = $4\n        returning (xmax = 0) AS created, id, name, email, created_at, updated_at, last_updated_with as \"last_updated_with: DbUserLastUpdatedWith\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_updated_with: DbUserLastUpdatedWith",
+        "type_info": {
+          "Custom": {
+            "name": "user_last_updated_with",
+            "kind": {
+              "Enum": [
+                "create-endpoint",
+                "config-call-creation",
+                "update-endpoint"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "user_last_updated_with",
+            "kind": {
+              "Enum": [
+                "create-endpoint",
+                "config-call-creation",
+                "update-endpoint"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "0e6d522fa97676c4a23886176dfef7ff781722720cdf9899d9bd73214a0c00a5"
+}
