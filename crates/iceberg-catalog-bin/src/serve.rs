@@ -4,8 +4,8 @@ use iceberg_catalog::implementations::postgres::{CatalogState, PostgresCatalog, 
 use iceberg_catalog::implementations::{AllowAllAuthState, AllowAllAuthZHandler};
 use iceberg_catalog::service::contract_verification::ContractVerifiers;
 use iceberg_catalog::service::event_publisher::{
-    CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, Message,
-    NatsBackend,
+    CloudEventBackend, CloudEventsPublisher, CloudEventsPublisherBackgroundTask, KafkaBackend,
+    Message, NatsBackend,
 };
 use iceberg_catalog::service::health::ServiceHealthProvider;
 use iceberg_catalog::service::secrets::Secrets;
@@ -17,6 +17,7 @@ use iceberg_catalog::implementations::postgres::task_queues::{
     TabularExpirationQueue, TabularPurgeQueue,
 };
 use iceberg_catalog::service::task_queue::TaskQueues;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow::Error> {
@@ -73,7 +74,14 @@ pub(crate) async fn serve(bind_addr: std::net::SocketAddr) -> Result<(), anyhow:
         let nats_publisher = build_nats_client(nat_addr).await?;
         cloud_event_sinks
             .push(Arc::new(nats_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
-    } else {
+    }
+    if let Some(kafka_config) = &CONFIG.kafka_config {
+        let kafka_publisher = build_kafka_producer(kafka_config)?;
+        cloud_event_sinks
+            .push(Arc::new(kafka_publisher) as Arc<dyn CloudEventBackend + Sync + Send>);
+    }
+
+    if cloud_event_sinks.is_empty() {
         tracing::info!("Running without publisher.");
     };
 
@@ -159,4 +167,33 @@ async fn build_nats_client(nat_addr: &Url) -> Result<NatsBackend, Error> {
             .ok_or(anyhow::anyhow!("Missing nats topic."))?,
     };
     Ok(nats_publisher)
+}
+
+fn build_kafka_producer(config: &HashMap<String, String>) -> Result<KafkaBackend, Error> {
+    if !(config.contains_key("bootstrap.servers") || config.contains_key("metadata.broker.list")) {
+        return Err(anyhow!(
+            "Kafka config map does not conain 'bootstrap.servers' or 'metadata.broker.list'. You need to provide either of those, in addition with any other parameters you need."
+        ));
+    }
+    let mut producer_client_config = rdkafka::ClientConfig::new();
+    for (key, value) in config.iter() {
+        producer_client_config.set(key, value);
+    }
+    let producer = producer_client_config.create()?;
+    let kafka_backend = KafkaBackend {
+        producer,
+        topic: CONFIG
+            .kafka_topic
+            .clone()
+            .ok_or(anyhow::anyhow!("Missing kafka topic."))?,
+    };
+    let kafka_brokers = config
+        .get("bootstrap.servers")
+        .or(config.get("metadata.broker.list"))
+        .unwrap();
+    tracing::info!(
+        "Running with kafka publisher, initial brokers are: {}",
+        &kafka_brokers
+    );
+    Ok(kafka_backend)
 }

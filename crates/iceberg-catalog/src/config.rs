@@ -1,6 +1,6 @@
 //! Contains Configuration of the service Module
 use anyhow::anyhow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
@@ -101,6 +101,9 @@ pub struct DynAppConfig {
     #[redact]
     pub nats_token: Option<String>,
 
+    // ------------- KAFKA CLOUDEVENTS -------------
+    pub kafka_topic: Option<String>,
+    pub kafka_config: Option<HashMap<String, String>>,
     // ------------- AUTHORIZATION -------------
     pub openid_provider_uri: Option<Url>,
 
@@ -197,6 +200,8 @@ impl Default for DynAppConfig {
             nats_user: None,
             nats_password: None,
             nats_token: None,
+            kafka_config: None,
+            kafka_topic: None,
             openid_provider_uri: None,
             listen_port: 8080,
             health_check_frequency_seconds: 10,

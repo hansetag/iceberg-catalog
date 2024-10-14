@@ -1,9 +1,18 @@
+pub(crate) mod vendor;
+
 use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
 use cloudevents::Event;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
+
+#[cfg(feature = "kafka")]
+use crate::service::event_publisher::vendor::cloudevents::binding::rdkafka::{
+    FutureRecordExt, MessageRecord,
+};
+#[cfg(feature = "kafka")]
+use rdkafka::producer::{FutureProducer, FutureRecord};
 
 #[derive(Debug, Clone)]
 pub struct CloudEventsPublisher {
@@ -180,6 +189,54 @@ impl CloudEventBackend for NatsBackend {
 
     fn name(&self) -> &'static str {
         "nats-publisher"
+    }
+}
+
+#[cfg(feature = "kafka")]
+pub struct KafkaBackend {
+    pub producer: FutureProducer,
+    pub topic: String,
+}
+
+#[cfg(feature = "kafka")]
+impl std::fmt::Debug for KafkaBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KafkaBackend")
+            // TODO:: Debug output for FutureProducer
+            .field("topic", &self.topic)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "kafka")]
+#[async_trait]
+impl CloudEventBackend for KafkaBackend {
+    async fn publish(&self, event: Event) -> anyhow::Result<()> {
+        let message_record = MessageRecord::from_event(event)?;
+        let delivery_status = self
+            .producer
+            .send(
+                FutureRecord::to(&self.topic)
+                    .message_record(&message_record)
+                    // TODO: the key allows recieving messages in order.
+                    // this _might_ be a parameter that could be configured by the user or TIP
+                    // could provide sensible defaults, like using the warehouse-id (+namespace?)
+                    .key(""),
+                Duration::from_secs(1),
+            )
+            .await;
+
+        match delivery_status {
+            Ok((partition, offset)) => {
+                tracing::debug!("CloudEvents event send via kafka to topic: {} and partition: {} with offset: {}", &self.topic, partition, offset);
+                Ok(())
+            }
+            Err((e, _)) => Err(anyhow::anyhow!(e)),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        "kafka-publisher"
     }
 }
 
