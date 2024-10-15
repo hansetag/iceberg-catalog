@@ -120,8 +120,7 @@ def test_drop_purge_table(namespace: conftest.Namespace, storage_config):
         catalog.load_table((*namespace.name, table_name))
         assert "NoSuchTableError" in str(e)
 
-    location = tab.location() if storage_config["storage-profile"]["type"] != "gcs" else tab.location().rstrip(
-        "/") + "/"
+    location = tab.location().rstrip("/") + "/"
 
     inp = file_io.new_input(location)
     assert inp.exists(), f"Table location {location} still exists"

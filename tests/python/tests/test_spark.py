@@ -256,8 +256,7 @@ def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse, storage_con
     # sleep to give time for the table to be gone
     time.sleep(5)
 
-    location = table_0.location() if storage_config["storage-profile"]["type"] != "gcs" else table_0.location().rstrip(
-        "/") + "/"
+    location = table_0.location().rstrip("/") + "/"
 
     inp = file_io.new_input(location)
     assert not inp.exists(), f"Table location {location} still exists"
