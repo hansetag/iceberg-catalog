@@ -104,7 +104,8 @@ def test_drop_purge_table(namespace: conftest.Namespace, storage_config):
 
     properties = tab.io.properties
     if storage_config["storage-profile"]["type"] == "s3":
-        # TODO: why does just taking the sts creds out of table_0.io.properties not work?
+        # Gotta use the s3 creds here since the prefix no longer exists after deletion & at least minio will not allow
+        # listing a location that doesn't exist with our downscoped cred
         properties = dict()
         properties["s3.access-key-id"] = storage_config["storage-credential"][
             "aws-access-key-id"
