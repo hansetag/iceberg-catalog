@@ -19,7 +19,6 @@ use veil::Redact;
 use super::StorageType;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
-#[schema(rename_all = "kebab-case")]
 #[serde(rename_all = "kebab-case")]
 pub struct S3Profile {
     /// Name of the S3 bucket
@@ -53,7 +52,6 @@ pub struct S3Profile {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
-#[schema(rename_all = "kebab-case")]
 #[derive(Default)]
 pub enum S3Flavor {
     #[default]
@@ -63,7 +61,6 @@ pub enum S3Flavor {
 
 #[derive(Redact, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "credential-type", rename_all = "kebab-case")]
-#[schema(rename_all = "kebab-case")]
 pub enum S3Credential {
     #[serde(rename_all = "kebab-case")]
     AccessKey {

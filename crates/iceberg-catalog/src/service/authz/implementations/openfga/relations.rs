@@ -23,7 +23,7 @@ pub(super) trait Assignment: Sized {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
-#[schema(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub(super) enum UserOrRole {
     #[schema(value_type = uuid::Uuid)]
     User(UserId),
@@ -1192,5 +1192,26 @@ impl ReducedRelation for CatalogViewAction {
             CatalogViewAction::CanRename => ViewRelation::CanRename,
             CatalogViewAction::CanIncludeInList => ViewRelation::CanIncludeInList,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_assignment_serialization() {
+        let user_id = UserId::new("my_user").unwrap();
+        let user_or_role = UserOrRole::User(user_id);
+        let assignment = ServerAssignment::GlobalAdmin(user_or_role);
+        let serialized = serde_json::to_string(&assignment).unwrap();
+        let expected = serde_json::json!({
+            "type": "global_admin",
+            "user": "my_user"
+        });
+        assert_eq!(
+            expected,
+            serde_json::from_str::<serde_json::Value>(&serialized).unwrap()
+        );
     }
 }

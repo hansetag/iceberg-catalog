@@ -26,7 +26,6 @@ use serde::{Deserialize, Serialize};
 /// Storage profile for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-#[schema(rename_all = "kebab-case")]
 pub enum StorageProfile {
     /// Azure storage profile
     #[serde(rename = "azdls")]
@@ -472,7 +471,6 @@ pub struct TestProfile;
 /// Storage secret for a warehouse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, derive_more::From, utoipa::ToSchema)]
 #[serde(tag = "type")]
-#[schema(rename_all = "kebab-case")]
 pub enum StorageCredential {
     /// Credentials for S3 storage
     ///

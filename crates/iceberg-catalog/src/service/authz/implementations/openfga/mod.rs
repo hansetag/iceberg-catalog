@@ -255,14 +255,9 @@ where
 
         let server_id = OPENFGA_SERVER.clone();
         match action {
-            CatalogUserAction::CanRead => {
-                self.check(CheckRequestTupleKey {
-                    user: actor.to_openfga(),
-                    relation: CatalogServerAction::CanListUsers.to_string(),
-                    object: server_id,
-                })
-                .await
-            }
+            // Currently, given a user-id, all information about a user can be retrieved.
+            // For multi-tenant setups, we need to restrict this to a tenant.
+            CatalogUserAction::CanRead => Ok(true),
             CatalogUserAction::CanUpdate => {
                 self.check(CheckRequestTupleKey {
                     user: actor.to_openfga(),
