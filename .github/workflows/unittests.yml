@@ -18,6 +18,8 @@ jobs:
   sqlx-check:
     runs-on: ubuntu-latest
     steps:
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
       - uses: actions/checkout@v4
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
@@ -83,6 +85,7 @@ jobs:
           --health-retries 5
       openfga:
         image: openfga/openfga:v1.6
+        command: ["openfga", "run"]
         ports:
           - 35081:8081
         options: >-
