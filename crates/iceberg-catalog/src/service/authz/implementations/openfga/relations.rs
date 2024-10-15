@@ -18,8 +18,28 @@ use crate::service::{
 };
 
 pub(super) trait Assignment: Sized {
-    type Relation: ReducedRelation;
+    type Relation: ReducedRelation + GrantableRelation;
     fn try_from_user(user: &str, relation: &Self::Relation) -> OpenFGAResult<Self>;
+
+    fn openfga_user(&self) -> String;
+
+    fn relation(&self) -> Self::Relation;
+}
+
+pub(super) trait OpenFgaRelation:
+    std::fmt::Display + Eq + PartialEq + Clone + Sized + Copy + std::hash::Hash
+{
+}
+pub(super) trait ReducedRelation:
+    Clone + Sized + Copy + IntoEnumIterator + Eq + PartialEq
+{
+    type OpenFgaRelation: OpenFgaRelation;
+
+    fn to_openfga(&self) -> Self::OpenFgaRelation;
+}
+
+pub(super) trait GrantableRelation: ReducedRelation {
+    fn grant_relation(&self) -> Self::OpenFgaRelation;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
@@ -76,15 +96,8 @@ impl OpenFgaEntity for UserOrRole {
     }
 }
 
-pub(super) trait OpenFgaRelation: std::fmt::Display + Clone + Sized + Copy {}
-pub(super) trait ReducedRelation: Clone + Sized + Copy + IntoEnumIterator {
-    type OpenFgaRelation: OpenFgaRelation;
-
-    fn to_openfga(&self) -> Self::OpenFgaRelation;
-}
-
 /// Role Relations in the `OpenFGA` schema
-#[derive(Debug, Copy, Clone, strum_macros::Display, PartialEq)]
+#[derive(Debug, Copy, Clone, strum_macros::Display, Hash, Eq, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub(super) enum RoleRelation {
     // -- Hierarchical relations --
@@ -94,8 +107,8 @@ pub(super) enum RoleRelation {
     Ownership,
     // -- Actions --
     CanAssume,
-    CanAddAssignee,
-    CanRemoveAssignee,
+    CanGrantAssignee,
+    CanChangeOwnership,
     CanDelete,
     CanUpdate,
     CanRead,
@@ -104,7 +117,7 @@ pub(super) enum RoleRelation {
 
 impl OpenFgaRelation for RoleRelation {}
 
-#[derive(Debug, Clone, Deserialize, Copy, PartialEq, ToSchema, EnumIter)]
+#[derive(Debug, Clone, Deserialize, Copy, Eq, PartialEq, ToSchema, EnumIter)]
 #[serde(rename_all = "snake_case")]
 #[schema(as=RoleRelation)]
 pub(super) enum APIRoleRelation {
@@ -117,6 +130,15 @@ pub(super) enum APIRoleRelation {
 pub(super) enum RoleAssignment {
     Assignee(UserOrRole),
     Ownership(UserOrRole),
+}
+
+impl GrantableRelation for APIRoleRelation {
+    fn grant_relation(&self) -> Self::OpenFgaRelation {
+        match self {
+            APIRoleRelation::Assignee => RoleRelation::CanGrantAssignee,
+            APIRoleRelation::Ownership => RoleRelation::CanChangeOwnership,
+        }
+    }
 }
 
 impl Assignment for RoleAssignment {
@@ -132,15 +154,28 @@ impl Assignment for RoleAssignment {
             }
         }
     }
+
+    fn openfga_user(&self) -> String {
+        match self {
+            RoleAssignment::Ownership(user) | RoleAssignment::Assignee(user) => user.to_openfga(),
+        }
+    }
+
+    fn relation(&self) -> Self::Relation {
+        match self {
+            RoleAssignment::Ownership(_) => APIRoleRelation::Ownership,
+            RoleAssignment::Assignee(_) => APIRoleRelation::Assignee,
+        }
+    }
 }
 
-#[derive(Copy, Debug, Clone, PartialEq, Serialize, ToSchema, EnumIter)]
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Serialize, ToSchema, EnumIter)]
 #[schema(as=RoleAction)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum APIRoleAction {
     Assume,
-    AddAssignee,
-    RemoveAssignee,
+    CanGrantAssignee,
+    CanChangeOwnership,
     Delete,
     Update,
     Read,
@@ -164,8 +199,8 @@ impl ReducedRelation for APIRoleAction {
     fn to_openfga(&self) -> Self::OpenFgaRelation {
         match self {
             APIRoleAction::Assume => RoleRelation::CanAssume,
-            APIRoleAction::AddAssignee => RoleRelation::CanAddAssignee,
-            APIRoleAction::RemoveAssignee => RoleRelation::CanRemoveAssignee,
+            APIRoleAction::CanGrantAssignee => RoleRelation::CanGrantAssignee,
+            APIRoleAction::CanChangeOwnership => RoleRelation::CanChangeOwnership,
             APIRoleAction::Delete => RoleRelation::CanDelete,
             APIRoleAction::Update => RoleRelation::CanUpdate,
             APIRoleAction::Read => RoleRelation::CanRead,
@@ -187,7 +222,7 @@ impl ReducedRelation for CatalogRoleAction {
 }
 
 /// Server Relations in the `OpenFGA` schema
-#[derive(Copy, Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Copy, Debug, Clone, strum_macros::Display, Hash, Eq, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub(super) enum ServerRelation {
     // -- Hierarchical relations --
@@ -207,7 +242,7 @@ pub(super) enum ServerRelation {
 
 impl OpenFgaRelation for ServerRelation {}
 
-#[derive(Debug, Clone, Deserialize, Copy, PartialEq, ToSchema, EnumIter)]
+#[derive(Debug, Clone, Deserialize, Copy, Hash, Eq, PartialEq, ToSchema, EnumIter)]
 #[serde(rename_all = "snake_case")]
 #[schema(as=ServerRelation)]
 pub(super) enum APIServerRelation {
@@ -220,6 +255,14 @@ pub(super) enum ServerAssignment {
     GlobalAdmin(UserOrRole),
 }
 
+impl GrantableRelation for APIServerRelation {
+    fn grant_relation(&self) -> ServerRelation {
+        match self {
+            APIServerRelation::GlobalAdmin => ServerRelation::CanGrantGlobalAdmin,
+        }
+    }
+}
+
 impl Assignment for ServerAssignment {
     type Relation = APIServerRelation;
 
@@ -230,9 +273,21 @@ impl Assignment for ServerAssignment {
             }
         }
     }
+
+    fn openfga_user(&self) -> String {
+        match self {
+            ServerAssignment::GlobalAdmin(user) => user.to_openfga(),
+        }
+    }
+
+    fn relation(&self) -> Self::Relation {
+        match self {
+            ServerAssignment::GlobalAdmin(_) => APIServerRelation::GlobalAdmin,
+        }
+    }
 }
 
-#[derive(Copy, Debug, Clone, PartialEq, Serialize, ToSchema, EnumIter)]
+#[derive(Copy, Debug, Clone, Hash, Eq, PartialEq, Serialize, ToSchema, EnumIter)]
 #[schema(as=ServerAction)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum APIServerAction {
@@ -292,7 +347,7 @@ impl ReducedRelation for APIServerAction {
     }
 }
 
-#[derive(Copy, Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Copy, Debug, Clone, strum_macros::Display, Hash, Eq, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub(super) enum ProjectRelation {
     // -- Hierarchical relations --
@@ -330,7 +385,7 @@ pub(super) enum ProjectRelation {
 
 impl OpenFgaRelation for ProjectRelation {}
 
-#[derive(Debug, Clone, Deserialize, Copy, PartialEq, ToSchema, EnumIter)]
+#[derive(Debug, Clone, Deserialize, Copy, Eq, PartialEq, ToSchema, EnumIter)]
 #[serde(rename_all = "snake_case")]
 #[schema(as=ProjectRelation)]
 pub(super) enum APIProjectRelation {
@@ -369,6 +424,21 @@ pub(super) enum ProjectAssignment {
     },
 }
 
+impl GrantableRelation for APIProjectRelation {
+    fn grant_relation(&self) -> ProjectRelation {
+        match self {
+            APIProjectRelation::ProjectAdmin => ProjectRelation::CanGrantProjectAdmin,
+            APIProjectRelation::SecurityAdmin => ProjectRelation::CanGrantSecurityAdmin,
+            APIProjectRelation::WarehouseAdmin => ProjectRelation::CanGrantWarehouseAdmin,
+            APIProjectRelation::RoleCreator => ProjectRelation::CanGrantRoleCreator,
+            APIProjectRelation::Describe => ProjectRelation::CanGrantDescribe,
+            APIProjectRelation::Select => ProjectRelation::CanGrantSelect,
+            APIProjectRelation::Create => ProjectRelation::CanGrantCreate,
+            APIProjectRelation::Modify => ProjectRelation::CanGrantModify,
+        }
+    }
+}
+
 impl Assignment for ProjectAssignment {
     type Relation = APIProjectRelation;
 
@@ -400,9 +470,35 @@ impl Assignment for ProjectAssignment {
             }
         }
     }
+
+    fn openfga_user(&self) -> String {
+        match self {
+            ProjectAssignment::ProjectAdmin(user)
+            | ProjectAssignment::SecurityAdmin(user)
+            | ProjectAssignment::WarehouseAdmin(user)
+            | ProjectAssignment::RoleCreator(user) => user.to_openfga(),
+            ProjectAssignment::Describe { role }
+            | ProjectAssignment::Select { role }
+            | ProjectAssignment::Create { role }
+            | ProjectAssignment::Modify { role } => role.to_openfga(),
+        }
+    }
+
+    fn relation(&self) -> Self::Relation {
+        match self {
+            ProjectAssignment::ProjectAdmin(_) => APIProjectRelation::ProjectAdmin,
+            ProjectAssignment::SecurityAdmin(_) => APIProjectRelation::SecurityAdmin,
+            ProjectAssignment::WarehouseAdmin(_) => APIProjectRelation::WarehouseAdmin,
+            ProjectAssignment::RoleCreator(_) => APIProjectRelation::RoleCreator,
+            ProjectAssignment::Describe { .. } => APIProjectRelation::Describe,
+            ProjectAssignment::Select { .. } => APIProjectRelation::Select,
+            ProjectAssignment::Create { .. } => APIProjectRelation::Create,
+            ProjectAssignment::Modify { .. } => APIProjectRelation::Modify,
+        }
+    }
 }
 
-#[derive(Copy, Debug, Clone, PartialEq, Serialize, ToSchema, EnumIter)]
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Serialize, ToSchema, EnumIter)]
 #[serde(rename_all = "snake_case")]
 #[schema(as=ProjectAction)]
 pub(super) enum APIProjectAction {
@@ -484,7 +580,7 @@ impl ReducedRelation for CatalogProjectAction {
     }
 }
 
-#[derive(Copy, Debug, Clone, strum_macros::Display, PartialEq)]
+#[derive(Copy, Debug, Clone, strum_macros::Display, Hash, Eq, PartialEq)]
 #[strum(serialize_all = "snake_case")]
 pub(super) enum WarehouseRelation {
     // -- Hierarchical relations --
@@ -526,7 +622,7 @@ pub(super) enum WarehouseRelation {
 
 impl OpenFgaRelation for WarehouseRelation {}
 
-#[derive(Debug, Clone, Deserialize, Copy, PartialEq, ToSchema, EnumIter)]
+#[derive(Debug, Clone, Deserialize, Copy, Eq, PartialEq, ToSchema, EnumIter)]
 #[serde(rename_all = "snake_case")]
 #[schema(as=WarehouseRelation)]
 pub(super) enum APIWarehouseRelation {
@@ -569,6 +665,20 @@ pub(super) enum WarehouseAssignment {
     },
 }
 
+impl GrantableRelation for APIWarehouseRelation {
+    fn grant_relation(&self) -> WarehouseRelation {
+        match self {
+            APIWarehouseRelation::Ownership => WarehouseRelation::CanChangeOwnership,
+            APIWarehouseRelation::PassGrants => WarehouseRelation::CanGrantPassGrants,
+            APIWarehouseRelation::ManageGrants => WarehouseRelation::CanGrantManageGrants,
+            APIWarehouseRelation::Describe => WarehouseRelation::CanGrantDescribe,
+            APIWarehouseRelation::Select => WarehouseRelation::CanGrantSelect,
+            APIWarehouseRelation::Create => WarehouseRelation::CanGrantCreate,
+            APIWarehouseRelation::Modify => WarehouseRelation::CanGrantModify,
+        }
+    }
+}
+
 impl Assignment for WarehouseAssignment {
     type Relation = APIWarehouseRelation;
 
@@ -595,9 +705,33 @@ impl Assignment for WarehouseAssignment {
             }
         }
     }
+
+    fn openfga_user(&self) -> String {
+        match self {
+            WarehouseAssignment::Ownership(user) => user.to_openfga(),
+            WarehouseAssignment::PassGrants { role: user }
+            | WarehouseAssignment::ManageGrants { role: user }
+            | WarehouseAssignment::Describe { role: user }
+            | WarehouseAssignment::Select { role: user }
+            | WarehouseAssignment::Create { role: user }
+            | WarehouseAssignment::Modify { role: user } => user.to_openfga(),
+        }
+    }
+
+    fn relation(&self) -> Self::Relation {
+        match self {
+            WarehouseAssignment::Ownership(_) => APIWarehouseRelation::Ownership,
+            WarehouseAssignment::PassGrants { .. } => APIWarehouseRelation::PassGrants,
+            WarehouseAssignment::ManageGrants { .. } => APIWarehouseRelation::ManageGrants,
+            WarehouseAssignment::Describe { .. } => APIWarehouseRelation::Describe,
+            WarehouseAssignment::Select { .. } => APIWarehouseRelation::Select,
+            WarehouseAssignment::Create { .. } => APIWarehouseRelation::Create,
+            WarehouseAssignment::Modify { .. } => APIWarehouseRelation::Modify,
+        }
+    }
 }
 
-#[derive(Copy, Debug, Clone, PartialEq, Serialize, ToSchema, EnumIter)]
+#[derive(Copy, Debug, Clone, Hash, Eq, PartialEq, Serialize, ToSchema, EnumIter)]
 #[strum(serialize_all = "snake_case")]
 #[schema(as=WarehouseAction)]
 pub(super) enum APIWarehouseAction {
@@ -696,7 +830,7 @@ impl ReducedRelation for CatalogWarehouseAction {
     }
 }
 
-#[derive(Debug, Copy, Clone, strum_macros::Display)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, strum_macros::Display)]
 #[strum(serialize_all = "snake_case")]
 pub(super) enum NamespaceRelation {
     // -- Hierarchical relations --
@@ -730,11 +864,12 @@ pub(super) enum NamespaceRelation {
     CanGrantSelect,
     CanGrantPassGrants,
     CanGrantManageGrants,
+    CanChangeOwnership,
 }
 
 impl OpenFgaRelation for NamespaceRelation {}
 
-#[derive(Debug, Clone, Deserialize, Copy, PartialEq, ToSchema, EnumIter)]
+#[derive(Debug, Clone, Deserialize, Copy, Eq, PartialEq, ToSchema, EnumIter)]
 #[serde(rename_all = "snake_case")]
 #[schema(as=NamespaceRelation)]
 pub(super) enum APINamespaceRelation {
@@ -777,6 +912,20 @@ pub(super) enum NamespaceAssignment {
     },
 }
 
+impl GrantableRelation for APINamespaceRelation {
+    fn grant_relation(&self) -> NamespaceRelation {
+        match self {
+            APINamespaceRelation::Ownership => NamespaceRelation::CanChangeOwnership,
+            APINamespaceRelation::PassGrants => NamespaceRelation::CanGrantPassGrants,
+            APINamespaceRelation::ManageGrants => NamespaceRelation::CanGrantManageGrants,
+            APINamespaceRelation::Describe => NamespaceRelation::CanGrantDescribe,
+            APINamespaceRelation::Select => NamespaceRelation::CanGrantSelect,
+            APINamespaceRelation::Create => NamespaceRelation::CanCreateNamespace,
+            APINamespaceRelation::Modify => NamespaceRelation::CanUpdateProperties,
+        }
+    }
+}
+
 impl Assignment for NamespaceAssignment {
     type Relation = APINamespaceRelation;
 
@@ -803,9 +952,33 @@ impl Assignment for NamespaceAssignment {
             }
         }
     }
+
+    fn openfga_user(&self) -> String {
+        match self {
+            NamespaceAssignment::Ownership(user) => user.to_openfga(),
+            NamespaceAssignment::PassGrants { role: user }
+            | NamespaceAssignment::ManageGrants { role: user }
+            | NamespaceAssignment::Describe { role: user }
+            | NamespaceAssignment::Select { role: user }
+            | NamespaceAssignment::Create { role: user }
+            | NamespaceAssignment::Modify { role: user } => user.to_openfga(),
+        }
+    }
+
+    fn relation(&self) -> Self::Relation {
+        match self {
+            NamespaceAssignment::Ownership(_) => APINamespaceRelation::Ownership,
+            NamespaceAssignment::PassGrants { .. } => APINamespaceRelation::PassGrants,
+            NamespaceAssignment::ManageGrants { .. } => APINamespaceRelation::ManageGrants,
+            NamespaceAssignment::Describe { .. } => APINamespaceRelation::Describe,
+            NamespaceAssignment::Select { .. } => APINamespaceRelation::Select,
+            NamespaceAssignment::Create { .. } => APINamespaceRelation::Create,
+            NamespaceAssignment::Modify { .. } => APINamespaceRelation::Modify,
+        }
+    }
 }
 
-#[derive(Copy, Debug, Clone, PartialEq, Serialize, ToSchema, EnumIter)]
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Serialize, ToSchema, EnumIter)]
 #[schema(as=NamespaceAction)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum APINamespaceAction {
@@ -880,7 +1053,7 @@ impl ReducedRelation for CatalogNamespaceAction {
     }
 }
 
-#[derive(Debug, Copy, Clone, strum_macros::Display)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, strum_macros::Display)]
 #[strum(serialize_all = "snake_case")]
 pub(super) enum TableRelation {
     // -- Hierarchical relations --
@@ -911,7 +1084,7 @@ pub(super) enum TableRelation {
 
 impl OpenFgaRelation for TableRelation {}
 
-#[derive(Debug, Clone, Deserialize, Copy, PartialEq, ToSchema, EnumIter)]
+#[derive(Debug, Clone, Deserialize, Copy, Eq, PartialEq, ToSchema, EnumIter)]
 #[serde(rename_all = "snake_case")]
 #[schema(as=TableRelation)]
 pub(super) enum APITableRelation {
@@ -949,6 +1122,19 @@ pub(super) enum TableAssignment {
     },
 }
 
+impl GrantableRelation for APITableRelation {
+    fn grant_relation(&self) -> TableRelation {
+        match self {
+            APITableRelation::Ownership => TableRelation::CanChangeOwnership,
+            APITableRelation::PassGrants => TableRelation::CanGrantPassGrants,
+            APITableRelation::ManageGrants => TableRelation::CanGrantManageGrants,
+            APITableRelation::Describe => TableRelation::CanGrantDescribe,
+            APITableRelation::Select => TableRelation::CanGrantSelect,
+            APITableRelation::Modify => TableRelation::CanGrantModify,
+        }
+    }
+}
+
 impl Assignment for TableAssignment {
     type Relation = APITableRelation;
 
@@ -974,9 +1160,31 @@ impl Assignment for TableAssignment {
             }
         }
     }
+
+    fn openfga_user(&self) -> String {
+        match self {
+            TableAssignment::Ownership(user) => user.to_openfga(),
+            TableAssignment::PassGrants { role: user }
+            | TableAssignment::ManageGrants { role: user }
+            | TableAssignment::Describe { role: user }
+            | TableAssignment::Select { role: user }
+            | TableAssignment::Modify { role: user } => user.to_openfga(),
+        }
+    }
+
+    fn relation(&self) -> Self::Relation {
+        match self {
+            TableAssignment::Ownership(_) => APITableRelation::Ownership,
+            TableAssignment::PassGrants { .. } => APITableRelation::PassGrants,
+            TableAssignment::ManageGrants { .. } => APITableRelation::ManageGrants,
+            TableAssignment::Describe { .. } => APITableRelation::Describe,
+            TableAssignment::Select { .. } => APITableRelation::Select,
+            TableAssignment::Modify { .. } => APITableRelation::Modify,
+        }
+    }
 }
 
-#[derive(Copy, Debug, Clone, PartialEq, Serialize, ToSchema, EnumIter)]
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Serialize, ToSchema, EnumIter)]
 #[schema(as=TableAction)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum APITableAction {
@@ -1048,7 +1256,7 @@ impl ReducedRelation for CatalogTableAction {
     }
 }
 
-#[derive(Debug, Copy, Clone, strum_macros::Display)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, strum_macros::Display)]
 #[strum(serialize_all = "snake_case")]
 pub(super) enum ViewRelation {
     // -- Hierarchical relations --
@@ -1075,7 +1283,7 @@ pub(super) enum ViewRelation {
 
 impl OpenFgaRelation for ViewRelation {}
 
-#[derive(Debug, Clone, Deserialize, Copy, PartialEq, ToSchema, EnumIter)]
+#[derive(Debug, Clone, Deserialize, Copy, Eq, PartialEq, ToSchema, EnumIter)]
 #[serde(rename_all = "snake_case")]
 #[schema(as=ViewRelation)]
 pub(super) enum APIViewRelation {
@@ -1108,6 +1316,18 @@ pub(super) enum ViewAssignment {
     },
 }
 
+impl GrantableRelation for APIViewRelation {
+    fn grant_relation(&self) -> ViewRelation {
+        match self {
+            APIViewRelation::Ownership => ViewRelation::CanChangeOwnership,
+            APIViewRelation::PassGrants => ViewRelation::CanGrantPassGrants,
+            APIViewRelation::ManageGrants => ViewRelation::CanGrantManageGrants,
+            APIViewRelation::Describe => ViewRelation::CanGrantDescribe,
+            APIViewRelation::Modify => ViewRelation::CanGrantModify,
+        }
+    }
+}
+
 impl Assignment for ViewAssignment {
     type Relation = APIViewRelation;
 
@@ -1130,9 +1350,29 @@ impl Assignment for ViewAssignment {
             }
         }
     }
+
+    fn openfga_user(&self) -> String {
+        match self {
+            ViewAssignment::Ownership(user) => user.to_openfga(),
+            ViewAssignment::PassGrants { role: user }
+            | ViewAssignment::ManageGrants { role: user }
+            | ViewAssignment::Describe { role: user }
+            | ViewAssignment::Modify { role: user } => user.to_openfga(),
+        }
+    }
+
+    fn relation(&self) -> Self::Relation {
+        match self {
+            ViewAssignment::Ownership(_) => APIViewRelation::Ownership,
+            ViewAssignment::PassGrants { .. } => APIViewRelation::PassGrants,
+            ViewAssignment::ManageGrants { .. } => APIViewRelation::ManageGrants,
+            ViewAssignment::Describe { .. } => APIViewRelation::Describe,
+            ViewAssignment::Modify { .. } => APIViewRelation::Modify,
+        }
+    }
 }
 
-#[derive(Copy, Debug, Clone, PartialEq, Serialize, ToSchema, EnumIter)]
+#[derive(Copy, Debug, Clone, Eq, PartialEq, Serialize, ToSchema, EnumIter)]
 #[schema(as=ViewAction)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum APIViewAction {

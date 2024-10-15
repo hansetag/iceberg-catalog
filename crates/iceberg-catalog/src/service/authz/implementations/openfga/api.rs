@@ -5,7 +5,7 @@ use super::relations::{
     APIServerRelation as ServerRelation, APITableAction as TableAction,
     APITableRelation as TableRelation, APIViewAction as ViewAction,
     APIViewRelation as ViewRelation, APIWarehouseAction as WarehouseAction,
-    APIWarehouseRelation as WarehouseRelation, Assignment, NamespaceAssignment,
+    APIWarehouseRelation as WarehouseRelation, Assignment, GrantableRelation, NamespaceAssignment,
     NamespaceRelation as AllNamespaceRelations, ProjectAssignment,
     ProjectRelation as AllProjectRelations, ReducedRelation, RoleAssignment,
     RoleRelation as AllRoleRelations, ServerAssignment, ServerRelation as AllServerAction,
@@ -17,6 +17,7 @@ use super::OPENFGA_SERVER;
 use crate::api::ApiContext;
 use crate::request_metadata::RequestMetadata;
 use crate::service::authz::implementations::openfga::entities::OpenFgaEntity;
+use crate::service::authz::implementations::openfga::service_ext::MAX_TUPLES_PER_WRITE;
 use crate::service::authz::implementations::openfga::{
     OpenFGAAuthorizer, OpenFGAError, OpenFGAResult,
 };
@@ -31,8 +32,11 @@ use axum::routing::get;
 use axum::{Extension, Json, Router};
 use http::StatusCode;
 use openfga_rs::tonic::codegen::{Body, StdError};
-use openfga_rs::{tonic, CheckRequestTupleKey, ReadRequestTupleKey};
+use openfga_rs::{
+    tonic, CheckRequestTupleKey, ReadRequestTupleKey, TupleKey, TupleKeyWithoutCondition,
+};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use strum::IntoEnumIterator;
 use utoipa::OpenApi;
 
@@ -129,6 +133,8 @@ pub(super) struct GetProjectAssignmentsQuery {
 #[serde(rename_all = "kebab-case")]
 struct GetProjectAssignmentsResponse {
     assignments: Vec<ProjectAssignment>,
+    #[schema(value_type = uuid::Uuid)]
+    project_id: ProjectIdent,
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -554,7 +560,7 @@ where
     path = "/management/v1/permissions/role/by-id/{role_id}/assignments",
     params(GetProjectAssignmentsQuery),
     responses(
-            (status = 200, body = [GetProjectAssignmentsResponse]),
+            (status = 200, body = [GetRoleAssignmentsResponse]),
     )
 )]
 async fn get_role_assignments_by_id<T, C: Catalog, S: SecretStore>(
@@ -672,7 +678,10 @@ where
 
     Ok((
         StatusCode::OK,
-        Json(GetProjectAssignmentsResponse { assignments }),
+        Json(GetProjectAssignmentsResponse {
+            assignments,
+            project_id,
+        }),
     ))
 }
 
@@ -714,7 +723,10 @@ where
 
     Ok((
         StatusCode::OK,
-        Json(GetProjectAssignmentsResponse { assignments }),
+        Json(GetProjectAssignmentsResponse {
+            assignments,
+            project_id,
+        }),
     ))
 }
 
@@ -1074,6 +1086,7 @@ where
         http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
     >>::Future: Send,
 {
+    // Fail fast
     if actor == &Actor::Anonymous {
         return Err(OpenFGAError::AuthenticationRequired);
     }
@@ -1102,6 +1115,88 @@ where
     Ok(actions)
 }
 
+async fn checked_write<T, RA: Assignment>(
+    authorizer: OpenFGAAuthorizer<T>,
+    actor: &Actor,
+    writes: Option<Vec<RA>>,
+    deletions: Option<Vec<RA>>,
+    object: &str,
+) -> OpenFGAResult<()>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    // Fail fast
+    if actor == &Actor::Anonymous {
+        return Err(OpenFGAError::AuthenticationRequired);
+    }
+    let writes = writes.unwrap_or_default();
+    let deletions = deletions.unwrap_or_default();
+    let all_modifications = writes.iter().chain(deletions.iter()).collect::<Vec<_>>();
+    // Fail fast for too many writes
+    let num_modifications = i32::try_from(all_modifications.len()).unwrap_or(i32::MAX);
+    if num_modifications > MAX_TUPLES_PER_WRITE {
+        return Err(OpenFGAError::TooManyWrites {
+            actual: num_modifications,
+            max: MAX_TUPLES_PER_WRITE,
+        });
+    }
+
+    // ---------------------------- AUTHZ CHECKS ----------------------------
+    let openfga_actor = actor.to_openfga();
+
+    let grant_relations = all_modifications
+        .iter()
+        .map(|action| action.relation().grant_relation())
+        .collect::<HashSet<_>>();
+
+    futures::future::try_join_all(grant_relations.iter().map(|relation| async {
+        let key = CheckRequestTupleKey {
+            user: openfga_actor.clone(),
+            relation: relation.to_string(),
+            object: object.to_string(),
+        };
+
+        let allowed = authorizer.clone().check(key).await?;
+        if allowed {
+            Ok(())
+        } else {
+            Err(OpenFGAError::Unauthorized {
+                user: openfga_actor.clone(),
+                relation: relation.to_string(),
+                object: object.to_string(),
+            })
+        }
+    }))
+    .await?;
+
+    // ---------------------- APPLY WRITE OPERATIONS -----------------------
+    let writes = writes
+        .into_iter()
+        .map(|ra| TupleKey {
+            user: ra.openfga_user(),
+            relation: ra.relation().to_openfga().to_string(),
+            object: object.to_string(),
+            condition: None,
+        })
+        .collect();
+    let deletions = deletions
+        .into_iter()
+        .map(|ra| TupleKeyWithoutCondition {
+            user: ra.openfga_user(),
+            relation: ra.relation().to_openfga().to_string(),
+            object: object.to_string(),
+        })
+        .collect();
+    authorizer.write(Some(writes), Some(deletions)).await
+}
+
 #[cfg(test)]
 mod tests {
     use needs_env_var::needs_env_var;
@@ -1109,27 +1204,13 @@ mod tests {
     #[needs_env_var(TEST_OPENFGA = 1)]
     mod openfga {
         use super::super::*;
-        use crate::service::authz::implementations::openfga::{
-            client::{new_authorizer, new_unauthenticated_client},
-            migrate, AUTH_CONFIG,
-        };
+        use crate::service::authz::implementations::openfga::migration::tests::authorizer_for_empty_store;
         use crate::service::UserId;
         use openfga_rs::TupleKey;
 
         #[tokio::test]
         async fn test_get_relations() {
-            let mut client = new_unauthenticated_client(AUTH_CONFIG.endpoint.clone())
-                .await
-                .unwrap();
-
-            let store_name = format!("test_store_{}", uuid::Uuid::now_v7());
-            migrate(&mut client, Some(store_name.clone()))
-                .await
-                .unwrap();
-
-            let authorizer = new_authorizer(client.clone(), Some(store_name))
-                .await
-                .unwrap();
+            let (_, authorizer) = authorizer_for_empty_store().await;
 
             let relations: Vec<ServerAssignment> =
                 get_relations(authorizer.clone(), None, &OPENFGA_SERVER)
@@ -1164,18 +1245,7 @@ mod tests {
 
         #[tokio::test]
         async fn test_get_allowed_actions() {
-            let mut client = new_unauthenticated_client(AUTH_CONFIG.endpoint.clone())
-                .await
-                .unwrap();
-
-            let store_name = format!("test_store_{}", uuid::Uuid::now_v7());
-            migrate(&mut client, Some(store_name.clone()))
-                .await
-                .unwrap();
-
-            let authorizer = new_authorizer(client.clone(), Some(store_name))
-                .await
-                .unwrap();
+            let (_, authorizer) = authorizer_for_empty_store().await;
             let user_id = UserId::new(&uuid::Uuid::now_v7().to_string()).unwrap();
             let actor = Actor::Principal(user_id.clone());
             let access: Vec<ServerAction> =
@@ -1204,6 +1274,41 @@ mod tests {
             for action in ServerAction::iter() {
                 assert!(access.contains(&action));
             }
+        }
+
+        #[tokio::test]
+        async fn test_checked_write() {
+            let (_, authorizer) = authorizer_for_empty_store().await;
+
+            let user1_id = UserId::new(&uuid::Uuid::now_v7().to_string()).unwrap();
+            let user2_id = UserId::new(&uuid::Uuid::now_v7().to_string()).unwrap();
+
+            authorizer
+                .write(
+                    Some(vec![TupleKey {
+                        user: user1_id.to_openfga(),
+                        relation: ServerRelation::GlobalAdmin.to_openfga().to_string(),
+                        object: OPENFGA_SERVER.to_string(),
+                        condition: None,
+                    }]),
+                    None,
+                )
+                .await
+                .unwrap();
+
+            checked_write(
+                authorizer.clone(),
+                &Actor::Principal(user1_id.clone()),
+                Some(vec![ServerAssignment::GlobalAdmin(user2_id.into())]),
+                None,
+                &OPENFGA_SERVER,
+            ).await.unwrap();
+            
+            let relations: Vec<ServerAssignment> =
+                get_relations(authorizer.clone(), None, &OPENFGA_SERVER)
+                    .await
+                    .unwrap();
+            assert_eq!(relations.len(), 2);
         }
     }
 }

@@ -70,6 +70,12 @@ pub enum OpenFGAError {
     NoProjectId,
     #[error("Authentication required")]
     AuthenticationRequired,
+    #[error("Unauthorized for action `{relation}` on `{object}` for `{user}`")]
+    Unauthorized {
+        user: String,
+        relation: String,
+        object: String,
+    },
 }
 
 impl OpenFGAError {
@@ -110,15 +116,13 @@ impl OpenFGAError {
 
 impl From<OpenFGAError> for ErrorModel {
     fn from(err: OpenFGAError) -> Self {
+        let err_msg = err.to_string();
         match err {
-            OpenFGAError::NoProjectId => ErrorModel::bad_request(
-                "Project ID could not be inferred from request. Please specify it explicitly.",
-                "NoProjectId",
-                None,
-            ),
+            OpenFGAError::NoProjectId => ErrorModel::bad_request(err_msg, "NoProjectId", None),
             OpenFGAError::AuthenticationRequired => {
-                ErrorModel::unauthorized("Authentication required", "AuthenticationRequired", None)
+                ErrorModel::unauthorized(err_msg, "AuthenticationRequired", None)
             }
+            OpenFGAError::Unauthorized {.. } => ErrorModel::unauthorized(err_msg, "Unauthorized", None),
             _ => ErrorModel::new(
                 err.to_string(),
                 "AuthorizationError",

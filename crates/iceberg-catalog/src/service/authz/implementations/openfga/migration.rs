@@ -238,9 +238,31 @@ fn parse_applied_model_versions(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
+    use super::super::client::{new_authorizer, new_unauthenticated_client};
+    use super::super::OpenFGAAuthorizer;
     use super::*;
     use needs_env_var::needs_env_var;
+
+    pub(crate) async fn authorizer_for_empty_store() -> (
+        OpenFgaServiceClient<tonic::transport::Channel>,
+        OpenFGAAuthorizer<tonic::transport::Channel>,
+    ) {
+        let mut client = new_unauthenticated_client(AUTH_CONFIG.endpoint.clone())
+            .await
+            .unwrap();
+
+        let store_name = format!("test_store_{}", uuid::Uuid::now_v7());
+        migrate(&mut client, Some(store_name.clone()))
+            .await
+            .unwrap();
+
+        let authorizer = new_authorizer(client.clone(), Some(store_name))
+            .await
+            .unwrap();
+
+        (client, authorizer)
+    }
 
     #[test]
     fn test_parse_applied_model_versions() {

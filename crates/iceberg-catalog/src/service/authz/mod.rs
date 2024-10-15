@@ -15,7 +15,7 @@ use crate::api::ApiContext;
 use iceberg_ext::catalog::rest::ErrorModel;
 pub use implementations::allow_all::AllowAllAuthorizer;
 
-#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
 pub enum CatalogUserAction {
     /// Can get all details of the user given its id
@@ -26,7 +26,7 @@ pub enum CatalogUserAction {
     CanDelete,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
 pub enum CatalogServerAction {
     /// Can create items inside the server (can create Warehouses).
@@ -41,7 +41,7 @@ pub enum CatalogServerAction {
     CanProvisionUsers,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
 pub enum CatalogProjectAction {
     CanCreateWarehouse,
@@ -55,7 +55,7 @@ pub enum CatalogProjectAction {
     CanSearchRoles,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
 pub enum CatalogRoleAction {
     CanDelete,
@@ -63,7 +63,7 @@ pub enum CatalogRoleAction {
     CanRead,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
 pub enum CatalogWarehouseAction {
     CanCreateNamespace,
@@ -81,7 +81,7 @@ pub enum CatalogWarehouseAction {
     CanListDeletedTabulars,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
 pub enum CatalogNamespaceAction {
     CanCreateTable,
@@ -95,7 +95,7 @@ pub enum CatalogNamespaceAction {
     CanListNamespaces,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
 pub enum CatalogTableAction {
     CanDrop,
@@ -107,7 +107,7 @@ pub enum CatalogTableAction {
     CanIncludeInList,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, strum_macros::Display, EnumIter)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, strum_macros::Display, EnumIter)]
 #[strum(serialize_all = "snake_case")]
 pub enum CatalogViewAction {
     CanDrop,
