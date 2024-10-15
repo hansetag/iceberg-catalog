@@ -79,7 +79,7 @@ pub mod gcs {
             ProjectId, String, "gcs.project-id", "gcs_project_id";
             Bucket, String, "gcs.bucket", "gcs_bucket";
             Token, String, "gcs.oauth2.token", "gcs_oauth2_token";
-            TokenExpiresAt, String, "gcs.oauth2.token.expires-at", "gcs_oauth2_token_expires_at";
+            TokenExpiresAt, String, "gcs.oauth2.token-expires-at", "gcs_oauth2_token_expires_at";
         }
     );
 }

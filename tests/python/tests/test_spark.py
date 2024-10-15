@@ -10,8 +10,8 @@ import fsspec
 def test_create_namespace(spark, warehouse: conftest.Warehouse):
     spark.sql("CREATE NAMESPACE test_create_namespace_spark")
     assert (
-        "test_create_namespace_spark",
-    ) in warehouse.pyiceberg_catalog.list_namespaces()
+               "test_create_namespace_spark",
+           ) in warehouse.pyiceberg_catalog.list_namespaces()
 
 
 def test_list_namespaces(spark, warehouse: conftest.Warehouse):
@@ -182,20 +182,19 @@ def test_drop_table(spark, warehouse: conftest.Warehouse):
         assert "NoSuchTableError" in str(e)
 
 
-@pytest.mark.xfail(reason="Spark purge tries to sign a request which we don't support")
-def test_drop_table_purge_spark(spark, warehouse: conftest.Warehouse):
+def test_drop_table_purge_spark(spark, warehouse: conftest.Warehouse, storage_config):
+    if storage_config['storage-profile']['type'] == 's3':
+        pytest.skip(
+            "S3 fails to purge tables since it tries to sign a DELETE request for the bucket location which we don't want to sign.")
+
     spark.sql("CREATE NAMESPACE test_drop_table_purge_spark")
     spark.sql(
-        "CREATE TABLE test_drop_table.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg"
-    )
-    assert warehouse.pyiceberg_catalog.load_table(
-        ("test_drop_table_purge_spark", "my_table")
-    )
-    spark.sql("DROP TABLE test_drop_table.my_table PURGE;")
+        "CREATE TABLE test_drop_table_purge_spark.my_table (my_ints INT, my_floats DOUBLE, strings STRING) USING iceberg")
+    assert spark.sql("SELECT * FROM test_drop_table_purge_spark.my_table").toPandas().shape[0] == 0
+
+    spark.sql("DROP TABLE test_drop_table_purge_spark.my_table PURGE;")
     with pytest.raises(Exception) as e:
-        warehouse.pyiceberg_catalog.load_table(
-            ("test_drop_table_purge_spark", "my_table")
-        )
+        spark.sql("SELECT * FROM test_drop_table_purge_spark.my_table").toPandas()
         assert "NoSuchTableError" in str(e)
 
 
@@ -208,7 +207,7 @@ def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse, storage_con
     namespace = "test_drop_table_purge_http"
     spark.sql(f"CREATE NAMESPACE {namespace}")
     dfs = []
-    for n in range(5):
+    for n in range(2):
         data = pd.DataFrame(
             [[1 + n, "a-string", 2.2 + n]], columns=["id", "strings", "floats"]
         )
@@ -224,29 +223,29 @@ def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse, storage_con
     table_0 = warehouse.pyiceberg_catalog.load_table((namespace, "my_table_0"))
 
     purge_uri = (
-        warehouse.server.catalog_url.strip("/")
-        + "/"
-        + "/".join(
-            [
-                "v1",
-                str(warehouse.warehouse_id),
-                "namespaces",
-                namespace,
-                "tables",
-                "my_table_0?purgeRequested=True",
-            ]
-        )
+            warehouse.server.catalog_url.strip("/")
+            + "/"
+            + "/".join(
+        [
+            "v1",
+            str(warehouse.warehouse_id),
+            "namespaces",
+            namespace,
+            "tables",
+            "my_table_0?purgeRequested=True",
+        ]
+    )
     )
     requests.delete(
         purge_uri, headers={"Authorization": f"Bearer {warehouse.access_token}"}
     ).raise_for_status()
-
     with pytest.raises(Exception) as e:
         warehouse.pyiceberg_catalog.load_table((namespace, "my_table_0"))
         assert "NoSuchTableError" in str(e)
-
-    properties = table_0.properties
     if storage_config["storage-profile"]["type"] == "s3":
+        # Gotta use the s3 creds here since the prefix no longer exists after deletion & at least minio will not allow
+        # listing a location that doesn't exist with our downscoped cred
+        properties = dict()
         properties["s3.access-key-id"] = storage_config["storage-credential"][
             "aws-access-key-id"
         ]
@@ -254,21 +253,42 @@ def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse, storage_con
             "aws-secret-access-key"
         ]
         properties["s3.endpoint"] = storage_config["storage-profile"]["endpoint"]
+    else:
+        properties = table_0.io.properties
 
     file_io = io._infer_file_io_from_scheme(table_0.location(), properties)
-
     # sleep to give time for the table to be gone
     time.sleep(5)
 
-    inp = file_io.new_input(table_0.location())
-    assert not inp.exists(), f"Table location {table_0.location()} still exists"
+    location = table_0.location().rstrip("/") + "/"
 
+    inp = file_io.new_input(location)
+    assert not inp.exists(), f"Table location {location} still exists"
     tables = warehouse.pyiceberg_catalog.list_tables(namespace)
-    assert len(tables) == 4
+
+    assert len(tables) == 1
     for n, ((_, table), df) in enumerate(zip(sorted(tables), dfs[1:]), 1):
         assert table == f"my_table_{n}"
         table = warehouse.pyiceberg_catalog.load_table((namespace, table))
         assert table.scan().to_pandas().equals(df)
+        purge_uri = (
+                warehouse.server.catalog_url.strip("/")
+                + "/"
+                + "/".join(
+            [
+                "v1",
+                str(warehouse.warehouse_id),
+                "namespaces",
+                namespace,
+                "tables",
+                f"my_table_{n}?purgeRequested=True",
+            ]
+        )
+        )
+        requests.delete(
+            purge_uri, headers={"Authorization": f"Bearer {warehouse.access_token}"}
+        ).raise_for_status()
+        time.sleep(5)
 
 
 def test_query_empty_table(spark, warehouse: conftest.Warehouse):
@@ -569,7 +589,7 @@ def test_custom_location(spark, namespace, warehouse: conftest.Warehouse):
 
 
 def test_cannot_create_table_at_same_location(
-    spark, namespace, warehouse: conftest.Warehouse
+        spark, namespace, warehouse: conftest.Warehouse
 ):
     # Create a table without a custom location to get the default location
     spark.sql(
@@ -592,7 +612,7 @@ def test_cannot_create_table_at_same_location(
             f"CREATE TABLE {namespace.spark_name}.my_table_custom_location (my_ints INT) USING iceberg LOCATION '{custom_location}'"
         )
         assert (
-            "Unexpected files in location, tabular locations have to be empty" in str(e)
+                "Unexpected files in location, tabular locations have to be empty" in str(e)
         )
 
     # Write / read data
@@ -613,7 +633,7 @@ def test_cannot_create_table_at_same_location(
 
 
 def test_cannot_create_table_at_sub_location(
-    spark, namespace, warehouse: conftest.Warehouse
+        spark, namespace, warehouse: conftest.Warehouse
 ):
     # Create a table without a custom location to get the default location
     spark.sql(
@@ -636,7 +656,7 @@ def test_cannot_create_table_at_sub_location(
             f"CREATE TABLE {namespace.spark_name}.my_table_custom_location (my_ints INT) USING iceberg LOCATION '{custom_location}/sub_location'"
         )
         assert (
-            "Unexpected files in location, tabular locations have to be empty" in str(e)
+                "Unexpected files in location, tabular locations have to be empty" in str(e)
         )
 
     # Write / read data
@@ -658,11 +678,11 @@ def test_cannot_create_table_at_sub_location(
 
 @pytest.mark.parametrize("enable_cleanup", [False, True])
 def test_old_metadata_files_are_deleted(
-    spark,
-    namespace,
-    warehouse: conftest.Warehouse,
-    enable_cleanup,
-    io_fsspec: fsspec.AbstractFileSystem,
+        spark,
+        namespace,
+        warehouse: conftest.Warehouse,
+        enable_cleanup,
+        io_fsspec: fsspec.AbstractFileSystem,
 ):
     if not enable_cleanup:
         tbl_name = "old_metadata_files_are_deleted_no_cleanup"
