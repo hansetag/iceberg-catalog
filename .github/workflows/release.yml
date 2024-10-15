@@ -78,10 +78,10 @@ jobs:
 
         # Currently disabled due to https://github.com/actions/runner-images/issues/9460
         # Which prevents us from launching postgres via docker / colima
-        # - target: aarch64-apple-darwin
-        #   os: macos-14
-        #   name: iceberg-catalog-aarch64-apple-darwin.tar.gz
-        #   cross: false
+        - target: aarch64-apple-darwin
+          os: macos-14
+          name: iceberg-catalog-aarch64-apple-darwin.tar.gz
+          cross: false
 
         - target: x86_64-pc-windows-msvc
           os: windows-latest
@@ -118,12 +118,6 @@ jobs:
       #     # Docker on macOS misses daemon due to licensing, so install colima as runtime
       #     brew install colima
       #     colima start
-
-      - name: Run postgres
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          docker run -d --name postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres -p 5432:5432 postgres:16
-          docker ps -a
 
       - name: Install cross
         if: matrix.cross == true

@@ -1,3 +1,6 @@
+[build.env]
+passthrough = ["SQLX_OFFLINE=true"]
+
 [target.x86_64-unknown-linux-gnu]
 pre-build = [
     """DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y wget unzip && \
@@ -20,20 +23,4 @@ pre-build = [
 wget https://github.com/protocolbuffers/protobuf/releases/download/v28.2/protoc-28.2-linux-aarch_64.zip && \
 unzip protoc-28.2-linux-aarch_64.zip -d /usr/local/ && \
 rm protoc-28.2-linux-aarch_64.zip"""
-]
-
-[target.x86_64-unknown-windows-msvc]
-pre-build = [
-    """DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y wget unzip && \
-wget https://github.com/protocolbuffers/protobuf/releases/download/v28.2/protoc-28.2-win64.zip && \
-unzip protoc-28.2-win64.zip -d /usr/local/ && \
-rm protoc-28.2-win64.zip"""
-]
-
-[target.aarch64-unknown-windows-msvc]
-pre-build = [
-    """DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y wget unzip && \
-wget https://github.com/protocolbuffers/protobuf/releases/download/v28.2/protoc-28.2-win64.zip && \
-unzip protoc-28.2-win64.zip -d /usr/local/ && \
-rm protoc-28.2-win64.zip"""
 ]
