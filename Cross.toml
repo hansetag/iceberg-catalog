@@ -11,16 +11,30 @@ rm protoc-28.2-linux-x86_64.zip"""
 
 [target.x86_64-unknown-linux-musl]
 pre-build = [
-    """DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y wget unzip && \
-wget https://github.com/protocolbuffers/protobuf/releases/download/v28.2/protoc-28.2-linux-x86_64.zip && \
-unzip protoc-28.2-linux-x86_64.zip -d /usr/local/ && \
-rm protoc-28.2-linux-x86_64.zip"""
+    """PROTOBUF_VERSION=28.2 \
+PROTOBUF_URL=https://github.com/google/protobuf/releases/download/v"$PROTOBUF_VERSION"/protobuf-cpp-"$PROTOBUF_VERSION".zip \
+DEBIAN_FRONTEND=noninteractive apt-get update && \
+apt-get install -y wget unzip curl bash unzip build-base autoconf automake libtool make g++ && \
+curl --silent -L -o protobuf.zip "$PROTOBUF_URL" && \
+unzip protobuf.zip && \
+cd protobuf-"$PROTOBUF_VERSION" && \
+./configure && \
+make -j$(nproc) && \
+make install && \
+cd .. && rm protobuf.zip"""
 ]
 
 [target.aarch64-unknown-linux-musl]
 pre-build = [
-    """DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y wget unzip && \
-wget https://github.com/protocolbuffers/protobuf/releases/download/v28.2/protoc-28.2-linux-aarch_64.zip && \
-unzip protoc-28.2-linux-aarch_64.zip -d /usr/local/ && \
-rm protoc-28.2-linux-aarch_64.zip"""
+    """PROTOBUF_VERSION=28.2 \
+PROTOBUF_URL=https://github.com/google/protobuf/releases/download/v"$PROTOBUF_VERSION"/protobuf-cpp-"$PROTOBUF_VERSION".zip \
+DEBIAN_FRONTEND=noninteractive apt-get update && \
+apt-get install -y wget unzip curl bash unzip build-base autoconf automake libtool make g++ && \
+curl --silent -L -o protobuf.zip "$PROTOBUF_URL" && \
+unzip protobuf.zip && \
+cd protobuf-"$PROTOBUF_VERSION" && \
+./configure && \
+make -j$(nproc) && \
+make install && \
+cd .. && rm protobuf.zip"""
 ]
