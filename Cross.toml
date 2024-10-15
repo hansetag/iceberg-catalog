@@ -10,6 +10,7 @@ rm protoc-28.2-linux-x86_64.zip"""
 ]
 
 [target.x86_64-unknown-linux-musl]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-musl:main"
 pre-build = [
     """PROTOBUF_VERSION=28.2 \
 PROTOBUF_URL=https://github.com/google/protobuf/releases/download/v"$PROTOBUF_VERSION"/protobuf-cpp-"$PROTOBUF_VERSION".zip \

@@ -65,19 +65,17 @@ jobs:
           os: ubuntu-latest
           name: iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
           cross: false
+# unclear how to install protoc for these targets
+#        - target: x86_64-unknown-linux-musl
+#          os: ubuntu-latest
+#          name: iceberg-catalog-x86_64-unknown-linux-musl.tar.gz
+#          cross: true
+#
+#        - target: aarch64-unknown-linux-musl
+#          os: ubuntu-latest
+#          name: iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
+#          cross: true
 
-        - target: x86_64-unknown-linux-musl
-          os: ubuntu-latest
-          name: iceberg-catalog-x86_64-unknown-linux-musl.tar.gz
-          cross: true
-
-        - target: aarch64-unknown-linux-musl
-          os: ubuntu-latest
-          name: iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
-          cross: true
-
-        # Currently disabled due to https://github.com/actions/runner-images/issues/9460
-        # Which prevents us from launching postgres via docker / colima
         - target: aarch64-apple-darwin
           os: macos-14
           name: iceberg-catalog-aarch64-apple-darwin.tar.gz
@@ -104,20 +102,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Protoc
+        if: matrix.os != 'macos-14'
         uses: arduino/setup-protoc@v3
+      - name: Download Protoc [macos-14]
+        if: matrix.os == 'macos-14'
+        run: brew install protobuf
+
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: ${{ matrix.target }}
           cache: false
-      
-      # - name: Setup docker (missing on MacOS)
-      #   if: matrix.os == 'macos-14'
-      #   run: |
-      #     brew install docker
-      #     # Docker on macOS misses daemon due to licensing, so install colima as runtime
-      #     brew install colima
-      #     colima start
 
       - name: Install cross
         if: matrix.cross == true
