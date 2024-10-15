@@ -160,17 +160,17 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
           TEST_KV2: 1
-          ICEBERG_REST__KV2__URL: http://localhost:8200
-          ICEBERG_REST__KV2__USER: test
-          ICEBERG_REST__KV2__PASSWORD: test
-          ICEBERG_REST__KV2__SECRET_MOUNT: secret
+          LAKEKEEPER_TEST__KV2__URL: http://localhost:8200
+          LAKEKEEPER_TEST__KV2__USER: test
+          LAKEKEEPER_TEST__KV2__PASSWORD: test
+          LAKEKEEPER_TEST__KV2__SECRET_MOUNT: secret
           # minio test envs
           TEST_MINIO: 1
-          ICEBERG_REST_TEST_S3_BUCKET: tests
-          ICEBERG_REST_TEST_S3_REGION: local
-          ICEBERG_REST_TEST_S3_ACCESS_KEY: minio-root-user
-          ICEBERG_REST_TEST_S3_SECRET_KEY: minio-root-password
-          ICEBERG_REST_TEST_S3_ENDPOINT: http://localhost:9000
+          LAKEKEEPER_TEST__S3_BUCKET: tests
+          LAKEKEEPER_TEST__S3_REGION: local
+          LAKEKEEPER_TEST__S3_ACCESS_KEY: minio-root-user
+          LAKEKEEPER_TEST__S3_SECRET_KEY: minio-root-password
+          LAKEKEEPER_TEST__S3_ENDPOINT: http://localhost:9000
 
           TEST_OPENFGA: 1
           LAKEKEEPER_TEST__OPENFGA__ENDPOINT: http://localhost:35081

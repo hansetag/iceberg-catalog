@@ -16,14 +16,17 @@
           <template #prepend="{ item }">
             <v-icon v-if="item.itemType == 'project'"> mdi-bookmark</v-icon>
             <v-icon v-else-if="item.itemType == 'warehouse'">
-              mdi-database</v-icon
+              mdi-database
+            </v-icon
             >
             <v-icon v-else-if="item.itemType == 'namespace'">
-              mdi-folder</v-icon
+              mdi-folder
+            </v-icon
             >
             <v-icon v-else-if="item.itemType == 'table'"> mdi-table</v-icon>
             <v-icon v-else-if="item.itemType == 'view'">
-              mdi-view-grid-outline</v-icon
+              mdi-view-grid-outline
+            </v-icon
             >
             <v-icon v-else>mdi-table</v-icon>
           </template>
@@ -43,7 +46,7 @@
 
 <script lang="ts" setup>
 import * as env from "@/app.config";
-import { ref, onMounted } from "vue";
+import {ref, onMounted} from "vue";
 import {
   Data,
   Namespaces,
@@ -53,7 +56,7 @@ import {
   Warehouse,
 } from "../common/interfaces";
 
-const treeItems = ref<TreeItems>({ items: [] });
+const treeItems = ref<TreeItems>({items: []});
 
 const selected = ref([]);
 const json = reactive({});
@@ -65,7 +68,7 @@ const obejctName = ref();
 
 onMounted(async () => {
   try {
-    const data = (await loadData(managementUrl + "/project")) as Data;
+    const data = (await loadData(managementUrl + "/project-list")) as Data;
     if (data) {
       const projects = data.projects;
       const transformedData: TreeItem[] = [];
@@ -79,7 +82,7 @@ onMounted(async () => {
         });
       }
 
-      treeItems.value = { items: transformedData };
+      treeItems.value = {items: transformedData};
     } else {
       console.error("Projects data is not available.");
     }

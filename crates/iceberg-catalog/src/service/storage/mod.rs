@@ -844,11 +844,11 @@ mod tests {
     #[needs_env_var::needs_env_var(TEST_MINIO = 1)]
     async fn test_vended_minio() {
         let key_prefix = Some(format!("test_prefix-{}", uuid::Uuid::now_v7()));
-        let bucket = std::env::var("ICEBERG_REST_TEST_S3_BUCKET").unwrap();
-        let region = std::env::var("ICEBERG_REST_TEST_S3_REGION").unwrap_or("local".into());
-        let aws_access_key_id = std::env::var("ICEBERG_REST_TEST_S3_ACCESS_KEY").unwrap();
-        let aws_secret_access_key = std::env::var("ICEBERG_REST_TEST_S3_SECRET_KEY").unwrap();
-        let endpoint = std::env::var("ICEBERG_REST_TEST_S3_ENDPOINT").unwrap();
+        let bucket = std::env::var("LAKEKEEPER_TEST__S3_BUCKET").unwrap();
+        let region = std::env::var("LAKEKEEPER_TEST__S3_REGION").unwrap_or("local".into());
+        let aws_access_key_id = std::env::var("LAKEKEEPER_TEST__S3_ACCESS_KEY").unwrap();
+        let aws_secret_access_key = std::env::var("LAKEKEEPER_TEST__S3_SECRET_KEY").unwrap();
+        let endpoint = std::env::var("LAKEKEEPER_TEST__S3_ENDPOINT").unwrap();
 
         let cred: StorageCredential = S3Credential::AccessKey {
             aws_access_key_id,
