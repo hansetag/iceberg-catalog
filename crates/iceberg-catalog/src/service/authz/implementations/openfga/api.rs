@@ -1178,9 +1178,10 @@ mod tests {
                 .unwrap();
             let user_id = UserId::new(&uuid::Uuid::now_v7().to_string()).unwrap();
             let actor = Actor::Principal(user_id.clone());
-            let access: Vec<ServerAction> = get_allowed_actions(authorizer.clone(), &actor, &OPENFGA_SERVER)
-                .await
-                .unwrap();
+            let access: Vec<ServerAction> =
+                get_allowed_actions(authorizer.clone(), &actor, &OPENFGA_SERVER)
+                    .await
+                    .unwrap();
             assert!(access.is_empty());
 
             authorizer
@@ -1195,8 +1196,11 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            
-            let access: Vec<ServerAction> = get_allowed_actions(authorizer.clone(), &actor, &OPENFGA_SERVER).await.unwrap();
+
+            let access: Vec<ServerAction> =
+                get_allowed_actions(authorizer.clone(), &actor, &OPENFGA_SERVER)
+                    .await
+                    .unwrap();
             for action in ServerAction::iter() {
                 assert!(access.contains(&action));
             }

@@ -46,10 +46,12 @@ impl From<RoleId> for UserOrRole {
 impl ParseOpenFgaEntity for UserOrRole {
     fn try_from_openfga_id(r#type: FgaType, id: &str) -> OpenFGAResult<Self> {
         match r#type {
-            FgaType::User => Ok(UserOrRole::User(        UserId::new(id)
-                .map_err(|_e| OpenFGAError::unexpected_entity(vec![FgaType::User], id.to_string()))?)),
-            FgaType::Role => Ok(UserOrRole::Role(id.parse()
-                .map_err(|_e| OpenFGAError::unexpected_entity(vec![FgaType::Role], id.to_string()))?)),
+            FgaType::User => Ok(UserOrRole::User(UserId::new(id).map_err(|_e| {
+                OpenFGAError::unexpected_entity(vec![FgaType::User], id.to_string())
+            })?)),
+            FgaType::Role => Ok(UserOrRole::Role(id.parse().map_err(|_e| {
+                OpenFGAError::unexpected_entity(vec![FgaType::Role], id.to_string())
+            })?)),
             _ => Err(OpenFGAError::UnexpectedEntity {
                 r#type: vec![FgaType::User],
                 value: id.to_string(),
