@@ -288,6 +288,12 @@ mod tests {
 
         #[tokio::test]
         async fn test_delete_secret() {
+            // print all envs that contain KV2
+            for (key, value) in std::env::vars() {
+                if key.contains("KV2") {
+                    println!("{}: {}", key, value);
+                }
+            }
             let state = SecretsState::from_config(CONFIG.kv2.as_ref().expect("vault cfg missing"))
                 .await
                 .unwrap();

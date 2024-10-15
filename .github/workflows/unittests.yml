@@ -18,8 +18,6 @@ jobs:
   sqlx-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
       - uses: actions/checkout@v4
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
@@ -66,8 +64,14 @@ jobs:
 
       - name: Cargo clippy
         run: just check-clippy
-
-
+        env:
+          RUST_CACHE_KEY_OS: rust-cache-ubuntu-latest
+          TEST_OPENFGA: 1
+          TEST_AZURE: 1
+          TEST_AWS: 1
+          TEST_GCS: 1
+          TEST_KV2: 1
+          TEST_MINIO: 1
   test:
     runs-on: ubuntu-latest
     services:
@@ -80,16 +84,6 @@ jobs:
           VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
         options: >-
           --health-cmd "vault status -address http://localhost:8200"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      openfga:
-        image: openfga/openfga:v1.6
-        command: ["openfga", "run"]
-        ports:
-          - 35081:8081
-        options: >-
-          --health-cmd "/usr/local/bin/grpc_health_probe -addr=localhost:8081"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -157,6 +151,9 @@ jobs:
           echo "path \"secret/*\" { capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\"] }" > /tmp/app.hcl
           vault policy write -address "${VAULT_ADDR}" app /tmp/app.hcl
           vault write -address "${VAULT_ADDR}" auth/userpass/users/test password=test policies=app
+
+      - name: Setup openfga
+        run: docker run -d -p 35081:8081 openfga/openfga:v1.6 run
 
       - name: Test
         run: cargo test --no-fail-fast --all-targets --all-features --workspace
