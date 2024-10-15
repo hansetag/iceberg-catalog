@@ -37,7 +37,7 @@ pub mod v1 {
     use serde::Serialize;
     use user::{
         CreateUserRequest, SearchUser, SearchUserRequest, SearchUserResponse, Service as _,
-        UpdateUserRequest, User, UserLastUpdatedWith,
+        UpdateUserRequest, User, UserLastUpdatedWith, UserType,
     };
     use warehouse::{
         AzCredential, AzdlsProfile, CreateWarehouseRequest, CreateWarehouseResponse, GcsCredential,
@@ -142,6 +142,7 @@ pub mod v1 {
             UpdateWarehouseStorageRequest,
             User,
             UserLastUpdatedWith,
+            UserType,
             WarehouseStatus,
         ))
     )]
@@ -493,7 +494,7 @@ pub mod v1 {
     /// List all projects the requesting user has access to
     #[utoipa::path(
         get,
-        tag = "warehouse",
+        tag = "project",
         path = "/management/v1/project-list",
         responses(
             (status = 200, description = "List of projects", body = [ListProjectsResponse])

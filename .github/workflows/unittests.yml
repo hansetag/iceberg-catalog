@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
       - name: Cargo sqlx-check
         run: |
           sudo apt-get install libpq-dev -y
@@ -50,6 +52,12 @@ jobs:
           components: clippy
         env:
           RUST_CACHE_KEY_OS: rust-cache-ubuntu-latest
+          TEST_OPENFGA: 1
+          TEST_AZURE: 1
+          TEST_AWS: 1
+          TEST_GCS: 1
+          TEST_KV2: 1
+          TEST_MINIO: 1
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v3

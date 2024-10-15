@@ -25,6 +25,16 @@ pub enum UserLastUpdatedWith {
     UpdateEndpoint,
 }
 
+/// Type of a User
+#[derive(Copy, Debug, PartialEq, Deserialize, Serialize, utoipa::ToSchema, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub enum UserType {
+    /// Human User
+    Human,
+    /// Application / Technical User
+    Application,
+}
+
 /// User of the catalog
 #[derive(Debug, Serialize, utoipa::ToSchema, Clone)]
 #[serde(rename_all = "kebab-case")]
@@ -36,6 +46,8 @@ pub struct User {
     pub email: Option<String>,
     /// The user's ID
     pub id: String,
+    /// Type of the user
+    pub user_type: UserType,
     /// The endpoint that last updated the user
     pub last_updated_with: UserLastUpdatedWith,
     /// Timestamp when the user was created
@@ -51,6 +63,8 @@ pub struct SearchUser {
     pub name: String,
     /// ID of the user
     pub id: String,
+    /// Type of the user
+    pub user_type: UserType,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema, Clone)]
@@ -67,6 +81,9 @@ pub struct CreateUserRequest {
     /// from the provided token.
     #[serde(default)]
     pub email: Option<String>,
+    /// Type of the user. Useful to override wrongly classified users
+    #[serde(default)]
+    pub user_type: Option<UserType>,
     /// Subject id of the user - allows user provisioning.
     /// The id must be identical to the subject in JWT tokens.
     /// To create users in self-service manner, do not set the id.
@@ -141,6 +158,7 @@ pub struct UpdateUserRequest {
     pub name: String,
     #[serde(default)]
     pub email: Option<String>,
+    pub user_type: UserType,
 }
 
 impl<C: Catalog, A: Authorizer + Clone, S: SecretStore> Service<C, A, S> for ApiServer<C, A, S> {}
@@ -157,6 +175,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             name,
             email,
             id,
+            user_type,
         } = request;
         let email = email.filter(|e| !e.is_empty());
         let name = name.filter(|n| !n.is_empty());
@@ -188,27 +207,32 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
                 None,
             ))?;
 
-        let name = if let Some(name) = name {
-            name
+        let (name, user_type) = if let (Some(name), Some(user_type)) = (name.clone(), user_type) {
+            (name, user_type)
         } else {
             if !self_provision {
                 return Err(ErrorModel::bad_request(
-                    "Name must be provided for user provisioning",
+                    "Name and user_type must be provided for user provisioning",
                     "MissingName",
                     None,
                 )
                 .into());
             }
 
-            principal
+            let (p_name, p_type) = principal
                 .as_ref()
-                .map(|p| p.get_name().map(ToString::to_string))
+                .map(|p| p.get_name_and_type())
                 .transpose()?
                 .ok_or(ErrorModel::bad_request(
                     "User name could not be extracted from the token and must be provided",
                     "MissingUserName",
                     None,
-                ))?
+                ))?;
+
+            (
+                name.unwrap_or(p_name.to_string()),
+                user_type.unwrap_or(p_type),
+            )
         };
 
         if name.is_empty() {
@@ -231,6 +255,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             &name,
             email.as_deref(),
             UserLastUpdatedWith::CreateEndpoint,
+            user_type,
             t.transaction(),
         )
         .await?;
@@ -347,6 +372,7 @@ pub(super) trait Service<C: Catalog, A: Authorizer, S: SecretStore> {
             &request.name,
             email,
             UserLastUpdatedWith::UpdateEndpoint,
+            request.user_type,
             t.transaction(),
         )
         .await?;

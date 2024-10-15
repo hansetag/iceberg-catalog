@@ -51,7 +51,7 @@ reqwest = { version = "^0.12", default-features = false, features = [
 iceberg = { git = "https://github.com/hansetag/iceberg-rust.git", rev = "2b6263a6c998df75444f7feb54bd37144354a071", features = [
     "storage-all",
 ] }
-openfga-rs = { git = "https://github.com/c-thiel/openfga-rs.git", rev = "2fb01991afc9fb7ba1f6cb08370de27a2385eb1e" }
+openfga-rs = { git = "https://github.com/c-thiel/openfga-rs.git", rev = "cfc76e1be780573ba3a2eafa4a85bdf9f1b60e21" }
 typed-builder = "^0.20.0"
 strum_macros = "^0.26"
 axum = { version = "^0.7" }

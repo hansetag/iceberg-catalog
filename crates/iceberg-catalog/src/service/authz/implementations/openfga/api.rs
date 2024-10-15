@@ -268,7 +268,8 @@ where
     >>::Future: Send,
 {
     let authorizer = api_context.v1_state.authz;
-    let relations = get_allowed_actions(authorizer, &metadata, &role_id.to_openfga()).await?;
+    let relations =
+        get_allowed_actions(authorizer, metadata.actor(), &role_id.to_openfga()).await?;
 
     Ok((
         StatusCode::OK,
@@ -304,7 +305,7 @@ where
     >>::Future: Send,
 {
     let authorizer = api_context.v1_state.authz;
-    let relations = get_allowed_actions(authorizer, &metadata, &OPENFGA_SERVER).await?;
+    let relations = get_allowed_actions(authorizer, metadata.actor(), &OPENFGA_SERVER).await?;
 
     Ok((
         StatusCode::OK,
@@ -345,7 +346,8 @@ where
         .project_id()
         .or(CONFIG.default_project_id)
         .ok_or(OpenFGAError::NoProjectId)?;
-    let relations = get_allowed_actions(authorizer, &metadata, &project_id.to_openfga()).await?;
+    let relations =
+        get_allowed_actions(authorizer, metadata.actor(), &project_id.to_openfga()).await?;
 
     Ok((
         StatusCode::OK,
@@ -382,7 +384,8 @@ where
     >>::Future: Send,
 {
     let authorizer = api_context.v1_state.authz;
-    let relations = get_allowed_actions(authorizer, &metadata, &project_id.to_openfga()).await?;
+    let relations =
+        get_allowed_actions(authorizer, metadata.actor(), &project_id.to_openfga()).await?;
 
     Ok((
         StatusCode::OK,
@@ -419,7 +422,8 @@ where
     >>::Future: Send,
 {
     let authorizer = api_context.v1_state.authz;
-    let relations = get_allowed_actions(authorizer, &metadata, &warehouse_id.to_openfga()).await?;
+    let relations =
+        get_allowed_actions(authorizer, metadata.actor(), &warehouse_id.to_openfga()).await?;
 
     Ok((
         StatusCode::OK,
@@ -456,7 +460,8 @@ where
     >>::Future: Send,
 {
     let authorizer = api_context.v1_state.authz;
-    let relations = get_allowed_actions(authorizer, &metadata, &namespace_id.to_openfga()).await?;
+    let relations =
+        get_allowed_actions(authorizer, metadata.actor(), &namespace_id.to_openfga()).await?;
 
     Ok((
         StatusCode::OK,
@@ -493,7 +498,8 @@ where
     >>::Future: Send,
 {
     let authorizer = api_context.v1_state.authz;
-    let relations = get_allowed_actions(authorizer, &metadata, &table_id.to_openfga()).await?;
+    let relations =
+        get_allowed_actions(authorizer, metadata.actor(), &table_id.to_openfga()).await?;
 
     Ok((
         StatusCode::OK,
@@ -530,7 +536,8 @@ where
     >>::Future: Send,
 {
     let authorizer = api_context.v1_state.authz;
-    let relations = get_allowed_actions(authorizer, &metadata, &view_id.to_openfga()).await?;
+    let relations =
+        get_allowed_actions(authorizer, metadata.actor(), &view_id.to_openfga()).await?;
 
     Ok((
         StatusCode::OK,
@@ -1054,7 +1061,7 @@ where
 
 async fn get_allowed_actions<T, A: ReducedRelation + IntoEnumIterator>(
     authorizer: OpenFGAAuthorizer<T>,
-    metadata: &RequestMetadata,
+    actor: &Actor,
     object: &str,
 ) -> OpenFGAResult<Vec<A>>
 where
@@ -1067,7 +1074,6 @@ where
         http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
     >>::Future: Send,
 {
-    let actor = metadata.auth_details.actor();
     if actor == &Actor::Anonymous {
         return Err(OpenFGAError::AuthenticationRequired);
     }
@@ -1094,4 +1100,106 @@ where
         .collect();
 
     Ok(actions)
+}
+
+#[cfg(test)]
+mod tests {
+    use needs_env_var::needs_env_var;
+
+    #[needs_env_var(TEST_OPENFGA = 1)]
+    mod openfga {
+        use super::super::*;
+        use crate::service::authz::implementations::openfga::{
+            client::{new_authorizer, new_unauthenticated_client},
+            migrate, AUTH_CONFIG,
+        };
+        use crate::service::UserId;
+        use openfga_rs::TupleKey;
+
+        #[tokio::test]
+        async fn test_get_relations() {
+            let mut client = new_unauthenticated_client(AUTH_CONFIG.endpoint.clone())
+                .await
+                .unwrap();
+
+            let store_name = format!("test_store_{}", uuid::Uuid::now_v7());
+            migrate(&mut client, Some(store_name.clone()))
+                .await
+                .unwrap();
+
+            let authorizer = new_authorizer(client.clone(), Some(store_name))
+                .await
+                .unwrap();
+
+            let relations: Vec<ServerAssignment> =
+                get_relations(authorizer.clone(), None, &OPENFGA_SERVER)
+                    .await
+                    .unwrap();
+            assert!(relations.is_empty());
+
+            let user_id = UserId::new(&uuid::Uuid::now_v7().to_string()).unwrap();
+            authorizer
+                .write(
+                    Some(vec![TupleKey {
+                        user: user_id.to_openfga(),
+                        relation: ServerRelation::GlobalAdmin.to_openfga().to_string(),
+                        object: OPENFGA_SERVER.to_string(),
+                        condition: None,
+                    }]),
+                    None,
+                )
+                .await
+                .unwrap();
+
+            let relations: Vec<ServerAssignment> =
+                get_relations(authorizer.clone(), None, &OPENFGA_SERVER)
+                    .await
+                    .unwrap();
+            assert_eq!(relations.len(), 1);
+            assert_eq!(
+                relations,
+                vec![ServerAssignment::GlobalAdmin(user_id.into())]
+            );
+        }
+
+        #[tokio::test]
+        async fn test_get_allowed_actions() {
+            let mut client = new_unauthenticated_client(AUTH_CONFIG.endpoint.clone())
+                .await
+                .unwrap();
+
+            let store_name = format!("test_store_{}", uuid::Uuid::now_v7());
+            migrate(&mut client, Some(store_name.clone()))
+                .await
+                .unwrap();
+
+            let authorizer = new_authorizer(client.clone(), Some(store_name))
+                .await
+                .unwrap();
+            let user_id = UserId::new(&uuid::Uuid::now_v7().to_string()).unwrap();
+            let actor = Actor::Principal(user_id.clone());
+            let access: Vec<ServerAction> = get_allowed_actions(authorizer.clone(), &actor, &OPENFGA_SERVER)
+                .await
+                .unwrap();
+            assert!(access.is_empty());
+
+            authorizer
+                .write(
+                    Some(vec![TupleKey {
+                        user: user_id.to_openfga(),
+                        relation: ServerRelation::GlobalAdmin.to_openfga().to_string(),
+                        object: OPENFGA_SERVER.to_string(),
+                        condition: None,
+                    }]),
+                    None,
+                )
+                .await
+                .unwrap();
+            
+            let access: Vec<ServerAction> = get_allowed_actions(authorizer.clone(), &actor, &OPENFGA_SERVER).await.unwrap();
+            for action in ServerAction::iter() {
+                assert!(access.contains(&action));
+            }
+        }
+    }
 }

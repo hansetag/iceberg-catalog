@@ -137,11 +137,13 @@ async fn maybe_register_user<D: Catalog>(
     if user.users.is_empty() {
         // If the user is authenticated, create a user in the catalog
         let mut t = D::Transaction::begin_write(state).await?;
+        let (name, r#type) = principal.get_name_and_type()?;
         D::create_or_update_user(
             principal.user_id(),
-            principal.get_name()?,
+            name,
             principal.email(),
             UserLastUpdatedWith::ConfigCallCreation,
+            r#type,
             t.transaction(),
         )
         .await?;

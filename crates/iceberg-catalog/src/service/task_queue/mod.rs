@@ -234,6 +234,7 @@ mod test {
         use crate::implementations::postgres::tabular::table::tests::initialize_table;
         use crate::implementations::postgres::warehouse::test::initialize_warehouse;
         use crate::implementations::postgres::{CatalogState, PostgresCatalog};
+        use crate::service::authz::AllowAllAuthorizer;
         use crate::service::storage::{
             S3Credential, S3Flavor, S3Profile, StorageCredential, StorageProfile,
         };
@@ -284,8 +285,11 @@ mod test {
             let cloned = queues.clone();
             let cat = catalog_state.clone();
             let sec = secrets.clone();
+            let auth = AllowAllAuthorizer;
             let _queues_task = tokio::task::spawn(async move {
-                cloned.spawn_queues::<PostgresCatalog, _>(cat, sec).await
+                cloned
+                    .spawn_queues::<PostgresCatalog, _, _>(cat, sec, auth)
+                    .await
             });
 
             let cred: StorageCredential = S3Credential::AccessKey {

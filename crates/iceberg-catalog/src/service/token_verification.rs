@@ -12,6 +12,8 @@ use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use jwks_client_rs::source::WebSource;
 use jwks_client_rs::{JsonWebKey, JwksClient};
 
+use super::{ProjectIdent, RoleId, WarehouseIdent};
+use crate::api::management::v1::user::UserType;
 use crate::api::Result;
 use crate::request_metadata::RequestMetadata;
 use axum::Extension;
@@ -21,8 +23,6 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::sync::Arc;
 use url::Url;
-
-use super::{ProjectIdent, RoleId, WarehouseIdent};
 
 /// Unique identifier of a user in the system.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, PartialOrd, utoipa::ToSchema)]
@@ -63,39 +63,67 @@ impl Principal {
     ///
     /// # Errors
     /// - name, display name and email are all missing
-    pub fn get_name(&self) -> Result<&str> {
-        self.display_name().or(self.name()).or(self.email()).ok_or(
-            ErrorModel::bad_request(
-                "Cannot register user without name or display name",
-                "InvalidAccessTokenClaims",
-                None,
-            )
-            .into(),
+    pub fn get_name_and_type(&self) -> Result<(&str, UserType)> {
+        if let Some(app_id) = self.app_id() {
+            return Ok((self.display_name().unwrap_or(app_id), UserType::Application));
+        }
+
+        let human_name = self.display_name().or(self.email());
+        if let Some(name) = human_name {
+            return Ok((name, UserType::Human));
+        }
+
+        Err(ErrorModel::bad_request(
+            "Cannot register principal as no name could be determined",
+            "InvalidAccessTokenClaims",
+            None,
         )
+        .into())
     }
 }
 
 impl AuthDetails {
     fn try_from_jwt_claims(claims: Claims) -> Result<Self> {
-        let name = claims.name.as_deref().map(String::from).or_else(|| {
-            match (claims.first_name.as_deref(), claims.last_name.as_deref()) {
-                (Some(first), Some(last)) => Some(format!("{first} {last}")),
-                (Some(first), None) => Some(first.to_string()),
-                (None, Some(last)) => Some(last.to_string()),
-                (None, None) => None,
-            }
-        });
-
         let user_id = UserId::try_from_claims(&claims)?;
+
+        let first_name = claims.given_name.or(claims.first_name);
+        let last_name = claims.family_name.or(claims.last_name);
+        let name =
+            claims
+                .name
+                .as_deref()
+                .map(String::from)
+                .or_else(|| match (first_name, last_name) {
+                    (Some(first), Some(last)) => Some(format!("{first} {last}")),
+                    (Some(first), None) => Some(first.to_string()),
+                    (None, Some(last)) => Some(last.to_string()),
+                    (None, None) => None,
+                });
+
+        let preferred_username = claims
+            // Keycloak
+            .preferred_username
+            // Azure
+            .or(claims.app_displayname)
+            // Humans
+            .or(name.clone());
+
+        let email = claims.email.or(claims.upn);
+        let application_id = claims
+            .azp
+            .or(claims.appid)
+            .or(claims.app_id)
+            .or(claims.application_id)
+            .or(claims.client_id);
 
         let principal = Principal {
             actor: Actor::Principal(user_id.clone()),
             user_id,
             name: name.clone(),
-            display_name: claims.preferred_username.clone().or(name.clone()),
+            display_name: preferred_username,
             issuer: claims.iss,
-            email: claims.email,
-            application_id: claims.azp,
+            email,
+            application_id,
         };
 
         Ok(Self::Principal(principal))
@@ -193,6 +221,10 @@ impl UserId {
     }
 
     fn try_from_claims(claims: &Claims) -> Result<Self> {
+        // For azure, the oid claim is permanent to the user account
+        // accross all Entra ID applications. sub is only unique for one client.
+        // To enable collaboration between projects, we use oid as the user id if
+        // provided.
         let sub = if let Some(oid) = &claims.oid {
             oid.as_str()
         } else {
@@ -225,58 +257,53 @@ pub enum Actor {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Claims {
-    pub sub: String,
-    pub iss: String,
-    pub aud: Aud,
-    pub exp: usize,
-    pub iat: usize,
-    // Azure Entra ID uses this as a globally unique identifier
-    pub oid: Option<String>,
-
-    #[serde(alias = "client_id")]
-    // Identifier of the client using the token, e.g. the client id in azure
-    pub azp: Option<String>,
-
-    pub name: Option<String>,
-    #[serde(
-        alias = "given_name",
-        alias = "given-name",
-        alias = "givenName",
-        alias = "firstName",
-        alias = "first-name"
-    )]
-    pub first_name: Option<String>,
-    #[serde(
-        alias = "family_name",
-        alias = "family-name",
-        alias = "familyName",
-        alias = "lastName",
-        alias = "last-name"
-    )]
-    pub last_name: Option<String>,
+// If multiple aliases are present, serde errors with "duplicate field".
+// To avoid this, we use aliases scarcely and prefer to add a separate field for each alias.
+struct Claims {
+    sub: String,
+    iss: String,
+    // aud: Aud,
+    // exp: usize,
+    // iat: usize,
+    oid: Option<String>,
+    azp: Option<String>,
+    appid: Option<String>,
+    app_id: Option<String>,
+    application_id: Option<String>,
+    client_id: Option<String>,
+    name: Option<String>,
+    #[serde(alias = "given_name", alias = "given-name", alias = "givenName")]
+    given_name: Option<String>,
+    #[serde(alias = "firstName", alias = "first-name")]
+    first_name: Option<String>,
+    #[serde(alias = "family_name", alias = "family-name", alias = "familyName")]
+    family_name: Option<String>,
+    #[serde(alias = "lastName", alias = "last-name")]
+    last_name: Option<String>,
     #[serde(
         // azure calls this app_displayname
         alias = "app_displayname",
         alias = "app-displayname",
         alias = "app_display_name",
         alias = "appDisplayName",
+    )]
+    app_displayname: Option<String>,
+    #[serde(
         // keycloak calls this preferred_username
         alias = "preferred_username",
         alias = "preferred-username",
         alias = "preferredUsername"
     )]
-    pub preferred_username: Option<String>,
-    // TODO: what happens if things clash here?
+    preferred_username: Option<String>,
     #[serde(
         alias = "email-address",
         alias = "emailAddress",
-        alias = "email_address",
-        alias = "upn"
+        alias = "email_address"
     )]
-    pub email: Option<String>,
-    #[serde(flatten)]
-    pub other: serde_json::Value,
+    email: Option<String>,
+    upn: Option<String>,
+    // #[serde(flatten)]
+    // other: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Deserialize)]

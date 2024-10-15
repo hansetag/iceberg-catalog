@@ -19,7 +19,7 @@ use super::{
     CatalogState, PostgresTransaction,
 };
 use crate::api::management::v1::user::{
-    ListUsersResponse, SearchUserResponse, UserLastUpdatedWith,
+    ListUsersResponse, SearchUserResponse, UserLastUpdatedWith, UserType,
 };
 use crate::implementations::postgres::role::search_role;
 use crate::implementations::postgres::tabular::{list_tabulars, mark_tabular_as_deleted};
@@ -138,9 +138,18 @@ impl Catalog for super::PostgresCatalog {
         name: &str,
         email: Option<&str>,
         last_updated_with: UserLastUpdatedWith,
+        user_type: UserType,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateOrUpdateUserResponse> {
-        create_or_update_user(user_id, name, email, last_updated_with, &mut **transaction).await
+        create_or_update_user(
+            user_id,
+            name,
+            email,
+            last_updated_with,
+            user_type,
+            &mut **transaction,
+        )
+        .await
     }
 
     async fn search_user(

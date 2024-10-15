@@ -1,7 +1,7 @@
 use super::dbutils::DBErrorHandler;
 use crate::api::iceberg::v1::PaginationQuery;
 use crate::api::management::v1::user::{
-    ListUsersResponse, SearchUser, SearchUserResponse, User, UserLastUpdatedWith,
+    ListUsersResponse, SearchUser, SearchUserResponse, User, UserLastUpdatedWith, UserType,
 };
 use crate::service::{CreateOrUpdateUserResponse, Result, UserId};
 use itertools::Itertools;
@@ -14,12 +14,38 @@ enum DbUserLastUpdatedWith {
     UpdateEndpoint,
 }
 
+#[derive(sqlx::Type, Debug, Clone, Copy)]
+#[sqlx(rename_all = "kebab-case", type_name = "user_type")]
+enum DbUserType {
+    Application,
+    Human,
+}
+
+impl From<DbUserType> for UserType {
+    fn from(db_user_type: DbUserType) -> Self {
+        match db_user_type {
+            DbUserType::Application => UserType::Application,
+            DbUserType::Human => UserType::Human,
+        }
+    }
+}
+
+impl From<UserType> for DbUserType {
+    fn from(user_type: UserType) -> Self {
+        match user_type {
+            UserType::Application => DbUserType::Application,
+            UserType::Human => DbUserType::Human,
+        }
+    }
+}
+
 #[derive(sqlx::FromRow, Debug)]
 struct UserRow {
     id: String,
     name: String,
     email: Option<String>,
     last_updated_with: DbUserLastUpdatedWith,
+    user_type: DbUserType,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -31,6 +57,7 @@ impl From<UserRow> for User {
             name,
             email,
             last_updated_with,
+            user_type,
             created_at,
             updated_at,
         }: UserRow,
@@ -39,6 +66,7 @@ impl From<UserRow> for User {
             id,
             name,
             email,
+            user_type: user_type.into(),
             last_updated_with: match last_updated_with {
                 DbUserLastUpdatedWith::CreateEndpoint => UserLastUpdatedWith::CreateEndpoint,
                 DbUserLastUpdatedWith::ConfigCallCreation => {
@@ -68,6 +96,7 @@ pub(crate) async fn list_users<'e, 'c: 'e, E: sqlx::Executor<'c, Database = sqlx
             id,
             name,
             last_updated_with as "last_updated_with: DbUserLastUpdatedWith",
+            user_type as "user_type: DbUserType",
             email,
             created_at,
             updated_at
@@ -132,6 +161,7 @@ pub(crate) async fn create_or_update_user<
     name: &str,
     email: Option<&str>,
     last_updated_with: UserLastUpdatedWith,
+    user_type: UserType,
     connection: E,
 ) -> Result<CreateOrUpdateUserResponse> {
     let db_last_updated_with = match last_updated_with {
@@ -143,16 +173,17 @@ pub(crate) async fn create_or_update_user<
     // query_as doesn't respect FromRow: https://github.com/launchbadge/sqlx/issues/2584
     let user = sqlx::query!(
         r#"
-        INSERT INTO users (id, name, email, last_updated_with)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO users (id, name, email, last_updated_with, user_type)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (id)
-        DO UPDATE SET name = $2, email = $3, last_updated_with = $4
-        returning (xmax = 0) AS created, id, name, email, created_at, updated_at, last_updated_with as "last_updated_with: DbUserLastUpdatedWith"
+        DO UPDATE SET name = $2, email = $3, last_updated_with = $4, user_type = $5
+        returning (xmax = 0) AS created, id, name, email, created_at, updated_at, last_updated_with as "last_updated_with: DbUserLastUpdatedWith", user_type as "user_type: DbUserType"
         "#,
         id.inner(),
         name,
         email,
         db_last_updated_with as _,
+        DbUserType::from(user_type) as _
     )
     .fetch_one(connection)
     .await
@@ -162,6 +193,7 @@ pub(crate) async fn create_or_update_user<
         id: user.id,
         name: user.name,
         email: user.email,
+        user_type: user.user_type,
         last_updated_with: user.last_updated_with,
         created_at: user.created_at,
         updated_at: user.updated_at,
@@ -179,7 +211,7 @@ pub(crate) async fn search_user<'e, 'c: 'e, E: sqlx::Executor<'c, Database = sql
 ) -> Result<SearchUserResponse> {
     let users = sqlx::query!(
         r#"
-        SELECT id, name, name <-> $1 AS dist
+        SELECT id, name, name <-> $1 AS dist, user_type as "user_type: DbUserType"
         FROM users
         ORDER BY dist ASC
         LIMIT 10
@@ -193,6 +225,7 @@ pub(crate) async fn search_user<'e, 'c: 'e, E: sqlx::Executor<'c, Database = sql
     .map(|row| SearchUser {
         id: row.id,
         name: row.name,
+        user_type: row.user_type.into(),
     })
     .collect();
 
@@ -218,6 +251,7 @@ mod test {
             user_name,
             None,
             UserLastUpdatedWith::CreateEndpoint,
+            UserType::Human,
             &state.read_write.write_pool,
         )
         .await
@@ -239,6 +273,7 @@ mod test {
         assert_eq!(users.users[0].id, user_id.inner());
         assert_eq!(users.users[0].name, user_name);
         assert_eq!(users.users[0].email, None);
+        assert_eq!(users.users[0].user_type, UserType::Human);
 
         // Update
         let user_name = "Test User 1 Updated";
@@ -247,6 +282,7 @@ mod test {
             user_name,
             None,
             UserLastUpdatedWith::CreateEndpoint,
+            UserType::Human,
             &state.read_write.write_pool,
         )
         .await
@@ -282,6 +318,7 @@ mod test {
             user_name,
             None,
             UserLastUpdatedWith::UpdateEndpoint,
+            UserType::Application,
             &state.read_write.write_pool,
         )
         .await
@@ -293,6 +330,7 @@ mod test {
         assert_eq!(search_result.users.len(), 1);
         assert_eq!(search_result.users[0].id, user_id.inner());
         assert_eq!(search_result.users[0].name, user_name);
+        assert_eq!(search_result.users[0].user_type, UserType::Application);
     }
 
     #[sqlx::test]
@@ -307,6 +345,7 @@ mod test {
             user_name,
             None,
             UserLastUpdatedWith::ConfigCallCreation,
+            UserType::Application,
             &state.read_write.write_pool,
         )
         .await

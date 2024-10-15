@@ -4,7 +4,11 @@
     unreachable_pub,
     clippy::pedantic
 )]
-#![allow(clippy::module_name_repetitions, clippy::result_large_err)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::result_large_err,
+    clippy::large_enum_variant
+)]
 #![forbid(unsafe_code)]
 
 pub mod catalog;

@@ -13,7 +13,7 @@ use crate::SecretIdent;
 
 use crate::api::management::v1::role::{ListRolesResponse, Role, SearchRoleResponse};
 use crate::api::management::v1::user::{
-    ListUsersResponse, SearchUserResponse, User, UserLastUpdatedWith,
+    ListUsersResponse, SearchUserResponse, User, UserLastUpdatedWith, UserType,
 };
 use crate::api::management::v1::warehouse::TabularDeleteProfile;
 use crate::service::tabular_idents::{TabularIdentOwned, TabularIdentUuid};
@@ -423,6 +423,7 @@ where
         // If None, set the email to None.
         email: Option<&str>,
         last_updated_with: UserLastUpdatedWith,
+        user_type: UserType,
         transaction: <Self::Transaction as Transaction<Self::State>>::Transaction<'a>,
     ) -> Result<CreateOrUpdateUserResponse>;
 

@@ -53,7 +53,7 @@ pub enum OpenFGAError {
     UnexpectedEntity { r#type: Vec<FgaType>, value: String },
     #[error("Unknown type: {0}")]
     UnknownType(String),
-    #[error("Invalid entity string: {0}")]
+    #[error("Invalid entity string: `{0}`")]
     InvalidEntity(String),
     #[error("Unknown model version currently applied")]
     UnknownModelVersionApplied(i32),
