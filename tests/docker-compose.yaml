@@ -10,8 +10,8 @@ services:
       test: [ "CMD-SHELL", 'exec 3<>/dev/tcp/127.0.0.1/8080;echo -e "GET /realms/test/.well-known/openid-configuration HTTP/1.1\r\nhost: localhost:8080\r\nConnection: close\r\n\r\n" >&3;grep "jwks_uri"  <&3' ]
       interval: 2s
       timeout: 80s
-      retries: 2
-      start_period: 40s
+      retries: 10
+      start_period: 60s
     ports:
       - "31100:8080"
     command: [ "start-dev", "--metrics-enabled=true", "--health-enabled=true",  "--import-realm" ]
