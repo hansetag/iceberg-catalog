@@ -76,10 +76,10 @@ def string_to_bool(s: str) -> bool:
 @pytest.fixture(scope="session", params=STORAGE_CONFIGS)
 def storage_config(request) -> dict:
     if request.param["type"] == "s3":
-        if S3_BUCKET is None:
+        if S3_BUCKET is None or S3_BUCKET == "":
             pytest.skip("ICEBERG_REST_TEST_S3_BUCKET is not set")
 
-        if S3_PATH_STYLE_ACCESS is not None:
+        if S3_PATH_STYLE_ACCESS is not None and S3_PATH_STYLE_ACCESS != "":
             path_style_access = string_to_bool(S3_PATH_STYLE_ACCESS)
         else:
             path_style_access = None
@@ -105,9 +105,9 @@ def storage_config(request) -> dict:
             },
         }
     elif request.param["type"] == "azure":
-        if AZURE_STORAGE_ACCOUNT_NAME is None:
+        if AZURE_STORAGE_ACCOUNT_NAME is None or AZURE_STORAGE_ACCOUNT_NAME == "":
             pytest.skip("ICEBERG_REST_TEST_AZURE_STORAGE_ACCOUNT_NAME is not set")
-        if AZURE_STORAGE_FILESYSTEM is None:
+        if AZURE_STORAGE_FILESYSTEM is None or AZURE_STORAGE_FILESYSTEM == "":
             pytest.skip("ICEBERG_REST_TEST_AZURE_STORAGE_FILESYSTEM is not set")
 
         return {
@@ -125,7 +125,7 @@ def storage_config(request) -> dict:
             },
         }
     elif request.param["type"] == "gcs":
-        if GCS_BUCKET is None:
+        if GCS_BUCKET is None or GCS_BUCKET == "":
             pytest.skip("ICEBERG_REST_TEST_GCS_BUCKET is not set")
 
         return {
