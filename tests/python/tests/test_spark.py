@@ -242,8 +242,9 @@ def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse, storage_con
     with pytest.raises(Exception) as e:
         warehouse.pyiceberg_catalog.load_table((namespace, "my_table_0"))
         assert "NoSuchTableError" in str(e)
-    properties = table_0.io.properties
     if storage_config["storage-profile"]["type"] == "s3":
+        # TODO: why does just taking the sts creds out of table_0.io.properties not work?
+        properties = dict()
         properties["s3.access-key-id"] = storage_config["storage-credential"][
             "aws-access-key-id"
         ]
@@ -251,6 +252,8 @@ def test_drop_table_purge_http(spark, warehouse: conftest.Warehouse, storage_con
             "aws-secret-access-key"
         ]
         properties["s3.endpoint"] = storage_config["storage-profile"]["endpoint"]
+    else:
+        properties = table_0.io.properties
 
     file_io = io._infer_file_io_from_scheme(table_0.location(), properties)
     # sleep to give time for the table to be gone

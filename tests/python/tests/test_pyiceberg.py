@@ -104,6 +104,8 @@ def test_drop_purge_table(namespace: conftest.Namespace, storage_config):
 
     properties = tab.io.properties
     if storage_config["storage-profile"]["type"] == "s3":
+        # TODO: why does just taking the sts creds out of table_0.io.properties not work?
+        properties = dict()
         properties["s3.access-key-id"] = storage_config["storage-credential"][
             "aws-access-key-id"
         ]
