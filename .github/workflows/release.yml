@@ -65,21 +65,21 @@ jobs:
           os: ubuntu-latest
           name: iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
           cross: false
-# unclear how to install protoc for these targets
-#        - target: x86_64-unknown-linux-musl
-#          os: ubuntu-latest
-#          name: iceberg-catalog-x86_64-unknown-linux-musl.tar.gz
-#          cross: true
-#
-#        - target: aarch64-unknown-linux-musl
-#          os: ubuntu-latest
-#          name: iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
-#          cross: true
 
-        - target: aarch64-apple-darwin
-          os: macos-14
-          name: iceberg-catalog-aarch64-apple-darwin.tar.gz
-          cross: false
+        - target: x86_64-unknown-linux-musl
+          os: ubuntu-latest
+          name: iceberg-catalog-x86_64-unknown-linux-musl.tar.gz
+          cross: true
+
+        - target: aarch64-unknown-linux-musl
+          os: ubuntu-latest
+          name: iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
+          cross: true
+
+        # - target: aarch64-apple-darwin
+        #   os: macos-14
+        #   name: iceberg-catalog-aarch64-apple-darwin.tar.gz
+        #   cross: false
 
         - target: x86_64-pc-windows-msvc
           os: windows-latest
@@ -101,12 +101,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Protoc
-        if: matrix.os != 'macos-14'
-        uses: arduino/setup-protoc@v3
-      - name: Download Protoc [macos-14]
-        if: matrix.os == 'macos-14'
-        run: brew install protobuf
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
