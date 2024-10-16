@@ -115,10 +115,12 @@ jobs:
         with:
           tool: cross
 
-      - name: C Toolchain
+      - name: Setup cmake
         # C Toolchain for windows for protoc compilation
         if: matrix.os == 'windows-latest'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.16'
 
       - name: Build [Cargo]
         if: matrix.cross == false
