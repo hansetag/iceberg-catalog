@@ -102,8 +102,11 @@ def test_drop_purge_table(namespace: conftest.Namespace, storage_config):
     catalog.create_table((*namespace.name, table_name), schema=schema)
     tab = catalog.load_table((*namespace.name, table_name))
 
-    properties = tab.properties
+    properties = tab.io.properties
     if storage_config["storage-profile"]["type"] == "s3":
+        # Gotta use the s3 creds here since the prefix no longer exists after deletion & at least minio will not allow
+        # listing a location that doesn't exist with our downscoped cred
+        properties = dict()
         properties["s3.access-key-id"] = storage_config["storage-credential"][
             "aws-access-key-id"
         ]
@@ -120,13 +123,15 @@ def test_drop_purge_table(namespace: conftest.Namespace, storage_config):
         catalog.load_table((*namespace.name, table_name))
         assert "NoSuchTableError" in str(e)
 
-    inp = file_io.new_input(tab.location())
-    assert inp.exists(), f"Table location {tab.location()} still exists"
+    location = tab.location().rstrip("/") + "/"
+
+    inp = file_io.new_input(location)
+    assert inp.exists(), f"Table location {location} still exists"
     # sleep to give time for the table to be gone
     time.sleep(5)
 
-    inp = file_io.new_input(tab.location())
-    assert not inp.exists(), f"Table location {tab.location()} still exists"
+    inp = file_io.new_input(location)
+    assert not inp.exists(), f"Table location {location} still exists"
 
     with pytest.raises(Exception) as e:
         catalog.load_table((*namespace.name, table_name))

@@ -126,7 +126,7 @@ FROM view v
                            ARRAY_AGG(value) AS view_properties_values
                     FROM view_properties
                     GROUP BY view_id) vp ON v.view_id = vp.view_id
-         LEFT JOIN (SELECT view_id,
+         LEFT JOIN (SELECT vv.view_id,
                            JSONB_AGG(version_id)           AS version_ids,
                            ARRAY_AGG(summary)              AS summaries,
                            ARRAY_AGG(schema_id)            AS version_schema_ids,
@@ -136,15 +136,15 @@ FROM view v
                            JSONB_AGG(typ)                  as "typ",
                            JSONB_AGG(sql)                  as "sql",
                            JSONB_AGG(dialect)              as "dialect"
-
                     FROM view_version vv
-                             LEFT JOIN (SELECT view_version_id,
+                             LEFT JOIN (SELECT view_id,
+                                               view_version_id,
                                                ARRAY_AGG(typ)     as typ,
                                                ARRAY_AGG(sql)     as sql,
                                                ARRAY_AGG(dialect) as dialect
                                         FROM view_representation
-                                        GROUP BY view_version_id) vr ON vv.version_id = vr.view_version_id
-                    GROUP BY view_id) vvr ON v.view_id = vvr.view_id WHERE v.view_id = $1 AND (ta.deleted_at is NULL OR $2)"#,
+                                        GROUP BY view_version_id, view_id) vr ON vv.version_id = vr.view_version_id AND vv.view_id = vr.view_id
+                    GROUP BY vv.view_id) vvr ON v.view_id = vvr.view_id WHERE v.view_id = $1 AND (ta.deleted_at is NULL OR $2)"#,
             view_id,
             include_deleted
         )

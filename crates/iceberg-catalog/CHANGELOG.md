@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1](https://github.com/hansetag/iceberg-catalog/compare/v0.4.0...v0.4.1) (2024-10-15)
+
+
+### Bug Fixes
+
+* bug in join for listing view representations ([d2f1d7a](https://github.com/hansetag/iceberg-catalog/commit/d2f1d7aad9497f8bf4fc04d8347949bf25ffc16a))
+* gcs integration test are now running in ci ([d2f1d7a](https://github.com/hansetag/iceberg-catalog/commit/d2f1d7aad9497f8bf4fc04d8347949bf25ffc16a))
+* increase keycloak timeout in integration tests ([d2f1d7a](https://github.com/hansetag/iceberg-catalog/commit/d2f1d7aad9497f8bf4fc04d8347949bf25ffc16a))
+* purge tests are now properly executed in ci ([d2f1d7a](https://github.com/hansetag/iceberg-catalog/commit/d2f1d7aad9497f8bf4fc04d8347949bf25ffc16a))
+
 ## [0.4.0](https://github.com/hansetag/iceberg-catalog/compare/v0.3.0...v0.4.0) (2024-10-03)
 
 

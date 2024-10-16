@@ -381,9 +381,9 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.4.13"
+version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e614738943d3f68c628ae3dbce7c3daffb196665f82f8c8ea6b65de73c79429"
+checksum = "e26a9844c659a2a293d239c7910b752f8487fe122c6c8bd1659bf85a6507c302"
 dependencies = [
  "brotli 7.0.0",
  "flate2",
@@ -614,9 +614,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "1.53.0"
+version = "1.54.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43fad71130014e11f42fadbdcce5df12ee61866f8ab9bad773b138d4b3c11087"
+checksum = "e2f2a62020f3e06f9b352b2a23547f6e1d110b6bf1e18a6b588ae36114eaf6e2"
 dependencies = [
  "ahash 0.8.11",
  "aws-credential-types",
@@ -2858,7 +2858,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg-catalog"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -2926,7 +2926,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg-catalog-bin"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -2944,7 +2944,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg-ext"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "axum",
  "chrono",
@@ -5112,9 +5112,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.10.0"
+version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9720086b3357bcb44fce40117d769a4d068c70ecfa190850a980a71755f66fcc"
+checksum = "8e28bdad6db2b8340e449f7108f020b3b092e8583a9e3fb82713e1d4e71fe817"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -5130,9 +5130,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.10.0"
+version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f1abbfe725f27678f4663bcacb75a83e829fd464c25d78dd038a3a29e307cec"
+checksum = "9d846214a9854ef724f3da161b426242d8de7c1fc7de2f89bb1efcb154dca79d"
 dependencies = [
  "darling 0.20.10",
  "proc-macro2",
