@@ -3794,7 +3794,7 @@ dependencies = [
 [[package]]
 name = "openfga-rs"
 version = "0.1.0"
-source = "git+https://github.com/c-thiel/openfga-rs.git?rev=0c44501da022e8a9dc32d7fece068f9921e61115#0c44501da022e8a9dc32d7fece068f9921e61115"
+source = "git+https://github.com/c-thiel/openfga-rs.git?rev=f0c61a5775e87c55d9d9d9268d6d837d621c5a3a#f0c61a5775e87c55d9d9d9268d6d837d621c5a3a"
 dependencies = [
  "chrono",
  "http 1.1.0",

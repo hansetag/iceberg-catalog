@@ -3,10 +3,10 @@ name: 🚀 Release
 on:
   push:
     branches:
-    - main
+      - main
   pull_request:
     paths:
-    - '.github/workflows/release.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 env:
@@ -61,37 +61,37 @@ jobs:
     strategy:
       matrix:
         include:
-        - target: x86_64-unknown-linux-gnu
-          os: ubuntu-latest
-          name: iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
-          cross: false
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: iceberg-catalog-x86_64-unknown-linux-gnu.tar.gz
+            cross: false
 
-        - target: x86_64-unknown-linux-musl
-          os: ubuntu-latest
-          name: iceberg-catalog-x86_64-unknown-linux-musl.tar.gz
-          cross: true
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            name: iceberg-catalog-x86_64-unknown-linux-musl.tar.gz
+            cross: true
 
-        - target: aarch64-unknown-linux-musl
-          os: ubuntu-latest
-          name: iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
-          cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            name: iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
+            cross: true
 
-        # - target: aarch64-apple-darwin
-        #   os: macos-14
-        #   name: iceberg-catalog-aarch64-apple-darwin.tar.gz
-        #   cross: false
+          - target: aarch64-apple-darwin
+            os: macos-14
+            name: iceberg-catalog-aarch64-apple-darwin.tar.gz
+            cross: false
 
-        - target: x86_64-pc-windows-msvc
-          os: windows-latest
-          name: iceberg-catalog-x86_64-pc-windows-msvc.zip
-          rustflags: -C target-feature=+crt-static
-          cross: false
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: iceberg-catalog-x86_64-pc-windows-msvc.zip
+            rustflags: -C target-feature=+crt-static
+            cross: true
 
-        - target: aarch64-pc-windows-msvc
-          os: windows-latest
-          name: iceberg-catalog-aarch64-pc-windows-msvc.zip
-          rustflags: -C target-feature=+crt-static
-          cross: false
+    #          - target: aarch64-pc-windows-msvc
+    #            os: windows-latest
+    #            name: iceberg-catalog-aarch64-pc-windows-msvc.zip
+    #            rustflags: -C target-feature=+crt-static
+    #            cross: false
 
     runs-on: ${{ matrix.os }}
     continue-on-error: true
@@ -145,7 +145,7 @@ jobs:
   build-docker:
     name: Build Docker
     runs-on: ubuntu-latest
-    needs: 
+    needs:
       - build-binary
       - release_please
     services:
@@ -413,7 +413,7 @@ jobs:
           docker manifest rm quay.io/hansetag/tip-catalog:latest || true
           docker manifest create quay.io/hansetag/tip-catalog:latest quay.io/hansetag/tip-catalog:latest-amd64 quay.io/hansetag/tip-catalog:latest-arm64
           docker manifest push quay.io/hansetag/tip-catalog:latest
-        
+
   publish-container-lakekeeper:
     name: Publish Container (Lakekeeper)
     runs-on: ubuntu-latest

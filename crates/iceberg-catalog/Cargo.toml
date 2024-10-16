@@ -12,13 +12,14 @@ Implementation of the Iceberg REST Catalog server.
 """
 
 [features]
-all = ["sqlx-postgres", "s3-signer", "router", "nats"]
+all = ["sqlx-postgres", "s3-signer", "router", "nats", "vendored-protoc"]
 sqlx-postgres = ["sqlx"]
 sqlx = ["dep:sqlx"]
 s3-signer = ["dep:aws-sigv4", "dep:aws-credential-types"]
 router = ["dep:tower-http"]
 nats = ["dep:async-nats"]
-default = ["sqlx-postgres", "s3-signer", "router"]
+default = ["sqlx-postgres", "s3-signer", "router", "vendored-protoc"]
+vendored-protoc = ["openfga-rs/vendored-protoc"]
 
 [dependencies]
 anyhow = { workspace = true }
