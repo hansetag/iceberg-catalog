@@ -193,58 +193,67 @@ struct GetViewAssignmentsResponse {
     assignments: Vec<ViewAssignment>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
-struct WriteServerAssignmentsRequest {
+struct UpdateServerAssignmentsRequest {
     #[serde(default)]
     writes: Vec<ServerAssignment>,
     #[serde(default)]
     deletes: Vec<ServerAssignment>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
-struct WriteProjectAssignmentsRequest {
+struct UpdateProjectAssignmentsRequest {
     #[serde(default)]
     writes: Vec<ProjectAssignment>,
     #[serde(default)]
     deletes: Vec<ProjectAssignment>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
-struct WriteWarehouseAssignmentsRequest {
+struct UpdateWarehouseAssignmentsRequest {
     #[serde(default)]
     writes: Vec<WarehouseAssignment>,
     #[serde(default)]
     deletes: Vec<WarehouseAssignment>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
-struct WriteNamespaceAssignmentsRequest {
+struct UpdateNamespaceAssignmentsRequest {
     #[serde(default)]
     writes: Vec<NamespaceAssignment>,
     #[serde(default)]
     deletes: Vec<NamespaceAssignment>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
-struct WriteTableAssignmentsRequest {
+struct UpdateTableAssignmentsRequest {
     #[serde(default)]
     writes: Vec<TableAssignment>,
     #[serde(default)]
     deletes: Vec<TableAssignment>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 #[serde(rename_all = "kebab-case")]
-struct WriteViewAssignmentsRequest {
+struct UpdateViewAssignmentsRequest {
     #[serde(default)]
     writes: Vec<ViewAssignment>,
     #[serde(default)]
     deletes: Vec<ViewAssignment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+struct UpdateRoleAssignmentsRequest {
+    #[serde(default)]
+    writes: Vec<RoleAssignment>,
+    #[serde(default)]
+    deletes: Vec<RoleAssignment>,
 }
 
 /// Get my access to the default project
@@ -405,7 +414,7 @@ where
 #[utoipa::path(
     get,
     tag = "permissions",
-    path = "/management/v1/permissions/warehouse/by-id/{namespace_id}/access",
+    path = "/management/v1/permissions/warehouse/by-id/{warehouse_id}/access",
     params(GetAccessQuery),
     responses(
             (status = 200, body = [GetNamespaceAccessResponse]),
@@ -519,7 +528,7 @@ where
 #[utoipa::path(
     get,
     tag = "permissions",
-    path = "/management/v1/permissions/view/by-id/{table_id}/access",
+    path = "/management/v1/permissions/view/by-id/{view_id}/access",
     params(GetAccessQuery),
     responses(
             (status = 200, body = [GetViewAccessResponse]),
@@ -890,6 +899,321 @@ where
     ))
 }
 
+/// Update permissions for this server
+#[utoipa::path(
+    post,
+    tag = "permissions",
+    path = "/management/v1/permissions/server/assignments",
+    request_body = UpdateServerAssignmentsRequest,
+    responses(
+            (status = 200, description = "Permissions updated successfully"),
+    )
+)]
+async fn update_server_assignments<T, C: Catalog, S: SecretStore>(
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Json(request): Json<UpdateServerAssignmentsRequest>,
+) -> Result<()>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    checked_write(
+        authorizer,
+        metadata.actor(),
+        request.writes,
+        request.deletes,
+        &OPENFGA_SERVER,
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Update permissions for the default project
+#[utoipa::path(
+    post,
+    tag = "permissions",
+    path = "/management/v1/permissions/project/assignments",
+    request_body = UpdateProjectAssignmentsRequest,
+    responses(
+            (status = 200, description = "Permissions updated successfully"),
+    )
+)]
+async fn update_project_assignments<T, C: Catalog, S: SecretStore>(
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Json(request): Json<UpdateProjectAssignmentsRequest>,
+) -> Result<()>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    let project_id = metadata
+        .auth_details
+        .project_id()
+        .or(CONFIG.default_project_id)
+        .ok_or(OpenFGAError::NoProjectId)?;
+    checked_write(
+        authorizer,
+        metadata.actor(),
+        request.writes,
+        request.deletes,
+        &project_id.to_openfga(),
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Update permissions for a project
+#[utoipa::path(
+    post,
+    tag = "permissions",
+    path = "/management/v1/permissions/project/by-id/{project_id}/assignments",
+    request_body = UpdateProjectAssignmentsRequest,
+    responses(
+            (status = 200, description = "Permissions updated successfully"),
+    )
+)]
+async fn update_project_assignments_by_id<T, C: Catalog, S: SecretStore>(
+    Path(project_id): Path<ProjectIdent>,
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Json(request): Json<UpdateProjectAssignmentsRequest>,
+) -> Result<()>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    checked_write(
+        authorizer,
+        metadata.actor(),
+        request.writes,
+        request.deletes,
+        &project_id.to_openfga(),
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Update permissions for a project
+#[utoipa::path(
+    post,
+    tag = "permissions",
+    path = "/management/v1/permissions/warehouse/by-id/{warehouse_id}/assignments",
+    request_body = UpdateWarehouseAssignmentsRequest,
+    responses(
+            (status = 200, description = "Permissions updated successfully"),
+    )
+)]
+async fn update_warehouse_assignments_by_id<T, C: Catalog, S: SecretStore>(
+    Path(warehouse_id): Path<WarehouseIdent>,
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Json(request): Json<UpdateWarehouseAssignmentsRequest>,
+) -> Result<()>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    checked_write(
+        authorizer,
+        metadata.actor(),
+        request.writes,
+        request.deletes,
+        &warehouse_id.to_openfga(),
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Update permissions for a namespace
+#[utoipa::path(
+    post,
+    tag = "permissions",
+    path = "/management/v1/permissions/namespace/by-id/{namespace_id}/assignments",
+    request_body = UpdateNamespaceAssignmentsRequest,
+    responses(
+            (status = 200, description = "Permissions updated successfully"),
+    )
+)]
+async fn update_namespace_assignments_by_id<T, C: Catalog, S: SecretStore>(
+    Path(namespace_id): Path<NamespaceIdentUuid>,
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Json(request): Json<UpdateNamespaceAssignmentsRequest>,
+) -> Result<()>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    checked_write(
+        authorizer,
+        metadata.actor(),
+        request.writes,
+        request.deletes,
+        &namespace_id.to_openfga(),
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Update permissions for a table
+#[utoipa::path(
+    post,
+    tag = "permissions",
+    path = "/management/v1/permissions/table/by-id/{table_id}/assignments",
+    request_body = UpdateTableAssignmentsRequest,
+    responses(
+            (status = 200, description = "Permissions updated successfully"),
+    )
+)]
+async fn update_table_assignments_by_id<T, C: Catalog, S: SecretStore>(
+    Path(table_id): Path<TableIdentUuid>,
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Json(request): Json<UpdateTableAssignmentsRequest>,
+) -> Result<()>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    checked_write(
+        authorizer,
+        metadata.actor(),
+        request.writes,
+        request.deletes,
+        &table_id.to_openfga(),
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Update permissions for a view
+#[utoipa::path(
+    post,
+    tag = "permissions",
+    path = "/management/v1/permissions/view/by-id/{view_id}/assignments",
+    request_body = UpdateViewAssignmentsRequest,
+    responses(
+            (status = 200, description = "Permissions updated successfully"),
+    )
+)]
+async fn update_view_assignments_by_id<T, C: Catalog, S: SecretStore>(
+    Path(view_id): Path<ViewIdentUuid>,
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Json(request): Json<UpdateViewAssignmentsRequest>,
+) -> Result<()>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    checked_write(
+        authorizer,
+        metadata.actor(),
+        request.writes,
+        request.deletes,
+        &view_id.to_openfga(),
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Update permissions for a view
+#[utoipa::path(
+    post,
+    tag = "permissions",
+    path = "/management/v1/permissions/role/by-id/{role_id}/assignments",
+    request_body = UpdateRoleAssignmentsRequest,
+    responses(
+            (status = 200, description = "Permissions updated successfully"),
+    )
+)]
+async fn update_role_assignments_by_id<T, C: Catalog, S: SecretStore>(
+    Path(role_id): Path<RoleId>,
+    AxumState(api_context): AxumState<ApiContext<State<OpenFGAAuthorizer<T>, C, S>>>,
+    Extension(metadata): Extension<RequestMetadata>,
+    Json(request): Json<UpdateRoleAssignmentsRequest>,
+) -> Result<()>
+where
+    T: Clone + Sync + Send + 'static,
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+    <T as tonic::client::GrpcService<
+        http_body_util::combinators::UnsyncBoxBody<Bytes, tonic::Status>,
+    >>::Future: Send,
+{
+    let authorizer = api_context.v1_state.authz;
+    checked_write(
+        authorizer,
+        metadata.actor(),
+        request.writes,
+        request.deletes,
+        &role_id.to_openfga(),
+    )
+    .await?;
+
+    Ok(())
+}
+
 #[derive(Debug, OpenApi)]
 #[openapi(
     tags(
@@ -912,6 +1236,14 @@ where
         get_view_assignments_by_id,
         get_warehouse_access_by_id,
         get_warehouse_assignments_by_id,
+        update_namespace_assignments_by_id,
+        update_project_assignments,
+        update_project_assignments_by_id,
+        update_role_assignments_by_id,
+        update_server_assignments,
+        update_table_assignments_by_id,
+        update_view_assignments_by_id,
+        update_warehouse_assignments_by_id,
     ),
     components(schemas(
         GetNamespaceAccessResponse,
@@ -940,6 +1272,13 @@ where
         TableAction,
         TableAssignment,
         TableRelation,
+        UpdateNamespaceAssignmentsRequest,
+        UpdateProjectAssignmentsRequest,
+        UpdateRoleAssignmentsRequest,
+        UpdateServerAssignmentsRequest,
+        UpdateTableAssignmentsRequest,
+        UpdateViewAssignmentsRequest,
+        UpdateWarehouseAssignmentsRequest,
         UserOrRole,
         ViewAction,
         ViewAssignment,
@@ -947,12 +1286,6 @@ where
         WarehouseAction,
         WarehouseAssignment,
         WarehouseRelation,
-        WriteNamespaceAssignmentsRequest,
-        WriteProjectAssignmentsRequest,
-        WriteServerAssignmentsRequest,
-        WriteTableAssignmentsRequest,
-        WriteViewAssignmentsRequest,
-        WriteWarehouseAssignmentsRequest,
     ))
 )]
 pub(crate) struct ApiDoc;
@@ -998,35 +1331,35 @@ where
         )
         .route(
             "/permissions/role/by-id/{role_id}/assignments",
-            get(get_role_assignments_by_id),
+            get(get_role_assignments_by_id).post(update_role_assignments_by_id),
         )
         .route(
             "/permissions/server/assignments",
-            get(get_server_assignments),
+            get(get_server_assignments).post(update_server_assignments),
         )
         .route(
             "/permissions/project/assignments",
-            get(get_project_assignments),
+            get(get_project_assignments).post(update_project_assignments),
         )
         .route(
             "/permissions/project/by-id/{project_id}/assignments",
-            get(get_project_assignments_by_id),
+            get(get_project_assignments_by_id).post(update_project_assignments_by_id),
         )
         .route(
             "/permissions/warehouse/by-id/{warehouse_id}/assignments",
-            get(get_warehouse_assignments_by_id),
+            get(get_warehouse_assignments_by_id).post(update_warehouse_assignments_by_id),
         )
         .route(
             "/permissions/namespace/by-id/{namespace_id}/assignments",
-            get(get_namespace_assignments_by_id),
+            get(get_namespace_assignments_by_id).post(update_namespace_assignments_by_id),
         )
         .route(
             "/permissions/table/by-id/{table_id}/assignments",
-            get(get_table_assignments_by_id),
+            get(get_table_assignments_by_id).post(update_table_assignments_by_id),
         )
         .route(
             "/permissions/view/by-id/{table_id}/assignments",
-            get(get_view_assignments_by_id),
+            get(get_view_assignments_by_id).post(update_view_assignments_by_id),
         )
 }
 
@@ -1118,8 +1451,8 @@ where
 async fn checked_write<T, RA: Assignment>(
     authorizer: OpenFGAAuthorizer<T>,
     actor: &Actor,
-    writes: Option<Vec<RA>>,
-    deletions: Option<Vec<RA>>,
+    writes: Vec<RA>,
+    deletes: Vec<RA>,
     object: &str,
 ) -> OpenFGAResult<()>
 where
@@ -1136,9 +1469,7 @@ where
     if actor == &Actor::Anonymous {
         return Err(OpenFGAError::AuthenticationRequired);
     }
-    let writes = writes.unwrap_or_default();
-    let deletions = deletions.unwrap_or_default();
-    let all_modifications = writes.iter().chain(deletions.iter()).collect::<Vec<_>>();
+    let all_modifications = writes.iter().chain(deletes.iter()).collect::<Vec<_>>();
     // Fail fast for too many writes
     let num_modifications = i32::try_from(all_modifications.len()).unwrap_or(i32::MAX);
     if num_modifications > MAX_TUPLES_PER_WRITE {
@@ -1186,7 +1517,7 @@ where
             condition: None,
         })
         .collect();
-    let deletions = deletions
+    let deletes = deletes
         .into_iter()
         .map(|ra| TupleKeyWithoutCondition {
             user: ra.openfga_user(),
@@ -1194,7 +1525,7 @@ where
             object: object.to_string(),
         })
         .collect();
-    authorizer.write(Some(writes), Some(deletions)).await
+    authorizer.write(Some(writes), Some(deletes)).await
 }
 
 #[cfg(test)]
@@ -1299,11 +1630,13 @@ mod tests {
             checked_write(
                 authorizer.clone(),
                 &Actor::Principal(user1_id.clone()),
-                Some(vec![ServerAssignment::GlobalAdmin(user2_id.into())]),
-                None,
+                vec![ServerAssignment::GlobalAdmin(user2_id.into())],
+                vec![],
                 &OPENFGA_SERVER,
-            ).await.unwrap();
-            
+            )
+            .await
+            .unwrap();
+
             let relations: Vec<ServerAssignment> =
                 get_relations(authorizer.clone(), None, &OPENFGA_SERVER)
                     .await

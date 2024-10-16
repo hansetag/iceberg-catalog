@@ -122,7 +122,9 @@ impl From<OpenFGAError> for ErrorModel {
             OpenFGAError::AuthenticationRequired => {
                 ErrorModel::unauthorized(err_msg, "AuthenticationRequired", None)
             }
-            OpenFGAError::Unauthorized {.. } => ErrorModel::unauthorized(err_msg, "Unauthorized", None),
+            OpenFGAError::Unauthorized { .. } => {
+                ErrorModel::unauthorized(err_msg, "Unauthorized", None)
+            }
             _ => ErrorModel::new(
                 err.to_string(),
                 "AuthorizationError",
