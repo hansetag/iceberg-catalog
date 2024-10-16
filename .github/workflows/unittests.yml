@@ -24,7 +24,7 @@ jobs:
       - name: Cargo sqlx-check
         run: |
           sudo apt-get install libpq-dev -y
-          cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+          cargo install -q --version=0.8.2 sqlx-cli --no-default-features --features postgres
           cargo sqlx prepare --check --workspace -- --all-features 
 
   check-format:
@@ -130,7 +130,7 @@ jobs:
       - name: Migrate database
         run: |
           sudo apt-get install libpq-dev -y
-          cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+          cargo install -q --version=0.8.2 sqlx-cli --no-default-features --features postgres
           cd crates/iceberg-catalog
           sqlx database create
           sqlx migrate run

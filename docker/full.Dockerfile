@@ -1,9 +1,9 @@
 FROM rust:1.81-slim-bookworm AS chef
 # We only pay the installation cost once, 
 # it will be cached from the second build onwards
-RUN apt update -q && \
-    DEBIAN_FRONTEND=noninteractive apt install -yqq curl libpq-dev pkg-config libssl-dev make perl wget zip unzip --no-install-recommends && \
-    cargo install --version=0.7.4 sqlx-cli --no-default-features --features postgres
+RUN apt-get update -qq && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -yqq curl build-essential libpq-dev pkg-config libssl-dev make perl wget zip unzip --no-install-recommends && \
+    cargo install -q --version=0.8.2 sqlx-cli --no-default-features --features postgres
 
 RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v28.2/protoc-28.2-linux-x86_64.zip && \
     unzip protoc-28.2-linux-x86_64.zip -d /usr/local/ && \
