@@ -117,7 +117,7 @@ jobs:
 
       - name: C Toolchain
         # C Toolchain for windows for protoc compilation
-        if: matrix.os != 'windows-latest'
+        if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build [Cargo]
