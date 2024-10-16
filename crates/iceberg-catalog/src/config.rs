@@ -1,5 +1,6 @@
 //! Contains Configuration of the service Module
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
+use http::HeaderValue;
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::ops::{Deref, DerefMut};
@@ -80,6 +81,12 @@ pub struct DynAppConfig {
     /// reverse proxy before routing to the catalog service.
     /// Example value: `{warehouse_id}`
     prefix_template: String,
+    /// CORS allowed origins. If not set, CORS is disabled.
+    #[serde(
+        deserialize_with = "deserialize_origin",
+        serialize_with = "serialize_origin"
+    )]
+    pub allow_origin: Option<Vec<HeaderValue>>,
     /// Reserved namespaces that cannot be created by users.
     /// This is used to prevent users to create certain
     /// (sub)-namespaces. By default, `system` and `examples` are
@@ -181,6 +188,37 @@ where
     duration.num_seconds().to_string().serialize(serializer)
 }
 
+fn deserialize_origin<'de, D>(deserializer: D) -> Result<Option<Vec<HeaderValue>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::deserialize(deserializer)?
+        .map(|buf: String| {
+            buf.split(',')
+                .map(|s| HeaderValue::from_str(s).map_err(serde::de::Error::custom))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()
+}
+
+fn serialize_origin<S>(value: &Option<Vec<HeaderValue>>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    value
+        .as_deref()
+        .map(|value| {
+            value
+                .iter()
+                .map(|hv| hv.to_str().context("Couldn't serialize cors header"))
+                .collect::<anyhow::Result<Vec<_>>>()
+                .map(|inner| inner.join(","))
+        })
+        .transpose()
+        .map_err(serde::ser::Error::custom)?
+        .serialize(serializer)
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, veil::Redact)]
 #[serde(rename_all = "snake_case")]
 pub enum OpenFGAAuth {
@@ -251,6 +289,7 @@ impl Default for DynAppConfig {
             metrics_port: 9000,
             default_project_id: None,
             prefix_template: "{warehouse_id}".to_string(),
+            allow_origin: None,
             reserved_namespaces: ReservedNamespaces(HashSet::from([
                 "system".to_string(),
                 "examples".to_string(),

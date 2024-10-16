@@ -247,11 +247,11 @@ mod test {
         #[cfg(feature = "sqlx-postgres")]
         #[sqlx::test]
         async fn test_queue_expiration_queue_task(pool: PgPool) {
-            let bucket = std::env::var("ICEBERG_REST_TEST_S3_BUCKET").unwrap();
-            let region = std::env::var("ICEBERG_REST_TEST_S3_REGION").unwrap_or("local".into());
-            let aws_access_key_id = std::env::var("ICEBERG_REST_TEST_S3_ACCESS_KEY").unwrap();
-            let aws_secret_access_key = std::env::var("ICEBERG_REST_TEST_S3_SECRET_KEY").unwrap();
-            let endpoint = std::env::var("ICEBERG_REST_TEST_S3_ENDPOINT").unwrap();
+            let bucket = std::env::var("LAKEKEEPER_TEST__S3_BUCKET").unwrap();
+            let region = std::env::var("LAKEKEEPER_TEST__S3_REGION").unwrap_or("local".into());
+            let aws_access_key_id = std::env::var("LAKEKEEPER_TEST__S3_ACCESS_KEY").unwrap();
+            let aws_secret_access_key = std::env::var("LAKEKEEPER_TEST__S3_SECRET_KEY").unwrap();
+            let endpoint = std::env::var("LAKEKEEPER_TEST__S3_ENDPOINT").unwrap();
 
             let config = TaskQueueConfig {
                 max_retries: 5,

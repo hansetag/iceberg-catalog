@@ -186,6 +186,7 @@ async fn serve_inner<A: Authorizer>(
             None
         },
         health_provider,
+        CONFIG.allow_origin.as_deref(),
         Some(iceberg_catalog::metrics::get_axum_layer_and_install_recorder(CONFIG.metrics_port)?),
     );
 

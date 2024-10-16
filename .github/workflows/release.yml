@@ -76,8 +76,6 @@ jobs:
           name: iceberg-catalog-aarch64-unknown-linux-musl.tar.gz
           cross: true
 
-        # Currently disabled due to https://github.com/actions/runner-images/issues/9460
-        # Which prevents us from launching postgres via docker / colima
         # - target: aarch64-apple-darwin
         #   os: macos-14
         #   name: iceberg-catalog-aarch64-apple-darwin.tar.gz
@@ -109,20 +107,6 @@ jobs:
         with:
           target: ${{ matrix.target }}
           cache: false
-      
-      # - name: Setup docker (missing on MacOS)
-      #   if: matrix.os == 'macos-14'
-      #   run: |
-      #     brew install docker
-      #     # Docker on macOS misses daemon due to licensing, so install colima as runtime
-      #     brew install colima
-      #     colima start
-
-      - name: Run postgres
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          docker run -d --name postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres -p 5432:5432 postgres:16
-          docker ps -a
 
       - name: Install cross
         if: matrix.cross == true
@@ -222,15 +206,14 @@ jobs:
             --build-arg "BIN=bin-iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
           docker save -o /tmp/docker-iceberg-catalog-arm64.tar localhost/iceberg-catalog-local:arm64
 
-
       - name: Test Docker (arm64)
         run: |
           cd tests
           docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_all.sh"
           docker compose down
         env:
-          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:arm64
-          ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
+          LAKEKEEPER_TEST__SERVER_IMAGE: localhost/iceberg-catalog-local:arm64
+          LAKEKEEPER_TEST__SPARK_IMAGE: apache/spark:3.5.1-java17-python3
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -246,8 +229,8 @@ jobs:
           cd tests
           docker compose run --quiet-pull spark /opt/entrypoint.sh bash -c "cd /opt/tests && bash run_all.sh"
         env:
-          ICEBERG_REST_TEST_SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
-          ICEBERG_REST_TEST_SPARK_IMAGE: apache/spark:3.5.1-java17-python3
+          LAKEKEEPER_TEST__SERVER_IMAGE: localhost/iceberg-catalog-local:amd64
+          LAKEKEEPER_TEST__SPARK_IMAGE: apache/spark:3.5.1-java17-python3
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}

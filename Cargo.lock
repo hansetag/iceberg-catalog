@@ -2996,6 +2996,7 @@ dependencies = [
  "iceberg-catalog",
  "reqwest 0.12.8",
  "tokio",
+ "tower-http 0.6.1",
  "tracing",
  "tracing-subscriber",
  "utoipa",
@@ -3784,7 +3785,7 @@ dependencies = [
 [[package]]
 name = "openfga-rs"
 version = "0.1.0"
-source = "git+https://github.com/c-thiel/openfga-rs.git?rev=cfc76e1be780573ba3a2eafa4a85bdf9f1b60e21#cfc76e1be780573ba3a2eafa4a85bdf9f1b60e21"
+source = "git+https://github.com/c-thiel/openfga-rs.git?rev=af605f29364a320f9ee592e0baa6cf81f783adad#af605f29364a320f9ee592e0baa6cf81f783adad"
 dependencies = [
  "chrono",
  "http 1.1.0",
