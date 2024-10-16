@@ -206,7 +206,6 @@ jobs:
             --build-arg "BIN=bin-iceberg-catalog-aarch64-unknown-linux-musl.tar.gz/iceberg-catalog" .
           docker save -o /tmp/docker-iceberg-catalog-arm64.tar localhost/iceberg-catalog-local:arm64
 
-
       - name: Test Docker (arm64)
         run: |
           cd tests
