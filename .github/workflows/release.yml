@@ -85,13 +85,14 @@ jobs:
             os: windows-latest
             name: iceberg-catalog-x86_64-pc-windows-msvc.zip
             rustflags: -C target-feature=+crt-static
-            cross: true
+            # Windows with cross is extremely slow
+            cross: false
 
-    #          - target: aarch64-pc-windows-msvc
-    #            os: windows-latest
-    #            name: iceberg-catalog-aarch64-pc-windows-msvc.zip
-    #            rustflags: -C target-feature=+crt-static
-    #            cross: false
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            name: iceberg-catalog-aarch64-pc-windows-msvc.zip
+            rustflags: -C target-feature=+crt-static
+            cross: false
 
     runs-on: ${{ matrix.os }}
     continue-on-error: true
@@ -121,6 +122,11 @@ jobs:
       - name: Build [Cross]
         if: matrix.cross == true
         run: cross build --all-features --release --locked --target ${{ matrix.target }}
+
+      - name: C Toolchain
+        # C Toolchain for windows for protoc compilation
+        if: matrix.os != 'windows-latest'
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Prepare artifacts [Windows]
         if: matrix.os == 'windows-latest'
