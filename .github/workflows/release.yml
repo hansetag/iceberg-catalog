@@ -81,18 +81,18 @@ jobs:
             name: iceberg-catalog-aarch64-apple-darwin.tar.gz
             cross: false
 
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            name: iceberg-catalog-x86_64-pc-windows-msvc.zip
-            rustflags: -C target-feature=+crt-static
-            # Windows with cross is extremely slow
-            cross: false
-
-          - target: aarch64-pc-windows-msvc
-            os: windows-latest
-            name: iceberg-catalog-aarch64-pc-windows-msvc.zip
-            rustflags: -C target-feature=+crt-static
-            cross: false
+    #          - target: x86_64-pc-windows-msvc
+    #            os: windows-latest
+    #            name: iceberg-catalog-x86_64-pc-windows-msvc.zip
+    #            rustflags: -C target-feature=+crt-static
+    #            # Windows with cross is extremely slow
+    #            cross: false
+    #
+    #          - target: aarch64-pc-windows-msvc
+    #            os: windows-latest
+    #            name: iceberg-catalog-aarch64-pc-windows-msvc.zip
+    #            rustflags: -C target-feature=+crt-static
+    #            cross: false
 
     runs-on: ${{ matrix.os }}
     continue-on-error: true
@@ -115,12 +115,12 @@ jobs:
         with:
           tool: cross
 
-      - name: Setup cmake
-        # C Toolchain for windows for protoc compilation
-        if: matrix.os == 'windows-latest'
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: '3.16'
+      #      - name: Setup cmake
+      #        # C Toolchain for windows for protoc compilation
+      #        if: matrix.os == 'windows-latest'
+      #        uses: jwlawson/actions-setup-cmake@v2
+      #        with:
+      #          cmake-version: '3.16'
 
       - name: Build [Cargo]
         if: matrix.cross == false
@@ -130,12 +130,12 @@ jobs:
         if: matrix.cross == true
         run: cross build --all-features --release --locked --target ${{ matrix.target }}
 
-      - name: Prepare artifacts [Windows]
-        if: matrix.os == 'windows-latest'
-        run: |
-          cd target/${{ matrix.target }}/release
-          7z a ../../../${{ matrix.name }} iceberg-catalog.exe
-          cd -
+      #      - name: Prepare artifacts [Windows]
+      #        if: matrix.os == 'windows-latest'
+      #        run: |
+      #          cd target/${{ matrix.target }}/release
+      #          7z a ../../../${{ matrix.name }} iceberg-catalog.exe
+      #          cd -
 
       - name: Prepare artifacts [-nix]
         if: matrix.os != 'windows-latest'
