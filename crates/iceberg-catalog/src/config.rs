@@ -1,18 +1,18 @@
 //! Contains Configuration of the service Module
 use anyhow::anyhow;
-use std::collections::{HashMap, HashSet};
+use itertools::Itertools;
+use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::str::FromStr;
 use url::Url;
-
-use crate::service::task_queue::TaskQueueConfig;
-use crate::WarehouseIdent;
-use itertools::Itertools;
-use serde::{Deserialize, Deserializer, Serialize};
 use veil::Redact;
 
+use crate::service::event_publisher::KafkaConfig;
+use crate::service::task_queue::TaskQueueConfig;
+use crate::WarehouseIdent;
 const DEFAULT_RESERVED_NAMESPACES: [&str; 2] = ["system", "examples"];
 const DEFAULT_ENCRYPTION_KEY: &str = "<This is unsafe, please set a proper key>";
 
@@ -103,7 +103,8 @@ pub struct DynAppConfig {
 
     // ------------- KAFKA CLOUDEVENTS -------------
     pub kafka_topic: Option<String>,
-    pub kafka_config: Option<HashMap<String, String>>,
+    pub kafka_key: Option<String>,
+    pub kafka_config: Option<KafkaConfig>,
     // ------------- AUTHORIZATION -------------
     pub openid_provider_uri: Option<Url>,
 
@@ -201,6 +202,7 @@ impl Default for DynAppConfig {
             nats_password: None,
             nats_token: None,
             kafka_config: None,
+            kafka_key: None,
             kafka_topic: None,
             openid_provider_uri: None,
             listen_port: 8080,

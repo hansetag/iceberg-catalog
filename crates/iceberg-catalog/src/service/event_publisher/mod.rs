@@ -3,9 +3,12 @@ pub(crate) mod vendor;
 use crate::service::tabular_idents::TabularIdentUuid;
 use async_trait::async_trait;
 use cloudevents::Event;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
+use veil::Redact;
 
 #[cfg(feature = "kafka")]
 use crate::service::event_publisher::vendor::cloudevents::binding::rdkafka::{
@@ -192,10 +195,40 @@ impl CloudEventBackend for NatsBackend {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, PartialEq, Redact)]
+pub struct KafkaConfig {
+    #[serde(alias = "sasl.password")]
+    #[redact]
+    pub sasl_password: Option<String>,
+    #[serde(alias = "sasl.oauthbearer.client.secret")]
+    #[redact]
+    pub sasl_oauthbearer_client_secret: Option<String>,
+    #[serde(alias = "ssl.key.password")]
+    #[redact]
+    pub ssl_key_password: Option<String>,
+    #[serde(alias = "ssl.keystore.password")]
+    #[redact]
+    pub ssl_keystore_password: Option<String>,
+    #[serde(
+        alias = "enable.idempotence",
+        default = "KafkaConfig::enable_idempotence_default"
+    )]
+    pub enable_idempotence: String,
+    #[serde(flatten)]
+    pub conf: HashMap<String, String>,
+}
+
+impl KafkaConfig {
+    fn enable_idempotence_default() -> String {
+        "true".to_string()
+    }
+}
+
 #[cfg(feature = "kafka")]
 pub struct KafkaBackend {
     pub producer: FutureProducer,
     pub topic: String,
+    pub key: String,
 }
 
 #[cfg(feature = "kafka")]
@@ -218,10 +251,7 @@ impl CloudEventBackend for KafkaBackend {
             .send(
                 FutureRecord::to(&self.topic)
                     .message_record(&message_record)
-                    // TODO: the key allows recieving messages in order.
-                    // this _might_ be a parameter that could be configured by the user or TIP
-                    // could provide sensible defaults, like using the warehouse-id (+namespace?)
-                    .key(""),
+                    .key(&self.key[..]),
                 Duration::from_secs(1),
             )
             .await;
